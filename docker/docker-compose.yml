@@ -1,0 +1,59 @@
+# =============================================================================
+# AYROVI Warehouse Core — Local / Docker development stack
+#   docker compose up --build
+#
+# Starts: PostgreSQL + Backend API + Frontend.
+# Credentials below are for LOCAL DEV ONLY. Replace via environment in prod.
+# =============================================================================
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ayrovi
+      POSTGRES_PASSWORD: ayrovi_dev
+      POSTGRES_DB: ayrovi_warehouse
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ayrovi -d ayrovi_warehouse"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/backend.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql://ayrovi:ayrovi_dev@db:5432/ayrovi_warehouse?schema=public"
+      PORT: "3000"
+      NODE_ENV: "production"
+      CORS_ORIGINS: "http://localhost:5173,http://localhost:8080"
+      JWT_ACCESS_SECRET: "local_docker_access_secret_change_me"
+      JWT_REFRESH_SECRET: "local_docker_refresh_secret_change_me"
+      JWT_ACCESS_EXPIRES_IN: "15m"
+      JWT_REFRESH_EXPIRES_IN: "7d"
+    ports:
+      - "3000:3000"
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        VITE_API_BASE: /api
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+
+volumes:
+  pgdata:
