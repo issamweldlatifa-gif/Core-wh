@@ -45,6 +45,25 @@ const PERMISSIONS: Array<{ key: string; resource: string; action: string; descri
   // ---- Phase 1: physical warehouse structure (granular) ----
   ...STRUCTURE_PERMISSIONS,
 
+  // ---- Phase 2: product & order item identity (granular, design §13/§14) ----
+  { key: 'products.view', resource: 'products', action: 'view', description: 'View products' },
+  { key: 'products.create', resource: 'products', action: 'create', description: 'Create products' },
+  { key: 'products.update', resource: 'products', action: 'update', description: 'Update products (identity fields immutable — D-55)' },
+  { key: 'products.activate', resource: 'products', action: 'activate', description: 'Activate products' },
+  { key: 'products.deactivate', resource: 'products', action: 'deactivate', description: 'Deactivate products (no delete — D-35)' },
+  { key: 'warehouse_orders.view', resource: 'warehouse_orders', action: 'view', description: 'View warehouse orders' },
+  { key: 'warehouse_orders.create', resource: 'warehouse_orders', action: 'create', description: 'Create warehouse orders (idempotent — D-56B/D-65)' },
+  { key: 'warehouse_orders.update', resource: 'warehouse_orders', action: 'update', description: 'Update warehouse orders' },
+  { key: 'warehouse_orders.cancel', resource: 'warehouse_orders', action: 'cancel', description: 'Cancel warehouse orders (local — no cascade until Cascade-A is decided)' },
+  { key: 'order_items.view', resource: 'order_items', action: 'view', description: 'View order items' },
+  { key: 'order_items.create', resource: 'order_items', action: 'create', description: 'Create order items' },
+  { key: 'order_items.update', resource: 'order_items', action: 'update', description: 'Update order items (D-57 strict cap applies to piece count)' },
+  { key: 'order_items.cancel', resource: 'order_items', action: 'cancel', description: 'Cancel order items' },
+  { key: 'physical_items.view', resource: 'physical_items', action: 'view', description: 'View physical items' },
+  { key: 'physical_items.create', resource: 'physical_items', action: 'create', description: 'Create physical items (EXPECTED — D-45; strict cap D-57)' },
+  { key: 'physical_items.cancel', resource: 'physical_items', action: 'cancel', description: 'Cancel physical items (from EXPECTED only)' },
+  // NOTE: physical_items.update intentionally does NOT exist in Phase 2 (design §13).
+
   // ---- Phase 0 (unchanged) ----
   // Inventory (permission ready; workflow deferred)
   { key: 'inventory.view', resource: 'inventory', action: 'view', description: 'View inventory' },
@@ -88,6 +107,22 @@ const VIEW_KEYS = (res: string) => PERMISSIONS.filter((p) => p.resource === res 
 const MANAGE_KEYS = (res: string) => PERMISSIONS.filter((p) => p.resource === res && p.action === 'manage').map((p) => p.key);
 const EXECUTE_KEYS = (res: string) => PERMISSIONS.filter((p) => p.resource === res && p.action === 'execute').map((p) => p.key);
 
+// ---- Phase 2 (design §14): identity resources role mapping ----
+const PHASE2_VIEW = ['products', 'warehouse_orders', 'order_items', 'physical_items'].flatMap((r) => VIEW_KEYS(r));
+const PHASE2_WRITE = [
+  'products.create', 'products.update', 'products.activate', 'products.deactivate',
+  'warehouse_orders.create', 'warehouse_orders.update', 'warehouse_orders.cancel',
+  'order_items.create', 'order_items.update', 'order_items.cancel',
+  'physical_items.create', 'physical_items.cancel',
+];
+// D-34 precedent: WAREHOUSE_MANAGER gets update/cancel, NOT create.
+const PHASE2_MANAGER_WRITE = [
+  'products.update', 'products.activate', 'products.deactivate',
+  'warehouse_orders.update', 'warehouse_orders.cancel',
+  'order_items.update', 'order_items.cancel',
+  'physical_items.cancel',
+];
+
 // Fine-grained structure helpers.
 const STRUCT_ACTIONS = ['view', 'create', 'update', 'activate', 'deactivate'];
 const STRUCT_KEYS = (res: string, actions: string[]) =>
@@ -114,6 +149,8 @@ const ROLES: Array<{ name: string; description: string; isSystem: boolean; permi
       // Full physical-structure management (D-34: this role may create).
       ...ALL_STRUCT_FULL,
       ...ALL.filter((k) => k.startsWith('inventory.')),
+      // Phase 2 identity resources (§14): full management.
+      ...PHASE2_VIEW, ...PHASE2_WRITE,
       ...MANAGE_KEYS('receiving'), ...EXECUTE_KEYS('receiving'),
       ...MANAGE_KEYS('stowing'), ...EXECUTE_KEYS('stowing'),
       ...MANAGE_KEYS('picking'), ...EXECUTE_KEYS('picking'),
@@ -132,6 +169,8 @@ const ROLES: Array<{ name: string; description: string; isSystem: boolean; permi
       // NO create permission.
       ...STRUCTURE_RESOURCES.flatMap((r) => STRUCT_KEYS(r, ['view', 'update', 'activate', 'deactivate'])),
       ...VIEW_KEYS('inventory'), ...MANAGE_KEYS('inventory'),
+      // Phase 2 (§14): view + update/cancel, NO create (D-34 precedent).
+      ...PHASE2_VIEW, ...PHASE2_MANAGER_WRITE,
       ...VIEW_KEYS('receiving'), ...EXECUTE_KEYS('receiving'),
       ...VIEW_KEYS('stowing'), ...EXECUTE_KEYS('stowing'),
       ...VIEW_KEYS('picking'), ...EXECUTE_KEYS('picking'),
@@ -147,6 +186,7 @@ const ROLES: Array<{ name: string; description: string; isSystem: boolean; permi
     permissions: [
       ...ALL_STRUCT_VIEW, // Phase 1: view locations only in the structure.
       ...VIEW_KEYS('inventory'),
+      ...PHASE2_VIEW, // Phase 2: view-only — no mutations until receiving exists (§14).
       ...VIEW_KEYS('receiving'), ...EXECUTE_KEYS('receiving'),
       ...VIEW_KEYS('stowing'), ...EXECUTE_KEYS('stowing'),
     ],
@@ -158,6 +198,7 @@ const ROLES: Array<{ name: string; description: string; isSystem: boolean; permi
     permissions: [
       ...ALL_STRUCT_VIEW, // Phase 1: view locations only.
       ...VIEW_KEYS('inventory'),
+      ...PHASE2_VIEW, // Phase 2: view-only (§14).
       ...VIEW_KEYS('picking'), ...EXECUTE_KEYS('picking'),
     ],
   },
@@ -168,6 +209,7 @@ const ROLES: Array<{ name: string; description: string; isSystem: boolean; permi
     permissions: [
       ...ALL_STRUCT_VIEW, // Phase 1: view locations only.
       ...VIEW_KEYS('inventory'),
+      ...PHASE2_VIEW, // Phase 2: view-only (§14).
       ...VIEW_KEYS('packing'), ...EXECUTE_KEYS('packing'),
     ],
   },
@@ -178,6 +220,7 @@ const ROLES: Array<{ name: string; description: string; isSystem: boolean; permi
     permissions: [
       ...ALL_STRUCT_VIEW, // Read-only on the whole physical structure.
       ...VIEW_KEYS('inventory'),
+      ...PHASE2_VIEW, // Phase 2: read-only (§14).
       ...VIEW_KEYS('receiving'), ...VIEW_KEYS('stowing'),
       ...VIEW_KEYS('picking'), ...VIEW_KEYS('packing'), ...VIEW_KEYS('shipping'),
       'audit.view',

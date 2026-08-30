@@ -93,6 +93,19 @@ enum AuditAction {
   LOCATION_DEACTIVATED
   LOCATION_BLOCKED
   LOCATION_UNBLOCKED
+  // Phase 2 — product & order item identity foundation.
+  PRODUCT_CREATED
+  PRODUCT_UPDATED
+  PRODUCT_ACTIVATED
+  PRODUCT_DEACTIVATED
+  WAREHOUSE_ORDER_CREATED
+  WAREHOUSE_ORDER_UPDATED
+  WAREHOUSE_ORDER_CANCELLED
+  ORDER_ITEM_CREATED
+  ORDER_ITEM_UPDATED
+  ORDER_ITEM_CANCELLED
+  PHYSICAL_ITEM_CREATED
+  PHYSICAL_ITEM_CANCELLED
   // Placeholders for later phases (NOT implemented in Phase 0/1).
   ITEM_RECEIVED
   ITEM_STORED
@@ -333,6 +346,7 @@ model Warehouse {
 
   zones     Zone[]
   locations Location[]
+  orders    WarehouseOrder[] // Phase 2: lightweight order projections (nullable warehouseId per D-50)
 
   @@index([status])
   @@map("warehouses")
@@ -442,6 +456,8 @@ model Location {
   maxVolume Float?
   maxUnits  Int?
 
+  physicalItems PhysicalItem[] // Phase 2: nullable currentLocationId on pieces (D-46) — never written by Phase 2
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -452,4 +468,169 @@ model Location {
   @@index([levelId])
   @@index([status])
   @@map("locations")
+}
+
+// ------------------------------------------------------------------
+// Phase 2 — Product & Order Item Identity Foundation
+//
+// SCOPE GUARD:
+//   - Identity + ownership ONLY. NO receiving / stowing / picking /
+//     sorting / packing / shipping workflows, NO OCR, NO CRM, NO
+//     bulk inventory quantities, NO location assignment.
+//   - PhysicalItem is born EXPECTED (D-45). The EXPECTED → RECEIVED
+//     transition belongs to Phase 3 (Receiving) and is NOT implemented
+//     here. currentLocationId stays NULL until Stowing (D-46).
+//   - Deactivate / cancel rather than destroy (D-35): no delete
+//     endpoints and no hard delete for any Phase 2 entity.
+//   - D-64: top-level external identifiers are normalized at the DTO
+//     edge (store / externalProductCode / externalOrderReference /
+//     externalCustomerReference = trim + UPPERCASE; per-parent line &
+//     item refs = trim-only) so constraints C1–C4 always compare the
+//     canonical form.
+//   - D-56B + D-65: warehouse_orders.contentHash is a LIVING SHA-256
+//     of the canonical SOURCE-OWNED payload (cancelled lines excluded;
+//     note/status excluded), recomputed inside the same transaction on
+//     every content-affecting mutation.
+//   - D-61 (concurrency locking), Cascade-A (cancellation propagation)
+//     and D-63 (status gating on creation) are UNRESOLVED — nothing in
+//     this schema assumes them.
+// ------------------------------------------------------------------
+
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
+}
+
+// Provenance of imported records (source-agnostic, mandate §14; D-59).
+enum OrderSource {
+  ADMIN // created by warehouse staff in the back-office UI
+  CRM // pushed by the future CRM integration
+  OCR // pushed by the future administration/OCR pipeline (OCR itself is OUT OF SCOPE)
+  API // pushed by any other authorized internal integration
+}
+
+enum WarehouseOrderStatus {
+  OPEN // Phase 2 uses only these two values (D-54)
+  CANCELLED // cancelled before/without fulfilment
+}
+
+enum OrderItemStatus {
+  OPEN
+  CANCELLED
+}
+
+// Full lifecycle is RESERVED now (Phase 0 precedent A-03) so future
+// phases extend behaviour, not the schema shape. Phase 2 may only SET
+// EXPECTED (at creation) and CANCELLED. Any other transition is
+// rejected with 409 until its dedicated phase implements it (D-47).
+enum PhysicalItemStatus {
+  EXPECTED // Phase 2 initial state — expected to arrive, NOT received (D-45)
+  RECEIVED // reserved — Phase 3 (Receiving)
+  STOWED // reserved — future Stowing
+  PICKED // reserved — future Picking
+  SORTED // reserved — future Sorting
+  PACKED // reserved — future Packing
+  SHIPPED // reserved — future Shipping
+  CANCELLED // expected piece that will never arrive (line/order cancelled)
+}
+
+model Product {
+  id                  String        @id @default(uuid())
+  // D-40/D-44: identity = (store, externalProductCode); normalized trim + UPPERCASE (D-64).
+  store               String
+  externalProductCode String
+  name                String
+  productType         String? // free-text category (e.g. "Shoes") — D-48
+  description         String?
+  // Optional identity-completing attributes (size/color/...). Not a PIM.
+  attributes          Json?
+  status              ProductStatus @default(ACTIVE)
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  orderItems OrderItem[]
+
+  // C1 (D-40/D-44): the SAME external code under TWO stores is NOT the same product.
+  @@unique([store, externalProductCode])
+  @@index([store])
+  @@index([status])
+  @@map("products")
+}
+
+model WarehouseOrder {
+  id                        String               @id @default(uuid())
+  // D-41/D-42: lightweight external projection — NO customer record is stored.
+  externalOrderReference    String               @unique // C2: idempotency anchor; normalized trim + UPPERCASE (D-64)
+  externalCustomerReference String // reference ONLY; normalized trim + UPPERCASE (D-64); non-unique index
+  source                    OrderSource          @default(ADMIN)
+  status                    WarehouseOrderStatus @default(OPEN)
+  // D-50: optional at creation; must be set before Receiving (Phase 3 prerequisite).
+  warehouseId               String?
+  warehouse                 Warehouse?           @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  note                      String?
+  // D-56B + D-65: living canonical content hash — see schema header comment.
+  contentHash               String
+  createdAt                 DateTime             @default(now())
+  updatedAt                 DateTime             @updatedAt
+
+  items OrderItem[]
+
+  @@index([externalCustomerReference])
+  @@index([status])
+  @@index([warehouseId])
+  @@map("warehouse_orders")
+}
+
+model OrderItem {
+  id                    String          @id @default(uuid())
+  orderId               String
+  order                 WarehouseOrder  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  productId             String
+  product               Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  // >= 1 enforced by DTO AND a DB CHECK constraint (C6, raw SQL in migration).
+  requestedQuantity     Int
+  // D-51: optional source line reference; unique per order when present (C3).
+  externalLineReference String?
+  note                  String?
+  status                OrderItemStatus @default(OPEN)
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  physicalItems PhysicalItem[]
+
+  // C3: Postgres allows multiple NULLs — lines without refs are not over-constrained (D-51/D-58).
+  @@unique([orderId, externalLineReference])
+  @@index([orderId])
+  @@index([productId])
+  @@index([status])
+  @@map("order_items")
+}
+
+model PhysicalItem {
+  id          String    @id @default(uuid()) // THE unique per-piece identity (D-43)
+  orderItemId String
+  orderItem   OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+
+  // D-53: human/barcode display code `PI-XXXXXXXX`, generated server-side,
+  // unique + immutable; NOT the PK (D-31).
+  itemCode String @unique
+
+  // D-51: optional source piece reference; unique per order item when present (C4).
+  externalItemReference String?
+
+  status PhysicalItemStatus @default(EXPECTED) // D-45
+
+  // D-46: NULL until the future Stowing phase assigns a real location.
+  // Phase 2 provides NO API that writes this column.
+  currentLocationId String?
+  currentLocation   Location? @relation(fields: [currentLocationId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orderItemId, externalItemReference]) // C4 (multiple NULLs allowed)
+  @@index([orderItemId])
+  @@index([status])
+  @@index([currentLocationId])
+  @@map("physical_items")
 }
