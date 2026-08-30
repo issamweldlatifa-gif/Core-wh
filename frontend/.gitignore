@@ -1,8 +1,0 @@
-node_modules
-dist
-.vite
-*.local
-.env
-.env.*.local
-vite.config.js
-vite.config.d.ts
