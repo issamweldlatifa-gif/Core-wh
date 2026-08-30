@@ -44,4 +44,25 @@ cp -r "$ROOT_DIR/frontend/dist/." public/
 echo ">>> [5/5] Applying database migrations..."
 npx prisma migrate deploy
 
+echo ">>> Seeding database (idempotent; creates SUPER_ADMIN)..."
+# The seed creates the initial SUPER_ADMIN only if both INITIAL_ADMIN_CODE and
+# INITIAL_ADMIN_PASSWORD are set. To guarantee a working login on a fresh deploy
+# even when the operator hasn't configured them, generate a strong RANDOM
+# password at build time (never committed to the repo) and print it in the
+# build logs so it can be read. If the operator sets INITIAL_ADMIN_PASSWORD in
+# Render's env, that value wins.
+export INITIAL_ADMIN_CODE="${INITIAL_ADMIN_CODE:-ADMIN001}"
+if [ -z "${INITIAL_ADMIN_PASSWORD:-}" ]; then
+  export INITIAL_ADMIN_PASSWORD="$(openssl rand -base64 24 | tr -d '=+/' | cut -c1-18)"
+  echo ">> NOTE: INITIAL_ADMIN_PASSWORD not set; generated a random one below."
+fi
+if [ -n "$INITIAL_ADMIN_PASSWORD" ]; then
+  # Run the seed via the project script (ts-node prisma/seed.ts). It is
+  # idempotent (uses upsert), so it is safe on every deploy.
+  (npm run db:seed || echo ">>> WARNING: seed step failed (non-fatal for build).")
+fi
+
 echo ">>> BUILD COMPLETE. Start command: node backend/dist/main.js"
+echo ">>> >>> INITIAL ADMIN LOGIN  <<<"
+echo ">>> >>>   code:     ${INITIAL_ADMIN_CODE}"
+echo ">>> >>>   password: ${INITIAL_ADMIN_PASSWORD}"
