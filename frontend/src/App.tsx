@@ -3,7 +3,14 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import AppShell from './components/AppShell';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
-import Warehouse from './pages/Warehouse';
+import WarehouseModule from './modules/warehouse';
+import StructureExplorer from './modules/warehouse/StructureExplorer';
+import Warehouses from './modules/warehouse/Warehouses';
+import Zones from './modules/warehouse/Zones';
+import Aisles from './modules/warehouse/Aisles';
+import Racks from './modules/warehouse/Racks';
+import Levels from './modules/warehouse/Levels';
+import Locations from './modules/warehouse/Locations';
 import Users from './pages/Users';
 import Roles from './pages/Roles';
 import Audit from './pages/Audit';
@@ -32,7 +39,16 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route element={<AppShell />}>
             <Route index element={<Dashboard />} />
-            <Route path="warehouse" element={<PermissionGate perm="warehouse.view"><Warehouse /></PermissionGate>} />
+            <Route path="warehouse" element={<PermissionGate perm="warehouses.view"><WarehouseModule /></PermissionGate>}>
+              <Route index element={<Navigate to="structure" replace />} />
+              <Route path="structure" element={<StructureExplorer />} />
+              <Route path="warehouses" element={<Warehouses />} />
+              <Route path="zones" element={<Zones />} />
+              <Route path="aisles" element={<Aisles />} />
+              <Route path="racks" element={<Racks />} />
+              <Route path="levels" element={<Levels />} />
+              <Route path="locations" element={<Locations />} />
+            </Route>
             <Route path="users" element={<PermissionGate perm="users.view"><Users /></PermissionGate>} />
             <Route path="roles" element={<PermissionGate perm="roles.view"><Roles /></PermissionGate>} />
             <Route path="audit" element={<PermissionGate perm="audit.view"><Audit /></PermissionGate>} />

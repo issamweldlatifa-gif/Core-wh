@@ -28,8 +28,8 @@ datasource db {
 // The credential mechanism used by a User to authenticate.
 enum CredentialMode {
   PASSWORD // a hashed password
-  PIN      // a numeric hashed PIN (typical for warehouse floor workers/PDA)
-  BOTH     // both are accepted
+  PIN // a numeric hashed PIN (typical for warehouse floor workers/PDA)
+  BOTH // both are accepted
 }
 
 // Lifecycle status of a User account.
@@ -67,7 +67,33 @@ enum AuditAction {
   API_CLIENT_UPDATED
   API_CLIENT_STATUS_CHANGED
   WAREHOUSE_UPDATED
-  // Placeholders for later phases (NOT implemented in Phase 0).
+  // Phase 1 — physical warehouse structure.
+  WAREHOUSE_CREATED
+  WAREHOUSE_ACTIVATED
+  WAREHOUSE_DEACTIVATED
+  ZONE_CREATED
+  ZONE_UPDATED
+  ZONE_ACTIVATED
+  ZONE_DEACTIVATED
+  AISLE_CREATED
+  AISLE_UPDATED
+  AISLE_ACTIVATED
+  AISLE_DEACTIVATED
+  RACK_CREATED
+  RACK_UPDATED
+  RACK_ACTIVATED
+  RACK_DEACTIVATED
+  LEVEL_CREATED
+  LEVEL_UPDATED
+  LEVEL_ACTIVATED
+  LEVEL_DEACTIVATED
+  LOCATION_CREATED
+  LOCATION_UPDATED
+  LOCATION_ACTIVATED
+  LOCATION_DEACTIVATED
+  LOCATION_BLOCKED
+  LOCATION_UNBLOCKED
+  // Placeholders for later phases (NOT implemented in Phase 0/1).
   ITEM_RECEIVED
   ITEM_STORED
   ITEM_MOVED
@@ -90,21 +116,21 @@ enum ApiClientStatus {
 // merely IDENTIFIES the user; it is NOT a permission. Permissions are
 // defined on Roles, never on the code.
 model User {
-  id            String         @id @default(uuid())
-  name          String
-  employeeCode  String         @unique
-  email         String?        @unique
-  passwordHash  String?        // hashed, NEVER plain text
-  pinHash       String?        // hashed numeric PIN, NEVER plain text
+  id             String         @id @default(uuid())
+  name           String
+  employeeCode   String         @unique
+  email          String?        @unique
+  passwordHash   String? // hashed, NEVER plain text
+  pinHash        String? // hashed numeric PIN, NEVER plain text
   credentialMode CredentialMode @default(PASSWORD)
-  status        UserStatus     @default(ACTIVE)
-  lastLoginAt   DateTime?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  status         UserStatus     @default(ACTIVE)
+  lastLoginAt    DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
-  sessions        Session[]
-  roles           UserRole[]
-  createdAudit    AuditLog[] @relation("Actor")
+  sessions     Session[]
+  roles        UserRole[]
+  createdAudit AuditLog[] @relation("Actor")
 
   @@index([status])
   @@map("users")
@@ -127,8 +153,8 @@ model Role {
 model Permission {
   id          String   @id @default(uuid())
   key         String   @unique // e.g. "users.manage"
-  resource    String   // e.g. "users"
-  action      String   // e.g. "manage"
+  resource    String // e.g. "users"
+  action      String // e.g. "manage"
   description String?
   createdAt   DateTime @default(now())
 
@@ -140,13 +166,13 @@ model Permission {
 
 // Join table: User <-> Role (many-to-many)
 model UserRole {
-  userId    String
-  roleId    String
-  assignedAt DateTime @default(now())
+  userId       String
+  roleId       String
+  assignedAt   DateTime @default(now())
   assignedById String? // who granted the role
 
-  user    User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role    Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@id([userId, roleId])
   @@map("user_roles")
@@ -193,10 +219,10 @@ model AuditLog {
   id          String      @id @default(uuid())
   actorUserId String?
   action      AuditAction
-  entityType  String?     // e.g. "user", "role"
-  entityId    String?     // e.g. the id of the affected entity
+  entityType  String? // e.g. "user", "role"
+  entityId    String? // e.g. the id of the affected entity
   ipAddress   String?
-  metadata    Json?       // structured context
+  metadata    Json? // structured context
   createdAt   DateTime    @default(now())
 
   actor User? @relation("Actor", fields: [actorUserId], references: [id], onDelete: SetNull)
@@ -227,32 +253,203 @@ model SystemSetting {
 // Placeholder for future external API consumers / machine-to-machine auth.
 // Phase 0 provides the schema only; no flows consume it yet.
 model ApiClient {
-  id               String        @id @default(uuid())
+  id               String          @id @default(uuid())
   name             String
-  clientId         String        @unique
-  clientSecretHash String        // hashed, NEVER plain text
+  clientId         String          @unique
+  clientSecretHash String // hashed, NEVER plain text
   status           ApiClientStatus @default(ACTIVE)
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
 
   @@map("api_clients")
 }
 
 // ------------------------------------------------------------------
-// Warehouse Foundation (minimal, to stabilise the Core)
+// Phase 1 — Warehouse Foundation & Physical Structure
 //
-// This is CONFIGURATION about the warehouse being managed, NOT any
-// operational workflow. No Receiving/Picking/Packing tables here.
+// This models the DIGITAL representation of the PHYSICAL warehouse
+// topology ONLY: Warehouse -> Zone -> Aisle -> Rack -> Level -> Location.
+//
+// SCOPE GUARD:
+//   - Multi-warehouse from day one.
+//   - NO inventory, NO quantities, NO capacity engine, NO receiving /
+//     stowing / picking / packing / shipping workflows, NO containers,
+//     NO barcode scanning workflow, NO OCR, NO CRM.
+//   - Any future operational module references locations by their
+//     stable identifiers (locationCode / barcodeValue), never by mutating
+//     this physical structure.
+//   - Deactivate rather than delete: all parents use onDelete: Restrict.
 // ------------------------------------------------------------------
 
-model Warehouse {
-  id          String   @id @default(uuid())
-  code        String   @unique
-  name        String
-  address     String?
-  status      String   @default("OPERATIONAL")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+enum WarehouseStatus {
+  ACTIVE
+  INACTIVE
+}
 
+enum ZoneStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum AisleStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum RackStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum LevelStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum LocationType {
+  STORAGE
+  RECEIVING
+  SORTING
+  PACKING
+  RETURNS
+  QC
+  STAGING
+}
+
+enum LocationStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+}
+
+model Warehouse {
+  id          String          @id @default(uuid())
+  code        String          @unique // stable business code, e.g. TUN-MAIN
+  name        String
+  description String?
+  status      WarehouseStatus @default(ACTIVE)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  zones     Zone[]
+  locations Location[]
+
+  @@index([status])
   @@map("warehouses")
+}
+
+model Zone {
+  id          String     @id @default(uuid())
+  warehouseId String
+  warehouse   Warehouse  @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  code        String // e.g. SHOES (unique within a warehouse, not globally)
+  name        String
+  description String?
+  status      ZoneStatus @default(ACTIVE)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  aisles    Aisle[]
+  locations Location[]
+
+  @@unique([warehouseId, code])
+  @@index([warehouseId])
+  @@index([status])
+  @@map("zones")
+}
+
+model Aisle {
+  id          String      @id @default(uuid())
+  zoneId      String
+  zone        Zone        @relation(fields: [zoneId], references: [id], onDelete: Restrict)
+  code        String // e.g. A01 (unique within a zone)
+  name        String
+  description String?
+  status      AisleStatus @default(ACTIVE)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  racks     Rack[]
+  locations Location[]
+
+  @@unique([zoneId, code])
+  @@index([zoneId])
+  @@index([status])
+  @@map("aisles")
+}
+
+model Rack {
+  id          String     @id @default(uuid())
+  aisleId     String
+  aisle       Aisle      @relation(fields: [aisleId], references: [id], onDelete: Restrict)
+  code        String // e.g. R01 (unique within an aisle)
+  name        String
+  description String?
+  status      RackStatus @default(ACTIVE)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  levels    Level[]
+  locations Location[]
+
+  @@unique([aisleId, code])
+  @@index([aisleId])
+  @@index([status])
+  @@map("racks")
+}
+
+model Level {
+  id          String      @id @default(uuid())
+  rackId      String
+  rack        Rack        @relation(fields: [rackId], references: [id], onDelete: Restrict)
+  code        String // e.g. L03 (auto-derived, see D-36)
+  levelNumber Int // numeric order: 1,2,3,4...
+  status      LevelStatus @default(ACTIVE)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  locations Location[]
+
+  @@unique([rackId, code])
+  @@index([rackId])
+  @@index([status])
+  @@map("levels")
+}
+
+model Location {
+  id          String    @id @default(uuid())
+  // Denormalized warehouseId for multi-warehouse isolation + fast filtering.
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  zoneId      String
+  zone        Zone      @relation(fields: [zoneId], references: [id], onDelete: Restrict)
+  aisleId     String
+  aisle       Aisle     @relation(fields: [aisleId], references: [id], onDelete: Restrict)
+  rackId      String
+  rack        Rack      @relation(fields: [rackId], references: [id], onDelete: Restrict)
+  levelId     String
+  level       Level     @relation(fields: [levelId], references: [id], onDelete: Restrict)
+
+  locationCode String  @unique // TUN-MAIN-SHOES-A01-R02-L03 (read-only)
+  barcodeValue String  @unique // = locationCode by default (D-33)
+  qrValue      String? @unique
+
+  locationType LocationType
+  status       LocationStatus @default(ACTIVE)
+
+  // Capacity metadata ONLY — no capacity/counting engine (deferred).
+  maxWeight Float?
+  maxVolume Float?
+  maxUnits  Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([warehouseId])
+  @@index([zoneId])
+  @@index([aisleId])
+  @@index([rackId])
+  @@index([levelId])
+  @@index([status])
+  @@map("locations")
 }

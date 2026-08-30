@@ -1,18 +1,23 @@
-# AYROVI Warehouse Core — Phase 0
+# AYROVI Warehouse Core
 
-**«AYROVI Warehouse Core Foundation»** — a modular-monolith core that all
-future warehouse operational phases will build on.
+**«AYROVI Warehouse Core»** — a modular-monolith core that all future
+warehouse operational phases will build on.
 
-> **Phase 0 scope (delivered here):** Authentication, RBAC, granular
-> Permissions, Audit system, REST v1 API architecture, internal module
-> boundary, external integration boundary, PostgreSQL schema, Docker
-> deployment files, tests, and docs.
+> **Phase 0 (delivered):** Authentication, RBAC, granular Permissions, Audit
+> system, REST v1 API, internal module boundary, external integration
+> boundary, PostgreSQL schema, Docker, tests, docs.
 >
-> **Explicitly NOT in Phase 0:** Receiving / Stowing / Picking / Packing /
-> Shipping, OCR, barcode/container flows, inventory movement, CRM or carrier
-> integration, offline mobile. These are later phases. The permission keys and
-> audit event names for them are *reserved* now, but the workflows are NOT
-> implemented.
+> **Phase 1 (delivered):** *Warehouse Foundation & Physical Structure* — the
+> digital representation of the physical warehouse topology:
+> **Warehouse → Zone → Aisle → Rack → Level → Location**, multi-warehouse from
+> day one, granular structure permissions & RBAC, location identifiers
+> (barcode-ready), search/filter, structure explorer, migrations, tests.
+>
+> **Explicitly NOT in Phase 0/1:** Receiving / Stowing / Picking / Packing /
+> Shipping, OCR, inventory quantities, container/barcode-scanning workflow,
+> CRM or carrier integration, offline mobile, bulk structure generation.
+> These are later phases. The permission keys and audit event names for them
+> are *reserved* now, but the workflows are NOT implemented.
 
 ---
 
@@ -122,25 +127,29 @@ every permission).
 
 ---
 
-## What is implemented (Phase 0)
+## What is implemented (Phase 0 + Phase 1)
 
 | Area | Status |
 |------|--------|
-| Web app (React + TS + Vite) | ✅ Login screen, permission-aware app shell, dashboard, users, roles, audit, system, warehouse |
-| Fast/responsive, desktop-first, PDA-ready | ✅ Responsive styles |
-| REST API `/api/v1` | ✅ Auth, users, roles, permissions, audit, system, warehouse |
+| Area | Status |
+|------|--------|
+| Web app (React + TS + Vite) | ✅ Login, permission-aware shell, dashboard, users, roles, audit, system, warehouse module |
+| Warehouse structure UI | ✅ Warehouses / Zones / Aisles / Racks / Levels / Locations + Structure Explorer, permission-aware |
+| REST API `/api/v1` | ✅ Auth, users, roles, permissions, audit, system, warehouse, zones, aisles, racks, levels, locations |
 | Authentication (employee code + password/PIN) | ✅ JWT access + refresh, sessions, rate limiting |
 | RBAC — Users / Roles / Permissions / joins | ✅ |
-| Granular permission model | ✅ `resource.action` keys |
+| Granular permission model | ✅ `resource.action` keys (structure = 6 resources × 5 actions) |
 | Backend-enforced authorization | ✅ Global guards → 401 / 403 |
-| Audit system | ✅ `audit_logs` + `AuditService` + reserved operational events |
-| PostgreSQL core schema | ✅ 10 core tables + minimal `warehouses` |
+| Audit system | ✅ `audit_logs` + `AuditService`; Phase-1 structure events emitted |
+| PostgreSQL core schema | ✅ 10 core tables + multi-warehouse physical structure |
+| Physical structure (6 entities) | ✅ CRUD + activate/deactivate, location integrity verified |
+| Multi-warehouse isolation | ✅ (zone codes unique per warehouse; location ancestry validated) |
 | Internal module boundary | ✅ Modular monolith + internal event bus |
 | External integration boundary | ✅ Contract-only `integrations/` (no live calls) |
 | Validation + uniform errors | ✅ DTO validation + global `AllExceptionsFilter` |
 | Security | ✅ Hashed credentials, env secrets, CORS, helmet, rate limiting |
 | Docker + portable deployment | ✅ Dockerfiles + compose + nginx |
-| Tests | ✅ Jest + Supertest (see below) |
+| Tests | ✅ Jest + Supertest — unit + E2E (see below) |
 | API docs (Swagger/OpenAPI) | ✅ `/api/docs` |
 
 ---
@@ -168,6 +177,10 @@ Covered:
 - Session revocation (logout) invalidates token immediately
 - `USER_LOGIN` audit event recorded
 - API versioning under `/api/v1`
+- **Phase 1:** full 6-entity CRUD (`warehouse`/`zone`/`aisle`/`rack`/`level`/`location`),
+  duplicate-code rejection per parent, invalid parent hierarchy → 400, cross-warehouse
+  isolation, RBAC (401/403 incl. WAREHOUSE_MANAGER **no-create**), deactivation audit,
+  search/filter (`locations/search?q=`), auto-derived level/location codes, barcode = location code.
 
 ---
 
@@ -214,9 +227,20 @@ Before closing Phase 0, verify:
 
 ---
 
+## Phase 1 details
+
+Decisions D-30…D-38 (all **resolved** in Phase 1) and the Location-integrity
+constraint are recorded in [`docs/OPEN-DECISIONS.md`](docs/OPEN-DECISIONS.md).
+The approved design package (ERD, models, API/permission/audit maps, testing
+plan) is [`docs/PHASE-1-DESIGN-PROPOSAL.md`](docs/PHASE-1-DESIGN-PROPOSAL.md).
+
+Location code format (locked): `{WAREHOUSE}-{ZONE}-{AISLE}-{RACK}-{LEVEL}`,
+auto-derived from the parent chain; `barcodeValue = locationCode`.
+WAREHOUSE_MANAGER has **no** create on the structure — only view/update/activate/deactivate.
+
 ## Next phase
 
-**Phase 1 — Warehouse Foundation & Physical Structure.** Requires resolving the
-**OPEN** items in [`docs/OPEN-DECISIONS.md`](docs/OPEN-DECISIONS.md) that affect
-the Phase 1 data model (notably D-20 multi-warehouse). Do not start Phase 1
-until this Phase 0 core is independently reviewed and signed off.
+**Phase 2 — Inventory & Backend Operations.** Blocking Phase 1 (per design) is
+now closed with the Acceptance Review. Phase 2 introduces inventory,
+receiving/stowing/picking/packing/shipping workflows. **Phase 2 must NOT start
+automatically** — it begins only after the Phase 1 Acceptance Review signs off.

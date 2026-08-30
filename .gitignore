@@ -8,6 +8,8 @@ frontend/.vite/
 .env
 .env.*
 !.env.example
+# Render deployment secrets — contains real values, never commit
+render.env.example
 
 # Logs
 *.log

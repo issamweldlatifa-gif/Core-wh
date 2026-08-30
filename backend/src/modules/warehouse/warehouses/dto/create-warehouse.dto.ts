@@ -1,8 +1,8 @@
-import { IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 
-export class UpsertWarehouseDto {
-  @ApiProperty({ description: 'Unique warehouse code.' })
+export class CreateWarehouseDto {
+  @ApiProperty({ description: 'Unique, stable warehouse code (e.g. TUN-MAIN).' })
   @IsString()
   @MinLength(2)
   @MaxLength(30)
@@ -15,9 +15,9 @@ export class UpsertWarehouseDto {
   @MaxLength(120)
   name!: string;
 
-  @ApiPropertyOptional({ description: 'Address.' })
+  @ApiPropertyOptional({ description: 'Warehouse description.' })
   @IsOptional()
   @IsString()
-  @MaxLength(300)
-  address?: string;
+  @MaxLength(500)
+  description?: string;
 }

@@ -18,8 +18,8 @@ export interface NavItem {
 }
 
 export const NAV_ITEMS: NavItem[] = [
-  { key: 'dashboard', label: 'Dashboard', path: '/', permission: 'warehouse.view' },
-  { key: 'warehouse', label: 'Warehouse', path: '/warehouse', permission: 'warehouse.view' },
+  { key: 'dashboard', label: 'Dashboard', path: '/', permission: 'warehouses.view' },
+  { key: 'warehouse', label: 'Warehouse', path: '/warehouse', permission: 'warehouses.view' },
   { key: 'users', label: 'Users', path: '/users', permission: 'users.view' },
   { key: 'roles', label: 'Roles & Permissions', path: '/roles', permission: 'roles.view' },
   { key: 'audit', label: 'Audit Log', path: '/audit', permission: 'audit.view' },

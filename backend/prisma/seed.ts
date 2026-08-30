@@ -23,16 +23,30 @@ const prisma = new PrismaClient();
 // shipping are defined HERE so the architecture is ready, but Phase 0
 // does NOT implement the underlying workflows.
 // ---------------------------------------------------------------
+// ------------------------------------------------------------------
+// Phase 1 — granular physical-structure permissions.
+// Replaces the Phase-0 coarse keys (warehouse.view/manage, locations.*).
+// D-32: legacy keys are MIGRATED below (idempotently) into the granular set.
+// ------------------------------------------------------------------
+const STRUCTURE_RESOURCES = ['warehouses', 'zones', 'aisles', 'racks', 'levels', 'locations'];
+const STRUCTURE_ACTIONS = ['view', 'create', 'update', 'activate', 'deactivate'];
+
+const STRUCTURE_PERMISSIONS: Array<{ key: string; resource: string; action: string; description: string }> =
+  STRUCTURE_RESOURCES.flatMap((res) =>
+    STRUCTURE_ACTIONS.map((action) => ({
+      key: `${res}.${action}`,
+      resource: res,
+      action,
+      description: `${action[0].toUpperCase() + action.slice(1)} ${res.replace(/s$/, '')} in the physical structure`,
+    })),
+  );
+
 const PERMISSIONS: Array<{ key: string; resource: string; action: string; description: string }> = [
-  // Warehouse
-  { key: 'warehouse.view', resource: 'warehouse', action: 'view', description: 'View warehouse core information' },
-  { key: 'warehouse.manage', resource: 'warehouse', action: 'manage', description: 'Manage warehouse core information' },
+  // ---- Phase 1: physical warehouse structure (granular) ----
+  ...STRUCTURE_PERMISSIONS,
 
-  // Locations (Phase 1 will implement; permission ready now)
-  { key: 'locations.view', resource: 'locations', action: 'view', description: 'View locations' },
-  { key: 'locations.manage', resource: 'locations', action: 'manage', description: 'Manage locations' },
-
-  // Inventory (Phase 1+ will implement; permission ready now)
+  // ---- Phase 0 (unchanged) ----
+  // Inventory (permission ready; workflow deferred)
   { key: 'inventory.view', resource: 'inventory', action: 'view', description: 'View inventory' },
   { key: 'inventory.manage', resource: 'inventory', action: 'manage', description: 'Manage inventory' },
 
@@ -74,6 +88,17 @@ const VIEW_KEYS = (res: string) => PERMISSIONS.filter((p) => p.resource === res 
 const MANAGE_KEYS = (res: string) => PERMISSIONS.filter((p) => p.resource === res && p.action === 'manage').map((p) => p.key);
 const EXECUTE_KEYS = (res: string) => PERMISSIONS.filter((p) => p.resource === res && p.action === 'execute').map((p) => p.key);
 
+// Fine-grained structure helpers.
+const STRUCT_ACTIONS = ['view', 'create', 'update', 'activate', 'deactivate'];
+const STRUCT_KEYS = (res: string, actions: string[]) =>
+  PERMISSIONS.filter((p) => p.resource === res && actions.includes(p.action)).map((p) => p.key);
+const STRUCT_VIEW = (res: string) => STRUCT_KEYS(res, ['view']);
+const STRUCT_WRITE = (res: string) => STRUCT_KEYS(res, ['create', 'update', 'activate', 'deactivate']);
+const STRUCT_FULL = (res: string) => STRUCT_KEYS(res, STRUCT_ACTIONS);
+const ALL_STRUCT_VIEW = STRUCTURE_RESOURCES.flatMap((r) => STRUCT_VIEW(r));
+const ALL_STRUCT_WRITE = STRUCTURE_RESOURCES.flatMap((r) => STRUCT_WRITE(r));
+const ALL_STRUCT_FULL = STRUCTURE_RESOURCES.flatMap((r) => STRUCT_FULL(r));
+
 const ROLES: Array<{ name: string; description: string; isSystem: boolean; permissions: string[] }> = [
   {
     name: 'SUPER_ADMIN',
@@ -83,10 +108,12 @@ const ROLES: Array<{ name: string; description: string; isSystem: boolean; permi
   },
   {
     name: 'WAREHOUSE_ADMIN',
-    description: 'Operational administration of the warehouse.',
+    description: 'Operational administration of the warehouse (full physical structure management).',
     isSystem: true,
     permissions: [
-      ...ALL.filter((k) => k.startsWith('warehouse.') || k.startsWith('locations.') || k.startsWith('inventory.')),
+      // Full physical-structure management (D-34: this role may create).
+      ...ALL_STRUCT_FULL,
+      ...ALL.filter((k) => k.startsWith('inventory.')),
       ...MANAGE_KEYS('receiving'), ...EXECUTE_KEYS('receiving'),
       ...MANAGE_KEYS('stowing'), ...EXECUTE_KEYS('stowing'),
       ...MANAGE_KEYS('picking'), ...EXECUTE_KEYS('picking'),
@@ -101,8 +128,9 @@ const ROLES: Array<{ name: string; description: string; isSystem: boolean; permi
     description: 'Day-to-day warehouse management without full system admin.',
     isSystem: true,
     permissions: [
-      ...VIEW_KEYS('warehouse'), ...MANAGE_KEYS('warehouse'),
-      ...VIEW_KEYS('locations'), ...MANAGE_KEYS('locations'),
+      // D-34: view + update + activate + deactivate on all structure nodes.
+      // NO create permission.
+      ...STRUCTURE_RESOURCES.flatMap((r) => STRUCT_KEYS(r, ['view', 'update', 'activate', 'deactivate'])),
       ...VIEW_KEYS('inventory'), ...MANAGE_KEYS('inventory'),
       ...VIEW_KEYS('receiving'), ...EXECUTE_KEYS('receiving'),
       ...VIEW_KEYS('stowing'), ...EXECUTE_KEYS('stowing'),
@@ -117,7 +145,7 @@ const ROLES: Array<{ name: string; description: string; isSystem: boolean; permi
     description: 'Warehouse floor worker for inbound (receiving/stowing).',
     isSystem: true,
     permissions: [
-      ...VIEW_KEYS('warehouse'), ...VIEW_KEYS('locations'),
+      ...ALL_STRUCT_VIEW, // Phase 1: view locations only in the structure.
       ...VIEW_KEYS('inventory'),
       ...VIEW_KEYS('receiving'), ...EXECUTE_KEYS('receiving'),
       ...VIEW_KEYS('stowing'), ...EXECUTE_KEYS('stowing'),
@@ -128,7 +156,8 @@ const ROLES: Array<{ name: string; description: string; isSystem: boolean; permi
     description: 'Warehouse picker.',
     isSystem: true,
     permissions: [
-      ...VIEW_KEYS('warehouse'), ...VIEW_KEYS('locations'), ...VIEW_KEYS('inventory'),
+      ...ALL_STRUCT_VIEW, // Phase 1: view locations only.
+      ...VIEW_KEYS('inventory'),
       ...VIEW_KEYS('picking'), ...EXECUTE_KEYS('picking'),
     ],
   },
@@ -137,7 +166,8 @@ const ROLES: Array<{ name: string; description: string; isSystem: boolean; permi
     description: 'Warehouse packer.',
     isSystem: true,
     permissions: [
-      ...VIEW_KEYS('warehouse'), ...VIEW_KEYS('inventory'),
+      ...ALL_STRUCT_VIEW, // Phase 1: view locations only.
+      ...VIEW_KEYS('inventory'),
       ...VIEW_KEYS('packing'), ...EXECUTE_KEYS('packing'),
     ],
   },
@@ -146,13 +176,68 @@ const ROLES: Array<{ name: string; description: string; isSystem: boolean; permi
     description: 'Read-only access.',
     isSystem: true,
     permissions: [
-      ...VIEW_KEYS('warehouse'), ...VIEW_KEYS('locations'), ...VIEW_KEYS('inventory'),
+      ...ALL_STRUCT_VIEW, // Read-only on the whole physical structure.
+      ...VIEW_KEYS('inventory'),
       ...VIEW_KEYS('receiving'), ...VIEW_KEYS('stowing'),
       ...VIEW_KEYS('picking'), ...VIEW_KEYS('packing'), ...VIEW_KEYS('shipping'),
       'audit.view',
     ],
   },
 ];
+
+// ------------------------------------------------------------------
+// D-32: idempotent migration of legacy Phase-0 permission keys into the
+// new granular model. Runs on every seed; safe to re-run.
+//   legacy `warehouse.view`      -> `warehouses.view`
+//   legacy `warehouse.manage`    -> all `warehouses.*` actions
+//   legacy `locations.view`      -> `locations.view`
+//   legacy `locations.manage`    -> all `locations.*` actions
+// After a successful migration the legacy rows are removed (only if their
+// target keys now exist). Roles are re-synced in the role loop below using
+// the NEW keys, so anything that previously pointed at the legacy keys is
+// re-mapped idempotently.
+// ------------------------------------------------------------------
+const LEGACY_GRANTS: Array<{ legacy: string; targets: string[] }> = [
+  { legacy: 'warehouse.view', targets: ['warehouses.view'] },
+  { legacy: 'warehouse.manage', targets: STRUCT_KEYS('warehouses', STRUCT_ACTIONS) },
+  { legacy: 'locations.view', targets: ['locations.view'] },
+  { legacy: 'locations.manage', targets: STRUCT_KEYS('locations', STRUCT_ACTIONS) },
+];
+
+async function migrateLegacyPermissions(permId: Record<string, string>) {
+  for (const { legacy, targets } of LEGACY_GRANTS) {
+    const legacyPerm = await prisma.permission.findUnique({ where: { key: legacy } });
+    if (!legacyPerm) continue;
+    // targetIds that are NOT the legacy row itself (avoids self-mapping when
+    // a legacy key string coincides with a granular key, e.g. "locations.view").
+    const targetIds = targets
+      .map((k) => permId[k])
+      .filter((id): id is string => !!id && id !== legacyPerm.id);
+    // Move any role that held the legacy key to the new target keys.
+    const holders = await prisma.rolePermission.findMany({ where: { permissionId: legacyPerm.id } });
+    for (const h of holders) {
+      await prisma.rolePermission.deleteMany({
+        where: { roleId: h.roleId, permissionId: legacyPerm.id },
+      });
+      for (const tid of targetIds) {
+        await prisma.rolePermission.upsert({
+          where: { roleId_permissionId: { roleId: h.roleId, permissionId: tid } },
+          update: {},
+          create: { roleId: h.roleId, permissionId: tid },
+        });
+      }
+    }
+    // Remove the legacy permission only if it is no longer referenced AND it
+    // is not the same key that the granular catalog still needs (i.e. only
+    // delete when the key is genuinely legacy-only).
+    const stillHeld = await prisma.rolePermission.findFirst({ where: { permissionId: legacyPerm.id } });
+    const isGranular = PERMISSIONS.some((p) => p.key === legacy);
+    if (!stillHeld && !isGranular) {
+      await prisma.permission.delete({ where: { id: legacyPerm.id } });
+    }
+    console.log(`  ~ reconciled legacy "${legacy}" -> ${targetIds.length ? targetIds.join(', ') : 'kept (granular)'}`);
+  }
+}
 
 async function main() {
   console.log('Seeding permissions...');
@@ -165,6 +250,9 @@ async function main() {
     });
     permByKey[p.key] = created.id;
   }
+
+  console.log('Migrating legacy Phase-0 permissions (D-32)...');
+  await migrateLegacyPermissions(permByKey);
 
   console.log('Seeding roles...');
   for (const r of ROLES) {
@@ -179,6 +267,8 @@ async function main() {
     const wantIds = r.permissions.map((k) => permByKey[k]).filter(Boolean);
     const toRemove = [...existingKeys].filter((id) => !wantIds.includes(id));
     const toAdd = wantIds.filter((id) => !existingKeys.has(id));
+    const missingKeys = r.permissions.filter((k) => !permByKey[k]);
+    if (missingKeys.length) console.log(`  ! ${r.name}: keys NOT found in catalog -> ${missingKeys.join(', ')}`);
     if (toRemove.length) await prisma.rolePermission.deleteMany({ where: { roleId: role.id, permissionId: { in: toRemove } } });
     if (toAdd.length) await prisma.rolePermission.createMany({ data: toAdd.map((permissionId) => ({ roleId: role.id, permissionId })) });
     console.log(`  + ${r.name} (${r.permissions.length} permissions)`);
@@ -219,6 +309,57 @@ async function main() {
   } else {
     console.log('Skipping initial admin (set INITIAL_ADMIN_CODE / INITIAL_ADMIN_PASSWORD to create one).');
   }
+
+  // ------------------------------------------------------------------
+  // Phase 1 — TEST/SEED physical structure (D-30 §30). Clearly labelled as
+  // test data only; NOT real warehouse data.
+  // ------------------------------------------------------------------
+  const seed = async () => {
+    const wh = await prisma.warehouse.upsert({
+      where: { code: 'TUN-MAIN' },
+      update: { name: 'Main Warehouse (TEST SEED)', description: 'Phase 1 test/seed physical structure.' },
+      create: { code: 'TUN-MAIN', name: 'Main Warehouse (TEST SEED)', description: 'Phase 1 test/seed physical structure.' },
+    });
+    const mk = async (model: 'zone' | 'aisle' | 'rack' | 'level', parentId: string, code: string, extra: Record<string, unknown> = {}) => {
+      const uniq = model === 'zone' ? { warehouseId_code: { warehouseId: parentId, code } }
+        : model === 'aisle' ? { zoneId_code: { zoneId: parentId, code } }
+        : model === 'rack' ? { aisleId_code: { aisleId: parentId, code } }
+        : { rackId_code: { rackId: parentId, code } };
+      const parentField = model === 'zone' ? 'warehouseId' : model === 'aisle' ? 'zoneId' : model === 'rack' ? 'aisleId' : 'rackId';
+      const data = model === 'level' ? { code, ...extra } : { code, name: code, ...extra };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (prisma as any)[model].upsert({ where: uniq, update: data, create: { ...data, [parentField]: parentId } });
+    };
+
+    for (const zc of ['SHOES', 'CLOTHING']) {
+      const zone = await mk('zone', wh.id, zc);
+      const aisle = await mk('aisle', zone.id, 'A01');
+      const rack = await mk('rack', aisle.id, 'R01');
+      const level = await mk('level', rack.id, 'L01', { levelNumber: 1 });
+      const level2 = await mk('level', rack.id, 'L02', { levelNumber: 2 });
+      // A couple of sample locations for the test hierarchy.
+      await prisma.location.upsert({
+        where: { locationCode: `${wh.code}-${zc}-A01-R01-L01` },
+        update: {},
+        create: {
+          warehouseId: wh.id, zoneId: zone.id, aisleId: aisle.id, rackId: rack.id,
+          levelId: level.id, locationCode: `${wh.code}-${zc}-A01-R01-L01`,
+          barcodeValue: `${wh.code}-${zc}-A01-R01-L01`, locationType: 'STORAGE',
+        },
+      });
+      await prisma.location.upsert({
+        where: { locationCode: `${wh.code}-${zc}-A01-R01-L02` },
+        update: {},
+        create: {
+          warehouseId: wh.id, zoneId: zone.id, aisleId: aisle.id, rackId: rack.id,
+          levelId: level2.id, locationCode: `${wh.code}-${zc}-A01-R01-L02`,
+          barcodeValue: `${wh.code}-${zc}-A01-R01-L02`, locationType: 'STORAGE',
+        },
+      });
+    }
+    console.log('  + TEST/SEED physical structure created (TUN-MAIN: SHOES, CLOTHING).');
+  };
+  await seed();
 
   console.log('Seed complete.');
 }

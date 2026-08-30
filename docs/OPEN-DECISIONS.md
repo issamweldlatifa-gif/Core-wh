@@ -59,3 +59,21 @@ than silently assumed, so nothing is baked in accidentally.
   answered first.
 - Any new decision encountered during building should be added here rather than
   silently decided in code.
+
+---
+
+## D. PHASE 1 — DECISIONS (all RESOLVED by the Phase 1 Approval; recorded here for traceability)
+
+| ID | Question | Decision (approved) |
+|----|----------|---------------------|
+| D-30 | Location Code format | **LOCKED**: `{WAREHOUSE}-{ZONE}-{AISLE}-{RACK}-{LEVEL}`, uppercase, hyphen-separated, auto-derived from the parent chain, read-only and stable after operations begin. Example: `TUN-MAIN-SHOES-A01-R02-L03`. |
+| D-31 | Primary key naming | **Keep UUID `id`** across the codebase; business `code` fields remain the human/business identifiers. |
+| D-32 | Phase-0 warehouse status & legacy permissions | Migrate `OPERATIONAL → ACTIVE`; migrate legacy `warehouse.view/manage` and `locations.*` into the new granular permission model and re-map roles **idempotently** (safe to re-run; legacy keys removed only after successful re-mapping). |
+| D-33 | Barcode value | **`barcodeValue = locationCode`** by default; no hashing. Must remain unique and stable. |
+| D-34 | WAREHOUSE_MANAGER create access | **NO create**. Only `view`, `update`, `activate`, `deactivate` on the physical structure. |
+| D-35 | Hard deletion | **No hard delete in Phase 1.** Use deactivation/status management; preserve historical records. |
+| D-36 | Level code | Auto-derived from `levelNumber` (`1→L01`, `2→L02`, …). |
+| D-37 | Bulk structure generation | **Deferred**; domain kept extensible for future bulk creation. |
+| D-38 | Company entity | **Deferred.** Warehouse remains the top-level entity of this module. Company/CRM relationship defined later during integration architecture. |
+
+> D-20 (Multi-warehouse) is now **RESOLVED as "Multi-warehouse from day one"** — every physical node carries an explicit `warehouseId`, and zone codes are unique per warehouse.
