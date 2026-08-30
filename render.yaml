@@ -1,7 +1,11 @@
 # =============================================================================
 # AYROVI Warehouse Core — Render Blueprint (auto-deploy config)
+#
 # Deploy via: Render dashboard -> New -> Blueprint -> pick the Core-wh repo.
-# Render will read this file and create the database + web service itself.
+# Render reads this file and creates the database + web service itself.
+#
+# NOTE: The build delegates to ./build.sh, which installs devDependencies
+# explicitly so the build is NOT affected by Render's NODE_ENV=production.
 # =============================================================================
 
 databases:
@@ -15,22 +19,14 @@ services:
     name: ayrovi-warehouse-core
     runtime: node
     plan: free
-    # Builds the React SPA, then installs + builds the NestJS backend, then
-    # copies the freshly built SPA into backend/public (the single-bundle model).
-    buildCommand: |
-      cd frontend &&
-      npm install &&
-      npm run build &&
-      cd ../backend &&
-      npm install &&
-      npx prisma generate &&
-      npm run build &&
-      mkdir -p public &&
-      cp -r ../frontend/dist/* public/ &&
-      npx prisma migrate deploy
+    buildCommand: ./build.sh
     startCommand: node backend/dist/main.js
     healthCheckPath: /api/v1/system/health
+    autoDeploy: true
     envVars:
+      # NOTE: we deliberately do NOT set NODE_ENV=production at build time to
+      # avoid npm skipping devDependencies. The app itself reads NODE_ENV only
+      # at runtime; set it via the runtime env (below) instead.
       - key: NODE_ENV
         value: production
       - key: PORT
@@ -54,4 +50,5 @@ services:
       - key: INITIAL_ADMIN_CODE
         value: ADMIN001
       - key: INITIAL_ADMIN_PASSWORD
+        # Set to a strong value after the first deploy so the seed admin is created.
         sync: false
