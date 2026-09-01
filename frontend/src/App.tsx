@@ -11,6 +11,7 @@ import Aisles from './modules/warehouse/Aisles';
 import Racks from './modules/warehouse/Racks';
 import Levels from './modules/warehouse/Levels';
 import Locations from './modules/warehouse/Locations';
+import ExpectedArrivals from './modules/expected-arrivals/ExpectedArrivals';
 import Users from './pages/Users';
 import Roles from './pages/Roles';
 import Audit from './pages/Audit';
@@ -39,6 +40,10 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route element={<AppShell />}>
             <Route index element={<Dashboard />} />
+            <Route
+              path="expected-arrivals"
+              element={<PermissionGate perm="expected_arrivals.view"><ExpectedArrivals /></PermissionGate>}
+            />
             <Route path="warehouse" element={<PermissionGate perm="warehouses.view"><WarehouseModule /></PermissionGate>}>
               <Route index element={<Navigate to="structure" replace />} />
               <Route path="structure" element={<StructureExplorer />} />

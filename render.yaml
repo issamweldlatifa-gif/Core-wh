@@ -52,3 +52,8 @@ services:
       - key: INITIAL_ADMIN_PASSWORD
         # Set to a strong value after the first deploy so the seed admin is created.
         sync: false
+      - key: WAREHOUSE_INTEGRATION_API_KEY
+        # Static shared secret for the Arrival CRM -> Warehouse Expected Arrivals
+        # integration. Set it in the Render dashboard (same value as the CRM's
+        # WAREHOUSE_API_KEY). Generate with: openssl rand -hex 32
+        sync: false

@@ -106,6 +106,9 @@ enum AuditAction {
   ORDER_ITEM_CANCELLED
   PHYSICAL_ITEM_CREATED
   PHYSICAL_ITEM_CANCELLED
+  // Expected Arrivals — inbound projection pushed by the AYROVI Arrival CRM.
+  // This is NOT physical receiving: the goods are only EXPECTED to arrive.
+  CUSTOMER_ARRIVAL_CARD_RECEIVED
   // Placeholders for later phases (NOT implemented in Phase 0/1).
   ITEM_RECEIVED
   ITEM_STORED
@@ -633,4 +636,83 @@ model PhysicalItem {
   @@index([status])
   @@index([currentLocationId])
   @@map("physical_items")
+}
+
+// ------------------------------------------------------------------
+// Expected Arrivals — inbound projection pushed by the AYROVI Arrival CRM.
+//
+// SCOPE: a Customer Arrival Card is RECEIVED VIA API and stored as an
+// EXPECTED arrival. This is NOT physical receiving: products are NOT on the
+// shelf and are NOT counted as inventory. The status lifecycle starts and
+// stays at EXPECTED in this phase; the future Receiving phase will move it
+// to RECEIVED. No scanner/putaway/picking logic lives here.
+// ------------------------------------------------------------------
+
+enum ExpectedArrivalSource {
+  ARRIVAL_CRM // pushed by the AYROVI Arrival CRM integration
+}
+
+enum ExpectedArrivalStatus {
+  EXPECTED // card received via API; goods not physically received yet
+  // RECEIVED / CANCELLED are reserved for later phases and intentionally
+  // not settable here (Receiving is out of scope for this work).
+}
+
+model ExpectedArrival {
+  id                    String                @id @default(uuid())
+  // Human/barcode display code `WAR-XXXXXXXX`, generated server-side, unique.
+  code                  String                @unique
+  // Idempotency anchor: the Customer Arrival Card id from Arrival CRM.
+  // One card -> one Expected Arrival, even if the CRM retries the push.
+  customerArrivalCardId String                @unique
+  arrivalId             String? // external Arrival id (e.g. ARR-JAN-2026-001)
+  arrivalReference      String?
+  customerId            String // reference/projection only; no local customer row
+  customerName          String
+  storeId               String?
+  storeName             String?
+  status                ExpectedArrivalStatus @default(EXPECTED)
+  source                ExpectedArrivalSource @default(ARRIVAL_CRM)
+  productCount          Int                   @default(0)
+  totalUnits            Int                   @default(0)
+  // Which API client pushed the card (for traceability; never the secret).
+  apiClientId           String?
+  idempotencyKey        String?
+  receivedViaApi        Boolean               @default(true)
+  receivedViaApiAt      DateTime?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  items ExpectedArrivalItem[]
+
+  @@index([status])
+  @@index([customerId])
+  @@index([storeId])
+  @@index([source])
+  @@map("expected_arrivals")
+}
+
+model ExpectedArrivalItem {
+  id        String          @id @default(uuid())
+  arrivalId String
+  arrival   ExpectedArrival @relation(fields: [arrivalId], references: [id], onDelete: Cascade)
+
+  productId String? // external/CRM product id, reference only
+  sku       String? // store-agnostic: any field may be missing (nullable)
+  reference String?
+  productName String?
+  quantity  Int             @default(1) // >= 1 enforced by DTO + DB CHECK
+  variant   String?
+  color     String?
+  size      String?
+  // Store the product came from when a card aggregates multiple stores.
+  storeId   String?
+  storeName String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([arrivalId])
+  @@index([sku])
+  @@map("expected_arrival_items")
 }

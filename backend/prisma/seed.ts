@@ -73,6 +73,12 @@ const PERMISSIONS: Array<{ key: string; resource: string; action: string; descri
   { key: 'receiving.view', resource: 'receiving', action: 'view', description: 'View receiving operations' },
   { key: 'receiving.execute', resource: 'receiving', action: 'execute', description: 'Execute receiving operations' },
 
+  // Expected Arrivals — inbound Customer Arrival Cards pushed by Arrival CRM.
+  // Only a view permission exists: creating expected arrivals is done by the
+  // service-authenticated integration endpoint, not by a logged-in user, and
+  // physical receiving is a later phase.
+  { key: 'expected_arrivals.view', resource: 'expected_arrivals', action: 'view', description: 'View expected arrivals (Customer Arrival Cards received via API)' },
+
   { key: 'stowing.view', resource: 'stowing', action: 'view', description: 'View stowing operations' },
   { key: 'stowing.execute', resource: 'stowing', action: 'execute', description: 'Execute stowing operations' },
 
@@ -158,6 +164,7 @@ const ROLES: Array<{ name: string; description: string; isSystem: boolean; permi
       ...MANAGE_KEYS('shipping'), ...EXECUTE_KEYS('shipping'),
       'users.view', 'users.manage', 'roles.view', 'roles.manage', 'audit.view',
       'system.view', 'system.manage', 'api_clients.view', 'api_clients.manage',
+      'expected_arrivals.view',
     ],
   },
   {
@@ -177,6 +184,7 @@ const ROLES: Array<{ name: string; description: string; isSystem: boolean; permi
       ...VIEW_KEYS('packing'), ...EXECUTE_KEYS('packing'),
       ...VIEW_KEYS('shipping'), ...EXECUTE_KEYS('shipping'),
       'users.view', 'roles.view', 'audit.view', 'system.view', 'api_clients.view',
+      'expected_arrivals.view',
     ],
   },
   {
@@ -189,6 +197,7 @@ const ROLES: Array<{ name: string; description: string; isSystem: boolean; permi
       ...PHASE2_VIEW, // Phase 2: view-only — no mutations until receiving exists (§14).
       ...VIEW_KEYS('receiving'), ...EXECUTE_KEYS('receiving'),
       ...VIEW_KEYS('stowing'), ...EXECUTE_KEYS('stowing'),
+      'expected_arrivals.view',
     ],
   },
   {
@@ -223,7 +232,7 @@ const ROLES: Array<{ name: string; description: string; isSystem: boolean; permi
       ...PHASE2_VIEW, // Phase 2: read-only (§14).
       ...VIEW_KEYS('receiving'), ...VIEW_KEYS('stowing'),
       ...VIEW_KEYS('picking'), ...VIEW_KEYS('packing'), ...VIEW_KEYS('shipping'),
-      'audit.view',
+      'audit.view', 'expected_arrivals.view',
     ],
   },
 ];

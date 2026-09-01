@@ -19,6 +19,7 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { key: 'dashboard', label: 'Dashboard', path: '/', permission: 'warehouses.view' },
+  { key: 'expected-arrivals', label: 'Expected Arrivals', path: '/expected-arrivals', permission: 'expected_arrivals.view' },
   { key: 'warehouse', label: 'Warehouse', path: '/warehouse', permission: 'warehouses.view' },
   { key: 'users', label: 'Users', path: '/users', permission: 'users.view' },
   { key: 'roles', label: 'Roles & Permissions', path: '/roles', permission: 'roles.view' },
