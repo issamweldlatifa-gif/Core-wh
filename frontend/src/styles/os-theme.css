@@ -1,0 +1,210 @@
+/* ==========================================================================
+   WAREHOUSE OS — shared design system.
+
+   One system, two information architectures (§45):
+     .theme-worker  -> Worker Terminal palette (§33), large + high contrast
+     .theme-admin   -> Admin Control Center palette (§34), dense + technical
+
+   Tokens are the ONLY place colours are defined; components consume the
+   variables so a future terminal inherits the language for free (§44).
+   ========================================================================== */
+
+:root {
+  /* Typography (§35): technical mono for codes/data, with an Arabic-capable
+     fallback chain. Arabic must never fall back to a mono face that lacks
+     shaping, so the Arabic families are listed before any generic mono. */
+  --os-font-mono: 'JetBrains Mono', 'Space Mono', ui-monospace, 'Cascadia Mono',
+    'Segoe UI Mono', 'Noto Sans Arabic', 'Cairo', 'Tajawal', monospace;
+  --os-font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', 'Noto Sans Arabic',
+    'Cairo', 'Tajawal', sans-serif;
+
+  /* Spacing scale — shared by both experiences (§45). */
+  --os-s1: 4px;
+  --os-s2: 8px;
+  --os-s3: 12px;
+  --os-s4: 16px;
+  --os-s5: 24px;
+  --os-s6: 32px;
+  --os-s7: 48px;
+
+  --os-radius: 10px;
+  --os-radius-sm: 6px;
+
+  --os-speed: 140ms;
+}
+
+/* --------------------------------------------------------------------------
+   WORKER TERMINAL (§33). Dark green, high contrast, large operational states.
+   -------------------------------------------------------------------------- */
+.theme-worker {
+  --bg: #0b0f0d;
+  --surface: #111713;
+  --surface-2: #161d18;
+  --primary: #39ff14;
+  --secondary: #20c95a;
+  --text: #e8f5ec;
+  --muted: #8fa397;
+  --success: #39ff14;
+  --warning: #ffb020;
+  --error: #ff3b30;
+  --info: #38bdf8;
+  --border: #26352c;
+  --font: var(--os-font-mono);
+  /* Glow is reserved for important operational states only (§33). */
+  --glow: 0 0 18px rgba(57, 255, 20, 0.35);
+}
+
+/* --------------------------------------------------------------------------
+   ADMIN CONTROL CENTER (§34). Dark blue, information-dense, technical.
+   -------------------------------------------------------------------------- */
+.theme-admin {
+  --bg: #080b10;
+  --surface: #11161d;
+  --surface-2: #161d26;
+  --primary: #4f8cff;
+  --secondary: #22c55e;
+  --text: #f3f6fa;
+  --muted: #8a96a6;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --info: #38bdf8;
+  --border: #252d38;
+  --font: var(--os-font-ui);
+  --glow: none;
+}
+
+/* ==========================================================================
+   Shared primitives — identical component vocabulary, different density.
+   ========================================================================== */
+
+.os-root {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  min-height: 100vh;
+}
+
+/* --- surfaces ------------------------------------------------------------ */
+.os-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--os-radius);
+  padding: var(--os-s4);
+}
+.theme-admin .os-card { padding: var(--os-s3); }
+
+.os-card-title {
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 var(--os-s3);
+  font-weight: 600;
+}
+
+/* --- buttons ------------------------------------------------------------- */
+.os-btn {
+  font-family: var(--font);
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--os-radius-sm);
+  cursor: pointer;
+  transition: background var(--os-speed), border-color var(--os-speed), transform var(--os-speed);
+  font-weight: 600;
+}
+.os-btn:hover:not(:disabled) { border-color: var(--primary); }
+.os-btn:active:not(:disabled) { transform: translateY(1px); }
+.os-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.os-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* Touch-friendly on the floor (§32/§43); compact in admin. */
+.theme-worker .os-btn { padding: 14px 20px; font-size: 1rem; min-height: 52px; }
+.theme-admin .os-btn { padding: 7px 13px; font-size: 0.85rem; }
+
+.os-btn--primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #04120a;
+}
+.theme-admin .os-btn--primary { color: #06101f; }
+.os-btn--danger { border-color: var(--error); color: var(--error); }
+.os-btn--ghost { background: transparent; }
+
+/* --- inputs -------------------------------------------------------------- */
+.os-input {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--os-radius-sm);
+  width: 100%;
+}
+.os-input:focus { outline: none; border-color: var(--primary); }
+.theme-worker .os-input { padding: 14px 16px; font-size: 1.15rem; }
+.theme-admin .os-input { padding: 7px 10px; font-size: 0.88rem; }
+
+.os-label {
+  display: block;
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: var(--os-s2);
+}
+
+/* --- status pills -------------------------------------------------------- */
+.os-tag {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+.os-tag--ok { color: var(--success); }
+.os-tag--warn { color: var(--warning); }
+.os-tag--err { color: var(--error); }
+.os-tag--info { color: var(--info); }
+.os-tag--muted { color: var(--muted); }
+
+/* --- tables (admin density) ---------------------------------------------- */
+.os-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.os-table th {
+  text-align: left;
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: var(--os-s2) var(--os-s3);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+}
+.os-table td {
+  padding: var(--os-s2) var(--os-s3);
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.os-table tbody tr:hover { background: var(--surface-2); }
+.os-table .mono { font-family: var(--os-font-mono); }
+
+/* --- misc ---------------------------------------------------------------- */
+.os-muted { color: var(--muted); }
+.os-mono { font-family: var(--os-font-mono); }
+.os-empty { color: var(--muted); padding: var(--os-s5); text-align: center; }
+.os-row { display: flex; align-items: center; gap: var(--os-s3); }
+.os-spread { display: flex; align-items: center; justify-content: space-between; gap: var(--os-s3); }
+.os-grid { display: grid; gap: var(--os-s3); }
+
+.os-scroll { overflow: auto; }
+
+/* Respect users who ask for less motion (accessibility + long shifts). */
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

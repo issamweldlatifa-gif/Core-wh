@@ -105,6 +105,13 @@ const PERMISSIONS: Array<{ key: string; resource: string; action: string; descri
   { key: 'roles.view', resource: 'roles', action: 'view', description: 'View roles' },
   { key: 'roles.manage', resource: 'roles', action: 'manage', description: 'Create and manage roles and role permissions' },
 
+  // WAREHOUSE OS — Admin Control Center. Deliberately NOT granted to floor
+  // worker roles: the operational overview aggregates every worker, station
+  // and session, which is supervisory information (§46).
+  { key: 'operations.view', resource: 'operations', action: 'view', description: 'View the Admin Control Center operational overview, workers, sessions and exceptions' },
+  { key: 'operations.correct', resource: 'operations', action: 'correct', description: 'Apply audited corrections to recorded operations' },
+  { key: 'stations.view', resource: 'stations', action: 'view', description: 'View stations' },
+  { key: 'stations.manage', resource: 'stations', action: 'manage', description: 'Create, update, assign and change status of stations' },
   { key: 'audit.view', resource: 'audit', action: 'view', description: 'View audit log' },
 
   // System (documented addition for Phase 0 Core)
@@ -171,6 +178,8 @@ const ROLES: Array<{ name: string; description: string; isSystem: boolean; permi
       'users.view', 'users.manage', 'roles.view', 'roles.manage', 'audit.view',
       'system.view', 'system.manage', 'api_clients.view', 'api_clients.manage',
       'expected_arrivals.view', 'shipments.view', 'receiving.resolve_discrepancy',
+      // Admin Control Center (§6/§36).
+      'operations.view', 'operations.correct', 'stations.view', 'stations.manage',
     ],
   },
   {
@@ -191,6 +200,8 @@ const ROLES: Array<{ name: string; description: string; isSystem: boolean; permi
       ...VIEW_KEYS('shipping'), ...EXECUTE_KEYS('shipping'),
       'users.view', 'roles.view', 'audit.view', 'system.view', 'api_clients.view',
       'expected_arrivals.view', 'shipments.view', 'receiving.resolve_discrepancy',
+      // Supervises the floor and may correct, but does not configure stations.
+      'operations.view', 'operations.correct', 'stations.view',
     ],
   },
   {
@@ -204,6 +215,10 @@ const ROLES: Array<{ name: string; description: string; isSystem: boolean; permi
       ...VIEW_KEYS('receiving'), ...EXECUTE_KEYS('receiving'),
       ...VIEW_KEYS('stowing'), ...EXECUTE_KEYS('stowing'),
       'expected_arrivals.view', 'shipments.view',
+      // Deliberately NO operations.* here: the floor worker must never see the
+      // Admin Control Center aggregate views (§2/§46). Station visibility is
+      // limited to their own, served by /terminal/context.
+      'stations.view',
     ],
   },
   {
@@ -418,6 +433,66 @@ async function main() {
     console.log('  + TEST/SEED physical structure created (TUN-MAIN: SHOES, CLOTHING).');
   };
   await seed();
+
+  // ------------------------------------------------------------------
+  // WAREHOUSE OS — stations + a floor worker so role-aware terminal routing
+  // (§2/§3) can be exercised end to end. Clearly labelled TEST/SEED data.
+  // ------------------------------------------------------------------
+  const osSeed = async () => {
+    const wh = await prisma.warehouse.findUnique({ where: { code: 'TUN-MAIN' } });
+
+    const stations: Array<{
+      code: string;
+      name: string;
+      department: 'RECEIVING' | 'SORTING' | 'PUTAWAY' | 'PACKING';
+      capabilities: Array<'CAMERA' | 'BARCODE_SCANNER' | 'QR_SCANNER' | 'OCR' | 'PRINTER' | 'SCALE'>;
+    }> = [
+      { code: 'ST-REC-01', name: 'Receiving Dock 1', department: 'RECEIVING', capabilities: ['CAMERA', 'BARCODE_SCANNER', 'QR_SCANNER', 'OCR', 'SCALE'] },
+      { code: 'ST-REC-02', name: 'Receiving Dock 2', department: 'RECEIVING', capabilities: ['CAMERA', 'BARCODE_SCANNER', 'OCR'] },
+      { code: 'ST-SRT-01', name: 'Sorting Bench 1', department: 'SORTING', capabilities: ['CAMERA', 'BARCODE_SCANNER'] },
+      { code: 'ST-PCK-01', name: 'Packing Bench 1', department: 'PACKING', capabilities: ['CAMERA', 'PRINTER', 'SCALE'] },
+    ];
+    for (const st of stations) {
+      await prisma.station.upsert({
+        where: { code: st.code },
+        update: { name: st.name, department: st.department, capabilities: st.capabilities, warehouseId: wh?.id ?? null },
+        create: { ...st, warehouseId: wh?.id ?? null },
+      });
+    }
+
+    // A receiving worker: proves a worker lands in the Terminal, never in the
+    // Admin dashboard, and that permissions are enforced by the backend.
+    const workerCode = process.env.SEED_WORKER_CODE ?? 'WORKER001';
+    const workerPass = process.env.SEED_WORKER_PASSWORD ?? 'Worker!2024';
+    const inbound = await prisma.role.findUnique({ where: { name: 'INBOUND_WORKER' } });
+    const hash = await bcrypt.hash(workerPass, 12);
+    const worker = await prisma.user.upsert({
+      where: { employeeCode: workerCode },
+      update: { name: 'Ahmed Ben Salah', passwordHash: hash, credentialMode: 'PASSWORD', status: 'ACTIVE' },
+      create: {
+        name: 'Ahmed Ben Salah',
+        employeeCode: workerCode,
+        email: workerCode,
+        passwordHash: hash,
+        credentialMode: 'PASSWORD',
+        status: 'ACTIVE',
+      },
+    });
+    if (inbound) {
+      await prisma.userRole.upsert({
+        where: { userId_roleId: { userId: worker.id, roleId: inbound.id } },
+        update: {},
+        create: { userId: worker.id, roleId: inbound.id },
+      });
+    }
+    // Put the worker at a receiving station so the terminal shows a station.
+    await prisma.station.update({
+      where: { code: 'ST-REC-01' },
+      data: { assignedWorkerId: worker.id },
+    });
+    console.log(`  + WAREHOUSE OS stations + worker "${workerCode}" (password "${workerPass}").`);
+  };
+  await osSeed();
 
   console.log('Seed complete.');
 }

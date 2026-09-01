@@ -17,6 +17,17 @@ import Users from './pages/Users';
 import Roles from './pages/Roles';
 import Audit from './pages/Audit';
 import System from './pages/System';
+// WAREHOUSE OS — Worker Terminal (§3-§5) and Admin Control Center (§6).
+import WorkerShell from './terminal/WorkerShell';
+import WorkerTerminalHome from './terminal/WorkerTerminalHome';
+import ReceivingTask from './terminal/ReceivingTask';
+import AdminShell from './admin/AdminShell';
+import ControlCenter from './admin/pages/ControlCenter';
+import AdminWorkers from './admin/pages/Workers';
+import AdminSessionDetail from './admin/pages/SessionDetail';
+import AdminStations from './admin/pages/Stations';
+import AdminExceptions from './admin/pages/Exceptions';
+import AdminCorrections from './admin/pages/Corrections';
 
 /** Guards a route by the required back-end permission; redirects otherwise. */
 function PermissionGate({ perm, children }: { perm: string; children: JSX.Element }) {
@@ -57,6 +68,39 @@ export default function App() {
             element={<PermissionGate perm="receiving.view"><ReceivingTerminal /></PermissionGate>}
           />
           <Route path="/receiving" element={<Navigate to="/warehouse/receiving" replace />} />
+
+          {/* ---- WORKER TERMINAL (§3-§5) -------------------------------
+              A worker's whole world. Full-screen, no admin navigation. */}
+          <Route path="/terminal" element={<WorkerShell />}>
+            <Route index element={<WorkerTerminalHome />} />
+            <Route
+              path="receiving"
+              element={<PermissionGate perm="receiving.execute"><ReceivingTask /></PermissionGate>}
+            />
+          </Route>
+
+          {/* ---- ADMIN CONTROL CENTER (§6/§36-§40) ---------------------
+              Guarded by operations.view, which workers do not have (§41). */}
+          <Route
+            path="/admin"
+            element={<PermissionGate perm="operations.view"><AdminShell /></PermissionGate>}
+          >
+            <Route index element={<ControlCenter />} />
+            <Route path="workers" element={<AdminWorkers />} />
+            <Route path="workers/:id" element={<AdminWorkers />} />
+            <Route path="sessions/:id" element={<AdminSessionDetail />} />
+            <Route path="stations" element={<AdminStations />} />
+            <Route path="exceptions" element={<AdminExceptions />} />
+            <Route path="corrections" element={<AdminCorrections />} />
+            {/* Existing modules stay reachable from the Control Center nav. */}
+            <Route path="arrivals" element={<Navigate to="/expected-arrivals" replace />} />
+            <Route path="receiving" element={<Navigate to="/warehouse/receiving" replace />} />
+            <Route path="structure" element={<Navigate to="/warehouse/structure" replace />} />
+            <Route path="users" element={<Navigate to="/users" replace />} />
+            <Route path="roles" element={<Navigate to="/roles" replace />} />
+            <Route path="audit" element={<Navigate to="/audit" replace />} />
+            <Route path="system" element={<Navigate to="/system" replace />} />
+          </Route>
           <Route element={<AppShell />}>
             <Route index element={<Dashboard />} />
             <Route

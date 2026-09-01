@@ -129,6 +129,16 @@ enum AuditAction {
   DISCREPANCY_RESOLVED
   RECEIVING_COMPLETED
   RECEIVING_COMPLETED_WITH_DISCREPANCY
+  // WAREHOUSE OS — stations, terminal sessions and audited corrections.
+  STATION_CREATED
+  STATION_UPDATED
+  STATION_STATUS_CHANGED
+  STATION_ASSIGNED
+  STATION_UNASSIGNED
+  CORRECTION_APPLIED
+  RECEIVING_REVERSED
+  SESSION_REOPENED
+  SESSION_REASSIGNED
   // Placeholders for later phases (NOT implemented in Phase 0/1).
   ITEM_RECEIVED
   ITEM_STORED
@@ -164,9 +174,13 @@ model User {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
-  sessions     Session[]
-  roles        UserRole[]
-  createdAudit AuditLog[] @relation("Actor")
+  sessions         Session[]
+  roles            UserRole[]
+  createdAudit     AuditLog[]            @relation("Actor")
+  // WAREHOUSE OS back-relations.
+  stationsAssigned Station[]             @relation("StationWorker")
+  correctionsMade  OperationCorrection[] @relation("CorrectionAdmin")
+  correctionsAbout OperationCorrection[] @relation("CorrectionWorker")
 
   @@index([status])
   @@map("users")
@@ -370,6 +384,7 @@ model Warehouse {
   zones     Zone[]
   locations Location[]
   orders    WarehouseOrder[] // Phase 2: lightweight order projections (nullable warehouseId per D-50)
+  stations  Station[]
 
   @@index([status])
   @@map("warehouses")
@@ -789,8 +804,8 @@ model ExpectedArrival {
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
 
-  items     ExpectedArrivalItem[]
-  shipments WarehouseShipment[]
+  items             ExpectedArrivalItem[]
+  shipments         WarehouseShipment[]
   receivingSessions ReceivingSession[]
 
   @@index([status])
@@ -805,17 +820,17 @@ model ExpectedArrivalItem {
   arrivalId String
   arrival   ExpectedArrival @relation(fields: [arrivalId], references: [id], onDelete: Cascade)
 
-  productId String? // external/CRM product id, reference only
-  sku       String? // store-agnostic: any field may be missing (nullable)
-  reference String?
+  productId   String? // external/CRM product id, reference only
+  sku         String? // store-agnostic: any field may be missing (nullable)
+  reference   String?
   productName String?
-  quantity  Int             @default(1) // >= 1 enforced by DTO + DB CHECK
-  variant   String?
-  color     String?
-  size      String?
+  quantity    Int     @default(1) // >= 1 enforced by DTO + DB CHECK
+  variant     String?
+  color       String?
+  size        String?
   // Store the product came from when a card aggregates multiple stores.
-  storeId   String?
-  storeName String?
+  storeId     String?
+  storeName   String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -832,28 +847,28 @@ model ExpectedArrivalItem {
 // ------------------------------------------------------------------
 
 model WarehouseShipment {
-  id                       String                 @id @default(uuid())
+  id                 String  @id @default(uuid())
   // Human code `WSHP-XXXXXXXX`, generated server-side.
-  code                     String                 @unique
+  code               String  @unique
   // Idempotency anchor: the Shipment Card id from Arrival CRM.
-  externalShipmentId       String                 @unique
-  shipmentReference        String?
-  idempotencyKey           String?
+  externalShipmentId String  @unique
+  shipmentReference  String?
+  idempotencyKey     String?
 
-  arrivalId                String? // local ExpectedArrival.id
-  expectedArrival          ExpectedArrival?       @relation(fields: [arrivalId], references: [id], onDelete: SetNull)
-  externalArrivalId        String? // external arrival id from CRM
-  arrivalReference         String?
+  arrivalId         String? // local ExpectedArrival.id
+  expectedArrival   ExpectedArrival? @relation(fields: [arrivalId], references: [id], onDelete: SetNull)
+  externalArrivalId String? // external arrival id from CRM
+  arrivalReference  String?
 
-  sourceType               ShipmentSourceType     @default(MANUAL)
-  sourceReference          String?
+  sourceType      ShipmentSourceType @default(MANUAL)
+  sourceReference String?
 
   // Carrier
-  carrierId                String?
-  carrierName              String?
-  carrierCode              String?
-  serviceName              String?
-  carrierAccountReference  String?
+  carrierId               String?
+  carrierName             String?
+  carrierCode             String?
+  serviceName             String?
+  carrierAccountReference String?
 
   // Tracking
   trackingNumber           String?
@@ -863,45 +878,45 @@ model WarehouseShipment {
   carrierTrackingReference String?
 
   // Sender
-  senderName               String?
-  senderCompany            String?
-  senderCountry            String?
-  senderCity               String?
-  senderReference          String?
-  senderAddress            String?
-  senderPhone              String?
-  senderEmail              String?
+  senderName      String?
+  senderCompany   String?
+  senderCountry   String?
+  senderCity      String?
+  senderReference String?
+  senderAddress   String?
+  senderPhone     String?
+  senderEmail     String?
 
   // Destination
-  destinationCountry       String?
-  destinationCity          String?
-  destinationCode          String?
-  destinationReference     String?
+  destinationCountry   String?
+  destinationCity      String?
+  destinationCode      String?
+  destinationReference String?
 
   // Dates (distinct concepts — never one generic date)
-  shipmentCreatedAt        DateTime?
-  shippedAt                DateTime?
-  estimatedArrivalAt       DateTime?
-  actualArrivalAt          DateTime?
+  shipmentCreatedAt  DateTime?
+  shippedAt          DateTime?
+  estimatedArrivalAt DateTime?
+  actualArrivalAt    DateTime?
 
   // Summary counts
-  totalCartons             Int                    @default(0)
-  totalProducts            Int                    @default(0)
-  totalUnits               Int                    @default(0)
+  totalCartons  Int @default(0)
+  totalProducts Int @default(0)
+  totalUnits    Int @default(0)
 
   // Weight (shipment level, optional)
-  totalWeight              Float?
-  weightUnit               String?
+  totalWeight Float?
+  weightUnit  String?
 
-  apiClientId              String?
-  receivedViaApi           Boolean                @default(true)
-  receivedViaApiAt         DateTime?
+  apiClientId      String?
+  receivedViaApi   Boolean   @default(true)
+  receivedViaApiAt DateTime?
 
-  createdAt                DateTime               @default(now())
-  updatedAt                DateTime               @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  cartons                  WarehouseCarton[]
-  receivingSessions        ReceivingSession[]
+  cartons           WarehouseCarton[]
+  receivingSessions ReceivingSession[]
 
   @@index([arrivalId])
   @@index([carrierCode])
@@ -911,34 +926,34 @@ model WarehouseShipment {
 }
 
 model WarehouseCarton {
-  id                String           @id @default(uuid())
-  shipmentId        String
-  shipment          WarehouseShipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  id         String            @id @default(uuid())
+  shipmentId String
+  shipment   WarehouseShipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
 
   // External identity from the Shipment Card (CTN-...). Unique across warehouse.
-  externalCartonId  String           @unique
-  cartonReference   String?
-  qrCodeValue       String? // stable identifier encoded into the QR
-  barcodeValue      String? // stable identifier encoded into the barcode
-  cartonNumber      Int              @default(1)
-  totalCartons      Int              @default(1)
+  externalCartonId String  @unique
+  cartonReference  String?
+  qrCodeValue      String? // stable identifier encoded into the QR
+  barcodeValue     String? // stable identifier encoded into the barcode
+  cartonNumber     Int     @default(1)
+  totalCartons     Int     @default(1)
 
-  status            CartonStatus     @default(EXPECTED)
+  status CartonStatus @default(EXPECTED)
 
-  weight            Float?
-  weightUnit        String?
-  length            Float?
-  width             Float?
-  height            Float?
-  dimensionUnit     String?
+  weight        Float?
+  weightUnit    String?
+  length        Float?
+  width         Float?
+  height        Float?
+  dimensionUnit String?
 
-  receivedAt        DateTime?
-  receivedBy        String?
+  receivedAt DateTime?
+  receivedBy String?
 
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  receivingCartons  ReceivingCarton[]
+  receivingCartons ReceivingCarton[]
 
   @@index([shipmentId])
   @@index([status])
@@ -955,35 +970,38 @@ model WarehouseCarton {
 // ------------------------------------------------------------------
 
 model ReceivingSession {
-  id                    String                  @id @default(uuid())
-  code                  String                  @unique // RCV-XXXXXXXX
-  arrivalId             String
-  expectedArrival       ExpectedArrival         @relation(fields: [arrivalId], references: [id], onDelete: Cascade)
-  shipmentId            String? // primary shipment being received
-  shipment              WarehouseShipment?      @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
+  id              String             @id @default(uuid())
+  code            String             @unique // RCV-XXXXXXXX
+  arrivalId       String
+  expectedArrival ExpectedArrival    @relation(fields: [arrivalId], references: [id], onDelete: Cascade)
+  shipmentId      String? // primary shipment being received
+  shipment        WarehouseShipment? @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
 
-  status                ReceivingSessionStatus  @default(RECEIVING)
+  status ReceivingSessionStatus @default(RECEIVING)
 
   // Device context of the worker terminal that started this session (free
   // form, audit/troubleshooting only — hardware is a support layer, not a
   // hard requirement of the workflow).
-  deviceType            String? // SMARTPHONE | TABLET | DESKTOP | ...
-  deviceName            String? // browser / device label
-  scanSource            String? // default scan source chosen by the worker
+  deviceType String? // SMARTPHONE | TABLET | DESKTOP | ...
+  deviceName String? // browser / device label
+  scanSource String? // default scan source chosen by the worker
 
-  startedBy             String?
-  startedAt             DateTime                @default(now())
-  pausedAt              DateTime?
-  resumedAt             DateTime?
-  completedBy           String?
-  completedAt           DateTime?
+  startedBy   String?
+  startedAt   DateTime  @default(now())
+  pausedAt    DateTime?
+  resumedAt   DateTime?
+  completedBy String?
+  completedAt DateTime?
 
-  createdAt             DateTime                @default(now())
-  updatedAt             DateTime                @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  cartons               ReceivingCarton[]
-  products              ReceivingProduct[]
-  discrepancies         ReceivingDiscrepancy[]
+  cartons       ReceivingCarton[]
+  products      ReceivingProduct[]
+  discrepancies ReceivingDiscrepancy[]
+  corrections   OperationCorrection[]
+  /// Station the session was executed at (§13).
+  stationId     String?
 
   @@index([arrivalId])
   @@index([status])
@@ -997,17 +1015,17 @@ model ReceivingCarton {
   cartonId           String?
   carton             WarehouseCarton? @relation(fields: [cartonId], references: [id], onDelete: SetNull)
 
-  scannedCode        String
-  scanType           ScanType         @default(MANUAL)
-  source             ScanSource       @default(MANUAL) // CAMERA | EXTERNAL_SCANNER | MANUAL
-  status             String           @default("RECEIVED") // RECEIVED | UNKNOWN | WRONG_SHIPMENT | DUPLICATE | FLAGGED
-  receivedBy         String?
-  receivedAt         DateTime?
+  scannedCode String
+  scanType    ScanType   @default(MANUAL)
+  source      ScanSource @default(MANUAL) // CAMERA | EXTERNAL_SCANNER | MANUAL
+  status      String     @default("RECEIVED") // RECEIVED | UNKNOWN | WRONG_SHIPMENT | DUPLICATE | FLAGGED
+  receivedBy  String?
+  receivedAt  DateTime?
 
   // Idempotency: a physical scan operation is processed at most once.
-  operationId        String?          @unique
+  operationId String? @unique
 
-  createdAt          DateTime         @default(now())
+  createdAt DateTime @default(now())
 
   @@index([receivingSessionId])
   @@index([cartonId])
@@ -1015,22 +1033,22 @@ model ReceivingCarton {
 }
 
 model ReceivingProduct {
-  id                 String                  @id @default(uuid())
+  id                 String           @id @default(uuid())
   receivingSessionId String
-  session            ReceivingSession        @relation(fields: [receivingSessionId], references: [id], onDelete: Cascade)
+  session            ReceivingSession @relation(fields: [receivingSessionId], references: [id], onDelete: Cascade)
 
-  arrivalItemId      String? // link to ExpectedArrivalItem (expected line)
-  sku                String?
-  reference          String?
-  productName        String?
+  arrivalItemId String? // link to ExpectedArrivalItem (expected line)
+  sku           String?
+  reference     String?
+  productName   String?
 
-  expectedQuantity   Int                     @default(0)
-  receivedQuantity   Int                     @default(0)
-  difference         Int                     @default(0)
-  status             ReceivingProductStatus  @default(EXPECTED)
+  expectedQuantity Int                    @default(0)
+  receivedQuantity Int                    @default(0)
+  difference       Int                    @default(0)
+  status           ReceivingProductStatus @default(EXPECTED)
 
-  createdAt          DateTime                @default(now())
-  updatedAt          DateTime                @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // One reconciliation row per expected line per session.
   @@unique([receivingSessionId, sku])
@@ -1040,9 +1058,9 @@ model ReceivingProduct {
 }
 
 model ReceivingDiscrepancy {
-  id                 String             @id @default(uuid())
+  id                 String           @id @default(uuid())
   receivingSessionId String
-  session            ReceivingSession   @relation(fields: [receivingSessionId], references: [id], onDelete: Cascade)
+  session            ReceivingSession @relation(fields: [receivingSessionId], references: [id], onDelete: Cascade)
 
   cartonId           String?
   receivingProductId String?
@@ -1051,16 +1069,133 @@ model ReceivingDiscrepancy {
   actualQuantity     Int?
   difference         Int?
   reason             String?
-  status             DiscrepancyStatus  @default(OPEN)
+  status             DiscrepancyStatus @default(OPEN)
 
-  createdBy          String?
-  createdAt          DateTime           @default(now())
-  resolvedBy         String?
-  resolvedAt         DateTime?
-  resolution         String?
+  createdBy  String?
+  createdAt  DateTime  @default(now())
+  resolvedBy String?
+  resolvedAt DateTime?
+  resolution String?
 
   @@index([receivingSessionId])
   @@index([status])
   @@index([type])
   @@map("receiving_discrepancies")
+}
+
+// ===========================================================================
+// WAREHOUSE OS — Stations, Worker Terminal context, and audited Corrections.
+// ===========================================================================
+
+/// Operational department a station/task belongs to. Adding a new terminal
+/// (Sorting, Putaway, Packing...) means adding a value here + a task handler;
+/// the shell, scanner, session and audit layers are reused unchanged (§44).
+enum StationDepartment {
+  RECEIVING
+  SORTING
+  PUTAWAY
+  PACKING
+  INVENTORY
+  DISPATCH
+}
+
+enum StationStatus {
+  ACTIVE
+  INACTIVE
+  MAINTENANCE
+}
+
+/// Hardware a station can offer. The workflow never branches on these (§11);
+/// they only tell the terminal which input affordances to render.
+enum StationCapability {
+  CAMERA
+  BARCODE_SCANNER
+  QR_SCANNER
+  OCR
+  PRINTER
+  SCALE
+}
+
+/// A physical work position on the floor (§10).
+model Station {
+  id         String            @id @default(uuid())
+  code       String            @unique
+  name       String
+  department StationDepartment
+  status     StationStatus     @default(ACTIVE)
+
+  /// Currently assigned worker (soft link: clearing the worker must never
+  /// delete the station or its history).
+  assignedWorkerId String?
+  assignedWorker   User?   @relation("StationWorker", fields: [assignedWorkerId], references: [id], onDelete: SetNull)
+
+  deviceId     String?
+  capabilities StationCapability[] @default([])
+
+  warehouseId String?
+  warehouse   Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  corrections OperationCorrection[]
+
+  @@index([department])
+  @@index([status])
+  @@index([assignedWorkerId])
+  @@map("stations")
+}
+
+/// What an admin is allowed to do to a recorded operation (§7/§39).
+enum CorrectionAction {
+  REVERSE_RECEIVING
+  CORRECT_PRODUCT
+  CORRECT_QUANTITY
+  REASSIGN_SESSION
+  REOPEN_SESSION
+  VOID_OPERATION
+  RESOLVE_EXCEPTION
+}
+
+/// An append-only correction record (§8). Operational history is NEVER
+/// overwritten: the original state is snapshotted into `originalSnapshot`
+/// and the resulting state into `newSnapshot`, both immutable afterwards.
+model OperationCorrection {
+  id   String @id @default(uuid())
+  code String @unique // COR-XXXXXX
+
+  action CorrectionAction
+  /// Free-text justification — mandatory, enforced at the service layer.
+  reason String
+
+  /// Who authorised it, and from where.
+  adminId   String
+  admin     User    @relation("CorrectionAdmin", fields: [adminId], references: [id], onDelete: Restrict)
+  ipAddress String?
+
+  /// What was corrected. Kept as loose references so a correction can target
+  /// any operational entity without a forest of nullable FKs.
+  entityType String // receiving_session | receiving_carton | receiving_product | discrepancy
+  entityId   String
+
+  receivingSessionId String?
+  session            ReceivingSession? @relation(fields: [receivingSessionId], references: [id], onDelete: SetNull)
+
+  stationId String?
+  station   Station? @relation(fields: [stationId], references: [id], onDelete: SetNull)
+
+  workerId String?
+  worker   User?   @relation("CorrectionWorker", fields: [workerId], references: [id], onDelete: SetNull)
+
+  /// Immutable before/after snapshots (§8).
+  originalSnapshot Json
+  newSnapshot      Json
+
+  createdAt DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([receivingSessionId])
+  @@index([adminId])
+  @@index([createdAt])
+  @@map("operation_corrections")
 }

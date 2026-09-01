@@ -1,0 +1,140 @@
+/* ==========================================================================
+   ADMIN CONTROL CENTER (§6/§34/§43) — information-dense, technical.
+   Same design system as the terminal, deliberately different IA (§45).
+   ========================================================================== */
+
+.ac { display: grid; grid-template-columns: 232px 1fr; min-height: 100vh; }
+.ac-boot { display: grid; place-items: center; height: 100vh; }
+
+/* ---- sidebar ------------------------------------------------------------- */
+.ac-side {
+  display: flex; flex-direction: column;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  position: sticky; top: 0; height: 100vh; overflow: auto;
+}
+.ac-brand { padding: 16px; border-bottom: 1px solid var(--border); }
+.ac-brand-main {
+  display: block; font-weight: 800; letter-spacing: 0.2em; color: var(--primary);
+}
+.ac-brand-sub { display: block; font-size: 0.7rem; color: var(--muted); letter-spacing: 0.1em; }
+
+.ac-nav { flex: 1; padding: 10px 8px; }
+.ac-nav-group { margin-bottom: 14px; }
+.ac-nav-title {
+  font-size: 0.62rem; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--muted); padding: 6px 10px;
+}
+.ac-link {
+  display: block; padding: 7px 10px; margin-bottom: 2px;
+  border-radius: var(--os-radius-sm);
+  color: var(--text); text-decoration: none; font-size: 0.85rem;
+  border-left: 2px solid transparent;
+  transition: background var(--os-speed), border-color var(--os-speed);
+}
+.ac-link:hover { background: var(--surface-2); }
+.ac-link.is-active {
+  background: var(--surface-2);
+  border-left-color: var(--primary);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.ac-user { padding: 12px; border-top: 1px solid var(--border); display: grid; gap: 6px; }
+.ac-user-name { font-weight: 600; font-size: 0.85rem; }
+.ac-user-meta { font-size: 0.7rem; }
+
+/* ---- main ---------------------------------------------------------------- */
+.ac-main { padding: 20px 24px; overflow: auto; min-width: 0; }
+
+.ac-head { margin-bottom: 18px; }
+.ac-title { font-size: 1.25rem; margin: 0 0 4px; font-weight: 700; }
+.ac-sub { color: var(--muted); font-size: 0.85rem; margin: 0; }
+
+/* ---- KPI strip ----------------------------------------------------------- */
+.ac-kpis {
+  display: grid; gap: 10px; margin-bottom: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+.ac-kpi {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--os-radius); padding: 12px 14px;
+}
+.ac-kpi-value { font-size: 1.6rem; font-weight: 700; line-height: 1.1; }
+.ac-kpi-label {
+  font-size: 0.66rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted);
+  margin-top: 4px;
+}
+.ac-kpi--alert .ac-kpi-value { color: var(--warning); }
+.ac-kpi--bad .ac-kpi-value { color: var(--error); }
+.ac-kpi--ok .ac-kpi-value { color: var(--secondary); }
+
+/* ---- panels -------------------------------------------------------------- */
+.ac-panels { display: grid; gap: 14px; }
+.ac-2col { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
+@media (max-width: 1100px) { .ac-2col { grid-template-columns: 1fr; } }
+
+.ac-linkbtn {
+  background: none; border: none; padding: 0; cursor: pointer;
+  color: var(--primary); font: inherit; text-decoration: underline;
+}
+
+/* ---- timeline ------------------------------------------------------------ */
+.ac-timeline { display: grid; gap: 0; }
+.ac-tl-item {
+  display: grid; grid-template-columns: 74px 132px 1fr; gap: 10px;
+  padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.82rem;
+  align-items: baseline;
+}
+.ac-tl-time { color: var(--muted); font-family: var(--os-font-mono); font-size: 0.76rem; }
+.ac-tl-kind { font-size: 0.66rem; letter-spacing: 0.1em; font-weight: 700; }
+.ac-tl-kind[data-k="CARTON"] { color: var(--secondary); }
+.ac-tl-kind[data-k="CARTON_REVERSED"] { color: var(--warning); }
+.ac-tl-kind[data-k="PRODUCT"] { color: var(--info); }
+.ac-tl-kind[data-k="EXCEPTION"] { color: var(--error); }
+.ac-tl-kind[data-k="CORRECTION"] { color: var(--warning); }
+.ac-tl-kind[data-k="SESSION_START"], .ac-tl-kind[data-k="SESSION_END"] { color: var(--muted); }
+
+/* ---- correction dialog --------------------------------------------------- */
+.ac-modal {
+  position: fixed; inset: 0; z-index: 900;
+  background: rgba(0, 0, 0, 0.66);
+  display: grid; place-items: center; padding: 20px;
+}
+.ac-modal-box {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--os-radius); padding: 18px; width: min(520px, 100%);
+  display: grid; gap: 12px;
+}
+.ac-modal-title { font-size: 1rem; font-weight: 700; margin: 0; }
+.ac-modal-warn {
+  font-size: 0.78rem; color: var(--warning);
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--os-radius-sm); padding: 8px 10px;
+}
+.ac-modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+.ac-snapshot {
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--os-radius-sm); padding: 8px 10px;
+  font-family: var(--os-font-mono); font-size: 0.72rem;
+  white-space: pre-wrap; word-break: break-word; max-height: 180px; overflow: auto;
+  color: var(--muted);
+}
+
+.ac-error {
+  border: 1px solid var(--error); color: var(--error);
+  background: rgba(239, 68, 68, 0.08);
+  border-radius: var(--os-radius-sm); padding: 8px 10px; font-size: 0.82rem;
+}
+
+/* ---- responsive (§43) ---------------------------------------------------- */
+@media (max-width: 860px) {
+  .ac { grid-template-columns: 1fr; }
+  .ac-side { position: static; height: auto; flex-direction: column; }
+  .ac-nav { display: flex; flex-wrap: wrap; gap: 4px; }
+  .ac-nav-group { margin: 0; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .ac-nav-title { display: none; }
+  .ac-main { padding: 14px; }
+}

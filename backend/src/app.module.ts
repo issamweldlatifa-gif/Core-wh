@@ -14,6 +14,7 @@ import { WarehouseModule } from './modules/warehouse/warehouse.module';
 import { ExpectedArrivalsModule } from './modules/expected-arrivals/expected-arrivals.module';
 import { ShipmentsModule } from './modules/shipments/shipments.module';
 import { ReceivingModule } from './modules/receiving/receiving.module';
+import { OperationsModule } from './modules/operations/operations.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 
@@ -44,6 +45,7 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     ExpectedArrivalsModule,
     ShipmentsModule,
     ReceivingModule,
+    OperationsModule,
   ],
   providers: [
     // Global guards: every route is authenticated and permission-checked
