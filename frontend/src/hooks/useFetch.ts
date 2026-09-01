@@ -2,13 +2,19 @@ import { useCallback, useEffect, useState } from 'react';
 import { AxiosRequestConfig } from 'axios';
 import client, { apiErrorMessage } from '../api/client';
 
-/** Lightweight data-fetch hook with loading/error/data states. */
-export function useFetch<T>(url: string, config?: AxiosRequestConfig) {
+/** Lightweight data-fetch hook with loading/error/data states.
+ *  Pass a null url to skip fetching entirely (permission-gated data). */
+export function useFetch<T>(url: string | null, config?: AxiosRequestConfig) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const trigger = useCallback(async () => {
+    if (!url) {
+      setData(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {

@@ -6,14 +6,14 @@
 
 .term {
   --t-bg: #0c0c0c;
-  --t-panel: #0a0a0a;
+  --t-panel: #101010;
   --t-border: #333333;
   --t-green: #00ff66;
   --t-green-dim: #00cc52;
   --t-cyan: #38d0e0;
   --t-yellow: #d7b800;
   --t-red: #ff5c5c;
-  --t-dim: #4a6b55;
+  --t-dim: #8a8a8a;
 
   position: fixed;
   inset: 0;
