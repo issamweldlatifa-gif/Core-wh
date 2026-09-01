@@ -109,6 +109,26 @@ enum AuditAction {
   // Expected Arrivals — inbound projection pushed by the AYROVI Arrival CRM.
   // This is NOT physical receiving: the goods are only EXPECTED to arrive.
   CUSTOMER_ARRIVAL_CARD_RECEIVED
+  // Shipment Cards — physical shipping/carton data pushed by the AYROVI
+  // Arrival CRM (still EXPECTED, not physically received).
+  SHIPMENT_CARD_RECEIVED
+  // Receiving — physical receipt of the expected shipment/cartons/products.
+  RECEIVING_STARTED
+  RECEIVING_PAUSED
+  RECEIVING_RESUMED
+  CARTON_SCANNED
+  CARTON_RECEIVED
+  CARTON_MANUAL_ENTRY
+  UNKNOWN_CARTON
+  WRONG_SHIPMENT
+  DUPLICATE_CARTON
+  PRODUCT_SCANNED
+  PRODUCT_RECEIVED
+  UNEXPECTED_PRODUCT
+  DISCREPANCY_CREATED
+  DISCREPANCY_RESOLVED
+  RECEIVING_COMPLETED
+  RECEIVING_COMPLETED_WITH_DISCREPANCY
   // Placeholders for later phases (NOT implemented in Phase 0/1).
   ITEM_RECEIVED
   ITEM_STORED
@@ -654,8 +674,85 @@ enum ExpectedArrivalSource {
 
 enum ExpectedArrivalStatus {
   EXPECTED // card received via API; goods not physically received yet
-  // RECEIVED / CANCELLED are reserved for later phases and intentionally
-  // not settable here (Receiving is out of scope for this work).
+  RECEIVING // a receiving session is open and physical cartons are being received
+  PAUSED // receiving session paused (no data lost)
+  RECEIVED // fully received with no open discrepancies
+  RECEIVED_WITH_DISCREPANCY // received but closed with shortages/overages/etc.
+}
+
+// Shipment card provenance (mirrors the CRM normalized source).
+enum ShipmentSourceType {
+  MANUAL // employee entered shipping information by hand
+  CARRIER_API // pulled via a carrier adapter (DHL/FedEx/...)
+  IMPORT // bulk import
+  OTHER
+}
+
+// Normalized carrier tracking state. Distinct from the internal integration
+// status — this is where the package is physically.
+enum ShipmentTrackingStatus {
+  CREATED
+  READY_TO_SHIP
+  SHIPPED
+  IN_TRANSIT
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+  UNKNOWN
+}
+
+// State of a physical carton master record (created from the Shipment Card).
+enum CartonStatus {
+  EXPECTED // announced on the shipment, not yet physically received
+  RECEIVED // physically received during a Receiving Session
+  FLAGGED // worker flagged for review
+  WRONG_SHIPMENT // scanned carton belongs to a different shipment
+}
+
+// Receiving Session lifecycle.
+enum ReceivingSessionStatus {
+  RECEIVING
+  PAUSED
+  COMPLETED
+  COMPLETED_WITH_DISCREPANCY
+  CANCELLED
+}
+
+// How a carton scan code was presented by the worker.
+enum ScanType {
+  QR
+  BARCODE
+  MANUAL
+}
+
+// Per-product reconciliation status within a Receiving Session.
+enum ReceivingProductStatus {
+  EXPECTED // nothing received yet
+  PARTIALLY_RECEIVED // some units received
+  RECEIVED // expected == received
+  SHORT // session closed while received < expected
+  OVERAGE // received > expected (supervisor approved)
+  UNEXPECTED // SKU not in the Expected Arrival
+  NEEDS_REVIEW // cannot be matched reliably (e.g. no SKU)
+}
+
+enum DiscrepancyType {
+  SHORTAGE
+  OVERAGE
+  UNKNOWN_CARTON
+  WRONG_SHIPMENT
+  DUPLICATE_SCAN
+  UNEXPECTED_PRODUCT
+  MISSING_PRODUCT
+  MISSING_CARTON
+  IDENTIFICATION_ERROR
+  OTHER
+}
+
+enum DiscrepancyStatus {
+  OPEN
+  RESOLVED
+  REJECTED
 }
 
 model ExpectedArrival {
@@ -683,7 +780,9 @@ model ExpectedArrival {
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
 
-  items ExpectedArrivalItem[]
+  items     ExpectedArrivalItem[]
+  shipments WarehouseShipment[]
+  receivingSessions ReceivingSession[]
 
   @@index([status])
   @@index([customerId])
@@ -715,4 +814,236 @@ model ExpectedArrivalItem {
   @@index([arrivalId])
   @@index([sku])
   @@map("expected_arrival_items")
+}
+
+// ------------------------------------------------------------------
+// Inbound Shipments — physical shipping/carton data pushed by the
+// AYROVI Arrival CRM Shipment Card. Linked to an Expected Arrival.
+// A shipment has one or more cartons. Still EXPECTED until Receiving.
+// ------------------------------------------------------------------
+
+model WarehouseShipment {
+  id                       String                 @id @default(uuid())
+  // Human code `WSHP-XXXXXXXX`, generated server-side.
+  code                     String                 @unique
+  // Idempotency anchor: the Shipment Card id from Arrival CRM.
+  externalShipmentId       String                 @unique
+  shipmentReference        String?
+  idempotencyKey           String?
+
+  arrivalId                String? // local ExpectedArrival.id
+  expectedArrival          ExpectedArrival?       @relation(fields: [arrivalId], references: [id], onDelete: SetNull)
+  externalArrivalId        String? // external arrival id from CRM
+  arrivalReference         String?
+
+  sourceType               ShipmentSourceType     @default(MANUAL)
+  sourceReference          String?
+
+  // Carrier
+  carrierId                String?
+  carrierName              String?
+  carrierCode              String?
+  serviceName              String?
+  carrierAccountReference  String?
+
+  // Tracking
+  trackingNumber           String?
+  trackingUrl              String?
+  trackingStatus           ShipmentTrackingStatus @default(UNKNOWN)
+  masterTrackingNumber     String?
+  carrierTrackingReference String?
+
+  // Sender
+  senderName               String?
+  senderCompany            String?
+  senderCountry            String?
+  senderCity               String?
+  senderReference          String?
+  senderAddress            String?
+  senderPhone              String?
+  senderEmail              String?
+
+  // Destination
+  destinationCountry       String?
+  destinationCity          String?
+  destinationCode          String?
+  destinationReference     String?
+
+  // Dates (distinct concepts — never one generic date)
+  shipmentCreatedAt        DateTime?
+  shippedAt                DateTime?
+  estimatedArrivalAt       DateTime?
+  actualArrivalAt          DateTime?
+
+  // Summary counts
+  totalCartons             Int                    @default(0)
+  totalProducts            Int                    @default(0)
+  totalUnits               Int                    @default(0)
+
+  // Weight (shipment level, optional)
+  totalWeight              Float?
+  weightUnit               String?
+
+  apiClientId              String?
+  receivedViaApi           Boolean                @default(true)
+  receivedViaApiAt         DateTime?
+
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+
+  cartons                  WarehouseCarton[]
+  receivingSessions        ReceivingSession[]
+
+  @@index([arrivalId])
+  @@index([carrierCode])
+  @@index([trackingNumber])
+  @@index([trackingStatus])
+  @@map("warehouse_shipments")
+}
+
+model WarehouseCarton {
+  id                String           @id @default(uuid())
+  shipmentId        String
+  shipment          WarehouseShipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  // External identity from the Shipment Card (CTN-...). Unique across warehouse.
+  externalCartonId  String           @unique
+  cartonReference   String?
+  qrCodeValue       String? // stable identifier encoded into the QR
+  barcodeValue      String? // stable identifier encoded into the barcode
+  cartonNumber      Int              @default(1)
+  totalCartons      Int              @default(1)
+
+  status            CartonStatus     @default(EXPECTED)
+
+  weight            Float?
+  weightUnit        String?
+  length            Float?
+  width             Float?
+  height            Float?
+  dimensionUnit     String?
+
+  receivedAt        DateTime?
+  receivedBy        String?
+
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  receivingCartons  ReceivingCarton[]
+
+  @@index([shipmentId])
+  @@index([status])
+  @@index([qrCodeValue])
+  @@index([barcodeValue])
+  @@map("warehouse_cartons")
+}
+
+// ------------------------------------------------------------------
+// Receiving — physical receipt of an Expected Arrival's shipments.
+// EXPECTED data is immutable; receiving records the physical
+// observation separately (ReceivingCarton / ReceivingProduct /
+// ReceivingDiscrepancy) and never overwrites expected quantities.
+// ------------------------------------------------------------------
+
+model ReceivingSession {
+  id                    String                  @id @default(uuid())
+  code                  String                  @unique // RCV-XXXXXXXX
+  arrivalId             String
+  expectedArrival       ExpectedArrival         @relation(fields: [arrivalId], references: [id], onDelete: Cascade)
+  shipmentId            String? // primary shipment being received
+  shipment              WarehouseShipment?      @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
+
+  status                ReceivingSessionStatus  @default(RECEIVING)
+
+  startedBy             String?
+  startedAt             DateTime                @default(now())
+  pausedAt              DateTime?
+  resumedAt             DateTime?
+  completedBy           String?
+  completedAt           DateTime?
+
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+
+  cartons               ReceivingCarton[]
+  products              ReceivingProduct[]
+  discrepancies         ReceivingDiscrepancy[]
+
+  @@index([arrivalId])
+  @@index([status])
+  @@map("receiving_sessions")
+}
+
+model ReceivingCarton {
+  id                 String           @id @default(uuid())
+  receivingSessionId String
+  session            ReceivingSession @relation(fields: [receivingSessionId], references: [id], onDelete: Cascade)
+  cartonId           String?
+  carton             WarehouseCarton? @relation(fields: [cartonId], references: [id], onDelete: SetNull)
+
+  scannedCode        String
+  scanType           ScanType         @default(MANUAL)
+  status             String           @default("RECEIVED") // RECEIVED | UNKNOWN | WRONG_SHIPMENT | DUPLICATE | FLAGGED
+  receivedBy         String?
+  receivedAt         DateTime?
+
+  // Idempotency: a physical scan operation is processed at most once.
+  operationId        String?          @unique
+
+  createdAt          DateTime         @default(now())
+
+  @@index([receivingSessionId])
+  @@index([cartonId])
+  @@map("receiving_cartons")
+}
+
+model ReceivingProduct {
+  id                 String                  @id @default(uuid())
+  receivingSessionId String
+  session            ReceivingSession        @relation(fields: [receivingSessionId], references: [id], onDelete: Cascade)
+
+  arrivalItemId      String? // link to ExpectedArrivalItem (expected line)
+  sku                String?
+  reference          String?
+  productName        String?
+
+  expectedQuantity   Int                     @default(0)
+  receivedQuantity   Int                     @default(0)
+  difference         Int                     @default(0)
+  status             ReceivingProductStatus  @default(EXPECTED)
+
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+
+  // One reconciliation row per expected line per session.
+  @@unique([receivingSessionId, sku])
+  @@index([receivingSessionId])
+  @@index([status])
+  @@map("receiving_products")
+}
+
+model ReceivingDiscrepancy {
+  id                 String             @id @default(uuid())
+  receivingSessionId String
+  session            ReceivingSession   @relation(fields: [receivingSessionId], references: [id], onDelete: Cascade)
+
+  cartonId           String?
+  receivingProductId String?
+  type               DiscrepancyType
+  expectedQuantity   Int?
+  actualQuantity     Int?
+  difference         Int?
+  reason             String?
+  status             DiscrepancyStatus  @default(OPEN)
+
+  createdBy          String?
+  createdAt          DateTime           @default(now())
+  resolvedBy         String?
+  resolvedAt         DateTime?
+  resolution         String?
+
+  @@index([receivingSessionId])
+  @@index([status])
+  @@index([type])
+  @@map("receiving_discrepancies")
 }

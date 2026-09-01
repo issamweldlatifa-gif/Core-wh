@@ -12,6 +12,7 @@ import Racks from './modules/warehouse/Racks';
 import Levels from './modules/warehouse/Levels';
 import Locations from './modules/warehouse/Locations';
 import ExpectedArrivals from './modules/expected-arrivals/ExpectedArrivals';
+import Receiving from './modules/receiving/Receiving';
 import Users from './pages/Users';
 import Roles from './pages/Roles';
 import Audit from './pages/Audit';
@@ -43,6 +44,10 @@ export default function App() {
             <Route
               path="expected-arrivals"
               element={<PermissionGate perm="expected_arrivals.view"><ExpectedArrivals /></PermissionGate>}
+            />
+            <Route
+              path="receiving"
+              element={<PermissionGate perm="receiving.view"><Receiving /></PermissionGate>}
             />
             <Route path="warehouse" element={<PermissionGate perm="warehouses.view"><WarehouseModule /></PermissionGate>}>
               <Route index element={<Navigate to="structure" replace />} />
