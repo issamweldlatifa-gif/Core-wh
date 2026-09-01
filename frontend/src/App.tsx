@@ -20,7 +20,17 @@ import System from './pages/System';
 
 /** Guards a route by the required back-end permission; redirects otherwise. */
 function PermissionGate({ perm, children }: { perm: string; children: JSX.Element }) {
-  const { me } = useAuth();
+  const { me, loading } = useAuth();
+  // Wait for the session to resolve before deciding, so a hard refresh of a
+  // guarded route (e.g. the full-screen Receiving Terminal) does not bounce
+  // the user to /login while getMe() is still in flight.
+  if (loading) {
+    return (
+      <div className="login-wrap">
+        <div className="spinner" style={{ color: 'var(--accent-2)' }} />
+      </div>
+    );
+  }
   if (!me) return <Navigate to="/login" replace />;
   if (!me.permissions.includes(perm)) {
     return (

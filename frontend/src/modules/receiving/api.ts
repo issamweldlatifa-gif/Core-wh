@@ -132,7 +132,7 @@ export const api = {
   active: (idOrCode: string) =>
     client
       .get<ReceivingSessionDetail | null>(`/v1/receiving/arrivals/${encodeURIComponent(idOrCode)}/active`)
-      .then((r) => r.data),
+      .then((r) => (r.data ? r.data : null)),
   start: (idOrCode: string, device?: { deviceType?: string; deviceName?: string; scanSource?: string }) =>
     client
       .post<ReceivingSessionDetail>(`/v1/receiving/arrivals/${encodeURIComponent(idOrCode)}/start`, device ?? {})

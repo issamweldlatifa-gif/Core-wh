@@ -119,13 +119,14 @@ export default function ReceivingTerminal() {
     setBusy(true);
     try {
       const active = await api.active(a.code);
-      const started = active ?? await api.start(a.code, {
+      const exists = !!active;
+      const started = exists ? active : await api.start(a.code, {
         deviceType: caps.deviceType,
         deviceName: caps.touch ? `${caps.deviceType}` : caps.userAgent.slice(0, 80),
         scanSource: caps.cameraScanningSupported ? 'CAMERA' : 'EXTERNAL_SCANNER',
       });
       apply(started);
-      pushActivity(`Session ${started.code} ${active ? 'resumed' : 'started'}`, 'info');
+      pushActivity(`Session ${started.code} ${exists ? 'resumed' : 'started'}`, 'info');
     } catch (e: any) {
       setError(e?.response?.data?.message ?? e?.message ?? 'Could not open receiving.');
     } finally {
