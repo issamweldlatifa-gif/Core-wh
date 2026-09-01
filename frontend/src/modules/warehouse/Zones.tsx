@@ -17,7 +17,10 @@ export default function Zones() {
   const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => { api.warehouses().then((w) => { setWarehouses(w); if (w[0] && !whId) setWhId(w[0].id); }); }, []);
-  useEffect(() => { if (whId) api.zones(whId).then(setZones).catch((e) => setErr(apiErrorMessage(e))); }, [whId]);
+  useEffect(() => {
+    if (!whId) { setZones([]); return; }
+    api.zones(whId).then(setZones).catch((e) => setErr(apiErrorMessage(e)));
+  }, [whId]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();

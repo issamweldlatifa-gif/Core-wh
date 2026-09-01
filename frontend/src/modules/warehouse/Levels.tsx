@@ -23,10 +23,22 @@ export default function Levels() {
   const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => { api.warehouses().then((w) => { setWarehouses(w); if (w[0]) setWhId(w[0].id); }); }, []);
-  useEffect(() => { if (whId) api.zones(whId).then((z) => { setZones(z); if (z[0]) setZoneId(z[0].id); }); }, [whId]);
-  useEffect(() => { if (zoneId) api.aisles(zoneId).then((a) => { setAisles(a); if (a[0]) setAisleId(a[0].id); }); }, [zoneId]);
-  useEffect(() => { if (aisleId) api.racks(aisleId).then((r) => { setRacks(r); if (r[0]) setRackId(r[0].id); }); }, [aisleId]);
-  useEffect(() => { if (rackId) api.levels(rackId).then(setLevels); }, [rackId]);
+  useEffect(() => {
+    if (!whId) { setZones([]); setZoneId(''); return; }
+    api.zones(whId).then((z) => { setZones(z); setZoneId(z[0]?.id ?? ''); });
+  }, [whId]);
+  useEffect(() => {
+    if (!zoneId) { setAisles([]); setAisleId(''); return; }
+    api.aisles(zoneId).then((a) => { setAisles(a); setAisleId(a[0]?.id ?? ''); });
+  }, [zoneId]);
+  useEffect(() => {
+    if (!aisleId) { setRacks([]); setRackId(''); return; }
+    api.racks(aisleId).then((r) => { setRacks(r); setRackId(r[0]?.id ?? ''); });
+  }, [aisleId]);
+  useEffect(() => {
+    if (!rackId) { setLevels([]); return; }
+    api.levels(rackId).then(setLevels);
+  }, [rackId]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();

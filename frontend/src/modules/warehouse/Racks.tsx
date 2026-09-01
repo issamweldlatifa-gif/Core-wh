@@ -21,9 +21,18 @@ export default function Racks() {
   const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => { api.warehouses().then((w) => { setWarehouses(w); if (w[0]) setWhId(w[0].id); }); }, []);
-  useEffect(() => { if (whId) api.zones(whId).then((z) => { setZones(z); if (z[0]) setZoneId(z[0].id); }); }, [whId]);
-  useEffect(() => { if (zoneId) api.aisles(zoneId).then((a) => { setAisles(a); if (a[0]) setAisleId(a[0].id); }); }, [zoneId]);
-  useEffect(() => { if (aisleId) api.racks(aisleId).then(setRacks); }, [aisleId]);
+  useEffect(() => {
+    if (!whId) { setZones([]); setZoneId(''); return; }
+    api.zones(whId).then((z) => { setZones(z); setZoneId(z[0]?.id ?? ''); });
+  }, [whId]);
+  useEffect(() => {
+    if (!zoneId) { setAisles([]); setAisleId(''); return; }
+    api.aisles(zoneId).then((a) => { setAisles(a); setAisleId(a[0]?.id ?? ''); });
+  }, [zoneId]);
+  useEffect(() => {
+    if (!aisleId) { setRacks([]); return; }
+    api.racks(aisleId).then(setRacks);
+  }, [aisleId]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();

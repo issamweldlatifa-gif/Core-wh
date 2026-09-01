@@ -19,8 +19,14 @@ export default function Aisles() {
   const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => { api.warehouses().then((w) => { setWarehouses(w); if (w[0]) setWhId(w[0].id); }); }, []);
-  useEffect(() => { if (whId) api.zones(whId).then((z) => { setZones(z); if (z[0]) setZoneId(z[0].id); }); }, [whId]);
-  useEffect(() => { if (zoneId) api.aisles(zoneId).then(setAisles); }, [zoneId]);
+  useEffect(() => {
+    if (!whId) { setZones([]); setZoneId(''); return; }
+    api.zones(whId).then((z) => { setZones(z); setZoneId(z[0]?.id ?? ''); });
+  }, [whId]);
+  useEffect(() => {
+    if (!zoneId) { setAisles([]); return; }
+    api.aisles(zoneId).then(setAisles);
+  }, [zoneId]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();

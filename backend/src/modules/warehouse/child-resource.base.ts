@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 
@@ -106,6 +106,12 @@ export class ChildResourceService {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   protected async _listByParent(cfg: ChildResourceConfig, parentField: string, parentId: string): Promise<any[]> {
+    // The parent id arrives from a required query param. When the caller omits
+    // it, Prisma would receive `undefined` and throw a 500. A missing/blank
+    // filter is a CLIENT error, so answer 400 with an actionable message.
+    if (typeof parentId !== 'string' || parentId.trim() === '') {
+      throw new BadRequestException(`Query parameter "${parentField}" is required to list ${cfg.label.toLowerCase()}s.`);
+    }
     if (!(await cfg.parentExists(parentId))) throw new NotFoundException(`${cfg.label} parent not found.`);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (this.prisma as any)[cfg.model].findMany({ where: { [parentField]: parentId }, orderBy: { code: 'asc' } });

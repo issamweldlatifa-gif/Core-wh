@@ -37,16 +37,34 @@ const ZXING_FORMATS: BarcodeFormat[] = [
   BarcodeFormat.QR_CODE,
   BarcodeFormat.DATA_MATRIX,
 ];
+/** How long the same code is suppressed while it remains in front of the lens. */
+const REPEAT_WINDOW_MS = 2500;
+/** Pause between an accepted read and resuming decode, so one carton = one submit. */
+const RESUME_DELAY_MS = 900;
 const DEFAULT_NATIVE_FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_39', 'code_93', 'code_128', 'itf', 'codabar', 'qr_code', 'data_matrix'];
+
+export interface ScanFeedback {
+  kind: 'ok' | 'bad' | 'info';
+  text: string;
+  /** Changes on every new outcome so repeats re-render/re-animate. */
+  token: number;
+}
 
 export default function CameraScanner({
   title,
   onDetected,
   onClose,
+  feedback = null,
 }: {
   title: string;
   onDetected: (value: string, source: ScanSource) => void;
   onClose: () => void;
+  /**
+   * Outcome of the LAST submitted scan, owned by the parent (which is the only
+   * layer that knows what the backend replied). Rendered inside the camera
+   * overlay so the worker never has to close the scanner to see the result.
+   */
+  feedback?: ScanFeedback | null;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const stopAllRef = useRef<() => void>(() => {});
@@ -56,6 +74,7 @@ export default function CameraScanner({
   const [facing, setFacing] = useState<'environment' | 'user'>('environment');
   const [torch, setTorch] = useState(false);
   const [hasTorch, setHasTorch] = useState(false);
+  const [lastCode, setLastCode] = useState<string | null>(null);
 
   const stopAll = useCallback(() => {
     stopAllRef.current();
@@ -91,9 +110,15 @@ export default function CameraScanner({
     let lastAt = 0;
 
     const cleanup = () => {
+      // Full teardown (spec §30): stop the decode loop AND release every track
+      // so no camera indicator stays lit after EXIT.
       running = false;
       cancelAnimationFrame(raf);
+      clearTimeout(raf);
       stream?.getTracks().forEach((t) => t.stop());
+      stream = null;
+      track = null;
+      if (el) el.srcObject = null;
     };
     stopAllRef.current = cleanup;
 
@@ -127,17 +152,28 @@ export default function CameraScanner({
         }
         if (value) {
           const now = Date.now();
-          if (value === lastValue && now - lastAt < 1600) {
-            // same code already read recently — re-scan for a fresh one
-            raf = requestAnimationFrame(tick);
+          // Duplicate protection (spec §29, frontend half): while the SAME code
+          // stays in view we must not resubmit it. A different code is accepted
+          // immediately, so the worker can chain cartons at full speed.
+          const isRepeat = value === lastValue && now - lastAt < REPEAT_WINDOW_MS;
+          if (!isRepeat) {
+            lastValue = value;
+            lastAt = now;
+            setStatus('reading');
+            setLastCode(value);
+            onDetected(value, 'CAMERA');
+            // The scanner STAYS OPEN (spec §16/§26). Briefly hold off decoding
+            // so one carton cannot be submitted twice from consecutive frames,
+            // then return to SCANNING for the next carton.
+            window.setTimeout(() => {
+              if (!running) return;
+              setStatus('scanning');
+            }, RESUME_DELAY_MS);
+            raf = window.setTimeout(() => { if (running) tick(); }, RESUME_DELAY_MS) as unknown as number;
             return;
           }
-          lastValue = value;
+          // same code still in frame — refresh the window and keep looking
           lastAt = now;
-          setStatus('reading');
-          cleanup();
-          onDetected(value, 'CAMERA');
-          return;
         }
       }
       raf = requestAnimationFrame(tick);
@@ -215,8 +251,13 @@ export default function CameraScanner({
           <video ref={videoRef} className="term-cam-video" muted playsInline />
           <div className="term-cam-reticle" />
           {status === 'init' && <div className="term-cam-note">initialising camera…</div>}
-          {status === 'scanning' && <div className="term-cam-note term-cam-note--ok">[ SCANNING ] fill the frame with the label, hold steady</div>}
-          {status === 'reading' && <div className="term-cam-note term-cam-note--ok">[ OK ] code read</div>}
+          {status === 'scanning' && <div className="term-cam-note term-cam-note--ok">[ SCANNING ] fill the frame with the label, hold steady — scanner stays open</div>}
+          {status === 'reading' && <div className="term-cam-note term-cam-note--ok">[ READ ] {lastCode} — submitting…</div>}
+          {feedback && (
+            <div key={feedback.token} className={`term-cam-result term-cam-result--${feedback.kind}`}>
+              {feedback.kind === 'ok' ? '✓ ' : feedback.kind === 'bad' ? '✕ ' : '· '}{feedback.text}
+            </div>
+          )}
           {error && <div className="term-cam-note term-cam-note--err">{error}</div>}
           <div className="term-cam-ctrl">
             <button type="button" className="term-btn term-btn--cam" disabled={!hasTorch || error != null} onClick={toggleTorch}>
@@ -227,7 +268,7 @@ export default function CameraScanner({
             </button>
           </div>
         </div>
-        <div className="term-modal-foot">hold the code flat, close to the camera, in good light — reads automatically once recognised. for stubborn labels tap <span className="kbd">torch</span>.</div>
+        <div className="term-modal-foot">keep scanning carton after carton — the scanner stays open until you close it. hold the code flat, close to the camera, in good light — reads automatically once recognised. for stubborn labels tap <span className="kbd">torch</span>.</div>
       </div>
     </div>
   );

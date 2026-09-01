@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import CameraScanner from './CameraScanner';
+import CameraScanner, { type ScanFeedback } from './CameraScanner';
 import { classifyKeyboardEntry, type ScanSource } from './scan-source';
 
 /**
@@ -23,6 +23,7 @@ export default function ScanField({
   cameraLabel,
   onSubmit,
   sourceLabel: sourceHint,
+  cameraFeedback = null,
 }: {
   label: string;
   placeholder: string;
@@ -31,6 +32,8 @@ export default function ScanField({
   cameraLabel?: string;
   onSubmit: (value: string, source: ScanSource) => void;
   sourceLabel?: string | null;
+  /** Last backend outcome, surfaced inside the open camera overlay. */
+  cameraFeedback?: ScanFeedback | null;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState('');
@@ -110,17 +113,19 @@ export default function ScanField({
       {cameraOpen && (
         <CameraScanner
           title={cameraLabel ?? 'SCAN LABEL'}
-          onDetected={(v) => { setCameraOpen(false); submitForCamera(v); }}
-          onClose={() => setCameraOpen(false)}
+          onDetected={(v) => submitForCamera(v)}
+          onClose={() => { setCameraOpen(false); inputRef.current?.focus(); }}
+          feedback={cameraFeedback}
         />
       )}
     </div>
   );
 
   function submitForCamera(v: string) {
+    // The camera overlay stays mounted (continuous scanning), so we must not
+    // pull focus back to the hidden text input mid-session.
     stampsRef.current = [];
     onSubmit(v, 'CAMERA');
     setValue('');
-    inputRef.current?.focus();
   }
 }

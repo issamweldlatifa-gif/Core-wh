@@ -221,3 +221,47 @@
   .term-rowkv .dim { min-width: 130px; }
   .term-input { font-size: 16px; }
 }
+
+/* ---------------------------------------------------------------------------
+   Continuous scanner — in-overlay result line.
+   The camera stays open across scans (spec §16/§26), so the backend outcome
+   must be visible INSIDE the camera view; the worker never closes it to look.
+--------------------------------------------------------------------------- */
+.term-cam-result {
+  position: absolute;
+  left: 50%;
+  bottom: 18%;
+  transform: translateX(-50%);
+  min-width: 60%;
+  max-width: 92%;
+  padding: 12px 18px;
+  border-radius: 10px;
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+  backdrop-filter: blur(3px);
+  animation: term-cam-pop 260ms ease-out;
+  z-index: 4;
+}
+.term-cam-result--ok {
+  background: rgba(6, 40, 20, 0.92);
+  color: #39ff14;
+  border: 1px solid #20c95a;
+  box-shadow: 0 0 18px rgba(57, 255, 20, 0.35);
+}
+.term-cam-result--bad {
+  background: rgba(48, 10, 10, 0.92);
+  color: #ff6b60;
+  border: 1px solid #ff3b30;
+  box-shadow: 0 0 18px rgba(255, 59, 48, 0.3);
+}
+.term-cam-result--info {
+  background: rgba(10, 24, 40, 0.92);
+  color: #38bdf8;
+  border: 1px solid #38bdf8;
+}
+@keyframes term-cam-pop {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}

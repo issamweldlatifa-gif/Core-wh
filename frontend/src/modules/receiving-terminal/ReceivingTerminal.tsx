@@ -18,7 +18,7 @@ function codeTypeFor(source: ScanSource): 'QR' | 'BARCODE' | 'MANUAL' {
 }
 
 export default function ReceivingTerminal() {
-  const { me, hasPermission } = useAuth();
+  const { me, hasPermission, logoutFn } = useAuth();
   const canResolve = hasPermission('receiving.resolve_discrepancy');
   const caps = useMemo(() => detectCapabilities(), []);
 
@@ -198,7 +198,10 @@ export default function ReceivingTerminal() {
       <div className="term">
         <div className="term-topbar">
           <span>AYROVI WAREHOUSE <span className="dim">· RECEIVING TERMINAL</span></span>
+          <span className="term-user"><span className="green">{me?.user?.name ?? 'worker'}</span> <span className="dim">[{me?.roles?.join(',') || 'worker'}]</span></span>
           <span className={`term-net ${online ? 'ok' : 'bad'}`}>{online ? '● ONLINE' : '● OFFLINE'}</span>
+          <a className="term-btn" href="/">[ dashboard ]</a>
+          <button className="term-btn term-btn--danger" onClick={() => { void logoutFn(); }}>[ log out ]</button>
         </div>
         <div className="term-body">
           <div className="term-banner">
@@ -248,7 +251,9 @@ export default function ReceivingTerminal() {
         {!finished && (paused
           ? <button className="term-btn" disabled={busy} onClick={onResume}>[ resume ]</button>
           : <button className="term-btn" disabled={busy} onClick={onPause}>[ pause ]</button>)}
-        <button className="term-btn term-btn--danger" onClick={() => { setSession(null); setPendingCarton(null); setActivity([]); loadArrivals(); }}>[ exit ]</button>
+        <button className="term-btn" onClick={() => { setSession(null); setPendingCarton(null); setActivity([]); loadArrivals(); }}>[ exit session ]</button>
+        <a className="term-btn" href="/">[ dashboard ]</a>
+        <button className="term-btn term-btn--danger" onClick={() => { void logoutFn(); }}>[ log out ]</button>
       </div>
 
       <div className="term-body">
@@ -302,6 +307,7 @@ export default function ReceivingTerminal() {
               cameraLabel="Scan carton label"
               onSubmit={onCartonSubmit}
               sourceLabel={sourceLabel(lastSource)}
+              cameraFeedback={banner}
             />
             {flash?.kind === 'CARTON_IDENTIFIED' && (
               <div className="term-ok">+ carton identified -- recorded automatically</div>
@@ -351,7 +357,7 @@ export default function ReceivingTerminal() {
 
         {/* Product scan */}
         <Box title="SCAN PRODUCT">
-          <ProductScanner onSubmit={onProductSubmit} disabled={busy || paused} lastSource={lastSource} flash={flash} />
+          <ProductScanner onSubmit={onProductSubmit} disabled={busy || paused} lastSource={lastSource} flash={flash} cameraFeedback={banner} />
           <div className="term-hint">matching is performed authoritatively on the warehouse backend.</div>
         </Box>
 
@@ -469,8 +475,9 @@ function Progress({ label, v, ok, bad }: { label: string; v: string; ok?: boolea
 function Rec({ k, v, ok, bad }: { k: string; v: string; ok?: boolean; bad?: boolean }) {
   return <div className="term-recitem"><span className="dim">{k}</span><span className={ok ? 'green' : bad ? 'red' : ''}>{v}</span></div>;
 }
-function ProductScanner({ onSubmit, disabled, lastSource, flash }: {
+function ProductScanner({ onSubmit, disabled, lastSource, flash, cameraFeedback }: {
   onSubmit: (v: string, s: ScanSource, qty: number) => void; disabled?: boolean; lastSource: ScanSource; flash: any;
+  cameraFeedback?: { kind: 'ok' | 'bad' | 'info'; text: string; token: number } | null;
 }) {
   const [qty, setQty] = useState(1);
   const handle = (v: string, s: ScanSource) => { onSubmit(v, s, Math.max(1, Math.floor(Number(qty) || 1))); setQty(1); };
@@ -489,6 +496,7 @@ function ProductScanner({ onSubmit, disabled, lastSource, flash }: {
         cameraLabel="Scan product label"
         onSubmit={handle}
         sourceLabel={sourceLabel(lastSource)}
+        cameraFeedback={cameraFeedback}
       />
       {flash?.kind === 'PRODUCT_MATCH' && (
         <div className="term-ok">+ match -- {flash.sku}: {flash.received}/{flash.expected} received (remaining {Math.max(0, flash.expected - flash.received)})</div>
