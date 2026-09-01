@@ -1,10 +1,12 @@
 # WAREHOUSE OS — implementation status
 
-Last updated: 2026-09-01 · local HEAD `e099bc6`
+Last updated: 2026-09-01 · local HEAD `putaway`
 
 ## Commits (local, not yet pushed)
 
 ```
+(new)    feat(putaway): stowing workflow, append-only placement ledger
+7596b1f  docs: WAREHOUSE OS status, verification and env recovery
 e099bc6  feat(os): station-linked sessions + route-level code splitting
 bbe3b0f  feat(os): Worker Terminal + Admin Control Center (phase 2 frontend)
 2168f16  fix: continuous camera scanner, structure 500s, terminal logout   <- last pushed
@@ -52,6 +54,31 @@ human typing. **Nothing is shown as RECEIVED until the backend accepts it** (§2
   No single SKU format is hardcoded; the regex is only a filter.
 - `roi.ts`, `scanner-state.ts` — ROI geometry/preprocessing, 11-state machine.
 
+### Putaway / stowing — `/terminal/putaway`
+
+Moves RECEIVED cartons onto real storage locations, closing the schema's own
+D-46 gap ("currentLocationId stays NULL until Stowing").
+
+| File | Role |
+|---|---|
+| `backend/src/modules/putaway/putaway.service.ts` | Validation + append-only placement ledger |
+| `backend/src/modules/putaway/putaway.controller.ts` | `/v1/putaway/*`, guarded by `stowing.view` / `stowing.execute` |
+| `frontend/src/terminal/PutawayTask.tsx` | Two-step worker screen (carton → location) |
+| `frontend/src/terminal/putaway-api.ts` | Typed client |
+
+Design decisions:
+
+- **Append-only history.** Moving a carton does not rewrite its placement row;
+  it sets `releasedAt` on the old one and appends a new one, so "where was this
+  carton last Tuesday" stays answerable.
+- **Re-scanning the same location is a no-op** — no duplicate ledger row and no
+  misleading audit entry.
+- A carton that was never received cannot be stowed; an INACTIVE/BLOCKED
+  location cannot receive stock. Both return a readable rejection instead of a
+  500, so the scanner can stay open.
+- `Location` deletion is `Restrict` while it holds stock; the station link is
+  `SetNull` so history survives.
+
 ### Admin Control Center — `/admin` (§6, §36–§40)
 
 `frontend/src/admin/` — `AdminShell.tsx` plus `pages/`: `ControlCenter`,
@@ -96,7 +123,14 @@ Other checks:
   (`COR-000004`) → worker completes → admin reopens (`COR-000005`).
 - Station FK: deleting a station nulls the link and **preserves** the session.
 - Reason < 8 chars → 400.
-- 19/19 backend Jest tests pass; `tsc --noEmit` clean on both sides.
+- **29/29** backend Jest tests pass (10 new putaway unit tests covering the
+  append-only invariants); `tsc --noEmit` clean on both sides.
+- Putaway loop verified live: queue → start → reject unknown carton / unknown
+  location / blocked location → place → re-scan same location is a no-op →
+  move appends a second row and closes the first → admin overview shows the
+  live session.
+- A user with no operational permissions gets 403 on every putaway route and
+  an empty task list — never routed into `/admin`.
 - Bundle: 750 kB → **272 kB** (214 → 85 kB gzipped) after code splitting.
 
 ---
@@ -154,8 +188,12 @@ Logins: `ADMIN001` / `ChangeMe!2024` · `WORKER001` / `Worker!2024`
 
 ## Not yet done
 
-- Sorting and Putaway task screens (`stowing.execute`) — the terminal routes
-  them as "not ready"; only Receiving is built.
+- **Sorting** (`/terminal/sorting`) is still marked `ready: false` in the task
+  registry. Deliberate: the spec does not define a sorting workflow precisely
+  enough to implement without inventing business rules, and the standing
+  instruction is to skip spec parts that are not sound. It needs a decision on
+  what sorting actually produces (sort to zone? to carrier? to order?) before
+  it can be built.
 - `/admin` nav links for Arrivals / Structure / Users / Roles / Audit / Settings
   redirect to the pre-existing pages rather than being re-skinned into the
   Control Center theme. This was deliberate: those pages work, and the standing

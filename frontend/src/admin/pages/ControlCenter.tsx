@@ -30,6 +30,8 @@ export default function ControlCenter() {
         <Kpi label="Expected arrivals" value={c.expectedArrivals} />
         <Kpi label="Corrections today" value={c.correctionsToday} tone={c.correctionsToday ? 'alert' : undefined} />
         <Kpi label="Active stations" value={`${c.activeStations}/${c.stations}`} />
+        <Kpi label="Awaiting putaway" value={c.awaitingPutaway} tone={c.awaitingPutaway ? 'alert' : undefined} />
+        <Kpi label="Stored today" value={c.cartonsStoredToday} />
       </div>
 
       <div className="ac-2col">
@@ -89,6 +91,35 @@ export default function ControlCenter() {
           )}
         </section>
       </div>
+
+      <section className="os-card" style={{ marginTop: 14 }}>
+        <h2 className="os-card-title">Active putaway sessions</h2>
+        {data.putawaySessions.length === 0 ? (
+          <div className="os-empty">No stowing in progress.</div>
+        ) : (
+          <table className="os-table">
+            <thead>
+              <tr><th>Session</th><th>Worker</th><th>Station</th><th>Placements</th><th>Started</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+              {data.putawaySessions.map((p) => (
+                <tr key={p.id}>
+                  <td className="mono">{p.code}</td>
+                  <td>{p.worker?.name ?? '—'}</td>
+                  <td className="os-muted">{p.stationCode ?? '—'}</td>
+                  <td>{p.placements}</td>
+                  <td className="os-muted">{new Date(p.startedAt).toLocaleTimeString()}</td>
+                  <td>
+                    <span className={`os-tag ${p.status === 'ACTIVE' ? 'os-tag--ok' : 'os-tag--warn'}`}>
+                      {p.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
     </>
   );
 }

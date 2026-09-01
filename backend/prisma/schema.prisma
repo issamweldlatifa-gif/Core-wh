@@ -139,6 +139,11 @@ enum AuditAction {
   RECEIVING_REVERSED
   SESSION_REOPENED
   SESSION_REASSIGNED
+  // Putaway / stowing — cartons onto real storage locations.
+  PUTAWAY_STARTED
+  PUTAWAY_PAUSED
+  PUTAWAY_RESUMED
+  PUTAWAY_COMPLETED
   // Placeholders for later phases (NOT implemented in Phase 0/1).
   ITEM_RECEIVED
   ITEM_STORED
@@ -181,6 +186,7 @@ model User {
   stationsAssigned Station[]             @relation("StationWorker")
   correctionsMade  OperationCorrection[] @relation("CorrectionAdmin")
   correctionsAbout OperationCorrection[] @relation("CorrectionWorker")
+  putawaySessions  PutawaySession[]      @relation("PutawayWorker")
 
   @@index([status])
   @@map("users")
@@ -495,6 +501,8 @@ model Location {
   maxUnits  Int?
 
   physicalItems PhysicalItem[] // Phase 2: nullable currentLocationId on pieces (D-46) — never written by Phase 2
+  cartons       WarehouseCarton[] // cartons currently stored here (written by Putaway)
+  placements    CartonPlacement[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -720,6 +728,7 @@ enum ShipmentTrackingStatus {
 enum CartonStatus {
   EXPECTED // announced on the shipment, not yet physically received
   RECEIVED // physically received during a Receiving Session
+  STORED // put away to a real storage location (Putaway / stowing)
   FLAGGED // worker flagged for review
   WRONG_SHIPMENT // scanned carton belongs to a different shipment
 }
@@ -950,15 +959,23 @@ model WarehouseCarton {
   receivedAt DateTime?
   receivedBy String?
 
+  /// Where the carton physically is now. NULL until Putaway stows it (D-46).
+  /// Restrict: a location that still holds stock cannot be deleted.
+  currentLocationId String?
+  currentLocation   Location? @relation(fields: [currentLocationId], references: [id], onDelete: Restrict)
+  storedAt          DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   receivingCartons ReceivingCarton[]
+  placements       CartonPlacement[]
 
   @@index([shipmentId])
   @@index([status])
   @@index([qrCodeValue])
   @@index([barcodeValue])
+  @@index([currentLocationId])
   @@map("warehouse_cartons")
 }
 
@@ -1093,6 +1110,84 @@ model ReceivingDiscrepancy {
 /// Operational department a station/task belongs to. Adding a new terminal
 /// (Sorting, Putaway, Packing...) means adding a value here + a task handler;
 /// the shell, scanner, session and audit layers are reused unchanged (§44).
+// ------------------------------------------------------------------
+// Putaway (stowing) — move RECEIVED cartons onto real storage locations.
+//
+// Same integrity philosophy as Receiving: the movement history is an
+// append-only ledger (CartonPlacement). Moving a carton a second time does
+// NOT rewrite the first record; it closes it (releasedAt) and appends a new
+// one, so "where was this carton last Tuesday" stays answerable.
+// ------------------------------------------------------------------
+
+enum PutawaySessionStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+model PutawaySession {
+  id     String               @id @default(uuid())
+  code   String               @unique // PUT-000001
+  status PutawaySessionStatus @default(ACTIVE)
+
+  workerId String?
+  worker   User?   @relation("PutawayWorker", fields: [workerId], references: [id], onDelete: SetNull)
+
+  /// Station the stowing was performed at (§13); SetNull keeps history.
+  stationId String?
+  station   Station? @relation("StationPutawaySessions", fields: [stationId], references: [id], onDelete: SetNull)
+
+  deviceType String?
+  deviceName String?
+
+  startedAt   DateTime  @default(now())
+  pausedAt    DateTime?
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  placements CartonPlacement[]
+
+  @@index([status])
+  @@index([workerId])
+  @@index([stationId])
+  @@map("putaway_sessions")
+}
+
+/// Append-only record of "carton X was placed at location Y".
+model CartonPlacement {
+  id String @id @default(uuid())
+
+  cartonId String
+  carton   WarehouseCarton @relation(fields: [cartonId], references: [id], onDelete: Cascade)
+
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Restrict)
+
+  putawaySessionId String?
+  session          PutawaySession? @relation(fields: [putawaySessionId], references: [id], onDelete: SetNull)
+
+  /// How the carton and the location codes were captured (audit only).
+  cartonSource   ScanSource @default(MANUAL)
+  locationSource ScanSource @default(MANUAL)
+
+  placedBy String?
+  placedAt DateTime @default(now())
+
+  /// Set when the carton is moved elsewhere. NULL = current location.
+  releasedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([cartonId])
+  @@index([locationId])
+  @@index([putawaySessionId])
+  @@index([releasedAt])
+  @@map("carton_placements")
+}
+
 enum StationDepartment {
   RECEIVING
   SORTING
@@ -1141,8 +1236,9 @@ model Station {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  corrections OperationCorrection[]
-  sessions    ReceivingSession[]  @relation("StationSessions")
+  corrections     OperationCorrection[]
+  sessions        ReceivingSession[]   @relation("StationSessions")
+  putawaySessions PutawaySession[]     @relation("StationPutawaySessions")
 
   @@index([department])
   @@index([status])

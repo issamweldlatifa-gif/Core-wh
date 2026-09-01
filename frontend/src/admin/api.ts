@@ -13,6 +13,9 @@ export interface OpsOverview {
     correctionsToday: number;
     activeStations: number;
     stations: number;
+    activePutawaySessions: number;
+    cartonsStoredToday: number;
+    awaitingPutaway: number;
   };
   stations: Array<{
     id: string; code: string; name: string; department: string; status: string;
@@ -24,6 +27,13 @@ export interface OpsOverview {
     arrival: { id: string; code: string; customerName: string; storeName: string | null } | null;
     worker: { id: string; name?: string; employeeCode?: string } | null;
     cartonEvents: number; discrepancies: number;
+  }>;
+  /** Live stowing activity (§36). */
+  putawaySessions: Array<{
+    id: string; code: string; status: string; startedAt: string;
+    worker: { id: string; name: string; employeeCode: string } | null;
+    stationCode: string | null;
+    placements: number;
   }>;
 }
 

@@ -1,0 +1,124 @@
+/* ==========================================================================
+   PUTAWAY TASK — worker workspace (§12/§32/§43).
+   Two-step loop: carton, then location. One clear next action at all times.
+   ========================================================================== */
+
+.pt { display: grid; gap: 14px; max-width: 1100px; margin: 0 auto; }
+.pt-h1 { font-size: 1.4rem; letter-spacing: 0.2em; margin: 0 0 4px; }
+
+.pt-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.pt-session { font-size: 1.1rem; font-weight: 700; letter-spacing: 0.1em; color: var(--primary); }
+
+.pt-error {
+  border: 1px solid var(--error); color: var(--error);
+  background: rgba(255, 59, 48, 0.08);
+  border-radius: var(--os-radius-sm); padding: 10px 12px;
+}
+
+/* ---- start screen -------------------------------------------------------- */
+.pt-start { max-width: 620px; margin: 0 auto; text-align: center; display: grid; gap: 16px; }
+.pt-start-metric {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--os-radius); padding: 22px;
+}
+.pt-big { font-size: 1.05rem; padding: 18px 24px; letter-spacing: 0.14em; }
+.pt-queue-preview {
+  list-style: none; padding: 0; margin: 0; text-align: left;
+  display: grid; gap: 4px; font-size: 0.86rem;
+}
+.pt-queue-preview li {
+  padding: 7px 10px; background: var(--surface-2); border-radius: var(--os-radius-sm);
+}
+
+/* ---- two-step indicator -------------------------------------------------- */
+.pt-steps { display: grid; gap: 10px; grid-template-columns: 1fr 1fr; }
+@media (max-width: 720px) { .pt-steps { grid-template-columns: 1fr; } }
+
+.pt-step {
+  display: grid; grid-template-columns: 34px 1fr; gap: 12px; align-items: start;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--os-radius); padding: 14px;
+  opacity: 0.55; transition: opacity var(--os-speed), border-color var(--os-speed);
+}
+.pt-step.is-active { opacity: 1; border-color: var(--primary); box-shadow: var(--glow); }
+.pt-step.is-done { opacity: 1; }
+.pt-step-n {
+  width: 34px; height: 34px; border-radius: 50%;
+  display: grid; place-items: center; font-weight: 800;
+  background: var(--surface-2); color: var(--muted);
+}
+.pt-step.is-active .pt-step-n { background: var(--primary); color: #04120a; }
+.pt-step-t { font-size: 0.66rem; letter-spacing: 0.16em; color: var(--muted); }
+.pt-step-v { font-size: 1.05rem; font-weight: 700; word-break: break-all; }
+.pt-warn { color: var(--warning); font-size: 0.78rem; margin-top: 4px; }
+
+/* ---- input --------------------------------------------------------------- */
+.pt-input {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--os-radius); padding: 14px;
+}
+.pt-input .os-row { gap: 10px; }
+
+/* ---- outcome ------------------------------------------------------------- */
+.pt-outcome {
+  padding: 16px; border-radius: var(--os-radius); text-align: center;
+  font-size: 1.1rem; font-weight: 700; letter-spacing: 0.05em;
+  animation: pt-pop 200ms ease-out; word-break: break-word;
+}
+.pt-outcome--ok {
+  color: var(--success); border: 1px solid var(--secondary);
+  background: rgba(57, 255, 20, 0.08); box-shadow: var(--glow);
+}
+.pt-outcome--bad { color: var(--error); border: 1px solid var(--error); background: rgba(255, 59, 48, 0.08); }
+.pt-outcome--info { color: var(--text); border: 1px solid var(--border); }
+@keyframes pt-pop { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
+
+/* ---- metrics ------------------------------------------------------------- */
+.pt-metrics { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
+.pt-metric {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--os-radius); padding: 14px; text-align: center;
+}
+.pt-metric-v { font-size: 1.8rem; font-weight: 800; line-height: 1; }
+.pt-metric-l { font-size: 0.62rem; letter-spacing: 0.16em; color: var(--muted); margin-top: 6px; }
+.pt-metric.is-ok .pt-metric-v { color: var(--success); }
+
+/* ---- panels -------------------------------------------------------------- */
+.pt-cols { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
+@media (max-width: 860px) { .pt-cols { grid-template-columns: 1fr; } }
+
+.pt-list { display: grid; gap: 6px; max-height: 260px; overflow: auto; }
+
+.pt-queue-row {
+  display: flex; justify-content: space-between; gap: 10px; align-items: center;
+  padding: 9px 10px; border-radius: var(--os-radius-sm);
+  background: var(--surface-2); border: 1px solid transparent;
+  color: var(--text); font: inherit; font-size: 0.86rem; cursor: pointer; text-align: left;
+}
+.pt-queue-row:hover:not(:disabled) { border-color: var(--primary); }
+.pt-queue-row:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.pt-place {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  padding: 7px 10px; border-radius: var(--os-radius-sm);
+  background: var(--surface-2); font-size: 0.84rem;
+}
+.pt-place.is-released { opacity: 0.5; text-decoration: line-through; }
+.pt-arrow { color: var(--primary); font-weight: 700; }
+
+.pt-log { display: grid; gap: 4px; max-height: 200px; overflow: auto; font-size: 0.82rem; }
+.pt-log-item.ok { color: var(--success); }
+.pt-log-item.bad { color: var(--error); }
+.pt-log-item.info { color: var(--muted); }
+
+.pt-done {
+  text-align: center; padding: 16px; font-weight: 800; letter-spacing: 0.16em;
+  color: var(--success); border: 1px solid var(--secondary); border-radius: var(--os-radius);
+}
+
+.pt-scanner-loading {
+  position: fixed; inset: 0; z-index: 800;
+  display: grid; place-items: center;
+  background: #000; color: var(--primary);
+  letter-spacing: 0.18em; font-weight: 700;
+}

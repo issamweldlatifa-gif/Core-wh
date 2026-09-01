@@ -25,6 +25,9 @@ export class OperationsService {
       expectedArrivals,
       cartonsToday,
       pendingCorrections,
+      activePutaway,
+      cartonsStoredToday,
+      awaitingPutaway,
     ] = await Promise.all([
       this.prisma.station.findMany({
         orderBy: [{ department: 'asc' }, { code: 'asc' }],
@@ -43,6 +46,19 @@ export class OperationsService {
       this.prisma.expectedArrival.count({ where: { status: { in: ['EXPECTED', 'RECEIVING', 'PAUSED'] } } }),
       this.prisma.receivingCarton.count({ where: { createdAt: { gte: since }, status: 'RECEIVED' } }),
       this.prisma.operationCorrection.count({ where: { createdAt: { gte: since } } }),
+      this.prisma.putawaySession.findMany({
+        where: { status: { in: ['ACTIVE', 'PAUSED'] } },
+        orderBy: { startedAt: 'desc' },
+        include: {
+          worker: { select: { id: true, name: true, employeeCode: true } },
+          station: { select: { code: true } },
+          _count: { select: { placements: true } },
+        },
+      }),
+      this.prisma.cartonPlacement.count({ where: { placedAt: { gte: since } } }),
+      this.prisma.warehouseCarton.count({
+        where: { status: 'RECEIVED', currentLocationId: null },
+      }),
     ]);
 
     // Resolve worker identities for the active sessions in one query rather
@@ -67,7 +83,19 @@ export class OperationsService {
         correctionsToday: pendingCorrections,
         activeStations: stations.filter((s) => s.status === 'ACTIVE').length,
         stations: stations.length,
+        activePutawaySessions: activePutaway.length,
+        cartonsStoredToday,
+        awaitingPutaway,
       },
+      putawaySessions: activePutaway.map((p) => ({
+        id: p.id,
+        code: p.code,
+        status: p.status,
+        startedAt: p.startedAt,
+        worker: p.worker,
+        stationCode: p.station?.code ?? null,
+        placements: p._count.placements,
+      })),
       stations: stations.map((s) => ({
         id: s.id,
         code: s.code,

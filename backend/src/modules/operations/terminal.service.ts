@@ -54,7 +54,7 @@ const TASK_REGISTRY: TerminalTask[] = [
     path: '/terminal/putaway',
     department: 'PUTAWAY',
     permission: 'stowing.execute',
-    ready: false,
+    ready: true,
   },
   {
     key: 'packing',

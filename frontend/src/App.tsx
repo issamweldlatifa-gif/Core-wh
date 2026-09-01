@@ -22,6 +22,7 @@ import System from './pages/System';
 const WorkerShell = lazy(() => import('./terminal/WorkerShell'));
 const WorkerTerminalHome = lazy(() => import('./terminal/WorkerTerminalHome'));
 const ReceivingTask = lazy(() => import('./terminal/ReceivingTask'));
+const PutawayTask = lazy(() => import('./terminal/PutawayTask'));
 const AdminShell = lazy(() => import('./admin/AdminShell'));
 const ControlCenter = lazy(() => import('./admin/pages/ControlCenter'));
 const AdminWorkers = lazy(() => import('./admin/pages/Workers'));
@@ -86,6 +87,10 @@ export default function App() {
             <Route
               path="receiving"
               element={<PermissionGate perm="receiving.execute"><ReceivingTask /></PermissionGate>}
+            />
+            <Route
+              path="putaway"
+              element={<PermissionGate perm="stowing.execute"><PutawayTask /></PermissionGate>}
             />
           </Route>
 
