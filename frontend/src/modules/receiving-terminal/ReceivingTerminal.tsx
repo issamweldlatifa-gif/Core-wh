@@ -5,29 +5,12 @@ import ScanField from './ScanField';
 import { detectCapabilities, freshOperationId, sourceLabel, type ScanSource } from './scan-source';
 import './terminal.css';
 
-const STATUS_TAG: Record<string, string> = {
-  RECEIVING: 'accent',
-  PAUSED: 'yellow',
-  COMPLETED: 'green',
-  COMPLETED_WITH_DISCREPANCY: 'red',
-  CANCELLED: 'gray',
-};
-
 const PRODUCT_STATUS_TAG: Record<string, string> = {
-  EXPECTED: 'gray',
-  PARTIALLY_RECEIVED: 'yellow',
-  RECEIVED: 'green',
-  SHORT: 'red',
-  OVERAGE: 'red',
-  UNEXPECTED: 'red',
-  NEEDS_REVIEW: 'yellow',
+  EXPECTED: 'dim', PARTIALLY_RECEIVED: 'yellow', RECEIVED: 'green',
+  SHORT: 'red', OVERAGE: 'red', UNEXPECTED: 'red', NEEDS_REVIEW: 'yellow',
 };
 
-interface Activity {
-  t: string;
-  text: string;
-  kind: 'ok' | 'warn' | 'info';
-}
+interface Activity { t: string; text: string; kind: 'ok' | 'warn' | 'info'; }
 
 function codeTypeFor(source: ScanSource): 'QR' | 'BARCODE' | 'MANUAL' {
   return source === 'CAMERA' ? 'QR' : source === 'EXTERNAL_SCANNER' ? 'BARCODE' : 'MANUAL';
@@ -49,47 +32,24 @@ export default function ReceivingTerminal() {
   const [activity, setActivity] = useState<Activity[]>([]);
 
   const loadArrivals = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setArrivals(await api.arrivals());
-    } catch (e: any) {
-      setError(e?.response?.data?.message ?? e?.message ?? 'Failed to load arrivals.');
-    } finally {
-      setLoading(false);
-    }
+    setLoading(true); setError(null);
+    try { setArrivals(await api.arrivals()); }
+    catch (e: any) { setError(e?.response?.data?.message ?? e?.message ?? 'Failed to load arrivals.'); }
+    finally { setLoading(false); }
   }, []);
 
   useEffect(() => { loadArrivals(); }, [loadArrivals]);
 
-  // Network monitor: preserve the session across interruptions; never submit
-  // duplicates (server idempotency via operationId handles re-connects).
   useEffect(() => {
-    const up = () => setOnline(true);
-    const down = () => setOnline(false);
-    window.addEventListener('online', up);
-    window.addEventListener('offline', down);
+    const up = () => setOnline(true), down = () => setOnline(false);
+    window.addEventListener('online', up); window.addEventListener('offline', down);
     return () => { window.removeEventListener('online', up); window.removeEventListener('offline', down); };
   }, []);
 
-  // ----- helpers -----
   const apply = useCallback((next: ReceivingSessionDetail) => {
     setSession(next);
     setPendingCarton(next.flash?.kind === 'CARTON_IDENTIFIED' ? next.flash.carton : null);
-    seedActivity(next);
     api.arrivals().then(setArrivals).catch(() => {});
-  }, []);
-
-  const seedActivity = useCallback((s: ReceivingSessionDetail) => {
-    const rows: Activity[] = [];
-    (s.receivedCartonEvents ?? []).forEach((c) => {
-      rows.unshift({ t: c.receivedAt ? new Date(c.receivedAt).toLocaleTimeString() : '—', text: `Carton ${c.code} received`, kind: 'ok' });
-    });
-    (s.discrepancies ?? []).slice(0, 8).forEach((d) => {
-      rows.unshift({ t: '', text: `${d.type.replace(/_/g, ' ')} — ${d.reason ?? ''}`, kind: 'warn' });
-    });
-    rows.sort((a, b) => (a.t < b.t ? 1 : -1));
-    setActivity(rows.slice(0, 40));
   }, []);
 
   const pushActivity = useCallback((text: string, kind: Activity['kind']) => {
@@ -98,25 +58,19 @@ export default function ReceivingTerminal() {
 
   const guard = useCallback(async (fn: () => Promise<ReceivingSessionDetail>, okMsg?: string) => {
     if (busy) return;
-    setBusy(true);
-    setError(null);
+    setBusy(true); setError(null);
     try {
-      const next = await fn();
-      apply(next);
+      const next = await fn(); apply(next);
       if (okMsg) pushActivity(okMsg, 'ok');
     } catch (e: any) {
       const m = e?.response?.data?.message ?? e?.response?.data?.error ?? e?.message ?? 'Action failed.';
       setError(Array.isArray(m) ? m.join(', ') : m);
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busy, apply, pushActivity]);
 
-  // ----- actions -----
   async function openArrival(a: ReceivingArrival) {
-    setError(null);
-    setBusy(true);
+    setError(null); setBusy(true);
     try {
       const active = await api.active(a.code);
       const exists = !!active;
@@ -126,12 +80,9 @@ export default function ReceivingTerminal() {
         scanSource: caps.cameraScanningSupported ? 'CAMERA' : 'EXTERNAL_SCANNER',
       });
       apply(started);
-      pushActivity(`Session ${started.code} ${exists ? 'resumed' : 'started'}`, 'info');
-    } catch (e: any) {
-      setError(e?.response?.data?.message ?? e?.message ?? 'Could not open receiving.');
-    } finally {
-      setBusy(false);
-    }
+      pushActivity(`session ${started.code} ${exists ? 'resumed' : 'started'}`, 'info');
+    } catch (e: any) { setError(e?.response?.data?.message ?? e?.message ?? 'Could not open receiving.'); }
+    finally { setBusy(false); }
   }
 
   async function onCartonSubmit(value: string, source: ScanSource) {
@@ -139,23 +90,17 @@ export default function ReceivingTerminal() {
     setLastSource(source);
     await guard(async () => {
       const r = await api.scanCarton(session.id, value, codeTypeFor(source), freshOperationId(), source);
-      pushActivity(`Scanned carton ${value}`, 'info');
+      pushActivity(`scanned carton ${value}`, 'info');
       return r;
     });
   }
 
   async function onConfirmCarton() {
     if (!session || !pendingCarton) return;
-    const op = freshOperationId();
     await guard(async () => {
-      const r = await api.receiveCarton(
-        session.id,
-        pendingCarton.externalCartonId ?? pendingCarton.id,
-        op,
-        lastSource,
-      );
+      const r = await api.receiveCarton(session.id, pendingCarton.externalCartonId ?? pendingCarton.id, freshOperationId(), lastSource);
       setPendingCarton(null);
-      pushActivity(`Carton ${pendingCarton.externalCartonId} confirmed`, 'ok');
+      pushActivity(`carton ${pendingCarton.externalCartonId} confirmed`, 'ok');
       return r;
     });
   }
@@ -165,454 +110,319 @@ export default function ReceivingTerminal() {
     setLastSource(source);
     await guard(async () => {
       const r = await api.receiveProduct(session.id, value, qty, source, freshOperationId());
-      pushActivity(`SKU ${value} ×${qty}`, 'ok');
+      pushActivity(`sku ${value} x${qty}`, 'ok');
       return r;
     });
   }
 
-  async function onPause() {
-    if (!session) return;
-    const r = await api.pause(session.id);
-    apply(r);
-    pushActivity('Session paused', 'info');
-  }
-  async function onResume() {
-    if (!session) return;
-    const r = await api.resume(session.id);
-    apply(r);
-    pushActivity('Session resumed', 'info');
-  }
-  async function onComplete() {
-    if (!session) return;
-    await guard(async () => {
-      const r = await api.complete(session.id);
-      pushActivity('Receiving completed', 'ok');
-      return r;
-    });
-  }
-  async function onResolveDiscrepancy(id: string) {
-    if (!session) return;
-    await guard(async () => {
-      const r = await api.resolve(id, 'Resolved by supervisor');
-      pushActivity('Discrepancy resolved', 'ok');
-      return r;
-    });
-  }
+  async function onPause() { if (session) { apply(await api.pause(session.id)); pushActivity('session paused', 'info'); } }
+  async function onResume() { if (session) { apply(await api.resume(session.id)); pushActivity('session resumed', 'info'); } }
+  async function onComplete() { if (session) await guard(async () => { const r = await api.complete(session.id); pushActivity('receiving completed', 'ok'); return r; }); }
+  async function onResolveDiscrepancy(id: string) { if (session) await guard(async () => { const r = await api.resolve(id, 'Resolved by supervisor'); pushActivity('discrepancy resolved', 'ok'); return r; }); }
 
-  // ----- derived -----
   const finished = session && (session.status === 'COMPLETED' || session.status === 'COMPLETED_WITH_DISCREPANCY');
   const t = session?.tally;
   const openDiscrepancies = (session?.discrepancies ?? []).filter((d) => d.status === 'OPEN');
   const flash = session?.flash;
   const lastWarn = flash && ['UNKNOWN_CARTON', 'WRONG_SHIPMENT', 'DUPLICATE_CARTON', 'UNEXPECTED_PRODUCT'].includes(flash.kind) ? flash : null;
 
-  // next expected carton (not yet received)
   const receivedCartonIds = useMemo(() => new Set((session?.receivedCartonEvents ?? []).map((c) => c.cartonId)), [session]);
   const nextCarton = useMemo(() => {
     if (!session) return null;
     return (session.cartons ?? []).find((c) => c.status !== 'RECEIVED' && !receivedCartonIds.has(c.externalCartonId)) ?? null;
   }, [session, receivedCartonIds]);
-
   const currentCarton = pendingCarton ?? nextCarton;
   const paused = session?.status === 'PAUSED';
+  const worker = me?.user?.name ?? 'worker';
+  const host = worker.toLowerCase().replace(/\s+/g, '-') || 'worker';
 
-  // ---- render: arrivals picker ----
+  // ---------- PICKER ----------
   if (!session) {
     return (
-      <div className="rt">
-        <header className="rt-header">
-          <div className="rt-brand">
-            <span className="rt-title">RECEIVING TERMINAL</span>
-            <span className="rt-sub">AYROVI Warehouse · Carton-first inbound receiving</span>
-          </div>
-          <div className="rt-header-right">
-            <span className={`rt-chip ${online ? 'ok' : 'bad'}`}>{online ? '● ONLINE' : '● OFFLINE'}</span>
-          </div>
-        </header>
-
-        <div className="rt-body rt-picker">
-          <div className="rt-section-head">
-            <span className="rt-section-title">OPEN RECEIVING</span>
-            <span className="muted">Select an expected arrival to start or resume its receiving session.</span>
-          </div>
-          {error && <div className="error-box">{error}</div>}
-          {loading ? (
-            <div className="empty"><span className="spinner" /></div>
-          ) : arrivals.length === 0 ? (
-            <div className="empty">No arrivals awaiting receiving. Push a Customer Arrival + Shipment card via the Arrival CRM.</div>
-          ) : (
-            <div className="rt-arrival-table-wrap">
-              <table className="rt-table">
-                <thead>
-                  <tr>
-                    <th>Arrival</th><th>Customer</th><th>Store</th><th>Status</th>
-                    <th>Carrier</th><th>Tracking</th><th>Cartons</th><th>Units</th><th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {arrivals.map((a) => (
-                    <tr key={a.id} className="rt-row">
-                      <td><strong>{a.code}</strong></td>
-                      <td>{a.customerName}</td>
-                      <td>{a.storeName ?? '—'}</td>
-                      <td><span className={`tag ${a.status === 'EXPECTED' ? 'yellow' : 'accent'}`}>{a.status}</span></td>
-                      <td>{a.carrier ?? '—'}</td>
-                      <td className="mono">{a.tracking ?? '—'}</td>
-                      <td>{a.cartons}</td>
-                      <td>{a.units}</td>
-                      <td className="rt-row-actions">
-                        <button className="rcv-btn rcv-btn--primary" disabled={busy} onClick={() => openArrival(a)}>
-                          {a.status === 'EXPECTED' ? '▶ Start receiving' : '⟳ Resume'}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+      <div className="term">
+        <div className="term-topbar">
+          <span>AYROVI WAREHOUSE <span className="dim">· RECEIVING TERMINAL</span></span>
+          <span className={`term-net ${online ? 'ok' : 'bad'}`}>{online ? '● ONLINE' : '● OFFLINE'}</span>
         </div>
+        <div className="term-body">
+          <div className="term-banner">
+            <span className="green">**</span> AYROVI WAREHOUSE CORE — RECEIVING TERMINAL <span className="green">**</span>
+            <div>select an expected arrival to start or resume its receiving session.</div>
+          </div>
+          {error && <div className="term-error">!! error: {error}</div>}
+          {loading ? <div className="dim">loading arrivals…</div>
+            : arrivals.length === 0 ? <div className="dim">no arrivals awaiting receiving. push a customer arrival + shipment card via the arrival crm.</div>
+            : (
+              <div className="term-table-wrap">
+                <table className="term-table">
+                  <thead><tr><th>ARRIVAL</th><th>CUSTOMER</th><th>STORE</th><th>STATUS</th><th>CARRIER</th><th>TRACKING</th><th>CTN</th><th>UNITS</th><th></th></tr></thead>
+                  <tbody>
+                    {arrivals.map((a) => (
+                      <tr key={a.id} className="term-row">
+                        <td className="green">{a.code}</td><td>{a.customerName}</td><td>{a.storeName ?? '—'}</td>
+                        <td className={a.status === 'EXPECTED' ? 'yellow' : 'green'}>{a.status}</td>
+                        <td>{a.carrier ?? '—'}</td><td className="dim">{a.tracking ?? '—'}</td>
+                        <td>{a.cartons}</td><td>{a.units}</td>
+                        <td className="right">
+                          <button className="term-btn term-btn--link" disabled={busy} onClick={() => openArrival(a)}>
+                            {a.status === 'EXPECTED' ? '[ start receiving ]' : '[ resume ]'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+        </div>
+        <div className="term-progressbar" />
       </div>
     );
   }
 
-  // ---- render: operational terminal ----
+  // ---------- TERMINAL ----------
+  const prompt = `${host}@warehouse:~$`;
   return (
-    <div className="rt">
-      {/* Terminal header (always visible) */}
-      <header className="rt-header">
-        <div className="rt-brand">
-          <span className="rt-title">RECEIVING TERMINAL</span>
-          <span className="rt-sub">Session {session.code} · {session.arrival.code}</span>
-        </div>
-        <div className="rt-worker">
-          <div className="rt-worker-line">
-            <span className="rt-worker-name">{me?.user.name ?? '—'}</span>
-            <span className="rt-worker-role">{(me?.roles ?? []).join(', ') || 'Worker'}</span>
-          </div>
-          <span className={`rt-chip ${session.status === 'RECEIVING' ? 'ok' : session.status === 'PAUSED' ? 'warn' : session.status.startsWith('COMPLETED') ? 'ok' : 'bad'}`}>
-            ● {session.status.replace(/_/g, ' ')}
-          </span>
-        </div>
-        <div className="rt-header-right">
-          <span className="rt-chip">{caps.deviceType}</span>
-          <span className={`rt-chip ${online ? 'ok' : 'bad'}`}>{online ? '● ONLINE' : '● OFFLINE'}</span>
-          {!finished && (
-            <>
-              {paused ? (
-                <button className="rcv-btn rcv-btn--ghost" disabled={busy} onClick={onResume}>▶ Resume</button>
-              ) : (
-                <button className="rcv-btn rcv-btn--ghost" disabled={busy} onClick={onPause}>⏸ Pause</button>
-              )}
-            </>
-          )}
-          <button className="rcv-btn rcv-btn--ghost rcv-btn--danger" onClick={() => { setSession(null); setPendingCarton(null); setActivity([]); loadArrivals(); }}>
-            ✕ Exit
-          </button>
-        </div>
-      </header>
+    <div className="term">
+      <div className="term-topbar">
+        <span>AYROVI RECEIVING TERMINAL <span className="dim">· session {session.code}</span></span>
+        <span className="term-user"><span className="green">{worker}</span> <span className="dim">[{me?.roles?.join(',') || 'worker'}]</span></span>
+        <span className="term-chip">{caps.deviceType}</span>
+        <span className={`term-net ${online ? 'ok' : 'bad'}`}>{online ? '● ONLINE' : '● OFFLINE'}</span>
+        {!finished && (paused
+          ? <button className="term-btn" disabled={busy} onClick={onResume}>[ resume ]</button>
+          : <button className="term-btn" disabled={busy} onClick={onPause}>[ pause ]</button>)}
+        <button className="term-btn term-btn--danger" onClick={() => { setSession(null); setPendingCarton(null); setActivity([]); loadArrivals(); }}>[ exit ]</button>
+      </div>
 
-      <div className="rt-body rt-terminal">
-        {error && <div className="error-box">{error}</div>}
-        {!online && <div className="net-banner">Connection lost — the session is preserved. Scans are idempotent and will not be duplicated on reconnection.</div>}
-
-        {/* Operational status / warnings (persistent, never a disappearing toast) */}
+      <div className="term-body">
+        {error && <div className="term-error">!! error: {error}</div>}
+        {!online && <div className="term-warn">-- connection lost: session preserved; scans idempotent, no duplicates on reconnect --</div>}
         {(lastWarn || openDiscrepancies.length > 0) && (
-          <div className="rt-warnbar">
-            {lastWarn && <span className="rt-warn">{warnText(lastWarn)}</span>}
-            {openDiscrepancies.length > 0 && (
-              <span className="rt-warn rt-warn--count">{openDiscrepancies.length} open discrepancy{openDiscrepancies.length > 1 ? 'ies' : ''}</span>
-            )}
+          <div className="term-warn">
+            {lastWarn && <span>{warnText(lastWarn)}</span>}
+            {openDiscrepancies.length > 0 && <span className="red"> [{openDiscrepancies.length} open discrepancies]</span>}
           </div>
         )}
 
-        {/* Shipment + Customer arrival */}
-        <div className="rt-grid rt-grid--2">
-          <InfoCard title="SHIPMENT">
-            <K v="Shipment" c={session.shipment?.code ?? '—'} />
-            <K v="External ID" c={session.shipment?.externalShipmentId ?? '—'} />
-            <K v="Carrier" c={session.shipment?.carrierName ?? '—'} />
-            <K v="Tracking" c={session.shipment?.trackingNumber ?? '—'} mono />
-            <K v="Sender" c={session.shipment?.senderName ?? session.shipment?.senderCompany ?? '—'} />
-            <K v="Expected cartons" c={String(t?.expectedCartons ?? 0)} />
-          </InfoCard>
-          <InfoCard title="CUSTOMER ARRIVAL">
-            <K v="Arrival" c={session.arrival.code} />
-            <K v="Customer" c={session.arrival.customerName} />
-            <K v="Store" c={session.arrival.storeName ?? '—'} />
-            <K v="Expected products" c={String(t?.expectedProducts ?? 0)} />
-            <K v="Expected units" c={String(t?.expectedUnits ?? 0)} />
-            <K v="Expected data" c="READ-ONLY" />
-          </InfoCard>
+        {/* Shipment + arrival */}
+        <div className="term-grid2">
+          <Box title="SHIPMENT">
+            <Row k="shipment" v={session.shipment?.code ?? '—'} />
+            <Row k="external id" v={session.shipment?.externalShipmentId ?? '—'} />
+            <Row k="carrier" v={session.shipment?.carrierName ?? '—'} />
+            <Row k="tracking" v={session.shipment?.trackingNumber ?? '—'} />
+            <Row k="sender" v={session.shipment?.senderName ?? session.shipment?.senderCompany ?? '—'} />
+            <Row k="expected cartons" v={String(t?.expectedCartons ?? 0)} />
+          </Box>
+          <Box title="CUSTOMER ARRIVAL">
+            <Row k="arrival" v={session.arrival.code} />
+            <Row k="customer" v={session.arrival.customerName} />
+            <Row k="store" v={session.arrival.storeName ?? '—'} />
+            <Row k="expected products" v={String(t?.expectedProducts ?? 0)} />
+            <Row k="expected units" v={String(t?.expectedUnits ?? 0)} />
+            <Row k="expected data" v="READ-ONLY" />
+          </Box>
         </div>
 
-        {/* Carton scanner */}
+        {/* Carton scan */}
         {!finished && (
-          <div className="rt-panel rt-panel--scan">
+          <div className="term-box term-box--accent">
             <ScanField
               label="SCAN CARTON"
-              placeholder="Scan carton label (CTN-…), or type and press Enter"
-              hint="Accepting QR · barcode · external scanner · manual"
+              placeholder="scan carton label (CTN-...) or type + enter"
+              hint="accepting: qr | barcode | external scanner | manual"
               disabled={busy || paused}
               cameraLabel="Scan carton label"
               onSubmit={onCartonSubmit}
               sourceLabel={sourceLabel(lastSource)}
             />
             {flash?.kind === 'CARTON_IDENTIFIED' && (
-              <div className="rt-identify rt-identify--ok">
-                ✓ CARTOON IDENTIFIED — confirm receipt to record the physical carton.
-              </div>
+              <div className="term-ok">+ carton identified -- confirm receipt to record the physical carton</div>
             )}
           </div>
         )}
 
         {/* Current carton + progress */}
-        <div className="rt-grid rt-grid--2 rt-grid--current">
-          <div className="rt-panel">
-            <div className="rt-panel-title">CURRENT CARTON</div>
-            {currentCarton ? (
-              <>
-                <div className="rt-cartonnum">{currentCarton.externalCartonId}</div>
-                <div className="rt-cartondetail">Box {currentCarton.cartonNumber} / {currentCarton.totalCartons}</div>
-                <div className="rt-kv-grid">
-                  <K v="Status" c={pendingCarton ? 'IDENTIFIED — AWAIT CONFIRM' : currentCarton.status ?? 'EXPECTED'} />
-                  {currentCarton.weight != null && <K v="Weight" c={`${currentCarton.weight} ${currentCarton.weightUnit ?? 'kg'}`} />}
-                  <K v="Shipment" c={session.shipment?.code ?? '—'} />
-                  <K v="Customer" c={session.arrival.customerName} />
-                </div>
-                {pendingCarton ? (
-                  <button className="rcv-btn rcv-btn--ok rcv-btn--block" disabled={busy || paused} onClick={onConfirmCarton}>
-                    ✓ CONFIRM CARTON RECEIVED
-                  </button>
-                ) : (
-                  <div className="rt-scanhint">Scan the carton above to begin its receipt.</div>
-                )}
-              </>
+        <div className="term-grid2">
+          <Box title="CURRENT CARTON">
+            <div className="term-carton green">{currentCarton?.externalCartonId ?? '—'}</div>
+            <div className="dim">box {currentCarton ? `${currentCarton.cartonNumber} / ${currentCarton.totalCartons}` : '—'}</div>
+            <Row k="status" v={pendingCarton ? 'IDENTIFIED - AWAIT CONFIRM' : currentCarton?.status ?? 'EXPECTED'} />
+            <Row k="shipment" v={session.shipment?.code ?? '—'} />
+            <Row k="customer" v={session.arrival.customerName} />
+            {currentCarton?.weight != null && <Row k="weight" v={`${currentCarton.weight} ${currentCarton.weightUnit ?? 'kg'}`} />}
+            {pendingCarton ? (
+              <button className="term-btn term-btn--ok term-btn--full" disabled={busy || paused} onClick={onConfirmCarton}>
+                + CONFIRM CARTON RECEIVED
+              </button>
             ) : (
-              <div className="rt-cartonnum">—</div>
+              <div className="term-hint">scan a carton above to begin its receipt.</div>
             )}
-          </div>
-
-          <div className="rt-panel">
-            <div className="rt-panel-title">RECEIVING PROGRESS</div>
-            <div className="rt-progress">
-              <Progress label="CARTONS" value={`${t?.receivedCartons ?? 0} / ${t?.expectedCartons ?? 0}`} done={(t?.receivedCartons ?? 0) >= (t?.expectedCartons ?? 0)} />
-              <Progress label="PRODUCTS" value={`${t?.receivedProducts ?? 0} / ${t?.expectedProducts ?? 0}`} done={(t?.receivedProducts ?? 0) >= (t?.expectedProducts ?? 0)} />
-              <Progress label="UNITS" value={`${t?.receivedUnits ?? 0} / ${t?.expectedUnits ?? 0}`} done={(t?.receivedUnits ?? 0) >= (t?.expectedUnits ?? 0)} />
-              <Progress label="DISCREPANCIES" value={`${t?.openDiscrepancies ?? 0}`} bad={(t?.openDiscrepancies ?? 0) > 0} />
-            </div>
-          </div>
+          </Box>
+          <Box title="RECEIVING PROGRESS">
+            <Progress label="CARTONS" v={`${t?.receivedCartons ?? 0} / ${t?.expectedCartons ?? 0}`} ok={(t?.receivedCartons ?? 0) >= (t?.expectedCartons ?? 0)} />
+            <Progress label="PRODUCTS" v={`${t?.receivedProducts ?? 0} / ${t?.expectedProducts ?? 0}`} ok={(t?.receivedProducts ?? 0) >= (t?.expectedProducts ?? 0)} />
+            <Progress label="UNITS" v={`${t?.receivedUnits ?? 0} / ${t?.expectedUnits ?? 0}`} ok={(t?.receivedUnits ?? 0) >= (t?.expectedUnits ?? 0)} />
+            <Progress label="DISCREPANCIES" v={`${t?.openDiscrepancies ?? 0}`} bad={(t?.openDiscrepancies ?? 0) > 0} />
+          </Box>
         </div>
 
         {/* Expected products */}
-        <div className="rt-panel">
-          <div className="rt-panel-title">EXPECTED PRODUCTS <span className="muted">(expected is immutable — receiving records actual only)</span></div>
-          <div className="rt-table-wrap">
-            <table className="rt-table">
-              <thead>
-                <tr><th>SKU / REF</th><th>PRODUCT</th><th>EXPECTED</th><th>RECEIVED</th><th>REMAINING</th><th>STATUS</th></tr>
-              </thead>
+        <Box title="EXPECTED PRODUCTS">
+          <div className="dim">expected is immutable -- receiving records actual only</div>
+          <div className="term-table-wrap">
+            <table className="term-table">
+              <thead><tr><th>SKU/REF</th><th>PRODUCT</th><th>EXPECTED</th><th>RECEIVED</th><th>REMAINING</th><th>STATUS</th></tr></thead>
               <tbody>
                 {(session.products ?? []).map((p) => (
-                  <tr key={p.id} className={p.status === 'RECEIVED' ? 'rt-row--done' : ''}>
-                    <td className="mono">{p.sku ?? p.reference ?? <em className="muted">no sku</em>}</td>
-                    <td>{p.productName ?? '—'}</td>
-                    <td>{p.expected}</td>
-                    <td className="rt-big">{p.received}</td>
-                    <td>{p.remaining}</td>
-                    <td><span className={`tag ${PRODUCT_STATUS_TAG[p.status] ?? 'gray'}`}>{p.status.replace(/_/g, ' ')}</span></td>
+                  <tr key={p.id} className={p.status === 'RECEIVED' ? 'term-row--done' : ''}>
+                    <td className="cyan">{p.sku ?? p.reference ?? <em className="dim">no sku</em>}</td>
+                    <td>{p.productName ?? '—'}</td><td>{p.expected}</td>
+                    <td className="green">{p.received}</td><td>{p.remaining}</td>
+                    <td className={PRODUCT_STATUS_TAG[p.status] ?? 'dim'}>{p.status.replace(/_/g, ' ')}</td>
                   </tr>
                 ))}
-                {session.products.length === 0 && (
-                  <tr><td colSpan={6} className="muted">No expected product lines for this arrival.</td></tr>
-                )}
+                {session.products.length === 0 && <tr><td colSpan={6} className="dim">no expected product lines for this arrival.</td></tr>}
               </tbody>
             </table>
           </div>
-        </div>
+        </Box>
 
-        {/* Product scanner */}
-        <div className="rt-panel rt-panel--scan rt-panel--product">
+        {/* Product scan */}
+        <Box title="SCAN PRODUCT">
           <ProductScanner onSubmit={onProductSubmit} disabled={busy || paused} lastSource={lastSource} flash={flash} />
-          <div className="muted rt-legend">Matching is performed authoritatively on the Warehouse backend.</div>
-        </div>
+          <div className="term-hint">matching is performed authoritatively on the warehouse backend.</div>
+        </Box>
 
-        {/* Activity + carton queue */}
-        <div className="rt-grid rt-grid--2">
-          <div className="rt-panel">
-            <div className="rt-panel-title">ACTIVITY</div>
-            <div className="rt-log">
-              {activity.length === 0 && <div className="muted">No activity yet.</div>}
+        {/* Activity + cartons */}
+        <div className="term-grid2">
+          <Box title="ACTIVITY">
+            <div className="term-log">
+              {activity.length === 0 && <div className="dim">no activity yet.</div>}
               {activity.map((a, i) => (
-                <div className={`rt-log-item rt-log-item--${a.kind}`} key={i}>
-                  <span className="rt-log-time">{a.t}</span>
-                  <span className="rt-log-text">{a.text}</span>
+                <div key={i} className={`term-logitem term-logitem--${a.kind}`}>
+                  <span className="dim">{a.t}</span> {a.text}
                 </div>
               ))}
             </div>
-          </div>
-          <div className="rt-panel">
-            <div className="rt-panel-title">CARTONS</div>
-            <div className="rt-queue">
+          </Box>
+          <Box title="CARTONS">
+            <div className="term-queue">
               {(session.cartons ?? []).map((c) => {
-                const received = c.status === 'RECEIVED' || receivedCartonIds.has(c.externalCartonId);
-                const current = currentCarton?.externalCartonId === c.externalCartonId;
+                const rec = c.status === 'RECEIVED' || receivedCartonIds.has(c.externalCartonId);
+                const cur = currentCarton?.externalCartonId === c.externalCartonId;
                 return (
-                  <div key={c.id} className={`rt-queue-item ${received ? 'done' : ''} ${current ? 'current' : ''}`}>
-                    <span className="rt-queue-mark">{received ? '✓' : current ? '●' : '○'}</span>
-                    <span className="mono">{c.externalCartonId}</span>
-                    <span className="rt-queue-state">{received ? 'RECEIVED' : current ? 'CURRENT' : 'PENDING'}</span>
+                  <div key={c.id} className={`term-qitem ${rec ? 'done' : ''} ${cur ? 'current' : ''}`}>
+                    <span>{rec ? '[x]' : cur ? '[*]' : '[ ]'}</span>
+                    <span className="cyan">{c.externalCartonId}</span>
+                    <span className="right dim">{rec ? 'RECEIVED' : cur ? 'CURRENT' : 'PENDING'}</span>
                   </div>
                 );
               })}
-              {session.cartons.length === 0 && <div className="muted">No cartons declared for this shipment.</div>}
+              {session.cartons.length === 0 && <div className="dim">no cartons declared.</div>}
             </div>
-          </div>
+          </Box>
         </div>
 
-        {/* Reconciliation / completion */}
-        <div className="rt-panel rt-panel--reconcile">
-          <div className="rt-reconcile-head">
-            <div className="rt-panel-title">RECONCILIATION</div>
-            <span className={`tag ${openDiscrepancies.length > 0 || (t?.shortUnits ?? 0) > 0 || (t?.overageUnits ?? 0) > 0 || (t?.unexpectedProducts ?? 0) > 0 || (t?.missingCartons ?? 0) > 0 ? 'red' : 'green'}`}>
-              {hasIssues(t) ? '⚠ HAS DISCREPANCIES' : '✓ ALL MATCH'}
-            </span>
+        {/* Reconciliation */}
+        <div className="term-box typewriter">
+          <div className="term-boxtitle">RECONCILIATION <span className={hasIssues(t) ? 'red' : 'green'}>{hasIssues(t) ? '[! HAS DISCREPANCIES]' : '[! ALL MATCH]'}</span></div>
+          <div className="term-recgrid">
+            <Rec k="expected cartons" v={`${t?.expectedCartons ?? 0}`} />
+            <Rec k="received cartons" v={`${t?.receivedCartons ?? 0}`} ok={t?.receivedCartons === t?.expectedCartons} />
+            <Rec k="expected products" v={`${t?.expectedProducts ?? 0}`} />
+            <Rec k="received products" v={`${t?.receivedProducts ?? 0}`} ok={t?.receivedProducts === t?.expectedProducts} />
+            <Rec k="expected units" v={`${t?.expectedUnits ?? 0}`} />
+            <Rec k="received units" v={`${t?.receivedUnits ?? 0}`} ok={t?.receivedUnits === t?.expectedUnits} />
+            <Rec k="missing cartons" v={`${t?.missingCartons ?? 0}`} bad={(t?.missingCartons ?? 0) > 0} />
+            <Rec k="short units" v={`${t?.shortUnits ?? 0}`} bad={(t?.shortUnits ?? 0) > 0} />
+            <Rec k="overage units" v={`${t?.overageUnits ?? 0}`} bad={(t?.overageUnits ?? 0) > 0} />
+            <Rec k="unexpected products" v={`${t?.unexpectedProducts ?? 0}`} bad={(t?.unexpectedProducts ?? 0) > 0} />
+            <Rec k="open discrepancies" v={`${t?.openDiscrepancies ?? 0}`} bad={(t?.openDiscrepancies ?? 0) > 0} />
           </div>
-          <div className="rt-reconcile-grid">
-            <Reconcile k="Expected cartons" v={`${t?.expectedCartons ?? 0}`} />
-            <Reconcile k="Received cartons" v={`${t?.receivedCartons ?? 0}`} ok={t?.receivedCartons === t?.expectedCartons} />
-            <Reconcile k="Expected products" v={`${t?.expectedProducts ?? 0}`} />
-            <Reconcile k="Received products" v={`${t?.receivedProducts ?? 0}`} ok={t?.receivedProducts === t?.expectedProducts} />
-            <Reconcile k="Expected units" v={`${t?.expectedUnits ?? 0}`} />
-            <Reconcile k="Received units" v={`${t?.receivedUnits ?? 0}`} ok={t?.receivedUnits === t?.expectedUnits} />
-            <Reconcile k="Missing cartons" v={`${t?.missingCartons ?? 0}`} bad={(t?.missingCartons ?? 0) > 0} />
-            <Reconcile k="Short units" v={`${t?.shortUnits ?? 0}`} bad={(t?.shortUnits ?? 0) > 0} />
-            <Reconcile k="Overage units" v={`${t?.overageUnits ?? 0}`} bad={(t?.overageUnits ?? 0) > 0} />
-            <Reconcile k="Unexpected products" v={`${t?.unexpectedProducts ?? 0}`} bad={(t?.unexpectedProducts ?? 0) > 0} />
-            <Reconcile k="Open discrepancies" v={`${t?.openDiscrepancies ?? 0}`} bad={(t?.openDiscrepancies ?? 0) > 0} />
-          </div>
-          <div className="rt-reconcile-actions">
-            {hasIssues(t) && (
-              <>
-                <div className="rt-warn rt-warn--count">RECEIVING HAS DISCREPANCIES</div>
-                {openDiscrepancies.map((d) => (
-                  <div key={d.id} className="rt-disc">
-                    <span className={`tag red`}>{d.type.replace(/_/g, ' ')}</span>
-                    <span className="muted">{d.reason ?? ''}</span>
-                    {d.status === 'OPEN' && canResolve && (
-                      <button className="rcv-btn rcv-btn--ghost" disabled={busy} onClick={() => onResolveDiscrepancy(d.id)}>Resolve</button>
-                    )}
-                  </div>
-                ))}
-              </>
-            )}
+          <div className="term-recactions">
+            {hasIssues(t) && openDiscrepancies.map((d) => (
+              <div key={d.id} className="term-disc">
+                <span className="red">[{d.type.replace(/_/g, ' ')}]</span> <span className="dim">{d.reason ?? ''}</span>
+                {d.status === 'OPEN' && canResolve && <button className="term-btn" disabled={busy} onClick={() => onResolveDiscrepancy(d.id)}>[ resolve ]</button>}
+              </div>
+            ))}
             {!finished ? (
-              <button
-                className={`rcv-btn rcv-btn--block ${hasIssues(t) ? 'rcv-btn--danger' : 'rcv-btn--ok'}`}
-                disabled={busy || paused}
-                title={hasIssues(t) && !canResolve ? 'Resolve or review discrepancies (supervisor) to complete' : ''}
-                onClick={onComplete}
-              >
-                {hasIssues(t) ? (canResolve ? '✓ COMPLETE RECEIVING WITH DISCREPANCIES' : '⛔ REQUEST SUPERVISOR') : '✓ COMPLETE RECEIVING'}
+              <button className={`term-btn term-btn--full ${hasIssues(t) ? 'term-btn--danger' : 'term-btn--ok'}`} disabled={busy || paused} onClick={onComplete}>
+                {hasIssues(t) ? (canResolve ? "+ COMPLETE RECEIVING WITH DISCREPANCIES" : "! REQUEST SUPERVISOR") : "+ COMPLETE RECEIVING"}
               </button>
             ) : (
-              <div className={`rt-done ${session.status.startsWith('COMPLETED') && hasIssues(t) ? 'rt-done--disc' : ''}`}>
-                {session.status === 'COMPLETED' ? '✓ RECEIVING COMPLETED — READY FOR NEXT WAREHOUSE OPERATION' : '⚠ RECEIVING COMPLETED WITH DISCREPANCY — resolved / flagged for supervisor'}
+              <div className={session.status === 'COMPLETED' ? 'term-ok typewriter' : 'term-error typewriter'}>
+                {session.status === 'COMPLETED' ? '+ receiving completed -- ready for next warehouse operation' : '! receiving completed with discrepancy -- flagged/resolved by supervisor'}
               </div>
             )}
           </div>
         </div>
+
+        <div className="term-promptline">
+          <span className="green">{prompt}</span><span className="term-blink">▊</span>
+        </div>
       </div>
+      <div className="term-progressbar" />
     </div>
   );
 }
 
-// ---------- small presentational helpers ----------
+// ---------- presentational ----------
 function hasIssues(t?: any): boolean {
   return !!t && (t.openDiscrepancies > 0 || t.shortUnits > 0 || t.overageUnits > 0 || t.unexpectedProducts > 0 || t.missingCartons > 0);
 }
 function warnText(f: any): string {
-  if (f.kind === 'UNKNOWN_CARTON') return `⚠ UNKNOWN CARTON — "${f.code}" is not part of any expected shipment. Flagged for review.`;
-  if (f.kind === 'WRONG_SHIPMENT') return `⚠ WRONG SHIPMENT — carton ${f.carton} belongs to shipment ${f.shipment}. Do NOT receive.`;
-  if (f.kind === 'DUPLICATE_CARTON') return `⚠ DUPLICATE CARTON — ${f.carton} already received (not counted again).`;
-  if (f.kind === 'UNEXPECTED_PRODUCT') return `⚠ UNEXPECTED PRODUCT — ${f.sku} is not on the expected list. Recorded as discrepancy.`;
+  if (f.kind === 'UNKNOWN_CARTON') return `! unknown carton "${f.code}" not on any expected shipment. flagged for review.`;
+  if (f.kind === 'WRONG_SHIPMENT') return `! wrong shipment -- carton ${f.carton} belongs to shipment ${f.shipment}. do NOT receive.`;
+  if (f.kind === 'DUPLICATE_CARTON') return `! duplicate carton -- ${f.carton} already received (not counted again).`;
+  if (f.kind === 'UNEXPECTED_PRODUCT') return `! unexpected product -- ${f.sku} not on the expected list. recorded as discrepancy.`;
   return '';
 }
-function K({ v, c, mono }: { v: string; c: string; mono?: boolean }) {
-  return <div className="rt-kv"><span className="rt-kv-k">{v}</span><span className={`rt-kv-c ${mono ? 'mono' : ''}`}>{c}</span></div>;
+function Row({ k, v }: { k: string; v: string }) {
+  return <div className="term-rowkv"><span className="dim">{k.padEnd(18)}</span><span>{v}</span></div>;
 }
-function InfoCard({ title, children }: { title: string; children: React.ReactNode }) {
+function Box({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rt-panel">
-      <div className="rt-panel-title">{title}</div>
-      <div className="rt-kv-grid">{children}</div>
+    <div className="term-box">
+      <div className="term-boxtitle">&gt; {title}</div>
+      {children}
     </div>
   );
 }
-function Progress({ label, value, done, bad }: { label: string; value: string; done?: boolean; bad?: boolean }) {
-  return (
-    <div className="rt-progress-item">
-      <span className="rt-progress-label">{label}</span>
-      <span className={`rt-progress-value ${done ? 'ok' : bad ? 'bad' : ''}`}>{value}</span>
-    </div>
-  );
+function Progress({ label, v, ok, bad }: { label: string; v: string; ok?: boolean; bad?: boolean }) {
+  return <div className="term-progitem"><span className="dim">{label.padEnd(14)}</span><span className={ok ? 'green' : bad ? 'red' : ''}>{v}</span></div>;
 }
-function Reconcile({ k, v, ok, bad }: { k: string; v: string; ok?: boolean; bad?: boolean }) {
-  return (
-    <div className="rt-reconcile-item">
-      <span className="rt-reconcile-k">{k}</span>
-      <span className={`rt-reconcile-v ${ok ? 'ok' : bad ? 'bad' : ''}`}>{v}</span>
-    </div>
-  );
+function Rec({ k, v, ok, bad }: { k: string; v: string; ok?: boolean; bad?: boolean }) {
+  return <div className="term-recitem"><span className="dim">{k}</span><span className={ok ? 'green' : bad ? 'red' : ''}>{v}</span></div>;
 }
-
-/** Product scanner: quantity + SKU, uses ScanField. */
-function ProductScanner({
-  onSubmit,
-  disabled,
-  lastSource,
-  flash,
-}: {
-  onSubmit: (value: string, source: ScanSource, qty: number) => void;
-  disabled?: boolean;
-  lastSource: ScanSource;
-  flash: any;
+function ProductScanner({ onSubmit, disabled, lastSource, flash }: {
+  onSubmit: (v: string, s: ScanSource, qty: number) => void; disabled?: boolean; lastSource: ScanSource; flash: any;
 }) {
   const [qty, setQty] = useState(1);
-  const handle = (value: string, source: ScanSource) => {
-    const q = Math.max(1, Math.floor(Number(qty) || 1));
-    onSubmit(value, source, q);
-    setQty(1);
-  };
+  const handle = (v: string, s: ScanSource) => { onSubmit(v, s, Math.max(1, Math.floor(Number(qty) || 1))); setQty(1); };
   return (
     <>
-      <div className="rt-product-row">
-        <input
-          className="rt-qty"
-          type="number"
-          min={1}
-          value={qty}
-          onChange={(e) => setQty(parseInt(e.target.value, 10) || 1)}
-          disabled={disabled}
-          title="Quantity"
-        />
-        <div className="rt-product-scan">
-          <ScanField
-            label="SCAN PRODUCT"
-            placeholder="Scan / enter SKU, barcode or reference"
-            hint="Barcode · SKU · reference · manual"
-            disabled={disabled}
-            cameraLabel="Scan product label"
-            onSubmit={handle}
-            sourceLabel={sourceLabel(lastSource)}
-          />
-        </div>
+      <div className="term-field-row term-carton-qty">
+        <span className="term-caret">$</span>
+        <input className="term-input term-qty" type="number" min={1} value={qty} onChange={(e) => setQty(parseInt(e.target.value, 10) || 1)} disabled={disabled} />
+        <span className="dim">quantity per scan</span>
       </div>
+      <ScanField
+        label="SCAN PRODUCT"
+        placeholder="scan / enter sku, barcode or reference"
+        hint="barcode | sku | reference | manual"
+        disabled={disabled}
+        cameraLabel="Scan product label"
+        onSubmit={handle}
+        sourceLabel={sourceLabel(lastSource)}
+      />
       {flash?.kind === 'PRODUCT_MATCH' && (
-        <div className="rt-identify rt-identify--ok">✓ MATCH — {flash.sku}: {flash.received}/{flash.expected} received (remaining {Math.max(0, flash.expected - flash.received)})</div>
+        <div className="term-ok">+ match -- {flash.sku}: {flash.received}/{flash.expected} received (remaining {Math.max(0, flash.expected - flash.received)})</div>
       )}
       {flash?.kind === 'UNEXPECTED_PRODUCT' && (
-        <div className="rt-identify rt-identify--bad">⚠ UNEXPECTED PRODUCT — {flash.sku} recorded as discrepancy.</div>
+        <div className="term-error">! unexpected product -- {flash.sku} recorded as discrepancy.</div>
       )}
     </>
   );

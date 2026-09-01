@@ -1,18 +1,18 @@
+import { BrowserMultiFormatReader } from '@zxing/browser';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { apiErrorMessage } from '../../api/client';
 import type { ScanSource } from './scan-source';
 
 /**
- * Camera scanner overlay.
+ * Camera scanner — always offers a live camera tool to scan a barcode/QR.
  *
- * Uses the native `BarcodeDetector` API (Chromium/Android/Edge) with a live
- * getUserMedia feed to decode a barcode/QR in-browser with no extra library.
- * When the detector is unavailable this overlay still shows the live camera
- * view but reports that decode is unsupported on this browser, so the worker
- * falls back to an external scanner or manual entry — the workflow never
- * blocks on camera support.
+ * Uses ZXing (cross-browser decode) with getUserMedia, so it works on Chrome,
+ * Edge, Firefox, Safari, Android, iOS… independent of the native
+ * `BarcodeDetector` API. The live camera feed is decoded continuously.
  *
- * Camera permission is requested ONLY when this overlay is opened.
+ * Permission is requested ONLY when this overlay is opened. If the camera is
+ * unavailable (no device, denied permission, sandboxed iframe without
+ * camera access) it degrades to a clear message so the worker uses the
+ * external scanner or manual entry — the workflow never blocks.
  */
 export default function CameraScanner({
   title,
@@ -24,114 +24,76 @@ export default function CameraScanner({
   onClose: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const detectorRef = useRef<any>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const lastTextRef = useRef<string>('');
+  const readerRef = useRef<BrowserMultiFormatReader | null>(null);
+  const stopRef = useRef<() => void>(() => {});
+  const lastValueRef = useRef<string>('');
 
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
-  const [decoding, setDecoding] = useState(false);
 
   const stop = useCallback(() => {
-    if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
-    rafRef.current = null;
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
+    stopRef.current();
+    stopRef.current = () => {};
   }, []);
-
-  const detectLoop = useCallback(async () => {
-    const video = videoRef.current;
-    if (!video || !detectorRef.current) return;
-    try {
-      if (video.readyState >= 2 && decoderSupported()) {
-        setDecoding(true);
-        const codes = await detectorRef.current.detect(video);
-        for (const code of codes) {
-          const value = code?.rawValue?.trim?.();
-          if (value && value !== lastTextRef.current) {
-            lastTextRef.current = value;
-            stop();
-            onDetected(value, 'CAMERA');
-            return;
-          }
-        }
-      }
-    } catch {
-      // keep looping; a transient frame error should not kill the scan.
-    } finally {
-      if (streamRef.current) {
-        rafRef.current = requestAnimationFrame(() => detectLoop());
-      }
-    }
-  }, [stop, onDetected]);
 
   useEffect(() => {
     let cancelled = false;
     async function start() {
-      if (!decoderSupported()) {
-        setError('In-browser barcode decoding is not supported in this browser. Use an external scanner or manual entry.');
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setError('Camera is not supported on this device/browser. Use an external scanner or manual entry.');
         return;
       }
-      // 1280x720 environmental camera by default, fall back gracefully.
-      const constraints: MediaStreamConstraints = {
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: false,
-      };
       try {
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
-        }
-        try {
-          detectorRef.current = new (window as any).BarcodeDetector({
-            formats: ['qr_code', 'code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'itf', 'codabar', 'data_matrix'],
-          });
-        } catch {
-          detectorRef.current = new (window as any).BarcodeDetector();
-        }
+        const reader = new BrowserMultiFormatReader();
+        readerRef.current = reader;
+        const controls = await reader.decodeFromVideoDevice(
+          undefined, // default camera (usually rear/environment)
+          videoRef.current!,
+          (result) => {
+            const value = result?.getText?.().trim?.();
+            if (value && value !== lastValueRef.current) {
+              lastValueRef.current = value;
+              stop();
+              onDetected(value, 'CAMERA');
+            }
+          },
+        );
+        stopRef.current = controls.stop;
+        if (cancelled) { controls.stop(); return; }
         setReady(true);
-        rafRef.current = requestAnimationFrame(() => detectLoop());
-      } catch (e) {
-        setError(apiErrorMessage(e) || 'Could not open the camera.');
+      } catch (e: any) {
+        const msg = String(e?.message ?? e);
+        if (/NotAllowed|Permission|denied/i.test(msg)) {
+          setError('Camera permission was denied. Allow camera access, or use an external scanner / manual entry.');
+        } else if (/NotFound|no camera|Requested device/i.test(msg)) {
+          setError('No camera found on this device. Use an external scanner or manual entry.');
+        } else {
+          setError('Could not start the camera. Use an external scanner or manual entry.');
+        }
       }
     }
     start();
-    return () => {
-      cancelled = true;
-      stop();
-    };
-  }, [stop, detectLoop]);
+    return () => { cancelled = true; stop(); };
+  }, [stop, onDetected]);
 
   return (
-    <div className="cam-overlay" role="dialog" aria-modal="true">
-      <div className="cam-panel">
-        <div className="cam-head">
-          <strong>{title}</strong>
-          <button className="rcv-btn rcv-btn--ghost" onClick={onClose}>✕ Close</button>
+    <div className="term-modal" role="dialog" aria-modal="true">
+      <div className="term-modal-inner">
+        <div className="term-modal-head">
+          <span className="prompt">&gt; {title}</span>
+          <button className="term-btn" onClick={onClose}>✕ close</button>
         </div>
-        <div className="cam-stage">
-          <video ref={videoRef} className="cam-video" muted playsInline />
-          <div className="cam-reticle" />
-          {!ready && !error && <div className="cam-note">Starting camera…</div>}
-          {ready && <div className="cam-note cam-note--ok">Point the label at the camera</div>}
-          {decoding && <div className="cam-note cam-note--ok">Scanning…</div>}
-          {error && <div className="cam-note cam-note--err">{error}</div>}
+        <div className="term-cam-stage">
+          <video ref={videoRef} className="term-cam-video" muted playsInline />
+          <div className="term-cam-reticle" />
+          {!ready && !error && <div className="term-cam-note">initialising camera…</div>}
+          {ready && <div className="term-cam-note term-cam-note--ok">[ SCANNING ] point the label at the camera</div>}
+          {error && <div className="term-cam-note term-cam-note--err">{error}</div>}
         </div>
-        <div className="cam-foot">
-          Press <kbd>Enter</kbd> on an external scanner or type manually to fall back.
+        <div className="term-modal-foot">
+          press <span className="kbd">enter</span> with an external scanner, or type to fall back to manual entry.
         </div>
       </div>
     </div>
   );
-}
-
-function decoderSupported(): boolean {
-  return typeof window !== 'undefined' && 'BarcodeDetector' in window;
 }

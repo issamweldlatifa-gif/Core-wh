@@ -3,15 +3,17 @@ import CameraScanner from './CameraScanner';
 import { classifyKeyboardEntry, type ScanSource } from './scan-source';
 
 /**
- * A single scanner input used across the terminal.
+ * A single scanner input used across the terminal (terminal-emulator style).
  *
- * Behaviour:
- *  - Always keeps focus during active scanning (auto-refocus after submit and
- *    on blur, so the worker does not have to click the field for every scan).
+ * Reliability notes:
+ *  - Keeps focus on the field after every submit and after window focus, but
+ *    does NOT run an aggressive interval that steals focus mid-entry (that
+ *    caused "scan instability"). Focus is only restored on submit/blur so a
+ *    keyboard-wedge scanner burst is never interrupted.
  *  - Accepts QR / barcode / keyboard-wedge scanner input and manual entry.
- *  - Classifies a fast keyboard burst (<=40ms/char) as an EXTERNAL_SCANNER
- *    read and a slow entry as MANUAL, so the same field serves both.
- *  - Offers an optional in-browser CAMERA scanner (native BarcodeDetector).
+ *    A fast burst (<=40ms/char) is classified as an EXTERNAL_SCANNER read.
+ *  - Offers an always-available CAMERA tool (ZXing decode, cross-browser);
+ *    shown whenever getUserMedia is present.
  */
 export default function ScanField({
   label,
@@ -27,44 +29,32 @@ export default function ScanField({
   hint?: string;
   disabled?: boolean;
   cameraLabel?: string;
-  /** Called with the captured value and classified source. */
   onSubmit: (value: string, source: ScanSource) => void;
-  /** Optional explicit caption of the source that produced the last submit. */
   sourceLabel?: string | null;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState('');
   const [cameraOpen, setCameraOpen] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
-  // Timestamp of each printable key in the current burst (for wedge detection).
   const stampsRef = useRef<number[]>([]);
 
   useEffect(() => {
-    const supported = typeof navigator !== 'undefined'
-      && !!navigator.mediaDevices?.getUserMedia
-      && 'BarcodeDetector' in window;
+    const supported = typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia;
     setShowCamera(supported);
   }, []);
 
-  // Refocus on window focus / click while enabled (scanner-first behaviour).
+  // Focus restore: on window focus and right after a submit. We deliberately
+  // do not poll; a wedge scanner must not have its stream interrupted.
   useEffect(() => {
     if (disabled) return;
-    const focus = () => setTimeout(() => inputRef.current?.focus(), 40);
+    const focus = () => setTimeout(() => { if (!cameraOpen) inputRef.current?.focus(); }, 40);
     window.addEventListener('focus', focus);
-    const iv = setInterval(() => {
-      // keep focus unless the user is using the camera overlay.
-      if (!cameraOpen && document.activeElement !== inputRef.current) inputRef.current?.focus();
-    }, 3000);
-    return () => {
-      window.removeEventListener('focus', focus);
-      clearInterval(iv);
-    };
+    return () => window.removeEventListener('focus', focus);
   }, [disabled, cameraOpen]);
 
   const submit = (source?: ScanSource) => {
     const v = value.trim();
     if (!v) return;
-    const now = Date.now();
     const s = source ?? classifyKeyboardEntry(stampsRef.current, v).source;
     stampsRef.current = [];
     onSubmit(v, s);
@@ -74,34 +64,29 @@ export default function ScanField({
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (disabled) return;
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      submit();
-      return;
-    }
-    // Record printable-char timestamps only (exclude modifiers / Enter).
+    if (e.key === 'Enter') { e.preventDefault(); submit(); return; }
     if (e.key.length === 1) {
       stampsRef.current.push(Date.now());
-      // Keep the burst within reason (guard against runaway).
-      if (stampsRef.current.length > 64) stampsRef.current.splice(0, stampsRef.current.length - 64);
+      if (stampsRef.current.length > 96) stampsRef.current.splice(0, stampsRef.current.length - 96);
     }
   };
 
   const sourceStyling = useMemo(() => {
     if (!sourceHint) return {};
-    return { borderColor: sourceHint === 'CAMERA' ? 'var(--accent-2)' : sourceHint === 'EXTERNAL_SCANNER' ? 'var(--success)' : 'var(--border)' };
+    return { color: sourceHint === 'CAMERA' ? 'var(--t-cyan)' : sourceHint === 'EXTERNAL_SCANNER' ? 'var(--t-green)' : 'var(--t-dim)' };
   }, [sourceHint]);
 
   return (
-    <div className="scanfield">
-      <div className="scanfield-label">
-        <span className="scanfield-label-text">{label}</span>
-        {sourceHint && <span className="scanfield-source">{sourceHint}</span>}
+    <div className="term-field">
+      <div className="term-field-label">
+        <span className="prompt">&gt; {label}</span>
+        {sourceHint && <span className="term-source" style={sourceStyling}>[{sourceHint}]</span>}
       </div>
-      <div className="scanfield-row" style={sourceStyling}>
+      <div className="term-field-row">
+        <span className="term-caret">$</span>
         <input
           ref={inputRef}
-          className="scanfield-input"
+          className="term-input"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={onKeyDown}
@@ -110,36 +95,22 @@ export default function ScanField({
           autoComplete="off"
           autoCapitalize="off"
           spellCheck={false}
-          enterKeyHint="done"
+          enterKeyHint="send"
         />
         {showCamera && (
-          <button
-            type="button"
-            className="rcv-btn rcv-btn--cam"
-            disabled={disabled}
-            onClick={() => setCameraOpen(true)}
-          >
-            <span className="rcv-badge--light">CAM</span>
+          <button type="button" className="term-btn term-btn--cam" disabled={disabled} onClick={() => setCameraOpen(true)}>
+            [ CAM ]
           </button>
         )}
-        <button
-          type="button"
-          className="rcv-btn rcv-btn--submit"
-          disabled={disabled || !value.trim()}
-          onClick={() => submit()}
-        >
-          ⌁ Enter
+        <button type="button" className="term-btn term-btn--action" disabled={disabled || !value.trim()} onClick={() => submit()}>
+          [ENTER]
         </button>
       </div>
-      {hint && <div className="scanfield-hint">{hint}</div>}
-
+      {hint && <div className="term-hint">{hint}</div>}
       {cameraOpen && (
         <CameraScanner
-          title={cameraLabel ?? 'Scan label'}
-          onDetected={(v) => {
-            setCameraOpen(false);
-            submitForCamera(v);
-          }}
+          title={cameraLabel ?? 'SCAN LABEL'}
+          onDetected={(v) => { setCameraOpen(false); submitForCamera(v); }}
           onClose={() => setCameraOpen(false)}
         />
       )}

@@ -24,8 +24,8 @@ export interface DeviceCapabilities {
   getUserMedia: boolean;
   /** Can we decode barcodes in-browser (native BarcodeDetector)? */
   barcodeDetector: boolean;
+  /** True if the camera tool can be offered (getUserMedia only — ZXing handles decode). */
   cameraScanningSupported: boolean;
-  /** True if we can reasonably classify a keyboard wedge as an external scanner. */
   canDetectExternalScanner: boolean;
   userAgent: string;
   screenWidthPx: number;
@@ -66,7 +66,9 @@ export function detectCapabilities(): DeviceCapabilities {
     touch,
     getUserMedia: hasGetUserMedia,
     barcodeDetector: hasBarcodeDetector,
-    cameraScanningSupported: hasGetUserMedia && hasBarcodeDetector,
+    // The camera tool only needs getUserMedia; ZXing performs the decode
+    // (cross-browser), so we do NOT require native BarcodeDetector.
+    cameraScanningSupported: hasGetUserMedia,
     canDetectExternalScanner: true,
     userAgent: ua,
     screenWidthPx: width,
