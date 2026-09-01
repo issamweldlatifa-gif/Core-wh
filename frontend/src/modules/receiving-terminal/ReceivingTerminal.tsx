@@ -31,8 +31,16 @@ export default function ReceivingTerminal() {
   const [pendingCarton, setPendingCarton] = useState<any | null>(null);
   const [lastSource, setLastSource] = useState<ScanSource>('EXTERNAL_SCANNER');
   const [activity, setActivity] = useState<Activity[]>([]);
-  // Latest scan outcome -> drives the big status banner + beep + flash.
-  const [result, setResult] = useState<{ kind: 'ok' | 'bad' | 'info'; token: number } | null>(null);
+  // Latest scan/action outcome -> drives the big status banner + beep + flash.
+  const [banner, setBanner] = useState<{ kind: 'ok' | 'bad' | 'info'; text: string; token: number } | null>(null);
+
+  // Show a banner line + corresponding beep (success / error / info).
+  const flashBanner = useCallback((kind: 'ok' | 'bad' | 'info', text: string) => {
+    setBanner({ kind, text, token: Date.now() });
+    if (kind === 'ok') beepSuccess();
+    else if (kind === 'bad') beepError();
+    else beepInfo();
+  }, []);
 
   const loadArrivals = useCallback(async () => {
     setLoading(true); setError(null);
@@ -50,21 +58,22 @@ export default function ReceivingTerminal() {
   }, []);
 
   // Classify a backend flash into a visual+audio outcome. A wrong SKU/ref or
-  // unknown carton is a BAD outcome: it flashes red AND buzzes, so the worker
-  // notices immediately. A correct match is OK: green flash + rising beep.
-  const apply = useCallback((next: ReceivingSessionDetail) => {
+  // unknown carton is a BAD outcome: red banner + buzz. A correct match is OK:
+  // green banner + rising beep. `bannerOverride` lets callers supply exact
+  // text (e.g. "carton received automatically") instead of the default.
+  const apply = useCallback((next: ReceivingSessionDetail, bannerOverride?: { kind: 'ok' | 'bad' | 'info'; text: string }) => {
     const f = next.flash;
     setSession(next);
     setPendingCarton(f?.kind === 'CARTON_IDENTIFIED' ? f.carton : null);
-    if (f?.kind === 'CARTON_IDENTIFIED' || f?.kind === 'PRODUCT_MATCH') {
-      setResult({ kind: 'ok', token: Date.now() }); beepSuccess();
-    } else if (f?.kind === 'UNKNOWN_CARTON' || f?.kind === 'WRONG_SHIPMENT' || f?.kind === 'DUPLICATE_CARTON' || f?.kind === 'UNEXPECTED_PRODUCT') {
-      setResult({ kind: 'bad', token: Date.now() }); beepError();
-    } else {
-      setResult({ kind: 'info', token: Date.now() });
+    if (bannerOverride) {
+      flashBanner(bannerOverride.kind, bannerOverride.text);
+    } else if (f) {
+      if (f.kind === 'CARTON_IDENTIFIED' || f.kind === 'PRODUCT_MATCH') flashBanner('ok', bannerText(f, 'ok'));
+      else if (f.kind === 'UNKNOWN_CARTON' || f.kind === 'WRONG_SHIPMENT' || f.kind === 'DUPLICATE_CARTON' || f.kind === 'UNEXPECTED_PRODUCT') flashBanner('bad', bannerText(f, 'bad'));
+      else flashBanner('info', 'action ok');
     }
     api.arrivals().then(setArrivals).catch(() => {});
-  }, []);
+  }, [flashBanner]);
 
   const pushActivity = useCallback((text: string, kind: Activity['kind']) => {
     setActivity((a) => [{ t: new Date().toLocaleTimeString(), text, kind }, ...a].slice(0, 60));
@@ -72,17 +81,27 @@ export default function ReceivingTerminal() {
 
   // Flash the status banner briefly then reset it (keeps the line readable).
   useEffect(() => {
-    if (!result) return;
-    const t = setTimeout(() => setResult(null), 2600);
+    if (!banner) return;
+    const t = setTimeout(() => setBanner(null), 2600);
     return () => clearTimeout(t);
-  }, [result]);
+  }, [banner]);
 
-  const guard = useCallback(async (fn: () => Promise<ReceivingSessionDetail>, okMsg?: string) => {
+  const guard = useCallback(async (fn: () => Promise<ReceivingSessionDetail>, opts?: { okMsg?: string; okBanner?: { kind: 'ok' | 'bad' | 'info'; text: string } }) => {
     if (busy) return;
     setBusy(true); setError(null);
     try {
-      const next = await fn(); apply(next);
-      if (okMsg) pushActivity(okMsg, 'ok');
+      const next = await fn();
+      const f = next.flash;
+      const isBad = !!f && (f.kind === 'UNKNOWN_CARTON' || f.kind === 'WRONG_SHIPMENT' || f.kind === 'DUPLICATE_CARTON' || f.kind === 'UNEXPECTED_PRODUCT');
+      const banner = isBad
+        ? { kind: 'bad' as const, text: bannerText(f, 'bad') }           // never mask a rejection with a success override
+        : opts?.okBanner ?? (f
+          ? (f.kind === 'CARTON_IDENTIFIED' || f.kind === 'PRODUCT_MATCH'
+            ? { kind: 'ok' as const, text: bannerText(f, 'ok') }
+            : { kind: 'info' as const, text: 'action ok' })
+          : undefined);
+      apply(next, banner);
+      if (opts?.okMsg) pushActivity(opts.okMsg, 'ok');
     } catch (e: any) {
       const m = e?.response?.data?.message ?? e?.response?.data?.error ?? e?.message ?? 'Action failed.';
       setError(Array.isArray(m) ? m.join(', ') : m);
@@ -107,23 +126,25 @@ export default function ReceivingTerminal() {
     finally { setBusy(false); }
   }
 
+  // Full auto-receipt: a successful carton scan is recorded immediately, no
+  // confirmation button. Idempotency (operationId) keeps a re-scan safe.
   async function onCartonSubmit(value: string, source: ScanSource) {
     if (!session) return;
     setLastSource(source);
     await guard(async () => {
       const r = await api.scanCarton(session.id, value, codeTypeFor(source), freshOperationId(), source);
+      const f = r.flash;
+      if (f?.kind === 'CARTON_IDENTIFIED') {
+        const cartonId = f.carton?.externalCartonId ?? f.carton?.id;
+        const r2 = await api.receiveCarton(session.id, cartonId, freshOperationId(), source);
+        setPendingCarton(null);
+        pushActivity(`carton ${cartonId} received (auto)`, 'ok');
+        return r2;
+      }
       pushActivity(`scanned carton ${value}`, 'info');
       return r;
-    });
-  }
-
-  async function onConfirmCarton() {
-    if (!session || !pendingCarton) return;
-    await guard(async () => {
-      const r = await api.receiveCarton(session.id, pendingCarton.externalCartonId ?? pendingCarton.id, freshOperationId(), lastSource);
-      setPendingCarton(null);
-      pushActivity(`carton ${pendingCarton.externalCartonId} confirmed`, 'ok');
-      return r;
+    }, {
+      okBanner: { kind: 'ok', text: `carton ${value} received automatically (${sourceLabel(source)})` },
     });
   }
 
@@ -147,7 +168,13 @@ export default function ReceivingTerminal() {
       return r;
     });
   }
-  async function onResolveDiscrepancy(id: string) { if (session) await guard(async () => { const r = await api.resolve(id, 'Resolved by supervisor'); pushActivity('discrepancy resolved', 'ok'); return r; }); }
+  async function onResolveDiscrepancy(id: string) {
+    if (session) await guard(async () => {
+      const r = await api.resolve(id, 'Resolved by supervisor');
+      pushActivity('discrepancy resolved', 'ok');
+      return r;
+    }, { okBanner: { kind: 'ok', text: 'discrepancy resolved by supervisor' } });
+  }
 
   const finished = session && (session.status === 'COMPLETED' || session.status === 'COMPLETED_WITH_DISCREPANCY');
   const t = session?.tally;
@@ -235,12 +262,12 @@ export default function ReceivingTerminal() {
         )}
 
         {/* Last scan outcome — big, unmissable status line + beep already played */}
-        {result && (
-          <div key={result.token} className={`term-result term-result--${result.kind}`}>
-            {result.kind === 'ok' && <span className="green">[ OK ] scan accepted —&nbsp;</span>}
-            {result.kind === 'bad' && <span className="red">[ ! ] scan rejected —&nbsp;</span>}
-            {result.kind !== 'ok' && result.kind !== 'bad' && <span className="dark">[ .. ]&nbsp;</span>}
-            <span>{bannerText(flash, result.kind)}</span>
+        {banner && (
+          <div key={banner.token} className={`term-result term-result--${banner.kind}`}>
+            {banner.kind === 'ok' && <span className="green">[ OK ]&nbsp;</span>}
+            {banner.kind === 'bad' && <span className="red">[ ! ]&nbsp;</span>}
+            {banner.kind === 'info' && <span className="dark">[ .. ]&nbsp;</span>}
+            <span>{banner.text}</span>
           </div>
         )}
 
@@ -277,7 +304,7 @@ export default function ReceivingTerminal() {
               sourceLabel={sourceLabel(lastSource)}
             />
             {flash?.kind === 'CARTON_IDENTIFIED' && (
-              <div className="term-ok">+ carton identified -- confirm receipt to record the physical carton</div>
+              <div className="term-ok">+ carton identified -- recorded automatically</div>
             )}
           </div>
         )}
@@ -287,17 +314,11 @@ export default function ReceivingTerminal() {
           <Box title="CURRENT CARTON">
             <div className="term-carton green">{currentCarton?.externalCartonId ?? '—'}</div>
             <div className="dim">box {currentCarton ? `${currentCarton.cartonNumber} / ${currentCarton.totalCartons}` : '—'}</div>
-            <Row k="status" v={pendingCarton ? 'IDENTIFIED - AWAIT CONFIRM' : currentCarton?.status ?? 'EXPECTED'} />
+            <Row k="status" v={currentCarton?.status === 'RECEIVED' ? 'RECEIVED' : currentCarton?.status ?? 'EXPECTED'} />
             <Row k="shipment" v={session.shipment?.code ?? '—'} />
             <Row k="customer" v={session.arrival.customerName} />
             {currentCarton?.weight != null && <Row k="weight" v={`${currentCarton.weight} ${currentCarton.weightUnit ?? 'kg'}`} />}
-            {pendingCarton ? (
-              <button className="term-btn term-btn--ok term-btn--full" disabled={busy || paused} onClick={onConfirmCarton}>
-                + CONFIRM CARTON RECEIVED
-              </button>
-            ) : (
-              <div className="term-hint">scan a carton above to begin its receipt.</div>
-            )}
+            <div className="term-hint">auto-receipt active — a scanned carton is recorded immediately, no confirm needed.</div>
           </Box>
           <Box title="RECEIVING PROGRESS">
             <Progress label="CARTONS" v={`${t?.receivedCartons ?? 0} / ${t?.expectedCartons ?? 0}`} ok={(t?.receivedCartons ?? 0) >= (t?.expectedCartons ?? 0)} />
@@ -423,7 +444,7 @@ function warnText(f: any): string {
 /** Text for the big status banner, tailored to the outcome kind. */
 function bannerText(f: any, kind: 'ok' | 'bad' | 'info'): string {
   if (!f) return '';
-  if (f.kind === 'CARTON_IDENTIFIED') return `carton ${f.carton?.externalCartonId ?? ''} identified (box ${f.carton?.cartonNumber ?? ''}/${f.carton?.totalCartons ?? ''}) -- confirm to receive`;
+  if (f.kind === 'CARTON_IDENTIFIED') return `carton ${f.carton?.externalCartonId ?? ''} received automatically (box ${f.carton?.cartonNumber ?? ''}/${f.carton?.totalCartons ?? ''})`;
   if (f.kind === 'PRODUCT_MATCH') return `sku ${f.sku} matched: ${f.received}/${f.expected} received (remaining ${Math.max(0, (f.expected ?? 0) - (f.received ?? 0))})`;
   if (f.kind === 'UNKNOWN_CARTON') return `UNKNOWN carton "${f.code}" -- not on any expected shipment. flagged.`;
   if (f.kind === 'WRONG_SHIPMENT') return `WRONG SHIPMENT -- carton ${f.carton} belongs to ${f.shipment}. do NOT receive.`;
