@@ -25,6 +25,25 @@ export interface StartOpts {
 }
 
 /**
+ * Station the worker is physically standing at (§13).
+ *
+ * Resolved from the station assignment rather than trusted from the client:
+ * the terminal must not be able to claim it is somewhere it is not, because
+ * this value is later used for per-station operational reporting.
+ */
+async function resolveStationId(
+  tx: Prisma.TransactionClient,
+  workerId: string | null | undefined,
+): Promise<string | null> {
+  if (!workerId) return null;
+  const station = await tx.station.findFirst({
+    where: { assignedWorkerId: workerId, status: 'ACTIVE' },
+    select: { id: true },
+  });
+  return station?.id ?? null;
+}
+
+/**
  * Receiving — physically confirm that the cartons/units EXPECTED (from the
  * Customer Arrival Card + Shipment Card) actually arrived.
  *
@@ -73,6 +92,7 @@ export class ReceivingService {
     const primaryShipment = arrival.shipments[0] ?? null;
     return this.prisma.$transaction(async (tx) => {
       const code = await this.genCode(tx);
+      const stationId = await resolveStationId(tx, actor.id);
       const session = await tx.receivingSession.create({
         data: {
           code,
@@ -84,6 +104,7 @@ export class ReceivingService {
           deviceType: opts.deviceType ?? null,
           deviceName: opts.deviceName ?? null,
           scanSource: opts.scanSource ?? null,
+          stationId,
         },
       });
       // Seed the expected product reconciliation rows from the Expected Arrival items.

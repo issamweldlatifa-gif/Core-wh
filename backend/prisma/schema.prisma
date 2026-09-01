@@ -1000,11 +1000,14 @@ model ReceivingSession {
   products      ReceivingProduct[]
   discrepancies ReceivingDiscrepancy[]
   corrections   OperationCorrection[]
-  /// Station the session was executed at (§13).
+  /// Station the session was executed at (§13). SetNull so retiring a
+  /// station never destroys receiving history.
   stationId     String?
+  station       Station? @relation("StationSessions", fields: [stationId], references: [id], onDelete: SetNull)
 
   @@index([arrivalId])
   @@index([status])
+  @@index([stationId])
   @@map("receiving_sessions")
 }
 
@@ -1139,6 +1142,7 @@ model Station {
   updatedAt DateTime @updatedAt
 
   corrections OperationCorrection[]
+  sessions    ReceivingSession[]  @relation("StationSessions")
 
   @@index([department])
   @@index([status])

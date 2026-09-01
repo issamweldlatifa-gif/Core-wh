@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, type ReceivingArrival, type ReceivingSessionDetail } from '../modules/receiving/api';
-import ContinuousScanner, { type ScanOutcome } from '../modules/receiving-terminal/ContinuousScanner';
+import type { ScanOutcome } from '../modules/receiving-terminal/ContinuousScanner';
 import {
   detectCapabilities,
   freshOperationId,
@@ -10,6 +10,13 @@ import { beepSuccess, beepError, beepInfo, beepDone } from '../modules/receiving
 import { stationHas } from './api';
 import { useTerminalUi } from './WorkerShell';
 import './receiving-task.css';
+
+/**
+ * The scanner pulls in ZXing (and, on demand, Tesseract). Loading it lazily
+ * keeps the initial terminal download small on warehouse phones — it is only
+ * fetched when the worker actually opens the camera.
+ */
+const ContinuousScanner = lazy(() => import('../modules/receiving-terminal/ContinuousScanner'));
 
 /**
  * Receiving Terminal (spec §12/§13/§16/§24-§29).
@@ -315,6 +322,7 @@ export default function ReceivingTask() {
       {done && <div className="rt-done">SESSION {session.status.replace(/_/g, ' ')}</div>}
 
       {scannerOpen && (
+        <Suspense fallback={<div className="rt-scanner-loading">STARTING SCANNER…</div>}>
         <ContinuousScanner
           title={`RECEIVING · ${session.code}`}
           enableOcr={ocrAllowed}
@@ -326,6 +334,7 @@ export default function ReceivingTask() {
             setStatus({ text: 'SESSION ACTIVE', kind: 'info' });
           }}
         />
+        </Suspense>
       )}
     </div>
   );

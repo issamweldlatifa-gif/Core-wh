@@ -1,4 +1,4 @@
-import { createWorker, type Worker as TesseractWorker } from 'tesseract.js';
+import type { Worker as TesseractWorker } from 'tesseract.js';
 
 /**
  * On-device OCR (spec §19).
@@ -8,9 +8,13 @@ import { createWorker, type Worker as TesseractWorker } from 'tesseract.js';
  *   - No paid cloud OCR, and camera frames are NEVER sent to an external
  *     service. Everything here stays on the device.
  *
- * Tesseract is loaded lazily: the worker (and its ~2MB language data) is only
- * fetched the first time OCR is actually needed — i.e. when barcode/QR
- * detection has failed — so pure barcode scanning stays instant (§17).
+ * Tesseract is loaded lazily in two stages so it never taxes users who are not
+ * doing OCR:
+ *   1. the library itself is a dynamic import(), so it is a separate chunk and
+ *      is not part of the app's initial download at all,
+ *   2. the worker (and its ~2MB language data) is only fetched the first time
+ *      OCR is actually needed — i.e. after barcode/QR detection has failed —
+ *      so pure barcode scanning stays instant (§17).
  */
 
 let workerPromise: Promise<TesseractWorker> | null = null;
@@ -22,6 +26,8 @@ const CHAR_WHITELIST = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-';
 async function getWorker(): Promise<TesseractWorker> {
   if (!workerPromise) {
     workerPromise = (async () => {
+      // Dynamic import keeps tesseract.js out of the main bundle.
+      const { createWorker } = await import('tesseract.js');
       const worker = await createWorker('eng');
       await worker.setParameters({
         tessedit_char_whitelist: CHAR_WHITELIST,

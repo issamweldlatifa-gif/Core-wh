@@ -34,6 +34,7 @@ export default function SessionDetailPage() {
           <p className="ac-sub">
             {s.worker?.name ?? 'unknown worker'} · {s.arrival?.code ?? '—'} ·{' '}
             {new Date(s.startedAt).toLocaleString()} · {s.deviceType ?? 'device n/a'}
+            {s.station ? ` · ${s.station.code}` : ''}
           </p>
         </div>
         <div className="os-row">

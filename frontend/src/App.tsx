@@ -1,3 +1,4 @@
+import { Suspense, lazy } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import AppShell from './components/AppShell';
@@ -12,22 +13,22 @@ import Racks from './modules/warehouse/Racks';
 import Levels from './modules/warehouse/Levels';
 import Locations from './modules/warehouse/Locations';
 import ExpectedArrivals from './modules/expected-arrivals/ExpectedArrivals';
-import ReceivingTerminal from './modules/receiving-terminal/ReceivingTerminal';
+const ReceivingTerminal = lazy(() => import('./modules/receiving-terminal/ReceivingTerminal'));
 import Users from './pages/Users';
 import Roles from './pages/Roles';
 import Audit from './pages/Audit';
 import System from './pages/System';
 // WAREHOUSE OS — Worker Terminal (§3-§5) and Admin Control Center (§6).
-import WorkerShell from './terminal/WorkerShell';
-import WorkerTerminalHome from './terminal/WorkerTerminalHome';
-import ReceivingTask from './terminal/ReceivingTask';
-import AdminShell from './admin/AdminShell';
-import ControlCenter from './admin/pages/ControlCenter';
-import AdminWorkers from './admin/pages/Workers';
-import AdminSessionDetail from './admin/pages/SessionDetail';
-import AdminStations from './admin/pages/Stations';
-import AdminExceptions from './admin/pages/Exceptions';
-import AdminCorrections from './admin/pages/Corrections';
+const WorkerShell = lazy(() => import('./terminal/WorkerShell'));
+const WorkerTerminalHome = lazy(() => import('./terminal/WorkerTerminalHome'));
+const ReceivingTask = lazy(() => import('./terminal/ReceivingTask'));
+const AdminShell = lazy(() => import('./admin/AdminShell'));
+const ControlCenter = lazy(() => import('./admin/pages/ControlCenter'));
+const AdminWorkers = lazy(() => import('./admin/pages/Workers'));
+const AdminSessionDetail = lazy(() => import('./admin/pages/SessionDetail'));
+const AdminStations = lazy(() => import('./admin/pages/Stations'));
+const AdminExceptions = lazy(() => import('./admin/pages/Exceptions'));
+const AdminCorrections = lazy(() => import('./admin/pages/Corrections'));
 
 /** Guards a route by the required back-end permission; redirects otherwise. */
 function PermissionGate({ perm, children }: { perm: string; children: JSX.Element }) {
@@ -44,6 +45,14 @@ function PermissionGate({ perm, children }: { perm: string; children: JSX.Elemen
   }
   if (!me) return <Navigate to="/login" replace />;
   if (!me.permissions.includes(perm)) {
+    // A floor worker must never be shown the admin dashboard, not even a
+    // denial page for it (§2/§46). Send them back to their own workspace
+    // instead; only users with no operational task see a message.
+    const isWorker = me.permissions.includes('receiving.execute')
+      || me.permissions.includes('stowing.execute');
+    if (isWorker && !me.permissions.includes('operations.view')) {
+      return <Navigate to="/terminal" replace />;
+    }
     return (
       <div className="main" style={{ padding: 40 }}>
         <h1 className="page-title">Access denied</h1>
@@ -58,6 +67,7 @@ export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
+        <Suspense fallback={<div className="login-wrap"><div className="spinner" style={{ color: 'var(--accent-2)' }} /></div>}>
         <Routes>
           <Route path="/login" element={<Login />} />
           {/* Receiving is a DEDICATED full-page operational route (worker
@@ -124,6 +134,7 @@ export default function App() {
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </Suspense>
       </BrowserRouter>
     </AuthProvider>
   );

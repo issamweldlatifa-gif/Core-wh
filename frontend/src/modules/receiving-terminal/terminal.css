@@ -373,3 +373,11 @@
   .cs-lastcode { bottom: 72px; }
   .cs-foot-hint { display: none; }
 }
+
+/* Shown while the camera scanner chunk downloads (first open only). */
+.term-camera-loading {
+  position: fixed; inset: 0; z-index: 800;
+  display: grid; place-items: center;
+  background: #000; color: var(--accent-2, #39ff14);
+  letter-spacing: 0.18em; font-weight: 700;
+}

@@ -184,6 +184,7 @@ export class OperationsService {
       include: {
         expectedArrival: true,
         shipment: true,
+        station: { select: { id: true, code: true, name: true, department: true } },
         cartons: { include: { carton: true }, orderBy: { createdAt: 'asc' } },
         products: { orderBy: { createdAt: 'asc' } },
         discrepancies: { orderBy: { createdAt: 'asc' } },
@@ -214,7 +215,11 @@ export class OperationsService {
       at: session.startedAt,
       kind: 'SESSION_START',
       label: `Session ${session.code} started`,
-      detail: { arrival: session.expectedArrival?.code, device: session.deviceType },
+      detail: {
+        arrival: session.expectedArrival?.code,
+        device: session.deviceType,
+        station: session.station?.code ?? null,
+      },
     });
 
     for (const c of session.cartons) {
@@ -270,6 +275,7 @@ export class OperationsService {
         deviceType: session.deviceType,
         arrival: session.expectedArrival,
         shipment: session.shipment,
+        station: session.station,
         worker,
       },
       cartons: session.cartons,

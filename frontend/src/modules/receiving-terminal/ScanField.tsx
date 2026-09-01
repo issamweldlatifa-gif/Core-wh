@@ -1,5 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import CameraScanner, { type ScanFeedback } from './CameraScanner';
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
+import type { ScanFeedback } from './CameraScanner';
+
+/**
+ * ZXing is only needed once the camera is actually opened, so the scanner is
+ * a lazily-loaded chunk rather than part of the initial bundle.
+ */
+const CameraScanner = lazy(() => import('./CameraScanner'));
 import { classifyKeyboardEntry, type ScanSource } from './scan-source';
 
 /**
@@ -111,12 +117,14 @@ export default function ScanField({
       </div>
       {hint && <div className="term-hint">{hint}</div>}
       {cameraOpen && (
-        <CameraScanner
-          title={cameraLabel ?? 'SCAN LABEL'}
-          onDetected={(v) => submitForCamera(v)}
-          onClose={() => { setCameraOpen(false); inputRef.current?.focus(); }}
-          feedback={cameraFeedback}
-        />
+        <Suspense fallback={<div className="term-camera-loading">STARTING CAMERA…</div>}>
+          <CameraScanner
+            title={cameraLabel ?? 'SCAN LABEL'}
+            onDetected={(v) => submitForCamera(v)}
+            onClose={() => { setCameraOpen(false); inputRef.current?.focus(); }}
+            feedback={cameraFeedback}
+          />
+        </Suspense>
       )}
     </div>
   );

@@ -48,6 +48,8 @@ export interface SessionDetail {
     id: string; code: string; status: string; startedAt: string; completedAt: string | null;
     deviceType: string | null;
     arrival: any; shipment: any;
+    /** Station the session was executed at (§13). */
+    station: { id: string; code: string; name: string; department: string } | null;
     worker: { id: string; name: string; employeeCode: string } | null;
   };
   cartons: Array<{
