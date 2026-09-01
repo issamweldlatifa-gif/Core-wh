@@ -12,7 +12,7 @@ import Racks from './modules/warehouse/Racks';
 import Levels from './modules/warehouse/Levels';
 import Locations from './modules/warehouse/Locations';
 import ExpectedArrivals from './modules/expected-arrivals/ExpectedArrivals';
-import Receiving from './modules/receiving/Receiving';
+import ReceivingTerminal from './modules/receiving-terminal/ReceivingTerminal';
 import Users from './pages/Users';
 import Roles from './pages/Roles';
 import Audit from './pages/Audit';
@@ -39,15 +39,19 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          {/* Receiving is a DEDICATED full-page operational route (worker
+              workspace), so it lives OUTSIDE the dashboard shell to take over
+              the viewport with no competing navigation. */}
+          <Route
+            path="/warehouse/receiving"
+            element={<PermissionGate perm="receiving.view"><ReceivingTerminal /></PermissionGate>}
+          />
+          <Route path="/receiving" element={<Navigate to="/warehouse/receiving" replace />} />
           <Route element={<AppShell />}>
             <Route index element={<Dashboard />} />
             <Route
               path="expected-arrivals"
               element={<PermissionGate perm="expected_arrivals.view"><ExpectedArrivals /></PermissionGate>}
-            />
-            <Route
-              path="receiving"
-              element={<PermissionGate perm="receiving.view"><Receiving /></PermissionGate>}
             />
             <Route path="warehouse" element={<PermissionGate perm="warehouses.view"><WarehouseModule /></PermissionGate>}>
               <Route index element={<Navigate to="structure" replace />} />

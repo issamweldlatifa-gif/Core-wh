@@ -14,6 +14,16 @@ export interface ReceivingActor {
   ip?: string | null;
 }
 
+/** Input device that produced a scan. The workflow is identical; this only
+ * records where the value came from (device support layer). */
+export type ScanSource = 'CAMERA' | 'EXTERNAL_SCANNER' | 'MANUAL';
+
+export interface StartOpts {
+  deviceType?: string | null;
+  deviceName?: string | null;
+  scanSource?: string | null;
+}
+
 /**
  * Receiving — physically confirm that the cartons/units EXPECTED (from the
  * Customer Arrival Card + Shipment Card) actually arrived.
@@ -41,7 +51,7 @@ export class ReceivingService {
   }
 
   // ---------- start ----------
-  async start(arrivalIdOrCode: string, actor: ReceivingActor) {
+  async start(arrivalIdOrCode: string, actor: ReceivingActor, opts: StartOpts = {}) {
     const arrival = await this.prisma.expectedArrival.findFirst({
       where: { OR: [{ id: arrivalIdOrCode }, { code: arrivalIdOrCode }] },
       include: {
@@ -71,6 +81,9 @@ export class ReceivingService {
           status: 'RECEIVING',
           startedBy: actor.id,
           startedAt: new Date(),
+          deviceType: opts.deviceType ?? null,
+          deviceName: opts.deviceName ?? null,
+          scanSource: opts.scanSource ?? null,
         },
       });
       // Seed the expected product reconciliation rows from the Expected Arrival items.
@@ -112,7 +125,7 @@ export class ReceivingService {
   }
 
   // ---------- scan / identify carton ----------
-  async scanCarton(sessionId: string, code: string, scanType: 'QR' | 'BARCODE' | 'MANUAL', actor: ReceivingActor, operationId?: string) {
+  async scanCarton(sessionId: string, code: string, scanType: 'QR' | 'BARCODE' | 'MANUAL', actor: ReceivingActor, operationId?: string, source: ScanSource = 'MANUAL') {
     const session = await this.requireActiveSession(sessionId);
     const term = code.trim();
     if (!term) throw new BadRequestException('Scan code is required.');
@@ -135,7 +148,7 @@ export class ReceivingService {
     if (!carton) {
       await this.prisma.$transaction(async (tx) => {
         const rc = await tx.receivingCarton.create({ data: {
-          receivingSessionId: sessionId, scannedCode: term, scanType, status: 'UNKNOWN',
+          receivingSessionId: sessionId, scannedCode: term, scanType, source, status: 'UNKNOWN',
           receivedBy: actor.id, receivedAt: new Date(), operationId: operationId ?? null,
         } });
         await tx.receivingDiscrepancy.create({ data: {
@@ -152,7 +165,7 @@ export class ReceivingService {
     if (session.shipmentId && carton.shipmentId !== session.shipmentId) {
       await this.prisma.$transaction(async (tx) => {
         const rc = await tx.receivingCarton.create({ data: {
-          receivingSessionId: sessionId, cartonId: carton.id, scannedCode: term, scanType,
+          receivingSessionId: sessionId, cartonId: carton.id, scannedCode: term, scanType, source,
           status: 'WRONG_SHIPMENT', receivedBy: actor.id, receivedAt: new Date(), operationId: operationId ?? null,
         } });
         await tx.receivingDiscrepancy.create({ data: {
@@ -194,7 +207,7 @@ export class ReceivingService {
   }
 
   // ---------- confirm carton received ----------
-  async receiveCarton(sessionId: string, cartonExternalId: string, actor: ReceivingActor, operationId?: string) {
+  async receiveCarton(sessionId: string, cartonExternalId: string, actor: ReceivingActor, operationId?: string, source: ScanSource = 'MANUAL') {
     const session = await this.requireActiveSession(sessionId);
     const carton = await this.prisma.warehouseCarton.findFirst({
       where: { OR: [{ externalCartonId: cartonExternalId }, { qrCodeValue: cartonExternalId }, { id: cartonExternalId }] },
@@ -217,7 +230,7 @@ export class ReceivingService {
     await this.prisma.$transaction(async (tx) => {
       await tx.receivingCarton.create({ data: {
         receivingSessionId: sessionId, cartonId: carton.id, scannedCode: carton.externalCartonId,
-        scanType: 'MANUAL', status: 'RECEIVED', receivedBy: actor.id, receivedAt: new Date(),
+        scanType: 'MANUAL', source, status: 'RECEIVED', receivedBy: actor.id, receivedAt: new Date(),
         operationId: operationId ?? null,
       } });
       await tx.warehouseCarton.update({ where: { id: carton.id }, data: { status: 'RECEIVED', receivedAt: new Date(), receivedBy: actor.id } });
@@ -229,7 +242,7 @@ export class ReceivingService {
   }
 
   // ---------- product scan / receive units ----------
-  async receiveProduct(sessionId: string, sku: string, quantity: number, actor: ReceivingActor) {
+  async receiveProduct(sessionId: string, sku: string, quantity: number, actor: ReceivingActor, source: ScanSource = 'MANUAL') {
     const session = await this.requireActiveSession(sessionId);
     const qty = Math.max(1, Math.floor(Number(quantity) || 1));
     const term = (sku || '').trim();
@@ -252,7 +265,7 @@ export class ReceivingService {
           reason: `Unexpected SKU ${term} (+${qty})`, status: 'OPEN', createdBy: actor.id,
         } });
         await this.audit.log({ actorUserId: actor.id, action: 'UNEXPECTED_PRODUCT' as never, entityType: 'receiving_product',
-          entityId: rp.id, metadata: { sku: term, quantity: qty } }, tx);
+          entityId: rp.id, metadata: { sku: term, quantity: qty, source } }, tx);
       });
       return this.sessionDetail(sessionId, { flash: { kind: 'UNEXPECTED_PRODUCT', sku: term } });
     }
@@ -279,7 +292,7 @@ export class ReceivingService {
         } });
       }
       await this.audit.log({ actorUserId: actor.id, action: 'PRODUCT_RECEIVED' as never, entityType: 'receiving_product',
-        entityId: expectedLine.id, metadata: { sku: term, received, expected: expectedLine.expectedQuantity, added: qty } }, tx);
+        entityId: expectedLine.id, metadata: { sku: term, received, expected: expectedLine.expectedQuantity, added: qty, source } }, tx);
     });
     return this.sessionDetail(sessionId, { flash: { kind: 'PRODUCT_MATCH', sku: term, received, expected: expectedLine.expectedQuantity } });
   }
@@ -461,6 +474,9 @@ export class ReceivingService {
       startedAt: session.startedAt,
       pausedAt: session.pausedAt,
       completedAt: session.completedAt,
+      deviceType: session.deviceType ?? null,
+      deviceName: session.deviceName ?? null,
+      scanSource: session.scanSource ?? null,
       arrival: {
         id: session.expectedArrival.id,
         code: session.expectedArrival.code,
@@ -483,7 +499,7 @@ export class ReceivingService {
         weight: c.weight, weightUnit: c.weightUnit,
       })) ?? [],
       receivedCartonEvents: session.cartons.map((rc) => ({
-        id: rc.id, code: rc.scannedCode, scanType: rc.scanType, status: rc.status,
+        id: rc.id, code: rc.scannedCode, scanType: rc.scanType, source: rc.source, status: rc.status,
         cartonId: rc.carton?.externalCartonId ?? null, receivedAt: rc.receivedAt,
       })),
       products: session.products.map((p) => ({

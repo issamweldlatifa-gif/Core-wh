@@ -45,21 +45,38 @@ export interface ReceivedCartonEvent {
   code: string;
   status: string;
   scanType: string;
+  source: string;
+  cartonId: string | null;
   receivedAt: string | null;
+}
+
+/** Input device that produced a scan (device support layer). */
+export type ScanSource = 'CAMERA' | 'EXTERNAL_SCANNER' | 'MANUAL';
+
+export interface SessionDevice {
+  deviceType: string | null;
+  deviceName: string | null;
+  scanSource: string | null;
 }
 
 export interface ReceivingDiscrepancy {
   id: string;
   type: string;
   status: string;
-  cartonCode: string | null;
-  sku: string | null;
-  expectedQty: number | null;
-  receivedQty: number | null;
-  description: string | null;
+  // Back-end response shape.
+  reason: string | null;
+  expected: number | null;
+  actual: number | null;
+  difference: number | null;
   resolution: string | null;
-  resolvedByName: string | null;
-  resolvedAt: string | null;
+  // Retained aliases for backward compatibility with the legacy module view.
+  cartonCode?: string | null;
+  sku?: string | null;
+  expectedQty?: number | null;
+  receivedQty?: number | null;
+  description?: string | null;
+  resolvedByName?: string | null;
+  resolvedAt?: string | null;
 }
 
 export interface Tally {
@@ -95,6 +112,9 @@ export interface ReceivingSessionDetail {
   startedByName: string | null;
   startedAt: string;
   endedAt: string | null;
+  deviceType: string | null;
+  deviceName: string | null;
+  scanSource: string | null;
   arrival: { id: string; code: string; customerName: string; storeName: string | null; status: string };
   shipment: any | null;
   expectedCartons: ExpectedCarton[];
@@ -113,32 +133,36 @@ export const api = {
     client
       .get<ReceivingSessionDetail | null>(`/v1/receiving/arrivals/${encodeURIComponent(idOrCode)}/active`)
       .then((r) => r.data),
-  start: (idOrCode: string) =>
+  start: (idOrCode: string, device?: { deviceType?: string; deviceName?: string; scanSource?: string }) =>
     client
-      .post<ReceivingSessionDetail>(`/v1/receiving/arrivals/${encodeURIComponent(idOrCode)}/start`, {})
+      .post<ReceivingSessionDetail>(`/v1/receiving/arrivals/${encodeURIComponent(idOrCode)}/start`, device ?? {})
       .then((r) => r.data),
   session: (id: string) =>
     client.get<ReceivingSessionDetail>(`/v1/receiving/sessions/${encodeURIComponent(id)}`).then((r) => r.data),
-  scanCarton: (sessionId: string, code: string, scanType: 'QR' | 'BARCODE' | 'MANUAL', operationId?: string) =>
+  scanCarton: (sessionId: string, code: string, scanType: 'QR' | 'BARCODE' | 'MANUAL', operationId?: string, source?: ScanSource) =>
     client
       .post<ReceivingSessionDetail>(`/v1/receiving/sessions/${encodeURIComponent(sessionId)}/scan-carton`, {
         code,
         scanType,
         operationId,
+        source,
       })
       .then((r) => r.data),
-  receiveCarton: (sessionId: string, cartonId: string, operationId?: string) =>
+  receiveCarton: (sessionId: string, cartonId: string, operationId?: string, source?: ScanSource) =>
     client
       .post<ReceivingSessionDetail>(`/v1/receiving/sessions/${encodeURIComponent(sessionId)}/receive-carton`, {
         cartonId,
         operationId,
+        source,
       })
       .then((r) => r.data),
-  receiveProduct: (sessionId: string, sku: string, quantity: number) =>
+  receiveProduct: (sessionId: string, sku: string, quantity: number, source?: ScanSource, operationId?: string) =>
     client
       .post<ReceivingSessionDetail>(`/v1/receiving/sessions/${encodeURIComponent(sessionId)}/receive-product`, {
         sku,
         quantity,
+        source,
+        operationId,
       })
       .then((r) => r.data),
   pause: (sessionId: string) =>

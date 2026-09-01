@@ -42,8 +42,16 @@ export class ReceivingController {
   @Post('arrivals/:idOrCode/start')
   @RequirePermissions('receiving.execute')
   @ApiOperation({ summary: 'Start a Receiving Session for an Expected Arrival.' })
-  start(@Param('idOrCode') idOrCode: string, @Req() req: any) {
-    return this.receiving.start(idOrCode, this.actor(req));
+  start(
+    @Param('idOrCode') idOrCode: string,
+    @Body() body: { deviceType?: string; deviceName?: string; scanSource?: string } | undefined,
+    @Req() req: any,
+  ) {
+    return this.receiving.start(idOrCode, this.actor(req), {
+      deviceType: body?.deviceType ?? null,
+      deviceName: body?.deviceName ?? null,
+      scanSource: body?.scanSource ?? null,
+    });
   }
 
   @Get('sessions/:id')
@@ -58,10 +66,10 @@ export class ReceivingController {
   @ApiOperation({ summary: 'Scan/identify a carton by QR/barcode/manual code.' })
   scan(
     @Param('id') id: string,
-    @Body() body: { code: string; scanType?: 'QR' | 'BARCODE' | 'MANUAL'; operationId?: string },
+    @Body() body: { code: string; scanType?: 'QR' | 'BARCODE' | 'MANUAL'; operationId?: string; source?: 'CAMERA' | 'EXTERNAL_SCANNER' | 'MANUAL' },
     @Req() req: any,
   ) {
-    return this.receiving.scanCarton(id, body.code, body.scanType ?? 'MANUAL', this.actor(req), body.operationId);
+    return this.receiving.scanCarton(id, body.code, body.scanType ?? 'MANUAL', this.actor(req), body.operationId, body.source);
   }
 
   @Post('sessions/:id/receive-carton')
@@ -69,10 +77,10 @@ export class ReceivingController {
   @ApiOperation({ summary: 'Confirm an identified carton physically received.' })
   receiveCarton(
     @Param('id') id: string,
-    @Body() body: { cartonId: string; operationId?: string },
+    @Body() body: { cartonId: string; operationId?: string; source?: 'CAMERA' | 'EXTERNAL_SCANNER' | 'MANUAL' },
     @Req() req: any,
   ) {
-    return this.receiving.receiveCarton(id, body.cartonId, this.actor(req), body.operationId);
+    return this.receiving.receiveCarton(id, body.cartonId, this.actor(req), body.operationId, body.source);
   }
 
   @Post('sessions/:id/receive-product')
@@ -80,10 +88,10 @@ export class ReceivingController {
   @ApiOperation({ summary: 'Scan/receive product units against the Expected Arrival lines.' })
   receiveProduct(
     @Param('id') id: string,
-    @Body() body: { sku: string; quantity?: number },
+    @Body() body: { sku: string; quantity?: number; source?: 'CAMERA' | 'EXTERNAL_SCANNER' | 'MANUAL' },
     @Req() req: any,
   ) {
-    return this.receiving.receiveProduct(id, body.sku, body.quantity ?? 1, this.actor(req));
+    return this.receiving.receiveProduct(id, body.sku, body.quantity ?? 1, this.actor(req), body.source);
   }
 
   @Post('sessions/:id/pause')

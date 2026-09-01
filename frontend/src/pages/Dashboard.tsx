@@ -1,11 +1,30 @@
 import { useAuth } from '../context/AuthContext';
+import { Link } from 'react-router-dom';
 
 export default function Dashboard() {
-  const { me } = useAuth();
+  const { me, hasPermission } = useAuth();
+  const canReceive = hasPermission('receiving.view');
   return (
     <>
       <h1 className="page-title">Dashboard</h1>
       <p className="page-sub">Welcome to AYROVI Warehouse Core.</p>
+
+      {canReceive && (
+        <div className="card" style={{ borderColor: 'var(--accent)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+            <div>
+              <h3 style={{ margin: 0 }}>Receiving Terminal</h3>
+              <p style={{ color: 'var(--text-dim)', margin: '6px 0 0' }}>
+                Operational workspace for physically receiving expected shipments.
+                Opens full-screen; the dashboard does not compete with the terminal.
+              </p>
+            </div>
+            <Link to="/warehouse/receiving" className="btn" style={{ textDecoration: 'none' }}>
+              ▶ Open Receiving Terminal
+            </Link>
+          </div>
+        </div>
+      )}
 
       <div className="grid2">
         <div className="card">

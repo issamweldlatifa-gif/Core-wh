@@ -725,6 +725,15 @@ enum ScanType {
   MANUAL
 }
 
+// The input device that produced a scan. The receiving workflow is identical
+// regardless of source; this only records WHERE the value came from for
+// auditing, diagnostics and device analytics.
+enum ScanSource {
+  CAMERA // built-in / attached camera scan (BarcodeDetector or camera decoder)
+  EXTERNAL_SCANNER // Bluetooth / USB / keyboard-wedge scanner
+  MANUAL // typed / picked manually
+}
+
 // Per-product reconciliation status within a Receiving Session.
 enum ReceivingProductStatus {
   EXPECTED // nothing received yet
@@ -955,6 +964,13 @@ model ReceivingSession {
 
   status                ReceivingSessionStatus  @default(RECEIVING)
 
+  // Device context of the worker terminal that started this session (free
+  // form, audit/troubleshooting only — hardware is a support layer, not a
+  // hard requirement of the workflow).
+  deviceType            String? // SMARTPHONE | TABLET | DESKTOP | ...
+  deviceName            String? // browser / device label
+  scanSource            String? // default scan source chosen by the worker
+
   startedBy             String?
   startedAt             DateTime                @default(now())
   pausedAt              DateTime?
@@ -983,6 +999,7 @@ model ReceivingCarton {
 
   scannedCode        String
   scanType           ScanType         @default(MANUAL)
+  source             ScanSource       @default(MANUAL) // CAMERA | EXTERNAL_SCANNER | MANUAL
   status             String           @default("RECEIVED") // RECEIVED | UNKNOWN | WRONG_SHIPMENT | DUPLICATE | FLAGGED
   receivedBy         String?
   receivedAt         DateTime?

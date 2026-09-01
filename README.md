@@ -13,11 +13,17 @@ warehouse operational phases will build on.
 > day one, granular structure permissions & RBAC, location identifiers
 > (barcode-ready), search/filter, structure explorer, migrations, tests.
 >
-> **Explicitly NOT in Phase 0/1:** Receiving / Stowing / Picking / Packing /
-> Shipping, OCR, inventory quantities, container/barcode-scanning workflow,
-> CRM or carrier integration, offline mobile, bulk structure generation.
-> These are later phases. The permission keys and audit event names for them
-> are *reserved* now, but the workflows are NOT implemented.
+> **Explicitly NOT in Phase 0/1:** Stowing / Picking / Packing / Shipping,
+> OCR, inventory quantities, container workflow, offline mobile, bulk
+> structure generation. These are later phases. The permission keys and
+> audit event names for them are *reserved* now.
+
+> **Receiving (implemented):** the **Receiving Terminal** is available as a
+> **dedicated full-page operational workspace** at `/warehouse/receiving`
+> (see [`docs/RECEIVING-TERMINAL.md`](docs/RECEIVING-TERMINAL.md)). It is a
+> device-independent terminal: smartphone camera / external scanner / manual
+> input, one Receiving backend and one workflow, with session recovery and
+> idempotent scans.
 
 ---
 
@@ -133,7 +139,8 @@ every permission).
 |------|--------|
 | Area | Status |
 |------|--------|
-| Web app (React + TS + Vite) | ✅ Login, permission-aware shell, dashboard, users, roles, audit, system, warehouse module |
+| Web app (React + TS + Vite) | ✅ Login, permission-aware shell, dashboard, users, roles, audit, system, warehouse module, **Receiving Terminal** |
+| Receiving Terminal | ✅ Full-page `/warehouse/receiving`; carton-first scan/confirm, product scan, progress, discrepancies, reconciliation, completion; device-independent (camera / external scanner / manual); session recovery + idempotent scans |
 | Warehouse structure UI | ✅ Warehouses / Zones / Aisles / Racks / Levels / Locations + Structure Explorer, permission-aware |
 | REST API `/api/v1` | ✅ Auth, users, roles, permissions, audit, system, warehouse, zones, aisles, racks, levels, locations |
 | Authentication (employee code + password/PIN) | ✅ JWT access + refresh, sessions, rate limiting |
