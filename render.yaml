@@ -6,6 +6,7 @@
 #
 # NOTE: The build delegates to ./build.sh, which installs devDependencies
 # explicitly so the build is NOT affected by Render's NODE_ENV=production.
+# Database migrations run at BOOT via ./start.sh, never during the build.
 # =============================================================================
 
 databases:
@@ -20,7 +21,8 @@ services:
     runtime: node
     plan: free
     buildCommand: ./build.sh
-    startCommand: node backend/dist/main.js
+    # Migrations + seed run here (release phase), NOT during build. See start.sh.
+    startCommand: ./start.sh
     healthCheckPath: /api/v1/system/health
     autoDeploy: true
     envVars:

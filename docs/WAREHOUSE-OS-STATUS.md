@@ -199,6 +199,40 @@ cd /home/user/Core-wh/frontend && npm run dev -- --host 0.0.0.0 --port 5173
 
 Logins: `ADMIN001` / `ChangeMe!2024` · `WORKER001` / `Worker!2024`
 
+### Deploy incident: wedged production migrations (fixed)
+
+A Render build aborted midway through
+`20260901175952_warehouse_os_stations_corrections`. The enums had been created
+but the migration was recorded as **failed**, so every later deploy died with:
+
+```
+Error: P3018 / P3009
+ERROR: type "StationStatus" already exists   (SqlState 42710)
+```
+
+Two root causes, both fixed:
+
+1. **Migrations ran during the BUILD** (`build.sh`). A build machine is the
+   wrong place to mutate a live schema — builds get retried and cancelled.
+   Migrations + seed now run at boot in **`start.sh`** (release phase), and
+   `render.yaml`'s `startCommand` is `./start.sh`.
+2. **Migrations were not re-runnable.** All four WAREHOUSE OS migrations are
+   now idempotent: `CREATE TABLE/INDEX IF NOT EXISTS`,
+   `ALTER TYPE ... ADD VALUE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, and
+   `DO $$ ... EXCEPTION WHEN duplicate_object THEN NULL $$` around every
+   `CREATE TYPE` and `ADD CONSTRAINT`.
+
+`start.sh` also **self-heals**: if `migrate deploy` fails it parses the failed
+migration name out of the P3009 message, runs `migrate resolve --rolled-back`
+on that exact name, and retries once. It only does this when a migration is
+explicitly named — a connectivity or credentials error aborts instead of
+guessing.
+
+Verified locally against four scenarios: clean database, half-applied enums,
+a database wedged exactly like production, and applying every migration file
+twice in a row. All four end with `Database schema is up to date!` and
+`No difference detected.`
+
 ### Gotchas that cost time before
 
 - A stale `node dist/main` keeps :3000 bound and serves 404 for new routes —
@@ -220,6 +254,12 @@ Logins: `ADMIN001` / `ChangeMe!2024` · `WORKER001` / `Worker!2024`
   `locationCode`.
 - Starting receiving on an already-completed arrival returns 409; seed a fresh
   arrival for repeat end-to-end runs.
+- Never add schema changes to `build.sh`. Migrations belong in `start.sh`.
+- Write every new migration idempotently (see the deploy incident above);
+  Prisma will not retry a migration it has marked as failed.
+- The sandbox snapshot drops empty dirs inside `pgdata` — recreate `pg_notify`,
+  `pg_stat_tmp`, `pg_subtrans`, `pg_wal/archive_status` etc. and `chmod 700`
+  before Postgres will start.
 
 ---
 

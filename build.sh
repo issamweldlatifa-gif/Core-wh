@@ -13,7 +13,12 @@
 #   1. Build the React SPA (frontend -> frontend/dist)
 #   2. Install + generate Prisma client + build the NestJS backend
 #   3. Copy the freshly built SPA into backend/public (single-bundle model)
-#   4. Apply database migrations (prisma migrate deploy)  [idempotent]
+#
+# The build NO LONGER touches the database. Migrations and seeding moved to
+# ./start.sh (the release phase). A build that half-applied a migration and
+# then aborted left the production database permanently wedged with
+# P3018 / 42710 "type StationStatus already exists"; the build machine is the
+# wrong place to mutate a live schema.
 # =============================================================================
 set -euo pipefail
 
@@ -21,18 +26,18 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
-echo ">>> [1/5] Installing frontend dependencies (dev + prod)..."
+echo ">>> [1/4] Installing frontend dependencies (dev + prod)..."
 cd "$ROOT_DIR/frontend"
 npm install --include=dev
 
-echo ">>> [2/5] Building the React SPA..."
+echo ">>> [2/4] Building the React SPA..."
 npm run build
 
-echo ">>> [3/5] Installing backend dependencies (dev + prod)..."
+echo ">>> [3/4] Installing backend dependencies (dev + prod)..."
 cd "$ROOT_DIR/backend"
 npm install --include=dev
 
-echo ">>> [4/5] Generating Prisma client + building backend..."
+echo ">>> [4/4] Generating Prisma client + building backend..."
 npx prisma generate
 npm run build
 
@@ -41,28 +46,5 @@ rm -rf public
 mkdir -p public
 cp -r "$ROOT_DIR/frontend/dist/." public/
 
-echo ">>> [5/5] Applying database migrations..."
-npx prisma migrate deploy
-
-echo ">>> Seeding database (idempotent; creates SUPER_ADMIN)..."
-# The seed creates the initial SUPER_ADMIN only if both INITIAL_ADMIN_CODE and
-# INITIAL_ADMIN_PASSWORD are set. To guarantee a working login on a fresh deploy
-# even when the operator hasn't configured them, generate a strong RANDOM
-# password at build time (never committed to the repo) and print it in the
-# build logs so it can be read. If the operator sets INITIAL_ADMIN_PASSWORD in
-# Render's env, that value wins.
-export INITIAL_ADMIN_CODE="${INITIAL_ADMIN_CODE:-ADMIN001}"
-if [ -z "${INITIAL_ADMIN_PASSWORD:-}" ]; then
-  export INITIAL_ADMIN_PASSWORD="$(openssl rand -base64 24 | tr -d '=+/' | cut -c1-18)"
-  echo ">> NOTE: INITIAL_ADMIN_PASSWORD not set; generated a random one below."
-fi
-if [ -n "$INITIAL_ADMIN_PASSWORD" ]; then
-  # Run the seed via the project script (ts-node prisma/seed.ts). It is
-  # idempotent (uses upsert), so it is safe on every deploy.
-  (npm run db:seed || echo ">>> WARNING: seed step failed (non-fatal for build).")
-fi
-
-echo ">>> BUILD COMPLETE. Start command: node backend/dist/main.js"
-echo ">>> >>> INITIAL ADMIN LOGIN  <<<"
-echo ">>> >>>   code:     ${INITIAL_ADMIN_CODE}"
-echo ">>> >>>   password: ${INITIAL_ADMIN_PASSWORD}"
+echo ">>> BUILD COMPLETE."
+echo ">>> Database migrations + seeding run at boot, via ./start.sh"

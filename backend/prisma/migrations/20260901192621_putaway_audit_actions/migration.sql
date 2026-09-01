@@ -1,12 +1,9 @@
--- AlterEnum
--- This migration adds more than one value to an enum.
--- With PostgreSQL versions 11 and earlier, this is not possible
--- in a single migration. This can be worked around by creating
--- multiple migrations, each migration adding only one value to
--- the enum.
-
-
-ALTER TYPE "AuditAction" ADD VALUE 'PUTAWAY_STARTED';
-ALTER TYPE "AuditAction" ADD VALUE 'PUTAWAY_PAUSED';
-ALTER TYPE "AuditAction" ADD VALUE 'PUTAWAY_RESUMED';
-ALTER TYPE "AuditAction" ADD VALUE 'PUTAWAY_COMPLETED';
+-- Audit verbs for the stowing workflow.
+-- `IF NOT EXISTS` keeps each ADD VALUE idempotent so a re-applied migration
+-- cannot fail (see 20260901175952 for the incident this protects against).
+ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'PUTAWAY_STARTED';
+ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'PUTAWAY_PAUSED';
+ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'PUTAWAY_RESUMED';
+ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'PUTAWAY_COMPLETED';
+ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'ITEM_STORED';
+ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'ITEM_MOVED';
