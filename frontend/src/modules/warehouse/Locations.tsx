@@ -73,7 +73,7 @@ export default function Locations() {
 
       <div className="card">
         <h3>Create location</h3>
-        {msg && <div className="ok-box">{msg}</div>}
+        {msg && <div className="error-box" style={{ borderColor: 'var(--success)', color: '#47d08c' }}>{msg}</div>}
         {err && <div className="error-box">{err}</div>}
         {/* Chain selector — the backend validates the full ancestry on submit. */}
         <div className="grid2">

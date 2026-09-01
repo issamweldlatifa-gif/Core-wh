@@ -88,10 +88,11 @@ export default function ScanField({
   return (
     <div className="term-field">
       <div className="term-field-label">
-        <span className="prompt">{label}</span>
-        {sourceHint && <span className="term-source" style={sourceStyling}>{sourceHint}</span>}
+        <span className="prompt">&gt; {label}</span>
+        {sourceHint && <span className="term-source" style={sourceStyling}>[{sourceHint}]</span>}
       </div>
       <div className="term-field-row">
+        <span className="term-caret">$</span>
         <input
           ref={inputRef}
           className="term-input"
@@ -107,16 +108,16 @@ export default function ScanField({
         />
         {showCamera && (
           <button type="button" className="term-btn term-btn--cam" disabled={disabled} onClick={() => setCameraOpen(true)}>
-            Camera
+            [ CAM ]
           </button>
         )}
         <button type="button" className="term-btn term-btn--action" disabled={disabled || !value.trim()} onClick={() => submit()}>
-          Enter
+          [ENTER]
         </button>
       </div>
       {hint && <div className="term-hint">{hint}</div>}
       {cameraOpen && (
-        <Suspense fallback={<div className="term-camera-loading">Starting camera…</div>}>
+        <Suspense fallback={<div className="term-camera-loading">STARTING CAMERA…</div>}>
           <CameraScanner
             title={cameraLabel ?? 'SCAN LABEL'}
             onDetected={(v) => submitForCamera(v)}

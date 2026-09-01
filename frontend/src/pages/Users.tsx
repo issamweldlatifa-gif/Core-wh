@@ -50,7 +50,7 @@ export default function Users() {
       {canManage && (
         <div className="card">
           <h3>Create user</h3>
-          {msg && <div className="ok-box">{msg}</div>}
+          {msg && <div className="error-box" style={{ borderColor: 'var(--success)', color: '#47d08c' }}>{msg}</div>}
           {err && <div className="error-box">{err}</div>}
           <form onSubmit={save} className="grid2">
             <div>

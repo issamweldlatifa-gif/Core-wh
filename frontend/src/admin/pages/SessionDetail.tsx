@@ -4,7 +4,6 @@ import { adminApi, type SessionDetail as Detail } from '../api';
 import { useAsync } from './useAsync';
 import CorrectionDialog from './CorrectionDialog';
 import { useAuth } from '../../context/AuthContext';
-import { LoadingState, StatusBadge, Button } from '../../ui';
 
 /**
  * Session drill-down (§37) with the authorised correction actions (§7/§39).
@@ -22,7 +21,7 @@ export default function SessionDetailPage() {
   const [qtyValue, setQtyValue] = useState('0');
   const [reopen, setReopen] = useState(false);
 
-  if (loading && !data) return <LoadingState label="Loading session…" block />;
+  if (loading && !data) return <div className="os-empty">loading session…</div>;
   if (error) return <div className="ac-error">{error}</div>;
   if (!data) return null;
 
@@ -40,9 +39,9 @@ export default function SessionDetailPage() {
         </div>
         <div className="os-row">
           {canCorrect && s.status !== 'RECEIVING' && (
-            <Button icon="wrench" onClick={() => setReopen(true)}>Reopen</Button>
+            <button type="button" className="os-btn" onClick={() => setReopen(true)}>Reopen</button>
           )}
-          <Button icon="back" onClick={() => navigate(-1)}>Back</Button>
+          <button type="button" className="os-btn" onClick={() => navigate(-1)}>Back</button>
         </div>
       </header>
 
@@ -72,7 +71,11 @@ export default function SessionDetailPage() {
                   <tr key={c.id}>
                     <td className="mono">{c.scannedCode}</td>
                     <td className="os-muted">{c.source}</td>
-                    <td><StatusBadge status={c.status} /></td>
+                    <td>
+                      <span className={`os-tag ${c.status === 'RECEIVED' ? 'os-tag--ok' : 'os-tag--warn'}`}>
+                        {c.status}
+                      </span>
+                    </td>
                     <td>
                       {canCorrect && c.status === 'RECEIVED' && (
                         <button className="ac-linkbtn" onClick={() => setReverse(c)}>reverse</button>
@@ -94,7 +97,7 @@ export default function SessionDetailPage() {
                   <tr key={p.id}>
                     <td className="mono">{p.sku ?? '—'}</td>
                     <td>{p.receivedQuantity}/{p.expectedQuantity}</td>
-                    <td><StatusBadge status={p.status} /></td>
+                    <td><span className="os-tag os-tag--info">{p.status}</span></td>
                     <td>
                       {canCorrect && (
                         <button

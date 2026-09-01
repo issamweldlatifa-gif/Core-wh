@@ -1,7 +1,6 @@
 import { Fragment, useState } from 'react';
 import { adminApi } from '../api';
 import { useAsync } from './useAsync';
-import { EmptyState, LoadingState } from '../../ui';
 
 /**
  * Correction ledger (§8/§40).
@@ -21,10 +20,8 @@ export default function Corrections() {
       {error && <div className="ac-error">{error}</div>}
 
       <section className="os-card">
-        {loading && !data ? <LoadingState /> :
-          !data || data.length === 0 ? (
-            <EmptyState icon="wrench" title="No corrections recorded" hint="Authorised corrections and their before/after snapshots appear here." />
-          ) : (
+        {loading && !data ? <div className="os-empty">loading…</div> :
+          !data || data.length === 0 ? <div className="os-empty">No corrections recorded.</div> : (
           <table className="os-table">
             <thead>
               <tr><th>Code</th><th>Action</th><th>Target</th><th>Reason</th><th>Admin</th><th>When</th><th /></tr>

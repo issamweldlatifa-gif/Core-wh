@@ -1,25 +1,26 @@
 import { useNavigate } from 'react-router-dom';
 import { adminApi } from '../api';
 import { useAsync } from './useAsync';
-import { Kpi, LoadingState, PageHeader, StatusBadge, Button, EmptyState } from '../../ui';
 
 /** Live operational overview (§36). */
 export default function ControlCenter() {
   const { data, loading, error, reload } = useAsync(() => adminApi.overview(), []);
   const navigate = useNavigate();
 
-  if (loading && !data) return <LoadingState label="Loading operations…" block />;
+  if (loading && !data) return <div className="os-empty">loading operations…</div>;
   if (error) return <div className="ac-error">{error}</div>;
   if (!data) return null;
 
   const c = data.counters;
   return (
     <>
-      <PageHeader
-        title="Control Center"
-        sub={`Live floor state · refreshed ${new Date(data.generatedAt).toLocaleTimeString()}`}
-        actions={<Button icon="refresh" onClick={() => void reload()}>Refresh</Button>}
-      />
+      <header className="ac-head os-spread">
+        <div>
+          <h1 className="ac-title">Control Center</h1>
+          <p className="ac-sub">Live floor state · refreshed {new Date(data.generatedAt).toLocaleTimeString()}</p>
+        </div>
+        <button type="button" className="os-btn" onClick={() => void reload()}>Refresh</button>
+      </header>
 
       <div className="ac-kpis">
         <Kpi label="Active sessions" value={c.activeSessions} tone={c.activeSessions ? 'ok' : undefined} />
@@ -37,7 +38,7 @@ export default function ControlCenter() {
         <section className="os-card">
           <h2 className="os-card-title">Active receiving sessions</h2>
           {data.activeSessions.length === 0 ? (
-            <EmptyState icon="scan" title="No session in progress" hint="Receiving sessions appear here while workers work." />
+            <div className="os-empty">No session in progress.</div>
           ) : (
             <table className="os-table">
               <thead>
@@ -68,7 +69,7 @@ export default function ControlCenter() {
         <section className="os-card">
           <h2 className="os-card-title">Stations</h2>
           {data.stations.length === 0 ? (
-            <EmptyState icon="station" title="No stations configured" hint="Create stations to assign workers and hardware." />
+            <div className="os-empty">No stations configured.</div>
           ) : (
             <table className="os-table">
               <thead><tr><th>Code</th><th>Department</th><th>Worker</th><th>Status</th></tr></thead>
@@ -79,7 +80,9 @@ export default function ControlCenter() {
                     <td className="os-muted">{s.department}</td>
                     <td>{s.worker?.name ?? <span className="os-muted">unassigned</span>}</td>
                     <td>
-                      <StatusBadge status={s.status} />
+                      <span className={`os-tag ${s.status === 'ACTIVE' ? 'os-tag--ok' : 'os-tag--muted'}`}>
+                        {s.status}
+                      </span>
                     </td>
                   </tr>
                 ))}
@@ -92,7 +95,7 @@ export default function ControlCenter() {
       <section className="os-card" style={{ marginTop: 14 }}>
         <h2 className="os-card-title">Active putaway sessions</h2>
         {data.putawaySessions.length === 0 ? (
-          <EmptyState icon="package" title="No stowing in progress" hint="Putaway sessions appear here while workers stow cartons." />
+          <div className="os-empty">No stowing in progress.</div>
         ) : (
           <table className="os-table">
             <thead>
@@ -107,7 +110,9 @@ export default function ControlCenter() {
                   <td>{p.placements}</td>
                   <td className="os-muted">{new Date(p.startedAt).toLocaleTimeString()}</td>
                   <td>
-                    <StatusBadge status={p.status} />
+                    <span className={`os-tag ${p.status === 'ACTIVE' ? 'os-tag--ok' : 'os-tag--warn'}`}>
+                      {p.status}
+                    </span>
                   </td>
                 </tr>
               ))}
@@ -116,5 +121,14 @@ export default function ControlCenter() {
         )}
       </section>
     </>
+  );
+}
+
+function Kpi({ label, value, tone }: { label: string; value: number | string; tone?: 'ok' | 'bad' | 'alert' }) {
+  return (
+    <div className={`ac-kpi${tone ? ` ac-kpi--${tone}` : ''}`}>
+      <div className="ac-kpi-value">{value}</div>
+      <div className="ac-kpi-label">{label}</div>
+    </div>
   );
 }

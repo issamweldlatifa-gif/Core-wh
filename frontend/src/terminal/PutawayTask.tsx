@@ -90,7 +90,7 @@ export default function PutawayTask() {
     if (!session) { setStatus(null); return; }
     setStatus(
       step === 'CARTON'
-        ? { text: 'Scan carton', kind: 'info' }
+        ? { text: 'SCAN CARTON', kind: 'info' }
         : { text: `PLACE ${staged?.code ?? ''}`, kind: 'ok' },
     );
   }, [session, step, staged, setStatus]);
@@ -212,14 +212,14 @@ export default function PutawayTask() {
   if (!session) {
     return (
       <div className="pt-start">
-        <h1 className="pt-h1">Putaway</h1>
+        <h1 className="pt-h1">PUTAWAY</h1>
         <p className="os-muted">
           Move received cartons onto their storage locations.
         </p>
         {error && <div className="pt-error">{error}</div>}
         <div className="pt-start-metric">
           <div className="pt-metric-v">{queue.length}</div>
-          <div className="pt-metric-l">Cartons waiting</div>
+          <div className="pt-metric-l">CARTONS WAITING</div>
         </div>
         <button className="os-btn os-btn--primary pt-big" disabled={busy} onClick={startSession}>
           START PUTAWAY
@@ -253,7 +253,7 @@ export default function PutawayTask() {
               OPEN SCANNER
             </button>
           )}
-          {!done && <button className="os-btn" disabled={busy} onClick={finish}>Finish</button>}
+          {!done && <button className="os-btn" disabled={busy} onClick={finish}>FINISH</button>}
         </div>
       </div>
 
@@ -265,7 +265,7 @@ export default function PutawayTask() {
           <div className={`pt-step${step === 'CARTON' ? ' is-active' : ''}${staged ? ' is-done' : ''}`}>
             <div className="pt-step-n">1</div>
             <div>
-              <div className="pt-step-t">Carton</div>
+              <div className="pt-step-t">CARTON</div>
               <div className="pt-step-v">{staged ? staged.code : '— scan a carton —'}</div>
               {staged?.customerName && <div className="os-muted">{staged.customerName}</div>}
               {staged?.currentLocation && (
@@ -276,7 +276,7 @@ export default function PutawayTask() {
           <div className={`pt-step${step === 'LOCATION' ? ' is-active' : ''}`}>
             <div className="pt-step-n">2</div>
             <div>
-              <div className="pt-step-t">Location</div>
+              <div className="pt-step-t">LOCATION</div>
               <div className="pt-step-v">
                 {step === 'LOCATION' ? '— scan the shelf —' : 'waiting for carton'}
               </div>
@@ -386,12 +386,12 @@ export default function PutawayTask() {
         </section>
       )}
 
-      {done && <div className="pt-done">Session completed</div>}
+      {done && <div className="pt-done">SESSION COMPLETED</div>}
 
       {scannerOpen && (
         <Suspense fallback={<div className="pt-scanner-loading">STARTING SCANNER…</div>}>
           <ContinuousScanner
-            title={step === 'CARTON' ? 'Scan carton' : `PLACE ${staged?.code ?? ''}`}
+            title={step === 'CARTON' ? 'SCAN CARTON' : `PLACE ${staged?.code ?? ''}`}
             enableOcr={ocrAllowed}
             outcome={outcome}
             onDetected={(value, source) => { void submitCode(value, source); }}

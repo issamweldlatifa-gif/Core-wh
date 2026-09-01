@@ -81,7 +81,7 @@ export default function WorkerShell() {
       <div className="os-root theme-worker wt-boot">
         <div className="wt-boot-inner">
           <div className="wt-boot-brand">AYROVI</div>
-          <div className="os-muted">Starting worker terminal…</div>
+          <div className="os-muted">starting worker terminal…</div>
         </div>
       </div>
     );
@@ -105,24 +105,24 @@ export default function WorkerShell() {
               {me.user.name}
             </span>
             <span className="os-tag os-tag--muted">
-              {ctx?.station ? ctx.station.code : 'No station'}
+              {ctx?.station ? ctx.station.code : 'NO STATION'}
             </span>
             <span className={`os-tag ${online ? 'os-tag--ok' : 'os-tag--err'}`}>
-              {online ? 'Online' : 'Offline'}
+              {online ? 'ONLINE' : 'OFFLINE'}
             </span>
             <button
               type="button"
               className="os-btn os-btn--ghost wt-top-btn"
               onClick={() => navigate('/terminal')}
             >
-              Tasks
+              TASKS
             </button>
             <button
               type="button"
               className="os-btn os-btn--danger wt-top-btn"
               onClick={() => void logoutFn()}
             >
-              Log out
+              LOG OUT
             </button>
           </div>
         </header>

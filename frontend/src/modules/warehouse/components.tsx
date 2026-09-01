@@ -1,15 +1,7 @@
 import { useAuth } from '../../context/AuthContext';
-import { toneForStatus } from '../../ui';
 
-/** Status presentation for warehouse entities (statuses come from the backend). */
 export function statusTag(status: string) {
-  const tone = toneForStatus(status);
-  // Legacy tag classes map 1:1 to the new semantic tones.
-  const cls = tone === 'ok' ? 'green'
-    : tone === 'err' ? 'red'
-    : tone === 'warn' ? 'yellow'
-    : tone === 'info' || tone === 'teal' ? 'accent'
-    : 'gray';
+  const cls = status === 'ACTIVE' ? 'green' : status === 'BLOCKED' ? 'red' : 'yellow';
   return <span className={`tag ${cls}`}>{status}</span>;
 }
 

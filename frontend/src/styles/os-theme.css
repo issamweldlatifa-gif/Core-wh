@@ -1,82 +1,87 @@
 /* ==========================================================================
-   WAREHOUSE OS — shared design system (Industrial Modern).
+   WAREHOUSE OS — shared design system.
 
-   One system, two information architectures:
-     .theme-worker -> Worker Terminal: dark-first, high contrast, touch-first
-     .theme-admin  -> Admin Control Center: light-first, dense, professional
+   One system, two information architectures (§45):
+     .theme-worker  -> Worker Terminal palette (§33), large + high contrast
+     .theme-admin   -> Admin Control Center palette (§34), dense + technical
 
-   Tokens live in tokens.css. Components consume variables only — a future
-   terminal module inherits the whole language by rendering in a shell.
+   Tokens are the ONLY place colours are defined; components consume the
+   variables so a future terminal inherits the language for free (§44).
    ========================================================================== */
 
-/* --------------------------------------------------------------------------
-   WORKER TERMINAL — Deep Slate + Primary Teal. Industrial, not cyberpunk:
-   no neon, no glow, no scanlines. Contrast and size do the work.
-   -------------------------------------------------------------------------- */
-.theme-worker {
-  --bg: var(--os-deep);
-  --surface: var(--os-surface);
-  --surface-2: var(--os-surface-2);
-  --primary: var(--os-teal);
-  --primary-ink: #052e25;            /* text on solid teal */
-  --primary-text: var(--os-teal);    /* teal as text on dark */
-  --secondary: var(--os-blue);
-  --text: var(--os-ink);
-  --text-2: var(--os-ink-2);
-  --muted: var(--os-ink-3);
-  --disabled: var(--os-ink-4);
-  --success: var(--os-success);
-  --success-text: var(--os-success-bright);
-  --warning: var(--os-warning);
-  --warning-text: var(--os-warning-bright);
-  --error: var(--os-danger);
-  --error-text: var(--os-danger-bright);
-  --info: var(--os-blue);
-  --info-text: var(--os-info-bright);
-  --border: var(--os-line);
-  --font: var(--os-font-ui);
-  --overlay: rgba(6, 10, 15, 0.72);
+:root {
+  /* Typography (§35): technical mono for codes/data, with an Arabic-capable
+     fallback chain. Arabic must never fall back to a mono face that lacks
+     shaping, so the Arabic families are listed before any generic mono. */
+  --os-font-mono: 'JetBrains Mono', 'Space Mono', ui-monospace, 'Cascadia Mono',
+    'Segoe UI Mono', 'Noto Sans Arabic', 'Cairo', 'Tajawal', monospace;
+  --os-font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', 'Noto Sans Arabic',
+    'Cairo', 'Tajawal', sans-serif;
+
+  /* Spacing scale — shared by both experiences (§45). */
+  --os-s1: 4px;
+  --os-s2: 8px;
+  --os-s3: 12px;
+  --os-s4: 16px;
+  --os-s5: 24px;
+  --os-s6: 32px;
+  --os-s7: 48px;
+
+  --os-radius: 10px;
+  --os-radius-sm: 6px;
+
+  --os-speed: 140ms;
 }
 
 /* --------------------------------------------------------------------------
-   ADMIN CONTROL CENTER — light, neutral, professional. Teal is the identity,
-   blue stays a semantic/informational accent (never the theme).
+   WORKER TERMINAL (§33). Dark green, high contrast, large operational states.
+   -------------------------------------------------------------------------- */
+.theme-worker {
+  --bg: #0b0f0d;
+  --surface: #111713;
+  --surface-2: #161d18;
+  --primary: #39ff14;
+  --secondary: #20c95a;
+  --text: #e8f5ec;
+  --muted: #8fa397;
+  --success: #39ff14;
+  --warning: #ffb020;
+  --error: #ff3b30;
+  --info: #38bdf8;
+  --border: #26352c;
+  --font: var(--os-font-mono);
+  /* Glow is reserved for important operational states only (§33). */
+  --glow: 0 0 18px rgba(57, 255, 20, 0.35);
+}
+
+/* --------------------------------------------------------------------------
+   ADMIN CONTROL CENTER (§34). Dark blue, information-dense, technical.
    -------------------------------------------------------------------------- */
 .theme-admin {
-  --bg: var(--os-light-bg);
-  --surface: var(--os-light-surface);
-  --surface-2: var(--os-light-surface-2);
-  --primary: var(--os-teal);
-  --primary-ink: #052e25;
-  --primary-text: var(--os-teal-strong);
-  --secondary: var(--os-blue);
-  --text: var(--os-light-ink);
-  --text-2: var(--os-light-ink-2);
-  --muted: var(--os-light-ink-3);
-  --disabled: var(--os-light-ink-4);
-  --success: var(--os-success);
-  --success-text: var(--os-success-strong);
-  --warning: var(--os-warning);
-  --warning-text: var(--os-warning-strong);
-  --error: var(--os-danger);
-  --error-text: var(--os-danger-strong);
-  --info: var(--os-blue);
-  --info-text: var(--os-info-strong);
-  --border: var(--os-light-line);
+  --bg: #080b10;
+  --surface: #11161d;
+  --surface-2: #161d26;
+  --primary: #4f8cff;
+  --secondary: #22c55e;
+  --text: #f3f6fa;
+  --muted: #8a96a6;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --info: #38bdf8;
+  --border: #252d38;
   --font: var(--os-font-ui);
-  --overlay: rgba(15, 23, 42, 0.45);
+  --glow: none;
 }
 
 /* ==========================================================================
-   Shared primitives — one component vocabulary, two densities.
+   Shared primitives — identical component vocabulary, different density.
    ========================================================================== */
 
 .os-root {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font);
-  font-size: var(--os-text-body);
-  line-height: 1.5;
   min-height: 100vh;
 }
 
@@ -84,221 +89,120 @@
 .os-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--os-radius-card);
-  padding: var(--os-space-4);
+  border-radius: var(--os-radius);
+  padding: var(--os-s4);
 }
-.theme-admin .os-card {
-  padding: var(--os-space-5);
-  box-shadow: var(--os-shadow-1);
-}
-/* Elevated variant — active areas, scanner panels, dialogs. */
-.os-card--elevated { background: var(--surface-2); }
+.theme-admin .os-card { padding: var(--os-s3); }
 
 .os-card-title {
   font-size: 0.72rem;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--muted);
-  margin: 0 0 var(--os-space-3);
+  margin: 0 0 var(--os-s3);
   font-weight: 600;
 }
 
-/* --- buttons ---------------------------------------------------------------
-   One button system. Height/radius/typography are fixed per experience;
-   only the variant changes. Terminal actions are ≥48px, admin 36px. */
+/* --- buttons ------------------------------------------------------------- */
 .os-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--os-space-2);
   font-family: var(--font);
   background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: var(--os-radius-control);
+  border-radius: var(--os-radius-sm);
   cursor: pointer;
+  transition: background var(--os-speed), border-color var(--os-speed), transform var(--os-speed);
   font-weight: 600;
-  line-height: 1;
-  text-decoration: none;
-  transition: background var(--os-speed) var(--os-ease),
-    border-color var(--os-speed) var(--os-ease),
-    color var(--os-speed) var(--os-ease),
-    transform var(--os-speed) var(--os-ease);
 }
-.os-btn:hover:not(:disabled) { border-color: var(--primary); color: var(--primary-text); }
+.os-btn:hover:not(:disabled) { border-color: var(--primary); }
 .os-btn:active:not(:disabled) { transform: translateY(1px); }
 .os-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .os-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
-.theme-worker .os-btn {
-  padding: 12px 20px;
-  font-size: 1rem;
-  min-height: 48px;
-  min-width: 88px;
-}
-.theme-worker.os-root .os-btn,           /* shell chrome stays compact */
-.wt-top .os-btn { min-height: 36px; padding: 7px 12px; font-size: 0.8rem; min-width: 0; }
-.theme-admin .os-btn { padding: 8px 14px; font-size: 0.875rem; min-height: 36px; }
+/* Touch-friendly on the floor (§32/§43); compact in admin. */
+.theme-worker .os-btn { padding: 14px 20px; font-size: 1rem; min-height: 52px; }
+.theme-admin .os-btn { padding: 7px 13px; font-size: 0.85rem; }
 
 .os-btn--primary {
   background: var(--primary);
   border-color: var(--primary);
-  color: var(--primary-ink);
+  color: #04120a;
 }
-.os-btn--primary:hover:not(:disabled) {
-  background: var(--primary);
-  color: var(--primary-ink);
-  border-color: var(--primary);
-  filter: brightness(1.08);
-}
-.os-btn--success {
-  background: var(--success);
-  border-color: var(--success);
-  color: #052e1a;
-}
-.os-btn--success:hover:not(:disabled) { color: #052e1a; border-color: var(--success); filter: brightness(1.06); }
-.os-btn--danger { border-color: var(--error); color: var(--error-text); }
-.os-btn--danger:hover:not(:disabled) { background: rgba(239, 68, 68, 0.1); color: var(--error-text); border-color: var(--error); }
-.os-btn--info { border-color: var(--info); color: var(--info-text); }
+.theme-admin .os-btn--primary { color: #06101f; }
+.os-btn--danger { border-color: var(--error); color: var(--error); }
 .os-btn--ghost { background: transparent; }
-.os-btn--block { width: 100%; }
 
-/* --- inputs ---------------------------------------------------------------- */
+/* --- inputs -------------------------------------------------------------- */
 .os-input {
   font-family: var(--font);
-  background: var(--surface);
+  background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: var(--os-radius-control);
+  border-radius: var(--os-radius-sm);
   width: 100%;
 }
-.os-input::placeholder { color: var(--muted); }
-.os-input:focus { outline: none; border-color: var(--primary); box-shadow: var(--os-focus-ring); }
-.os-input:disabled { opacity: 0.45; }
-.theme-worker .os-input { padding: 12px 16px; font-size: 1.05rem; min-height: 48px; }
-.theme-admin .os-input { padding: 8px 12px; font-size: 0.875rem; min-height: 36px; }
+.os-input:focus { outline: none; border-color: var(--primary); }
+.theme-worker .os-input { padding: 14px 16px; font-size: 1.15rem; }
+.theme-admin .os-input { padding: 7px 10px; font-size: 0.88rem; }
 
 .os-label {
   display: block;
-  font-size: 0.72rem;
-  letter-spacing: 0.08em;
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--muted);
-  margin-bottom: var(--os-space-2);
-  font-weight: 600;
+  margin-bottom: var(--os-s2);
 }
 
-/* --- status badges -----------------------------------------------------------
-   Presentation only: the status strings come from the backend and never
-   change. Pills are reserved for statuses and compact tags. */
+/* --- status pills -------------------------------------------------------- */
 .os-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 10px;
+  display: inline-block;
+  padding: 3px 9px;
   border-radius: 999px;
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 700;
-  letter-spacing: 0.06em;
-  border: 1px solid;
+  letter-spacing: 0.08em;
+  border: 1px solid currentColor;
   white-space: nowrap;
-  line-height: 1.4;
 }
-.theme-worker .os-tag--ok     { color: var(--success-text); border-color: rgba(34, 197, 94, 0.45);  background: rgba(34, 197, 94, 0.12); }
-.theme-worker .os-tag--warn   { color: var(--warning-text); border-color: rgba(245, 158, 11, 0.45); background: rgba(245, 158, 11, 0.12); }
-.theme-worker .os-tag--err    { color: var(--error-text);   border-color: rgba(239, 68, 68, 0.45);  background: rgba(239, 68, 68, 0.12); }
-.theme-worker .os-tag--info   { color: var(--info-text);    border-color: rgba(91, 141, 239, 0.45); background: rgba(91, 141, 239, 0.12); }
-.theme-worker .os-tag--muted  { color: var(--muted);        border-color: var(--border); }
-.theme-worker .os-tag--teal   { color: var(--primary);      border-color: rgba(25, 195, 163, 0.5); background: rgba(25, 195, 163, 0.1); }
+.os-tag--ok { color: var(--success); }
+.os-tag--warn { color: var(--warning); }
+.os-tag--err { color: var(--error); }
+.os-tag--info { color: var(--info); }
+.os-tag--muted { color: var(--muted); }
 
-.theme-admin .os-tag--ok     { color: var(--os-success-strong); border-color: #bbe7c9; background: #ecfdf3; }
-.theme-admin .os-tag--warn   { color: var(--os-warning-strong); border-color: #fde3ae; background: #fffbeb; }
-.theme-admin .os-tag--err    { color: var(--os-danger-strong);  border-color: #fecaca; background: #fef2f2; }
-.theme-admin .os-tag--info   { color: var(--os-info-strong);    border-color: #c8d8f8; background: #eef3fe; }
-.theme-admin .os-tag--muted  { color: var(--os-light-ink-3);    border-color: var(--os-light-line); background: var(--os-light-surface-2); }
-.theme-admin .os-tag--teal   { color: var(--os-teal-strong);    border-color: #b5e8de; background: #effaf7; }
-
-/* --- tables (admin density, readable on light) ------------------------------ */
-.os-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+/* --- tables (admin density) ---------------------------------------------- */
+.os-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
 .os-table th {
   text-align: left;
   font-size: 0.68rem;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--muted);
-  padding: var(--os-space-2) var(--os-space-3);
+  padding: var(--os-s2) var(--os-s3);
   border-bottom: 1px solid var(--border);
-  font-weight: 700;
+  font-weight: 600;
   position: sticky;
   top: 0;
   background: var(--surface);
-  z-index: 1;
 }
 .os-table td {
-  padding: 10px var(--os-space-3);
+  padding: var(--os-s2) var(--os-s3);
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
-  color: var(--text-2);
 }
-.os-table td:first-child { color: var(--text); }
 .os-table tbody tr:hover { background: var(--surface-2); }
-.os-table .num { text-align: right; font-variant-numeric: tabular-nums; }
-.os-table .mono { font-family: var(--os-font-mono); font-size: 0.82rem; letter-spacing: 0.02em; }
+.os-table .mono { font-family: var(--os-font-mono); }
 
-/* --- misc -------------------------------------------------------------------- */
+/* --- misc ---------------------------------------------------------------- */
 .os-muted { color: var(--muted); }
-.os-mono { font-family: var(--os-font-mono); letter-spacing: 0.02em; }
-.os-empty { color: var(--muted); padding: var(--os-space-6); text-align: center; }
-.os-row { display: flex; align-items: center; gap: var(--os-space-3); }
-.os-spread { display: flex; align-items: center; justify-content: space-between; gap: var(--os-space-3); }
-.os-grid { display: grid; gap: var(--os-space-3); }
+.os-mono { font-family: var(--os-font-mono); }
+.os-empty { color: var(--muted); padding: var(--os-s5); text-align: center; }
+.os-row { display: flex; align-items: center; gap: var(--os-s3); }
+.os-spread { display: flex; align-items: center; justify-content: space-between; gap: var(--os-s3); }
+.os-grid { display: grid; gap: var(--os-s3); }
+
 .os-scroll { overflow: auto; }
-
-/* --- shared empty / error / loading states -------------------------------------
-   One visual pattern for "nothing here" and "something went wrong" on every
-   screen, in both shells. Icon + title + hint (+ action); tone by register. */
-.os-state {
-  display: grid;
-  justify-items: center;
-  gap: var(--os-space-2);
-  text-align: center;
-  padding: var(--os-space-10) var(--os-space-6);
-  border: 1px dashed var(--border);
-  border-radius: var(--os-radius-card);
-  background: var(--surface);
-}
-.os-state-icon {
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  background: var(--surface-2);
-  color: var(--muted);
-}
-.os-state-title { font-size: 1.05rem; font-weight: 600; color: var(--text); }
-.os-state-hint { font-size: 0.875rem; color: var(--muted); max-width: 46ch; }
-.os-state-action { margin-top: var(--os-space-2); }
-
-.os-state--info .os-state-icon { color: var(--info-text); }
-.os-state--warning .os-state-icon { color: var(--warning-text); }
-.os-state--rejection .os-state-icon { color: var(--error-text); }
-.os-state--system .os-state-icon { color: var(--error-text); }
-.os-state--rejection,
-.os-state--system { border-color: rgba(239, 68, 68, 0.4); }
-.os-state--empty .os-state-icon { color: var(--primary-text); }
-
-/* Shared spinner (one loading pattern everywhere). */
-.os-spinner {
-  display: inline-block;
-  width: 20px;
-  height: 20px;
-  border: 2px solid rgba(128, 140, 160, 0.35);
-  border-top-color: var(--primary, #19c3a3);
-  border-radius: 50%;
-  animation: os-spin 0.8s linear infinite;
-}
-@keyframes os-spin { to { transform: rotate(360deg); } }
 
 /* Respect users who ask for less motion (accessibility + long shifts). */
 @media (prefers-reduced-motion: reduce) {
