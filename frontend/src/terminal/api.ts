@@ -38,6 +38,20 @@ export interface TerminalContext {
     startedAt: string;
     expectedArrival: { id: string; code: string; customerName: string } | null;
   } | null;
+  /** An open stowing session, so a refresh mid-putaway is not lost. */
+  activePutaway: {
+    id: string;
+    code: string;
+    status: string;
+    startedAt: string;
+  } | null;
+  /** Whichever work is genuinely open — drives resume routing (§3). */
+  resume: {
+    kind: 'RECEIVING' | 'PUTAWAY';
+    path: string;
+    code: string;
+    startedAt: string;
+  } | null;
 }
 
 export const terminalApi = {

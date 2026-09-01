@@ -51,6 +51,13 @@ export interface WorkerDetail {
     arrival: { id: string; code: string; customerName: string } | null;
     counts: { cartons: number; products: number; discrepancies: number };
   }>;
+  /** Stowing history — a worker is more than their receiving sessions. */
+  putawaySessions: Array<{
+    id: string; code: string; status: string;
+    startedAt: string; completedAt: string | null;
+    stationCode: string | null;
+    placements: number;
+  }>;
 }
 
 export interface SessionDetail {

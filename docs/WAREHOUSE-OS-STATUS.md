@@ -1,11 +1,12 @@
 # WAREHOUSE OS — implementation status
 
-Last updated: 2026-09-01 · local HEAD `putaway`
+Last updated: 2026-09-01 · local HEAD `putaway integration`
 
 ## Commits (local, not yet pushed)
 
 ```
-(new)    feat(putaway): stowing workflow, append-only placement ledger
+(new)    feat(os): cross-task resume routing + putaway in admin drill-down
+f873784  feat(putaway): stowing workflow, append-only placement ledger
 7596b1f  docs: WAREHOUSE OS status, verification and env recovery
 e099bc6  feat(os): station-linked sessions + route-level code splitting
 bbe3b0f  feat(os): Worker Terminal + Admin Control Center (phase 2 frontend)
@@ -79,6 +80,22 @@ Design decisions:
 - `Location` deletion is `Restrict` while it holds stock; the station link is
   `SetNull` so history survives.
 
+### Cross-task resume routing (§3)
+
+`GET /terminal/context` queries the worker's receiving **and** putaway sessions
+in parallel and returns:
+
+- `activeSession` / `activePutaway` — whichever are open,
+- `resume { kind, path, code, startedAt }` — the most recently started one,
+- `home` — `resume.path` if any work is open, else the single ready task, else
+  `/terminal`.
+
+**Open work outranks default routing.** A worker halfway through stowing who
+refreshes the tab returns to stowing, not to Receiving. The terminal home
+applies the resume redirect *before* the single-ready-task redirect and shows
+an `IN PROGRESS · <code>` badge on the matching task cards. Covered by
+`terminal.service.spec.ts` (9 tests).
+
 ### Admin Control Center — `/admin` (§6, §36–§40)
 
 `frontend/src/admin/` — `AdminShell.tsx` plus `pages/`: `ControlCenter`,
@@ -123,8 +140,9 @@ Other checks:
   (`COR-000004`) → worker completes → admin reopens (`COR-000005`).
 - Station FK: deleting a station nulls the link and **preserves** the session.
 - Reason < 8 chars → 400.
-- **29/29** backend Jest tests pass (10 new putaway unit tests covering the
-  append-only invariants); `tsc --noEmit` clean on both sides.
+- **38/38** backend Jest tests pass (10 putaway unit tests covering the
+  append-only invariants, 9 terminal-routing tests covering resume
+  precedence); `tsc --noEmit` clean on both sides.
 - Putaway loop verified live: queue → start → reject unknown carton / unknown
   location / blocked location → place → re-scan same location is a no-op →
   move appends a second row and closes the first → admin overview shows the
@@ -132,6 +150,18 @@ Other checks:
 - A user with no operational permissions gets 403 on every putaway route and
   an empty task list — never routed into `/admin`.
 - Bundle: 750 kB → **272 kB** (214 → 85 kB gzipped) after code splitting.
+- **Full cross-task cycle** proven end to end on live data: CRM arrival card +
+  shipment (`CTN-E2E-9002`) → receiving session → QR scan
+  (`CARTON_IDENTIFIED`) → receive → complete → carton appears in the putaway
+  queue → stow session → `CARTON_READY` → `LOCATION_READY` → `STORED` →
+  queue empties and the DB shows `status=STORED` at
+  `TUN-MAIN-SHOES-A01-R01-L02`.
+- Resume precedence live-checked: with a receiving *and* a putaway session
+  open, `/terminal/context` returns `home: /terminal/putaway` (most recent
+  start wins); completing the putaway session flips it back to
+  `home: /terminal/receiving` — a worker never loses their place.
+- Admin worker drill-down returns both `sessions` and `putawaySessions`
+  (`PUT-000001 COMPLETED | ST-REC-01 | placements: 2`).
 
 ---
 
@@ -183,6 +213,13 @@ Logins: `ADMIN001` / `ChangeMe!2024` · `WORKER001` / `Worker!2024`
 - Session detail has no `totals` key — progress is `tally`, last event `flash`.
 - `backend/.env` is untracked and points at an older DB; pass `DATABASE_URL`
   inline.
+- The shipment webhook envelope is `event: 'shipment.created'` + `arrival` +
+  `shipment { source{type}, summary{total_cartons,total_products,total_units},
+  cartons[] }` — a `shipment_card` key is rejected by `forbidNonWhitelisted`.
+- `locations` has no `code`/`fullCode` column; the human code is
+  `locationCode`.
+- Starting receiving on an already-completed arrival returns 409; seed a fresh
+  arrival for repeat end-to-end runs.
 
 ---
 

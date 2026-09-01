@@ -4,7 +4,9 @@ import { useTerminalUi } from './WorkerShell';
 /**
  * Worker Terminal home (spec §3).
  *
- * Routing policy:
+ * Routing policy, in priority order:
+ *   - work already in flight -> return to it, whichever task it belongs to,
+ *     so a refresh or a dropped tab never loses the worker's place,
  *   - exactly one ready task -> skip this screen entirely and open it, so the
  *     worker does not have to "find" their job (§2),
  *   - several ready tasks    -> show the picker below,
@@ -18,11 +20,13 @@ export default function WorkerTerminalHome() {
   const tasks = ctx?.tasks ?? [];
   const ready = tasks.filter((t) => t.ready);
 
+  // Work already in flight beats any default routing: send the worker back to
+  // exactly what they were doing, whichever task it was.
+  const resume = ctx?.resume ?? null;
+  if (resume) return <Navigate to={resume.path} replace />;
+
   // Single permitted task: go straight to work.
   if (ready.length === 1) return <Navigate to={ready[0].path} replace />;
-
-  // Resume an interrupted session before anything else.
-  const resume = ctx?.activeSession;
 
   if (tasks.length === 0) {
     return (
@@ -47,36 +51,34 @@ export default function WorkerTerminalHome() {
           : 'No station assigned to you'}
       </p>
 
-      {resume && (
-        <button
-          type="button"
-          className="wt-resume"
-          onClick={() => navigate('/terminal/receiving')}
-        >
-          <span className="os-tag os-tag--warn">IN PROGRESS</span>
-          <strong>Resume session {resume.code}</strong>
-          <span className="os-muted">
-            {resume.expectedArrival?.code} · {resume.expectedArrival?.customerName}
-          </span>
-        </button>
-      )}
-
       <div className="wt-tasks">
-        {tasks.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            className="wt-task-card"
-            disabled={!t.ready}
-            onClick={() => navigate(t.path)}
-          >
-            <span className="wt-task-name">{t.label}</span>
-            <span className="wt-task-dept os-muted">{t.department}</span>
-            <span className={`os-tag ${t.ready ? 'os-tag--ok' : 'os-tag--muted'}`}>
-              {t.ready ? 'OPEN' : 'SOON'}
-            </span>
-          </button>
-        ))}
+        {tasks.map((t) => {
+          // Surface open work on the card itself, so the picker tells the
+          // worker where they already have something running.
+          const openCode =
+            t.key === 'receiving' ? ctx?.activeSession?.code
+            : t.key === 'putaway' ? ctx?.activePutaway?.code
+            : undefined;
+          return (
+            <button
+              key={t.key}
+              type="button"
+              className="wt-task-card"
+              disabled={!t.ready}
+              onClick={() => navigate(t.path)}
+            >
+              <span className="wt-task-name">{t.label}</span>
+              <span className="wt-task-dept os-muted">{t.department}</span>
+              {openCode ? (
+                <span className="os-tag os-tag--warn">IN PROGRESS · {openCode}</span>
+              ) : (
+                <span className={`os-tag ${t.ready ? 'os-tag--ok' : 'os-tag--muted'}`}>
+                  {t.ready ? 'OPEN' : 'SOON'}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

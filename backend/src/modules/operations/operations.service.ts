@@ -170,15 +170,27 @@ export class OperationsService {
     });
     if (!user) throw new NotFoundException('Worker not found.');
 
-    const sessions = await this.prisma.receivingSession.findMany({
-      where: { startedBy: id },
-      orderBy: { startedAt: 'desc' },
-      take: 50,
-      include: {
-        expectedArrival: { select: { id: true, code: true, customerName: true } },
-        _count: { select: { cartons: true, products: true, discrepancies: true } },
-      },
-    });
+    // A worker's history spans every task they perform, not just receiving.
+    const [sessions, putawaySessions] = await Promise.all([
+      this.prisma.receivingSession.findMany({
+        where: { startedBy: id },
+        orderBy: { startedAt: 'desc' },
+        take: 50,
+        include: {
+          expectedArrival: { select: { id: true, code: true, customerName: true } },
+          _count: { select: { cartons: true, products: true, discrepancies: true } },
+        },
+      }),
+      this.prisma.putawaySession.findMany({
+        where: { workerId: id },
+        orderBy: { startedAt: 'desc' },
+        take: 50,
+        include: {
+          station: { select: { code: true } },
+          _count: { select: { placements: true } },
+        },
+      }),
+    ]);
 
     return {
       worker: {
@@ -197,6 +209,15 @@ export class OperationsService {
         completedAt: s.completedAt,
         arrival: s.expectedArrival,
         counts: s._count,
+      })),
+      putawaySessions: putawaySessions.map((p) => ({
+        id: p.id,
+        code: p.code,
+        status: p.status,
+        startedAt: p.startedAt,
+        completedAt: p.completedAt,
+        stationCode: p.station?.code ?? null,
+        placements: p._count.placements,
       })),
     };
   }

@@ -100,6 +100,33 @@ function WorkerDetail({ id }: { id: string }) {
           </tbody>
         </table>
       </section>
+
+      <section className="os-card" style={{ marginTop: 14 }}>
+        <h2 className="os-card-title">Putaway sessions</h2>
+        <table className="os-table">
+          <thead>
+            <tr><th>Session</th><th>Station</th><th>Started</th><th>Status</th><th>Placements</th></tr>
+          </thead>
+          <tbody>
+            {data.putawaySessions.map((p) => (
+              <tr key={p.id}>
+                <td className="mono">{p.code}</td>
+                <td className="os-muted">{p.stationCode ?? '—'}</td>
+                <td className="os-muted">{new Date(p.startedAt).toLocaleString()}</td>
+                <td>
+                  <span className={`os-tag ${p.status === 'COMPLETED' ? 'os-tag--ok' : 'os-tag--info'}`}>
+                    {p.status}
+                  </span>
+                </td>
+                <td>{p.placements}</td>
+              </tr>
+            ))}
+            {data.putawaySessions.length === 0 && (
+              <tr><td colSpan={5} className="os-empty">No stowing yet.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </section>
     </>
   );
 }

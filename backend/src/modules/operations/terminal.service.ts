@@ -87,20 +87,46 @@ export class TerminalService {
 
     // A session already in flight wins over any default routing — the worker
     // returns exactly where they left off after a refresh or a dropped tab.
-    const activeSession = await this.prisma.receivingSession.findFirst({
-      where: { startedBy: user.id, status: { in: ['RECEIVING', 'PAUSED'] } },
-      orderBy: { startedAt: 'desc' },
-      select: {
-        id: true,
-        code: true,
-        status: true,
-        startedAt: true,
-        expectedArrival: { select: { id: true, code: true, customerName: true } },
-      },
-    });
+    // Both operational task types are checked, so a worker who is halfway
+    // through stowing is not silently sent back to Receiving.
+    const [activeSession, activePutaway] = await Promise.all([
+      this.prisma.receivingSession.findFirst({
+        where: { startedBy: user.id, status: { in: ['RECEIVING', 'PAUSED'] } },
+        orderBy: { startedAt: 'desc' },
+        select: {
+          id: true,
+          code: true,
+          status: true,
+          startedAt: true,
+          expectedArrival: { select: { id: true, code: true, customerName: true } },
+        },
+      }),
+      this.prisma.putawaySession.findFirst({
+        where: { workerId: user.id, status: { in: ['ACTIVE', 'PAUSED'] } },
+        orderBy: { startedAt: 'desc' },
+        select: { id: true, code: true, status: true, startedAt: true },
+      }),
+    ]);
 
-    const home =
-      readyTasks.length === 1 ? readyTasks[0].path : '/terminal';
+    // Whichever work is genuinely open decides where the worker lands; the
+    // most recently started one wins if somehow both are open.
+    const resumeCandidates = [
+      activeSession
+        ? { kind: 'RECEIVING' as const, path: '/terminal/receiving', startedAt: activeSession.startedAt, code: activeSession.code }
+        : null,
+      activePutaway
+        ? { kind: 'PUTAWAY' as const, path: '/terminal/putaway', startedAt: activePutaway.startedAt, code: activePutaway.code }
+        : null,
+    ].filter(Boolean) as Array<{ kind: 'RECEIVING' | 'PUTAWAY'; path: string; startedAt: Date; code: string }>;
+
+    resumeCandidates.sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
+    const resume = resumeCandidates[0] ?? null;
+
+    const home = resume
+      ? resume.path
+      : readyTasks.length === 1
+        ? readyTasks[0].path
+        : '/terminal';
 
     return {
       worker: { id: user.id },
@@ -117,6 +143,9 @@ export class TerminalService {
           }
         : null,
       activeSession,
+      activePutaway,
+      /** Where the worker should land: open work first, else their only task. */
+      resume,
     };
   }
 }
