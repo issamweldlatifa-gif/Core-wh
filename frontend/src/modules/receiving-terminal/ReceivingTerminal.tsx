@@ -3,6 +3,7 @@ import { api, type ReceivingArrival, type ReceivingSessionDetail } from '../rece
 import { useAuth } from '../../context/AuthContext';
 import ScanField from './ScanField';
 import { detectCapabilities, freshOperationId, sourceLabel, type ScanSource } from './scan-source';
+import { beepSuccess, beepError, beepInfo, beepDone } from './feedback';
 import './terminal.css';
 
 const PRODUCT_STATUS_TAG: Record<string, string> = {
@@ -30,6 +31,8 @@ export default function ReceivingTerminal() {
   const [pendingCarton, setPendingCarton] = useState<any | null>(null);
   const [lastSource, setLastSource] = useState<ScanSource>('EXTERNAL_SCANNER');
   const [activity, setActivity] = useState<Activity[]>([]);
+  // Latest scan outcome -> drives the big status banner + beep + flash.
+  const [result, setResult] = useState<{ kind: 'ok' | 'bad' | 'info'; token: number } | null>(null);
 
   const loadArrivals = useCallback(async () => {
     setLoading(true); setError(null);
@@ -46,15 +49,33 @@ export default function ReceivingTerminal() {
     return () => { window.removeEventListener('online', up); window.removeEventListener('offline', down); };
   }, []);
 
+  // Classify a backend flash into a visual+audio outcome. A wrong SKU/ref or
+  // unknown carton is a BAD outcome: it flashes red AND buzzes, so the worker
+  // notices immediately. A correct match is OK: green flash + rising beep.
   const apply = useCallback((next: ReceivingSessionDetail) => {
+    const f = next.flash;
     setSession(next);
-    setPendingCarton(next.flash?.kind === 'CARTON_IDENTIFIED' ? next.flash.carton : null);
+    setPendingCarton(f?.kind === 'CARTON_IDENTIFIED' ? f.carton : null);
+    if (f?.kind === 'CARTON_IDENTIFIED' || f?.kind === 'PRODUCT_MATCH') {
+      setResult({ kind: 'ok', token: Date.now() }); beepSuccess();
+    } else if (f?.kind === 'UNKNOWN_CARTON' || f?.kind === 'WRONG_SHIPMENT' || f?.kind === 'DUPLICATE_CARTON' || f?.kind === 'UNEXPECTED_PRODUCT') {
+      setResult({ kind: 'bad', token: Date.now() }); beepError();
+    } else {
+      setResult({ kind: 'info', token: Date.now() });
+    }
     api.arrivals().then(setArrivals).catch(() => {});
   }, []);
 
   const pushActivity = useCallback((text: string, kind: Activity['kind']) => {
     setActivity((a) => [{ t: new Date().toLocaleTimeString(), text, kind }, ...a].slice(0, 60));
   }, []);
+
+  // Flash the status banner briefly then reset it (keeps the line readable).
+  useEffect(() => {
+    if (!result) return;
+    const t = setTimeout(() => setResult(null), 2600);
+    return () => clearTimeout(t);
+  }, [result]);
 
   const guard = useCallback(async (fn: () => Promise<ReceivingSessionDetail>, okMsg?: string) => {
     if (busy) return;
@@ -80,6 +101,7 @@ export default function ReceivingTerminal() {
         scanSource: caps.cameraScanningSupported ? 'CAMERA' : 'EXTERNAL_SCANNER',
       });
       apply(started);
+      beepInfo();
       pushActivity(`session ${started.code} ${exists ? 'resumed' : 'started'}`, 'info');
     } catch (e: any) { setError(e?.response?.data?.message ?? e?.message ?? 'Could not open receiving.'); }
     finally { setBusy(false); }
@@ -117,7 +139,14 @@ export default function ReceivingTerminal() {
 
   async function onPause() { if (session) { apply(await api.pause(session.id)); pushActivity('session paused', 'info'); } }
   async function onResume() { if (session) { apply(await api.resume(session.id)); pushActivity('session resumed', 'info'); } }
-  async function onComplete() { if (session) await guard(async () => { const r = await api.complete(session.id); pushActivity('receiving completed', 'ok'); return r; }); }
+  async function onComplete() {
+    if (session) await guard(async () => {
+      const r = await api.complete(session.id);
+      pushActivity('receiving completed', 'ok');
+      if (r.status === 'COMPLETED') beepDone(); else beepError();
+      return r;
+    });
+  }
   async function onResolveDiscrepancy(id: string) { if (session) await guard(async () => { const r = await api.resolve(id, 'Resolved by supervisor'); pushActivity('discrepancy resolved', 'ok'); return r; }); }
 
   const finished = session && (session.status === 'COMPLETED' || session.status === 'COMPLETED_WITH_DISCREPANCY');
@@ -202,6 +231,16 @@ export default function ReceivingTerminal() {
           <div className="term-warn">
             {lastWarn && <span>{warnText(lastWarn)}</span>}
             {openDiscrepancies.length > 0 && <span className="red"> [{openDiscrepancies.length} open discrepancies]</span>}
+          </div>
+        )}
+
+        {/* Last scan outcome — big, unmissable status line + beep already played */}
+        {result && (
+          <div key={result.token} className={`term-result term-result--${result.kind}`}>
+            {result.kind === 'ok' && <span className="green">[ OK ] scan accepted —&nbsp;</span>}
+            {result.kind === 'bad' && <span className="red">[ ! ] scan rejected —&nbsp;</span>}
+            {result.kind !== 'ok' && result.kind !== 'bad' && <span className="dark">[ .. ]&nbsp;</span>}
+            <span>{bannerText(flash, result.kind)}</span>
           </div>
         )}
 
@@ -378,6 +417,18 @@ function warnText(f: any): string {
   if (f.kind === 'WRONG_SHIPMENT') return `! wrong shipment -- carton ${f.carton} belongs to shipment ${f.shipment}. do NOT receive.`;
   if (f.kind === 'DUPLICATE_CARTON') return `! duplicate carton -- ${f.carton} already received (not counted again).`;
   if (f.kind === 'UNEXPECTED_PRODUCT') return `! unexpected product -- ${f.sku} not on the expected list. recorded as discrepancy.`;
+  return '';
+}
+
+/** Text for the big status banner, tailored to the outcome kind. */
+function bannerText(f: any, kind: 'ok' | 'bad' | 'info'): string {
+  if (!f) return '';
+  if (f.kind === 'CARTON_IDENTIFIED') return `carton ${f.carton?.externalCartonId ?? ''} identified (box ${f.carton?.cartonNumber ?? ''}/${f.carton?.totalCartons ?? ''}) -- confirm to receive`;
+  if (f.kind === 'PRODUCT_MATCH') return `sku ${f.sku} matched: ${f.received}/${f.expected} received (remaining ${Math.max(0, (f.expected ?? 0) - (f.received ?? 0))})`;
+  if (f.kind === 'UNKNOWN_CARTON') return `UNKNOWN carton "${f.code}" -- not on any expected shipment. flagged.`;
+  if (f.kind === 'WRONG_SHIPMENT') return `WRONG SHIPMENT -- carton ${f.carton} belongs to ${f.shipment}. do NOT receive.`;
+  if (f.kind === 'DUPLICATE_CARTON') return `DUPLICATE -- carton ${f.carton} already received (not counted again).`;
+  if (f.kind === 'UNEXPECTED_PRODUCT') return `UNEXPECTED product -- sku ${f.sku} not on the expected list. recorded as discrepancy.`;
   return '';
 }
 function Row({ k, v }: { k: string; v: string }) {
