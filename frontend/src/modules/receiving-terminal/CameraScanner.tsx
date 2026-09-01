@@ -244,14 +244,14 @@ export default function CameraScanner({
     <div className="term-modal" role="dialog" aria-modal="true">
       <div className="term-modal-inner">
         <div className="term-modal-head">
-          <span className="prompt">&gt; {title}</span>
+          <span className="prompt">{title}</span>
           <button className="term-btn" onClick={() => { stopAll(); onClose(); }}>✕ close</button>
         </div>
         <div className="term-cam-stage">
           <video ref={videoRef} className="term-cam-video" muted playsInline />
           <div className="term-cam-reticle" />
           {status === 'init' && <div className="term-cam-note">initialising camera…</div>}
-          {status === 'scanning' && <div className="term-cam-note term-cam-note--ok">[ SCANNING ] fill the frame with the label, hold steady — scanner stays open</div>}
+          {status === 'scanning' && <div className="term-cam-note term-cam-note--ok">Scanning — fill the frame with the label and hold steady. The scanner stays open.</div>}
           {status === 'reading' && <div className="term-cam-note term-cam-note--ok">[ READ ] {lastCode} — submitting…</div>}
           {feedback && (
             <div key={feedback.token} className={`term-cam-result term-cam-result--${feedback.kind}`}>

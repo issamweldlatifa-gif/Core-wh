@@ -17,14 +17,13 @@ const TABS = [
 export default function WarehouseModule() {
   return (
     <div>
-      <nav style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+      <nav className="tabs" aria-label="Warehouse structure sections">
         {TABS.map((t) => (
-          <NavLink key={t.to} to={t.to} style={({ isActive }) => ({
-            padding: '6px 14px', borderRadius: 8, textDecoration: 'none',
-            background: isActive ? 'var(--accent)' : 'transparent',
-            color: isActive ? '#fff' : 'var(--text)',
-            border: '1px solid var(--border)',
-          })}>
+          <NavLink
+            key={t.to}
+            to={t.to}
+            className={({ isActive }) => `tab${isActive ? ' is-active' : ''}`}
+          >
             {t.label}
           </NavLink>
         ))}

@@ -190,7 +190,6 @@ export default function ReceivingTerminal() {
   const currentCarton = pendingCarton ?? nextCarton;
   const paused = session?.status === 'PAUSED';
   const worker = me?.user?.name ?? 'worker';
-  const host = worker.toLowerCase().replace(/\s+/g, '-') || 'worker';
 
   // ---------- PICKER ----------
   if (!session) {
@@ -198,10 +197,10 @@ export default function ReceivingTerminal() {
       <div className="term">
         <div className="term-topbar">
           <span>AYROVI WAREHOUSE <span className="dim">· RECEIVING TERMINAL</span></span>
-          <span className="term-user"><span className="green">{me?.user?.name ?? 'worker'}</span> <span className="dim">[{me?.roles?.join(',') || 'worker'}]</span></span>
+          <span className="term-user"><span className="green">{me?.user?.name ?? 'worker'}</span> <span className="dim">{me?.roles?.join(', ') || 'worker'}</span></span>
           <span className={`term-net ${online ? 'ok' : 'bad'}`}>{online ? '● ONLINE' : '● OFFLINE'}</span>
-          <a className="term-btn" href="/">[ dashboard ]</a>
-          <button className="term-btn term-btn--danger" onClick={() => { void logoutFn(); }}>[ log out ]</button>
+          <a className="term-btn" href="/">Dashboard</a>
+          <button className="term-btn term-btn--danger" onClick={() => { void logoutFn(); }}>Log out</button>
         </div>
         <div className="term-body">
           <div className="term-banner">
@@ -224,7 +223,7 @@ export default function ReceivingTerminal() {
                         <td>{a.cartons}</td><td>{a.units}</td>
                         <td className="right">
                           <button className="term-btn term-btn--link" disabled={busy} onClick={() => openArrival(a)}>
-                            {a.status === 'EXPECTED' ? '[ start receiving ]' : '[ resume ]'}
+                            {a.status === 'EXPECTED' ? 'Start receiving' : 'Resume'}
                           </button>
                         </td>
                       </tr>
@@ -240,29 +239,28 @@ export default function ReceivingTerminal() {
   }
 
   // ---------- TERMINAL ----------
-  const prompt = `${host}@warehouse:~$`;
   return (
     <div className="term">
       <div className="term-topbar">
         <span>AYROVI RECEIVING TERMINAL <span className="dim">· session {session.code}</span></span>
-        <span className="term-user"><span className="green">{worker}</span> <span className="dim">[{me?.roles?.join(',') || 'worker'}]</span></span>
+        <span className="term-user"><span className="green">{worker}</span> <span className="dim">{me?.roles?.join(', ') || 'worker'}</span></span>
         <span className="term-chip">{caps.deviceType}</span>
         <span className={`term-net ${online ? 'ok' : 'bad'}`}>{online ? '● ONLINE' : '● OFFLINE'}</span>
         {!finished && (paused
-          ? <button className="term-btn" disabled={busy} onClick={onResume}>[ resume ]</button>
-          : <button className="term-btn" disabled={busy} onClick={onPause}>[ pause ]</button>)}
-        <button className="term-btn" onClick={() => { setSession(null); setPendingCarton(null); setActivity([]); loadArrivals(); }}>[ exit session ]</button>
-        <a className="term-btn" href="/">[ dashboard ]</a>
-        <button className="term-btn term-btn--danger" onClick={() => { void logoutFn(); }}>[ log out ]</button>
+          ? <button className="term-btn" disabled={busy} onClick={onResume}>Resume</button>
+          : <button className="term-btn" disabled={busy} onClick={onPause}>Pause</button>)}
+        <button className="term-btn" onClick={() => { setSession(null); setPendingCarton(null); setActivity([]); loadArrivals(); }}>Exit session</button>
+        <a className="term-btn" href="/">Dashboard</a>
+        <button className="term-btn term-btn--danger" onClick={() => { void logoutFn(); }}>Log out</button>
       </div>
 
       <div className="term-body">
         {error && <div className="term-error">!! error: {error}</div>}
-        {!online && <div className="term-warn">-- connection lost: session preserved; scans idempotent, no duplicates on reconnect --</div>}
+        {!online && <div className="term-warn">Connection lost — session preserved. Scans are idempotent; no duplicates will be created on reconnect.</div>}
         {(lastWarn || openDiscrepancies.length > 0) && (
           <div className="term-warn">
             {lastWarn && <span>{warnText(lastWarn)}</span>}
-            {openDiscrepancies.length > 0 && <span className="red"> [{openDiscrepancies.length} open discrepancies]</span>}
+            {openDiscrepancies.length > 0 && <span className="red"> {openDiscrepancies.length} open discrepancies</span>}
           </div>
         )}
 
@@ -310,7 +308,7 @@ export default function ReceivingTerminal() {
               cameraFeedback={banner}
             />
             {flash?.kind === 'CARTON_IDENTIFIED' && (
-              <div className="term-ok">+ carton identified -- recorded automatically</div>
+              <div className="term-ok">Carton identified — recorded automatically.</div>
             )}
           </div>
         )}
@@ -336,7 +334,7 @@ export default function ReceivingTerminal() {
 
         {/* Expected products */}
         <Box title="EXPECTED PRODUCTS">
-          <div className="dim">expected is immutable -- receiving records actual only</div>
+          <div className="dim">Expected is immutable — receiving records actual only.</div>
           <div className="term-table-wrap">
             <table className="term-table">
               <thead><tr><th>SKU/REF</th><th>PRODUCT</th><th>EXPECTED</th><th>RECEIVED</th><th>REMAINING</th><th>STATUS</th></tr></thead>
@@ -380,7 +378,7 @@ export default function ReceivingTerminal() {
                 const cur = currentCarton?.externalCartonId === c.externalCartonId;
                 return (
                   <div key={c.id} className={`term-qitem ${rec ? 'done' : ''} ${cur ? 'current' : ''}`}>
-                    <span>{rec ? '[x]' : cur ? '[*]' : '[ ]'}</span>
+                    <span>{rec ? '✓' : cur ? '●' : '○'}</span>
                     <span className="cyan">{c.externalCartonId}</span>
                     <span className="right dim">{rec ? 'RECEIVED' : cur ? 'CURRENT' : 'PENDING'}</span>
                   </div>
@@ -392,8 +390,8 @@ export default function ReceivingTerminal() {
         </div>
 
         {/* Reconciliation */}
-        <div className="term-box typewriter">
-          <div className="term-boxtitle">RECONCILIATION <span className={hasIssues(t) ? 'red' : 'green'}>{hasIssues(t) ? '[! HAS DISCREPANCIES]' : '[! ALL MATCH]'}</span></div>
+        <div className="term-box">
+          <div className="term-boxtitle">RECONCILIATION <span className={hasIssues(t) ? 'red' : 'green'}>{hasIssues(t) ? 'HAS DISCREPANCIES' : 'ALL MATCH'}</span></div>
           <div className="term-recgrid">
             <Rec k="expected cartons" v={`${t?.expectedCartons ?? 0}`} />
             <Rec k="received cartons" v={`${t?.receivedCartons ?? 0}`} ok={t?.receivedCartons === t?.expectedCartons} />
@@ -410,25 +408,24 @@ export default function ReceivingTerminal() {
           <div className="term-recactions">
             {hasIssues(t) && openDiscrepancies.map((d) => (
               <div key={d.id} className="term-disc">
-                <span className="red">[{d.type.replace(/_/g, ' ')}]</span> <span className="dim">{d.reason ?? ''}</span>
-                {d.status === 'OPEN' && canResolve && <button className="term-btn" disabled={busy} onClick={() => onResolveDiscrepancy(d.id)}>[ resolve ]</button>}
+                <span className="red">{d.type.replace(/_/g, ' ')}</span> <span className="dim">{d.reason ?? ''}</span>
+                {d.status === 'OPEN' && canResolve && <button className="term-btn" disabled={busy} onClick={() => onResolveDiscrepancy(d.id)}>Resolve</button>}
               </div>
             ))}
             {!finished ? (
               <button className={`term-btn term-btn--full ${hasIssues(t) ? 'term-btn--danger' : 'term-btn--ok'}`} disabled={busy || paused} onClick={onComplete}>
-                {hasIssues(t) ? (canResolve ? "+ COMPLETE RECEIVING WITH DISCREPANCIES" : "! REQUEST SUPERVISOR") : "+ COMPLETE RECEIVING"}
+                {hasIssues(t) ? (canResolve ? "Complete receiving (with discrepancies)" : "Request supervisor") : "Complete receiving"}
               </button>
             ) : (
-              <div className={session.status === 'COMPLETED' ? 'term-ok typewriter' : 'term-error typewriter'}>
-                {session.status === 'COMPLETED' ? '+ receiving completed -- ready for next warehouse operation' : '! receiving completed with discrepancy -- flagged/resolved by supervisor'}
+              <div className={session.status === 'COMPLETED' ? 'term-ok' : 'term-error'}>
+                {session.status === 'COMPLETED'
+                  ? 'Receiving completed — ready for the next operation.'
+                  : 'Receiving completed with discrepancies — flagged for supervisor resolution.'}
               </div>
             )}
           </div>
         </div>
 
-        <div className="term-promptline">
-          <span className="green">{prompt}</span><span className="term-blink">▊</span>
-        </div>
       </div>
       <div className="term-progressbar" />
     </div>
@@ -440,10 +437,10 @@ function hasIssues(t?: any): boolean {
   return !!t && (t.openDiscrepancies > 0 || t.shortUnits > 0 || t.overageUnits > 0 || t.unexpectedProducts > 0 || t.missingCartons > 0);
 }
 function warnText(f: any): string {
-  if (f.kind === 'UNKNOWN_CARTON') return `! unknown carton "${f.code}" not on any expected shipment. flagged for review.`;
-  if (f.kind === 'WRONG_SHIPMENT') return `! wrong shipment -- carton ${f.carton} belongs to shipment ${f.shipment}. do NOT receive.`;
-  if (f.kind === 'DUPLICATE_CARTON') return `! duplicate carton -- ${f.carton} already received (not counted again).`;
-  if (f.kind === 'UNEXPECTED_PRODUCT') return `! unexpected product -- ${f.sku} not on the expected list. recorded as discrepancy.`;
+  if (f.kind === 'UNKNOWN_CARTON') return `Unknown carton "${f.code}" is not on any expected shipment. Flagged for review.`;
+  if (f.kind === 'WRONG_SHIPMENT') return `Wrong shipment — carton ${f.carton} belongs to shipment ${f.shipment}. Do not receive.`;
+  if (f.kind === 'DUPLICATE_CARTON') return `Duplicate carton — ${f.carton} was already received (not counted again).`;
+  if (f.kind === 'UNEXPECTED_PRODUCT') return `Unexpected product — ${f.sku} is not on the expected list. Recorded as a discrepancy.`;
   return '';
 }
 
@@ -452,25 +449,25 @@ function bannerText(f: any, kind: 'ok' | 'bad' | 'info'): string {
   if (!f) return '';
   if (f.kind === 'CARTON_IDENTIFIED') return `carton ${f.carton?.externalCartonId ?? ''} received automatically (box ${f.carton?.cartonNumber ?? ''}/${f.carton?.totalCartons ?? ''})`;
   if (f.kind === 'PRODUCT_MATCH') return `sku ${f.sku} matched: ${f.received}/${f.expected} received (remaining ${Math.max(0, (f.expected ?? 0) - (f.received ?? 0))})`;
-  if (f.kind === 'UNKNOWN_CARTON') return `UNKNOWN carton "${f.code}" -- not on any expected shipment. flagged.`;
-  if (f.kind === 'WRONG_SHIPMENT') return `WRONG SHIPMENT -- carton ${f.carton} belongs to ${f.shipment}. do NOT receive.`;
-  if (f.kind === 'DUPLICATE_CARTON') return `DUPLICATE -- carton ${f.carton} already received (not counted again).`;
-  if (f.kind === 'UNEXPECTED_PRODUCT') return `UNEXPECTED product -- sku ${f.sku} not on the expected list. recorded as discrepancy.`;
+  if (f.kind === 'UNKNOWN_CARTON') return `Unknown carton "${f.code}" — not on any expected shipment. Flagged.`;
+  if (f.kind === 'WRONG_SHIPMENT') return `Wrong shipment — carton ${f.carton} belongs to ${f.shipment}. Do not receive.`;
+  if (f.kind === 'DUPLICATE_CARTON') return `Duplicate — carton ${f.carton} already received (not counted again).`;
+  if (f.kind === 'UNEXPECTED_PRODUCT') return `Unexpected product — SKU ${f.sku} is not on the expected list. Recorded as a discrepancy.`;
   return '';
 }
 function Row({ k, v }: { k: string; v: string }) {
-  return <div className="term-rowkv"><span className="dim">{k.padEnd(18)}</span><span>{v}</span></div>;
+  return <div className="term-rowkv"><span className="dim">{k}</span><span>{v}</span></div>;
 }
 function Box({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="term-box">
-      <div className="term-boxtitle">&gt; {title}</div>
+      <div className="term-boxtitle">{title}</div>
       {children}
     </div>
   );
 }
 function Progress({ label, v, ok, bad }: { label: string; v: string; ok?: boolean; bad?: boolean }) {
-  return <div className="term-progitem"><span className="dim">{label.padEnd(14)}</span><span className={ok ? 'green' : bad ? 'red' : ''}>{v}</span></div>;
+  return <div className="term-progitem"><span className="dim">{label}</span><span className={ok ? 'green' : bad ? 'red' : ''}>{v}</span></div>;
 }
 function Rec({ k, v, ok, bad }: { k: string; v: string; ok?: boolean; bad?: boolean }) {
   return <div className="term-recitem"><span className="dim">{k}</span><span className={ok ? 'green' : bad ? 'red' : ''}>{v}</span></div>;
@@ -484,7 +481,7 @@ function ProductScanner({ onSubmit, disabled, lastSource, flash, cameraFeedback 
   return (
     <>
       <div className="term-field-row term-carton-qty">
-        <span className="term-caret">$</span>
+        <span className="term-caret" aria-hidden="true">Qty</span>
         <input className="term-input term-qty" type="number" min={1} value={qty} onChange={(e) => setQty(parseInt(e.target.value, 10) || 1)} disabled={disabled} />
         <span className="dim">quantity per scan</span>
       </div>
@@ -499,10 +496,10 @@ function ProductScanner({ onSubmit, disabled, lastSource, flash, cameraFeedback 
         cameraFeedback={cameraFeedback}
       />
       {flash?.kind === 'PRODUCT_MATCH' && (
-        <div className="term-ok">+ match -- {flash.sku}: {flash.received}/{flash.expected} received (remaining {Math.max(0, flash.expected - flash.received)})</div>
+        <div className="term-ok">Match — {flash.sku}: {flash.received}/{flash.expected} received (remaining {Math.max(0, flash.expected - flash.received)})</div>
       )}
       {flash?.kind === 'UNEXPECTED_PRODUCT' && (
-        <div className="term-error">! unexpected product -- {flash.sku} recorded as discrepancy.</div>
+        <div className="term-error">Unexpected product — {flash.sku} recorded as discrepancy.</div>
       )}
     </>
   );

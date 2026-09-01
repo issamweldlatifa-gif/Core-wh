@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { apiErrorMessage } from '../../api/client';
+import { Dialog } from '../../ui';
 
 /**
  * Correction dialog (§8/§39).
@@ -48,10 +49,8 @@ export default function CorrectionDialog({
   }
 
   return (
-    <div className="ac-modal" role="dialog" aria-modal="true">
-      <div className="ac-modal-box">
-        <h2 className="ac-modal-title">{title}</h2>
-        <p className="ac-sub">{description}</p>
+    <Dialog open onClose={onClose} title={title}>
+        <p className="ac-sub" style={{ margin: 0 }}>{description}</p>
 
         <div className="ac-modal-warn">
           History is never overwritten. This records a new, audited correction
@@ -102,7 +101,6 @@ export default function CorrectionDialog({
             {busy ? 'Applying…' : confirmLabel}
           </button>
         </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }

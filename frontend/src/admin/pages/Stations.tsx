@@ -3,6 +3,7 @@ import { adminApi } from '../api';
 import { useAsync } from './useAsync';
 import { useAuth } from '../../context/AuthContext';
 import { apiErrorMessage } from '../../api/client';
+import { LoadingState, StatusBadge } from '../../ui';
 
 const DEPARTMENTS = ['RECEIVING', 'SORTING', 'PUTAWAY', 'PACKING', 'INVENTORY', 'DISPATCH'];
 const CAPS = ['CAMERA', 'BARCODE_SCANNER', 'QR_SCANNER', 'OCR', 'PRINTER', 'SCALE'];
@@ -89,7 +90,7 @@ export default function Stations() {
       )}
 
       <section className="os-card">
-        {stations.loading && !stations.data ? <div className="os-empty">loading…</div> : (
+        {stations.loading && !stations.data ? <LoadingState /> : (
           <table className="os-table">
             <thead>
               <tr><th>Code</th><th>Name</th><th>Department</th><th>Capabilities</th><th>Worker</th><th>Status</th><th /></tr>
@@ -116,7 +117,7 @@ export default function Stations() {
                     ) : (s.assignedWorker?.name ?? <span className="os-muted">unassigned</span>)}
                   </td>
                   <td>
-                    <span className={`os-tag ${s.status === 'ACTIVE' ? 'os-tag--ok' : 'os-tag--muted'}`}>{s.status}</span>
+                    <StatusBadge status={s.status} />
                   </td>
                   <td>
                     {canManage && (

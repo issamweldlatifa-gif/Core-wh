@@ -15,7 +15,7 @@
 .wt-boot { display: grid; place-items: center; height: 100vh; }
 .wt-boot-inner { text-align: center; display: grid; gap: 10px; }
 .wt-boot-brand {
-  font-size: 2rem; font-weight: 800; letter-spacing: 0.3em; color: var(--primary);
+  font-size: 1.75rem; font-weight: 700; letter-spacing: 0.14em; color: var(--primary);
 }
 
 /* ---- identity strip ------------------------------------------------------ */
@@ -27,10 +27,10 @@
   flex-wrap: wrap;
 }
 .wt-top-left { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
-.wt-brand { font-weight: 800; letter-spacing: 0.24em; color: var(--primary); }
+.wt-brand { font-weight: 700; letter-spacing: 0.12em; color: var(--primary); }
 .wt-task {
-  font-weight: 700; letter-spacing: 0.14em; font-size: 0.95rem;
-  color: var(--text); white-space: nowrap;
+  font-weight: 600; letter-spacing: 0.04em; font-size: 0.95rem;
+  color: var(--text-2); white-space: nowrap;
 }
 .wt-top-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .wt-worker { color: var(--text); font-weight: 600; }
@@ -42,18 +42,18 @@
 .wt-center { display: grid; place-items: center; height: 100%; }
 
 .wt-empty { text-align: center; max-width: 460px; }
-.wt-empty h1 { font-size: 1.4rem; letter-spacing: 0.16em; margin: 0 0 10px; color: var(--warning); }
+.wt-empty h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: 0.02em; margin: 0 0 10px; color: var(--warning-text); }
 
 /* ---- task picker --------------------------------------------------------- */
 .wt-home { max-width: 900px; margin: 0 auto; }
-.wt-home-title { font-size: 1.3rem; letter-spacing: 0.2em; margin: 8px 0 4px; }
+.wt-home-title { font-size: 1.375rem; font-weight: 700; letter-spacing: 0.01em; margin: 8px 0 4px; }
 .wt-home-sub { margin: 0 0 20px; }
 
 .wt-resume {
   display: grid; gap: 6px; width: 100%; text-align: left;
   padding: 16px; margin-bottom: 18px; cursor: pointer;
   background: var(--surface); color: var(--text);
-  border: 1px solid var(--warning); border-radius: var(--os-radius);
+  border: 1px solid var(--warning); border-radius: var(--os-radius-card);
   font-family: var(--font);
 }
 .wt-resume strong { font-size: 1.1rem; }
@@ -66,15 +66,15 @@
   display: grid; gap: 8px; justify-items: start;
   padding: 22px 18px; cursor: pointer; text-align: left;
   background: var(--surface); color: var(--text);
-  border: 1px solid var(--border); border-radius: var(--os-radius);
+  border: 1px solid var(--border); border-radius: var(--os-radius-card);
   font-family: var(--font);
   transition: border-color var(--os-speed), transform var(--os-speed);
   min-height: 120px;
 }
 .wt-task-card:hover:not(:disabled) { border-color: var(--primary); transform: translateY(-2px); }
 .wt-task-card:disabled { opacity: 0.45; cursor: not-allowed; }
-.wt-task-name { font-size: 1.25rem; font-weight: 700; letter-spacing: 0.06em; }
-.wt-task-dept { font-size: 0.72rem; letter-spacing: 0.14em; }
+.wt-task-name { font-size: 1.25rem; font-weight: 700; letter-spacing: 0.01em; }
+.wt-task-dept { font-size: 0.75rem; letter-spacing: 0.06em; }
 
 /* ---- status footer ------------------------------------------------------- */
 .wt-foot {
@@ -86,9 +86,9 @@
   border-top: 1px solid var(--border);
   font-size: 0.78rem;
 }
-.wt-foot-state { font-weight: 700; letter-spacing: 0.12em; }
-.wt-foot-state.ok { color: var(--success); }
-.wt-foot-state.bad { color: var(--error); }
+.wt-foot-state { font-weight: 700; letter-spacing: 0.05em; }
+.wt-foot-state.ok { color: var(--success-text); }
+.wt-foot-state.bad { color: var(--error-text); }
 .wt-foot-state.info { color: var(--muted); }
 .wt-foot-last {
   color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

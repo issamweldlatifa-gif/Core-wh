@@ -49,7 +49,7 @@ export default function Zones() {
       {canCreate && (
         <div className="card">
           <h3>Create zone</h3>
-          {msg && <div className="error-box" style={{ borderColor: 'var(--success)', color: '#47d08c' }}>{msg}</div>}
+          {msg && <div className="ok-box">{msg}</div>}
           {err && <div className="error-box">{err}</div>}
           <form onSubmit={save} className="grid2">
             <div><label>Code</label><input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} placeholder="SHOES" required /></div>

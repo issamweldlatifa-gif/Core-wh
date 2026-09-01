@@ -4,6 +4,7 @@ import { adminApi, type ExceptionRow } from '../api';
 import { useAsync } from './useAsync';
 import CorrectionDialog from './CorrectionDialog';
 import { useAuth } from '../../context/AuthContext';
+import { EmptyState, LoadingState, StatusBadge } from '../../ui';
 
 /** Exception Center (§38) with an authorised, audited resolution path (§39). */
 export default function Exceptions() {
@@ -39,9 +40,9 @@ export default function Exceptions() {
 
       <section className="os-card">
         {loading && !data ? (
-          <div className="os-empty">loading exceptions…</div>
+          <LoadingState label="Loading exceptions…" />
         ) : !data || data.length === 0 ? (
-          <div className="os-empty">No {status.toLowerCase()} exceptions.</div>
+          <EmptyState icon="check" title={`No ${status.toLowerCase()} exceptions`} hint="Operational exceptions raised on the floor appear here." />
         ) : (
           <table className="os-table">
             <thead>
@@ -69,9 +70,7 @@ export default function Exceptions() {
                   </td>
                   <td className="os-muted">{new Date(x.createdAt).toLocaleString()}</td>
                   <td>
-                    <span className={`os-tag ${x.status === 'OPEN' ? 'os-tag--warn' : 'os-tag--ok'}`}>
-                      {x.status}
-                    </span>
+                    <StatusBadge status={x.status} />
                   </td>
                   <td>
                     {x.status === 'OPEN' && canCorrect && (

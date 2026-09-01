@@ -1,6 +1,7 @@
 import { useNavigate, useParams } from 'react-router-dom';
 import { adminApi } from '../api';
 import { useAsync } from './useAsync';
+import { LoadingState, StatusBadge, PageHeader, Button } from '../../ui';
 
 /** Worker list + drill-down into their sessions (§37). */
 export default function Workers() {
@@ -20,7 +21,7 @@ function WorkerList() {
       </header>
       {error && <div className="ac-error">{error}</div>}
       <section className="os-card">
-        {loading && !data ? <div className="os-empty">loading…</div> : (
+        {loading && !data ? <LoadingState /> : (
           <table className="os-table">
             <thead>
               <tr><th>Name</th><th>Code</th><th>Roles</th><th>Station</th><th>Sessions today</th><th /></tr>
@@ -55,7 +56,7 @@ function WorkerDetail({ id }: { id: string }) {
   const { data, loading, error } = useAsync(() => adminApi.worker(id), [id]);
   const navigate = useNavigate();
 
-  if (loading && !data) return <div className="os-empty">loading worker…</div>;
+  if (loading && !data) return <LoadingState label="Loading worker…" block />;
   if (error) return <div className="ac-error">{error}</div>;
   if (!data) return null;
 
@@ -69,7 +70,7 @@ function WorkerDetail({ id }: { id: string }) {
             {data.worker.station ? `Station ${data.worker.station.code}` : 'no station'}
           </p>
         </div>
-        <button type="button" className="os-btn" onClick={() => navigate('/admin/workers')}>Back</button>
+        <Button icon="back" onClick={() => navigate('/admin/workers')}>Back</Button>
       </header>
 
       <section className="os-card">
@@ -84,7 +85,7 @@ function WorkerDetail({ id }: { id: string }) {
                 <td className="mono">{s.code}</td>
                 <td>{s.arrival?.code ?? '—'}</td>
                 <td className="os-muted">{new Date(s.startedAt).toLocaleString()}</td>
-                <td><span className="os-tag os-tag--info">{s.status}</span></td>
+                <td><StatusBadge status={s.status} /></td>
                 <td>{s.counts.cartons}</td>
                 <td>{s.counts.discrepancies > 0
                   ? <span className="os-tag os-tag--err">{s.counts.discrepancies}</span>
@@ -114,9 +115,7 @@ function WorkerDetail({ id }: { id: string }) {
                 <td className="os-muted">{p.stationCode ?? '—'}</td>
                 <td className="os-muted">{new Date(p.startedAt).toLocaleString()}</td>
                 <td>
-                  <span className={`os-tag ${p.status === 'COMPLETED' ? 'os-tag--ok' : 'os-tag--info'}`}>
-                    {p.status}
-                  </span>
+                  <StatusBadge status={p.status} />
                 </td>
                 <td>{p.placements}</td>
               </tr>

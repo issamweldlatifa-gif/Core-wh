@@ -70,7 +70,7 @@ export default function Levels() {
       {canCreate && (
         <div className="card">
           <h3>Create level</h3>
-          {msg && <div className="error-box" style={{ borderColor: 'var(--success)', color: '#47d08c' }}>{msg}</div>}
+          {msg && <div className="ok-box">{msg}</div>}
           {err && <div className="error-box">{err}</div>}
           <form onSubmit={save} className="grid2">
             <div><label>Level number (order)</label><input type="number" min={1} value={levelNumber} onChange={(e) => setLevelNumber(Number(e.target.value))} required /></div>

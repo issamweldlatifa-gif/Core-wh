@@ -63,7 +63,7 @@ export default function ReceivingTask() {
   /** Single place where an outcome is surfaced: banner + sound (§26/§27). */
   const report = useCallback((kind: 'ok' | 'bad' | 'info', text: string) => {
     setOutcome({ kind, text, token: Date.now() });
-    setStatus({ text: kind === 'ok' ? 'ACCEPTED' : kind === 'bad' ? 'NOT ACCEPTED' : 'READY', kind });
+    setStatus({ text: kind === 'ok' ? 'Accepted' : kind === 'bad' ? 'Not accepted' : 'Ready', kind });
     if (kind === 'ok') beepSuccess();
     else if (kind === 'bad') beepError();
     else beepInfo();
@@ -101,7 +101,7 @@ export default function ReceivingTask() {
       });
       setSession(s);
       push(`session ${s.code} ${existing ? 'resumed' : 'started'}`, 'info');
-      setStatus({ text: 'SESSION ACTIVE', kind: 'info' });
+      setStatus({ text: 'Session active', kind: 'info' });
     } catch (e: any) {
       setError(e?.response?.data?.message ?? 'Could not open receiving.');
     } finally {
@@ -118,7 +118,7 @@ export default function ReceivingTask() {
     const value = raw.trim();
     if (!value || !session || busy) return;
     setBusy(true);
-    setStatus({ text: 'SUBMITTING', kind: 'info' });
+    setStatus({ text: 'Submitting…', kind: 'info' });
     try {
       const scanned = await api.scanCarton(
         session.id, value, scanTypeFor(source), freshOperationId(), source,
@@ -138,9 +138,9 @@ export default function ReceivingTask() {
       setSession(scanned);
       // Explicit, readable rejection reasons (§27).
       const why =
-        f?.kind === 'UNKNOWN_CARTON' ? 'UNKNOWN REFERENCE'
-        : f?.kind === 'DUPLICATE_CARTON' ? 'ALREADY RECEIVED'
-        : f?.kind === 'WRONG_SHIPMENT' ? 'WRONG SHIPMENT'
+        f?.kind === 'UNKNOWN_CARTON' ? 'Unknown reference'
+        : f?.kind === 'DUPLICATE_CARTON' ? 'Already received'
+        : f?.kind === 'WRONG_SHIPMENT' ? 'Wrong shipment'
         : 'NOT ACCEPTED';
       report('bad', `${value} — ${why}`);
       push(`${value} rejected: ${why}`, 'bad');
@@ -159,8 +159,8 @@ export default function ReceivingTask() {
     try {
       const r = await api.complete(session.id);
       setSession(r);
-      if (r.status === 'COMPLETED') { beepDone(); report('ok', 'SESSION COMPLETE'); }
-      else { report('bad', 'CLOSED WITH DISCREPANCIES'); }
+      if (r.status === 'COMPLETED') { beepDone(); report('ok', 'Session complete'); }
+      else { report('bad', 'Closed with discrepancies'); }
       push('receiving completed', 'ok');
     } catch (e: any) {
       setError(e?.response?.data?.message ?? 'Could not complete.');
@@ -192,11 +192,11 @@ export default function ReceivingTask() {
   if (!session) {
     return (
       <div className="rt-pick">
-        <h1 className="rt-h1">RECEIVING</h1>
+        <h1 className="rt-h1">Receiving</h1>
         <p className="os-muted">Select an arrival to start or resume receiving.</p>
         {error && <div className="rt-error">{error}</div>}
         {loading ? (
-          <div className="os-empty">loading arrivals…</div>
+          <div className="os-empty">Loading arrivals…</div>
         ) : arrivals.length === 0 ? (
           <div className="os-empty">No arrivals awaiting receiving.</div>
         ) : (
@@ -207,7 +207,7 @@ export default function ReceivingTask() {
                 <span className="rt-arrival-cust">{a.customerName}</span>
                 <span className="os-muted">{a.cartons} cartons · {a.units} units</span>
                 <span className={`os-tag ${a.status === 'EXPECTED' ? 'os-tag--info' : 'os-tag--warn'}`}>
-                  {a.status === 'EXPECTED' ? 'START' : 'RESUME'}
+                  {a.status === 'EXPECTED' ? 'Start' : 'Resume'}
                 </span>
               </button>
             ))}
@@ -228,11 +228,11 @@ export default function ReceivingTask() {
         <div className="os-row">
           {!done && (
             <button className="os-btn os-btn--primary rt-scan-btn" onClick={() => setScannerOpen(true)}>
-              OPEN SCANNER
+              Open scanner
             </button>
           )}
           <button className="os-btn" onClick={() => { setSession(null); void loadArrivals(); }}>
-            CLOSE
+            Close
           </button>
         </div>
       </div>
@@ -241,17 +241,17 @@ export default function ReceivingTask() {
 
       {/* Progress — the numbers a receiving worker actually needs (§4). */}
       <div className="rt-progress">
-        <Metric label="CARTONS" v={`${tally?.receivedCartons ?? 0}/${tally?.expectedCartons ?? 0}`}
+        <Metric label="Cartons" v={`${tally?.receivedCartons ?? 0}/${tally?.expectedCartons ?? 0}`}
           ok={(tally?.receivedCartons ?? 0) >= (tally?.expectedCartons ?? 0)} />
-        <Metric label="UNITS" v={`${tally?.receivedUnits ?? 0}/${tally?.expectedUnits ?? 0}`} />
-        <Metric label="EXCEPTIONS" v={String(tally?.openDiscrepancies ?? 0)}
+        <Metric label="Units" v={`${tally?.receivedUnits ?? 0}/${tally?.expectedUnits ?? 0}`} />
+        <Metric label="Exceptions" v={String(tally?.openDiscrepancies ?? 0)}
           bad={(tally?.openDiscrepancies ?? 0) > 0} />
       </div>
 
       {/* Manual fallback — always available (§28), same backend path. */}
       {!done && (
         <div className="rt-manual">
-          <label className="os-label" htmlFor="rt-input">SCAN OR TYPE CARTON</label>
+          <label className="os-label" htmlFor="rt-input">Scan or type carton</label>
           <div className="os-row">
             <input
               id="rt-input"
@@ -271,7 +271,7 @@ export default function ReceivingTask() {
               disabled={busy || !manual.trim()}
               onClick={() => { const v = manual; setManual(''); void submitCode(v, 'MANUAL'); }}
             >
-              ENTER
+              Enter
             </button>
           </div>
         </div>
@@ -316,7 +316,7 @@ export default function ReceivingTask() {
 
       {!done && (
         <div className="rt-finish">
-          <button className="os-btn" disabled={busy} onClick={complete}>COMPLETE RECEIVING</button>
+          <button className="os-btn" disabled={busy} onClick={complete}>Complete receiving</button>
         </div>
       )}
       {done && <div className="rt-done">SESSION {session.status.replace(/_/g, ' ')}</div>}
@@ -331,7 +331,7 @@ export default function ReceivingTask() {
           onClose={() => {
             setScannerOpen(false);
             setOutcome(null);
-            setStatus({ text: 'SESSION ACTIVE', kind: 'info' });
+            setStatus({ text: 'Session active', kind: 'info' });
           }}
         />
         </Suspense>

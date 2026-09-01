@@ -1,14 +1,35 @@
 import { useEffect, useState } from 'react';
 import { apiErrorMessage } from '../../api/client';
 import { api, Warehouse, StructureNode } from './api';
+import { toneForStatus } from '../../ui';
+import { EmptyState, LoadingState } from '../../ui';
 
-function TreeNode({ node, depth, prefix }: { node: StructureNode & { children?: StructureNode[] }; depth: number; prefix: string }) {
-  const indent = '  '.repeat(depth);
+const LEVEL_LABEL = ['Zone', 'Aisle', 'Rack', 'Level', 'Location'];
+
+function TreeNode({
+  node,
+  depth,
+  prefix,
+}: {
+  node: StructureNode & { children?: StructureNode[] };
+  depth: number;
+  prefix: string;
+}) {
   const sep = prefix ? `${prefix}/` : '';
+  const path = `${sep}${node.code}`;
+  const tone = toneForStatus(node.status);
+  const toneCls = tone === 'ok' ? 'green' : tone === 'err' ? 'red' : tone === 'warn' ? 'yellow' : 'gray';
   return (
     <>
-      <div style={{ fontFamily: 'monospace', whiteSpace: 'pre' }}>{indent}├── {node.code} {node.status !== 'ACTIVE' ? `(${node.status})` : ''}</div>
-      {(node.children ?? []).map((c) => <TreeNode key={c.id} node={c} depth={depth + 1} prefix={`${sep}${node.code}`} />)}
+      <div className="tree-node" style={{ paddingLeft: 10 + depth * 22 }}>
+        <span className="tree-sep">{depth === 0 ? '' : '└'}</span>
+        <span className="tree-code">{node.code}</span>
+        <span className="tree-name">{LEVEL_LABEL[depth] ?? ''}</span>
+        {node.status !== 'ACTIVE' && <span className={`tag ${toneCls}`}>{node.status}</span>}
+      </div>
+      {(node.children ?? []).map((c) => (
+        <TreeNode key={c.id} node={c} depth={depth + 1} prefix={path} />
+      ))}
     </>
   );
 }
@@ -44,14 +65,24 @@ export default function StructureExplorer() {
       <h1 className="page-title">Structure Explorer</h1>
       <p className="page-sub">Full physical hierarchy of the selected warehouse: Zone → Aisle → Rack → Level → Location.</p>
       <div className="card">
-        <label>Warehouse</label>
-        <select value={whId} onChange={(e) => setWhId(e.target.value)}>{warehouses.map((w) => <option key={w.id} value={w.id}>{w.code}</option>)}</select>
+        <label htmlFor="structure-warehouse">Warehouse</label>
+        <select id="structure-warehouse" value={whId} onChange={(e) => setWhId(e.target.value)}>
+          {warehouses.map((w) => <option key={w.id} value={w.id}>{w.code}</option>)}
+        </select>
       </div>
       <div className="card">
         <h3>{warehouses.find((w) => w.id === whId)?.code ?? 'Warehouse'} structure</h3>
         {err && <div className="error-box">{err}</div>}
-        {toTree(tree).map((z) => <TreeNode key={z.id} node={z} depth={0} prefix="" />)}
-        {tree.length === 0 && !err && <p className="empty">No structure defined yet.</p>}
+        {tree.length === 0 && !err && (
+          <EmptyState
+            icon="layers"
+            title="No structure defined yet"
+            hint="Create zones, aisles, racks, levels and locations to map the physical warehouse."
+          />
+        )}
+        <div className="tree">
+          {toTree(tree).map((z) => <TreeNode key={z.id} node={z} depth={0} prefix="" />)}
+        </div>
       </div>
     </>
   );

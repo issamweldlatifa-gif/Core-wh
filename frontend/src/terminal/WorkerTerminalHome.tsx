@@ -32,7 +32,7 @@ export default function WorkerTerminalHome() {
     return (
       <div className="wt-center">
         <div className="wt-empty">
-          <h1>NO TASK ASSIGNED</h1>
+          <h1>No task assigned</h1>
           <p className="os-muted">
             Your account has no operational task permissions yet. Ask a supervisor to assign you a
             role or a station.
@@ -44,7 +44,7 @@ export default function WorkerTerminalHome() {
 
   return (
     <div className="wt-home">
-      <h1 className="wt-home-title">SELECT TASK</h1>
+      <h1 className="wt-home-title">Select task</h1>
       <p className="os-muted wt-home-sub">
         {ctx?.station
           ? `Station ${ctx.station.code} · ${ctx.station.name}`
@@ -70,10 +70,10 @@ export default function WorkerTerminalHome() {
               <span className="wt-task-name">{t.label}</span>
               <span className="wt-task-dept os-muted">{t.department}</span>
               {openCode ? (
-                <span className="os-tag os-tag--warn">IN PROGRESS · {openCode}</span>
+                <span className="os-tag os-tag--warn">In progress · {openCode}</span>
               ) : (
                 <span className={`os-tag ${t.ready ? 'os-tag--ok' : 'os-tag--muted'}`}>
-                  {t.ready ? 'OPEN' : 'SOON'}
+                  {t.ready ? 'Open' : 'Soon'}
                 </span>
               )}
             </button>
