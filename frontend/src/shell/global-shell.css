@@ -1,0 +1,135 @@
+/* ==========================================================================
+   GLOBAL APPLICATION SHELL — one shell for every role.
+   Theme: terminal black / phosphor green accent / mono (§19 theme tokens).
+   Green is the ACCENT + primary action colour only, not a fill for everything.
+   ========================================================================== */
+
+.gs {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh; /* mobile browser chrome must not clip the workspace */
+  overflow: hidden;
+  background: var(--bg);
+}
+
+/* ---- global header: ONE compact row -------------------------------------- */
+.gs-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 14px;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+}
+
+.gs-brand { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.gs-brand-main {
+  font-size: 15px; font-weight: 800; letter-spacing: 0.22em;
+  color: var(--accent);
+}
+.gs-brand-sub {
+  font-size: 10px; letter-spacing: 0.32em; color: var(--text-dim);
+}
+
+.gs-head-right { display: flex; align-items: center; gap: 14px; min-width: 0; }
+
+.gs-clock {
+  font-size: 13px; font-weight: 700; letter-spacing: 0.08em;
+  color: var(--text); font-variant-numeric: tabular-nums;
+}
+
+/* Compact identity: name · primary role (full detail lives on /profile). */
+.gs-id { position: relative; }
+.gs-id-btn {
+  display: flex; align-items: center; gap: 7px;
+  max-width: 46vw;
+  background: none; border: 1px solid transparent; cursor: pointer;
+  font-family: inherit; font-size: 13px; color: var(--text);
+  padding: 3px 8px; border-radius: var(--radius);
+}
+.gs-id-btn:hover { border-color: var(--border); background: var(--bg-elev2); }
+.gs-id-name {
+  font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.gs-id-sep { color: var(--text-dim); }
+.gs-id-role {
+  color: var(--accent); font-size: 12px; letter-spacing: 0.04em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.gs-id-caret { color: var(--text-dim); font-size: 10px; }
+
+/* Account menu — the ONLY place logout lives. */
+.gs-menu {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 60;
+  min-width: 210px;
+  background: var(--bg-elev2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  display: grid; padding: 4px;
+}
+.gs-menu-item {
+  display: block; width: 100%; text-align: left;
+  background: none; border: none; cursor: pointer;
+  font-family: inherit; font-size: 13px; color: var(--text);
+  padding: 9px 10px; border-radius: var(--radius);
+  text-decoration: none;
+}
+.gs-menu-item:hover { background: var(--bg-elev); color: var(--text); }
+.gs-menu-item--danger { color: var(--danger); }
+.gs-menu-item--danger:hover { border: 1px solid var(--danger); }
+
+/* ---- global navigation: permission-filtered strip ------------------------ */
+.gs-nav {
+  flex: none;
+  display: flex; align-items: stretch;
+  overflow-x: auto;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+  padding: 0 10px;
+  scrollbar-width: none;
+}
+.gs-nav::-webkit-scrollbar { display: none; }
+
+.gs-nav-link {
+  display: flex; align-items: center;
+  padding: 7px 12px;
+  font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-dim); text-decoration: none; white-space: nowrap;
+  border-bottom: 2px solid transparent;
+}
+.gs-nav-link:hover { color: var(--text); }
+.gs-nav-link.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* ---- page workspace ------------------------------------------------------- */
+/* Padding is declared as shell tokens so full-bleed workspaces can opt out
+   with ONE reusable utility (.gs-flush) instead of per-page hacks. */
+.gs-content {
+  --gs-pad-x: 24px;
+  --gs-pad-y: 20px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--gs-pad-y) var(--gs-pad-x);
+}
+
+/* Full-bleed escape for operational workspaces (worker terminal, control
+   center): they own 100% of the workspace area, edge to edge. */
+.gs-flush {
+  margin: calc(-1 * var(--gs-pad-y)) calc(-1 * var(--gs-pad-x));
+  min-height: calc(100% + 2 * var(--gs-pad-y));
+}
+
+@media (max-width: 720px) {
+  .gs-content { --gs-pad-x: 14px; --gs-pad-y: 14px; }
+  .gs-brand-sub { display: none; }
+  .gs-head { padding: 2px 10px; }
+  .gs-brand-main { font-size: 14px; letter-spacing: 0.16em; }
+  .gs-clock { font-size: 12px; }
+  .gs-id-btn { max-width: 54vw; padding: 2px 6px; font-size: 12px; line-height: 1.25; }
+  .gs-id-role { font-size: 11px; }
+  .gs-id-caret { display: none; }
+}

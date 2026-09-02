@@ -42,58 +42,8 @@ body {
 a { color: var(--accent-2); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-/* ---- Layout shell ---- */
-.shell {
-  display: grid;
-  grid-template-columns: 260px 1fr;
-  height: 100vh;
-}
-.sidebar {
-  background: var(--bg-elev);
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  padding: 20px 16px;
-}
-.brand { margin: 0 0 4px; }
-.brand .b1 { font-size: 22px; font-weight: 800; letter-spacing: 2px; color: var(--accent-2); }
-.brand .b2 { font-size: 12px; letter-spacing: 4px; color: var(--text-dim); text-transform: uppercase; }
-.brand-sub { font-size: 11px; color: var(--text-dim); margin: 4px 0 20px; }
+/* ---- Layout shell: superseded by the GLOBAL APPLICATION SHELL (shell/global-shell.css) ---- */
 
-.nav { flex: 1; display: flex; flex-direction: column; gap: 4px; }
-.nav a {
-  color: var(--text-dim);
-  padding: 10px 12px;
-  border-radius: var(--radius);
-  font-weight: 500;
-}
-.nav a:hover { background: var(--bg-elev2); color: var(--text); text-decoration: none; }
-.nav a.active { background: var(--accent); color: #000000; font-weight: 700; }
-.nav .section { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); margin-top: 16px; padding: 0 12px; }
-
-.user-card {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 12px;
-  background: var(--bg-elev2);
-}
-.user-card .u-name { font-weight: 700; }
-.user-card .u-role { font-size: 12px; color: var(--text-dim); }
-.user-card .u-code { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
-.user-card button {
-  margin-top: 10px;
-  width: 100%;
-  padding: 8px;
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--text-dim);
-  border-radius: var(--radius);
-  cursor: pointer;
-  font-weight: 600;
-}
-.user-card button:hover { border-color: var(--danger); color: var(--danger); }
-
-.main { overflow: auto; padding: 28px 34px; }
 .page-title { font-size: 24px; font-weight: 700; margin: 0 0 4px; }
 .page-sub { color: var(--text-dim); margin: 0 0 24px; }
 

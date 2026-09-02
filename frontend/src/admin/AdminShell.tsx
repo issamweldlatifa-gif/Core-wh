@@ -1,5 +1,7 @@
 import { NavLink, Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+// Identity, brand and logout live in the GLOBAL shell — this sidebar is
+// pure control-center navigation (UX: one shell, role-aware content).
 
 /**
  * Admin Control Center shell (spec §6/§34/§43).
@@ -36,7 +38,7 @@ const NAV: NavEntry[] = [
 ];
 
 export default function AdminShell() {
-  const { me, loading, logoutFn, hasPermission } = useAuth();
+  const { me, loading, hasPermission } = useAuth();
 
   if (loading) {
     return (
@@ -51,12 +53,9 @@ export default function AdminShell() {
   const groups = [...new Set(visible.map((n) => n.group))];
 
   return (
-    <div className="os-root theme-admin ac">
+    <div className="os-root theme-admin ac gs-flush">
       <aside className="ac-side">
-        <div className="ac-brand">
-          <span className="ac-brand-main">AYROVI</span>
-          <span className="ac-brand-sub">Control Center</span>
-        </div>
+        <div className="ac-scope">CONTROL CENTER</div>
 
         <nav className="ac-nav">
           {groups.map((g) => (
@@ -77,14 +76,6 @@ export default function AdminShell() {
             </div>
           ))}
         </nav>
-
-        <div className="ac-user">
-          <div className="ac-user-name">{me.user.name}</div>
-          <div className="ac-user-meta os-muted">{me.roles.join(', ')}</div>
-          <button type="button" className="os-btn os-btn--danger" onClick={() => void logoutFn()}>
-            Log out
-          </button>
-        </div>
       </aside>
 
       <main className="ac-main">

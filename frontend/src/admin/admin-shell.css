@@ -3,15 +3,15 @@
    Same design system as the terminal, deliberately different IA (§45).
    ========================================================================== */
 
-.ac { display: grid; grid-template-columns: 232px 1fr; min-height: 100vh; }
-.ac-boot { display: grid; place-items: center; height: 100vh; }
+.ac { display: grid; grid-template-columns: 232px 1fr; min-height: 100%; }
+.ac-boot { display: grid; place-items: center; height: 100%; min-height: 320px; }
 
 /* ---- sidebar ------------------------------------------------------------- */
 .ac-side {
   display: flex; flex-direction: column;
   background: var(--surface);
   border-right: 1px solid var(--border);
-  position: sticky; top: 0; height: 100vh; overflow: auto;
+  position: sticky; top: 0; height: 100%; overflow: auto;
 }
 .ac-brand { padding: 16px; border-bottom: 1px solid var(--border); }
 .ac-brand-main {
@@ -40,9 +40,6 @@
   font-weight: 600;
 }
 
-.ac-user { padding: 12px; border-top: 1px solid var(--border); display: grid; gap: 6px; }
-.ac-user-name { font-weight: 600; font-size: 0.85rem; }
-.ac-user-meta { font-size: 0.7rem; }
 
 /* ---- main ---------------------------------------------------------------- */
 .ac-main { padding: 20px 24px; overflow: auto; min-width: 0; }

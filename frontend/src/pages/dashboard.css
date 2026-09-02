@@ -1,0 +1,72 @@
+/* DASHBOARD — one layout, role-aware content (Monitor + Navigate). */
+
+.dash { max-width: 1100px; margin: 0 auto; }
+
+/* Hero: current task / system status + the primary door into the workspace. */
+.dash-hero {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  background: var(--bg-elev);
+  padding: 16px 18px;
+  margin-bottom: 14px;
+}
+.dash-kicker {
+  font-size: 10px; letter-spacing: 0.22em; color: var(--text-dim);
+  margin-bottom: 6px;
+}
+.dash-hero-title { font-size: 1.25rem; font-weight: 800; letter-spacing: 0.02em; }
+.dash-hero-sub { color: var(--text-dim); font-size: 13px; margin-top: 4px; }
+.dash-hero-cta { white-space: nowrap; }
+
+/* Metric strip — compact, mono numerals. */
+.dash-metrics {
+  display: grid; gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  margin-bottom: 18px;
+}
+.dash-metric {
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  padding: 10px 12px;
+}
+.dash-metric-v { font-size: 1.5rem; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.dash-metric-l { font-size: 10px; letter-spacing: 0.16em; color: var(--text-dim); margin-top: 2px; }
+.dash-metric.is-bad .dash-metric-v { color: var(--danger); }
+.dash-metric.is-warn .dash-metric-v { color: var(--warning); }
+.dash-metric.is-ok .dash-metric-v { color: var(--success); }
+
+.dash-section {
+  font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--text-dim); margin: 4px 0 10px;
+}
+
+.dash-activity { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.dash-activity li { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.dash-activity .mono { font-weight: 700; }
+.dash-activity-meta { color: var(--text-dim); font-size: 13px; }
+
+.dash-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* PROFILE facts table */
+.profile { max-width: 1000px; margin: 0 auto; }
+.profile-facts { margin: 0; display: grid; gap: 10px; }
+.profile-facts > div { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+.profile-facts dt {
+  min-width: 130px; font-size: 11px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--text-dim);
+}
+.profile-facts dd { margin: 0; }
+
+/* Primary action button — green = the ONE accent action, not everything. */
+.btn-primary {
+  background: var(--accent) !important;
+  color: #000 !important;
+  border: 1px solid var(--accent) !important;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  display: inline-block;
+  padding: 10px 18px;
+}
+.btn-primary:hover { filter: brightness(1.1); }

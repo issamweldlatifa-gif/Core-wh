@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { terminalApi, type TerminalContext } from './api';
 
@@ -31,8 +31,7 @@ export function useTerminalUi(): TerminalUi {
 }
 
 export default function WorkerShell() {
-  const { me, loading, logoutFn } = useAuth();
-  const navigate = useNavigate();
+  const { me, loading } = useAuth();
   const location = useLocation();
 
   const [ctx, setCtx] = useState<TerminalContext | null>(null);
@@ -40,7 +39,6 @@ export default function WorkerShell() {
   const [status, setStatus] = useState<{ text: string; kind?: 'ok' | 'bad' | 'info' } | null>(null);
   const [lastAction, setLastAction] = useState<string | null>(null);
   const [online, setOnline] = useState(navigator.onLine);
-  const [clock, setClock] = useState(() => new Date());
 
   const reload = useCallback(async () => {
     try {
@@ -63,11 +61,9 @@ export default function WorkerShell() {
     const off = () => setOnline(false);
     window.addEventListener('online', on);
     window.addEventListener('offline', off);
-    const t = window.setInterval(() => setClock(new Date()), 30_000);
     return () => {
       window.removeEventListener('online', on);
       window.removeEventListener('offline', off);
-      window.clearInterval(t);
     };
   }, []);
 
@@ -78,7 +74,7 @@ export default function WorkerShell() {
 
   if (loading || ctxLoading) {
     return (
-      <div className="os-root theme-worker wt-boot">
+      <div className="os-root theme-worker wt-boot gs-flush">
         <div className="wt-boot-inner">
           <div className="wt-boot-brand">AYROVI</div>
           <div className="os-muted">starting worker terminal…</div>
@@ -93,39 +89,19 @@ export default function WorkerShell() {
 
   return (
     <TerminalUiContext.Provider value={ui}>
-      <div className="os-root theme-worker wt">
-        {/* Identity strip: who am I, where am I, what am I doing (§5). */}
-        <header className="wt-top">
-          <div className="wt-top-left">
-            <span className="wt-brand">AYROVI</span>
-            <span className="wt-task">{task?.label ?? 'TERMINAL'}</span>
-          </div>
-          <div className="wt-top-right">
-            <span className="wt-worker" title="Signed-in worker">
-              {me.user.name}
-            </span>
-            <span className="os-tag os-tag--muted">
-              {ctx?.station ? ctx.station.code : 'NO STATION'}
-            </span>
-            <span className={`os-tag ${online ? 'os-tag--ok' : 'os-tag--err'}`}>
-              {online ? 'ONLINE' : 'OFFLINE'}
-            </span>
-            <button
-              type="button"
-              className="os-btn os-btn--ghost wt-top-btn"
-              onClick={() => navigate('/terminal')}
-            >
-              TASKS
-            </button>
-            <button
-              type="button"
-              className="os-btn os-btn--danger wt-top-btn"
-              onClick={() => void logoutFn()}
-            >
-              LOG OUT
-            </button>
-          </div>
-        </header>
+      <div className="os-root theme-worker wt gs-flush">
+        {/* Task context line — operational ONLY: identity/logout live in the
+            global shell now, so this strip spends zero vertical space on
+            who the worker is and everything on what they are doing. */}
+        <div className="wt-strip">
+          <span className="wt-task">{task?.label ?? 'TERMINAL'}</span>
+          <span className="os-tag os-tag--muted">
+            {ctx?.station ? ctx.station.code : 'NO STATION'}
+          </span>
+          <span className={`os-tag ${online ? 'os-tag--ok' : 'os-tag--err'}`}>
+            {online ? 'ONLINE' : 'OFFLINE'}
+          </span>
+        </div>
 
         {/* Full-bleed operational work area (§5). */}
         <main className="wt-body">
@@ -138,10 +114,7 @@ export default function WorkerShell() {
             {status?.text ?? 'READY'}
           </span>
           <span className="wt-foot-last">{lastAction ?? '—'}</span>
-          <span className="wt-foot-meta">
-            {ctx?.station?.name ?? 'unassigned'} ·{' '}
-            {clock.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </span>
+          <span className="wt-foot-meta">{ctx?.station?.name ?? 'unassigned'}</span>
         </footer>
       </div>
     </TerminalUiContext.Provider>

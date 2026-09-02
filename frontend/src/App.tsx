@@ -1,8 +1,9 @@
 import { Suspense, lazy } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import AppShell from './components/AppShell';
+import GlobalShell from './shell/GlobalShell';
 import Login from './pages/Login';
+import Profile from './pages/Profile';
 import Dashboard from './pages/Dashboard';
 import WarehouseModule from './modules/warehouse';
 import StructureExplorer from './modules/warehouse/StructureExplorer';
@@ -54,7 +55,7 @@ function PermissionGate({ perm, children }: { perm: string; children: JSX.Elemen
       return <Navigate to="/terminal" replace />;
     }
     return (
-      <div className="main" style={{ padding: 40 }}>
+      <div style={{ padding: 40, maxWidth: 720, margin: '0 auto' }}>
         <h1 className="page-title">Access denied</h1>
         <p className="page-sub">You do not have permission to view this module.</p>
       </div>
@@ -76,6 +77,14 @@ export default function App() {
           <Route path="/warehouse/receiving" element={<Navigate to="/terminal/receiving" replace />} />
           <Route path="/receiving" element={<Navigate to="/terminal/receiving" replace />} />
 
+          {/* ---- GLOBAL APPLICATION SHELL ------------------------------
+              ONE shell for every role: global header (brand + clock +
+              compact identity + account menu), permission-filtered nav,
+              page workspace. Workers, admins and auditors all land here;
+              only the content and nav items differ (RBAC-driven). */}
+          <Route element={<GlobalShell />}>
+            <Route index element={<Dashboard />} />
+            <Route path="/profile" element={<Profile />} />
           {/* ---- WORKER TERMINAL (§3-§5) -------------------------------
               A worker's whole world. Full-screen, no admin navigation. */}
           <Route path="/terminal" element={<WorkerShell />}>
@@ -112,8 +121,6 @@ export default function App() {
             <Route path="audit" element={<Navigate to="/audit" replace />} />
             <Route path="system" element={<Navigate to="/system" replace />} />
           </Route>
-          <Route element={<AppShell />}>
-            <Route index element={<Dashboard />} />
             <Route
               path="expected-arrivals"
               element={<PermissionGate perm="expected_arrivals.view"><ExpectedArrivals /></PermissionGate>}

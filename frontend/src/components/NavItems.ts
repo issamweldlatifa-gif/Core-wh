@@ -18,14 +18,17 @@ export interface NavItem {
 }
 
 export const NAV_ITEMS: NavItem[] = [
-  { key: 'dashboard', label: 'Dashboard', path: '/', permission: 'warehouses.view' },
+  { key: 'dashboard', label: 'Dashboard', path: '/' },
   { key: 'receiving', label: 'Receiving', path: '/terminal/receiving', permission: 'receiving.execute' },
+  { key: 'putaway', label: 'Putaway', path: '/terminal/putaway', permission: 'stowing.execute' },
+  { key: 'admin', label: 'Control Center', path: '/admin', permission: 'operations.view' },
   { key: 'expected-arrivals', label: 'Expected Arrivals', path: '/expected-arrivals', permission: 'expected_arrivals.view' },
   { key: 'warehouse', label: 'Warehouse', path: '/warehouse', permission: 'warehouses.view' },
   { key: 'users', label: 'Users', path: '/users', permission: 'users.view' },
   { key: 'roles', label: 'Roles & Permissions', path: '/roles', permission: 'roles.view' },
   { key: 'audit', label: 'Audit Log', path: '/audit', permission: 'audit.view' },
   { key: 'system', label: 'System Settings', path: '/system', permission: 'system.view' },
-  // Future operational modules are added here in later phases alongside
-  // their workflows (NOT in Phase 0).
+  { key: 'profile', label: 'Profile', path: '/profile' },
+  // Future operational modules (Stowing beyond putaway, Picking, Shipping,
+  // Inventory, Cycle Count, ...) are added here alongside their workspaces.
 ];
