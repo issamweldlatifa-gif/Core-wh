@@ -74,10 +74,12 @@ fi
 # ---------------------------------------------------------------------------
 echo ">>> Verifying database schema matches the Prisma schema..."
 set +e
+# Output is PRINTED (not discarded) so the boot log shows exactly WHAT drifted
+# — or why the check itself failed (a silent /dev/null here hid a failure once).
 $PRISMA migrate diff \
   --from-url "$DATABASE_URL" \
   --to-schema-datamodel prisma/schema.prisma \
-  --exit-code > /dev/null 2>&1
+  --exit-code
 DIFF_CODE=$?
 set -e
 
@@ -95,7 +97,46 @@ if [ "$DIFF_CODE" = "2" ]; then
 elif [ "$DIFF_CODE" = "0" ]; then
   echo ">>> Schema OK."
 else
-  echo ">>> WARNING: schema diff check failed (code $DIFF_CODE); continuing."
+  # The diff check itself failed (e.g. the Prisma CLI could not run the
+  # datamodel comparison in this environment). Do NOT trust the ledger in that
+  # case: fall back to a direct probe of the objects production actually 500s
+  # on. If any is missing, repair with db push exactly as above.
+  echo ">>> WARNING: schema diff check errored (code $DIFF_CODE)."
+  echo ">>> Falling back to a direct probe of known drift-prone objects..."
+  PROBE_SQL="SELECT 1 FROM information_schema.tables WHERE table_name='putaway_sessions'; SELECT 1 FROM information_schema.tables WHERE table_name='carton_placements'; SELECT 1 FROM information_schema.tables WHERE table_name='stations'; SELECT 1 FROM information_schema.columns WHERE table_name='warehouse_cartons' AND column_name='currentLocationId'; SELECT 1 FROM information_schema.columns WHERE table_name='receiving_sessions' AND column_name='stationId';"
+  PROBE_OUT="$(echo "$PROBE_SQL" | $PRISMA db execute --stdin --url "$DATABASE_URL" 2>&1)" || PROBE_OUT="PROBE_FAILED"
+  # `db execute` returns no row data; use a Node probe via the generated client
+  # instead, which we know exists because the app is about to boot with it.
+  MISSING="$(node -e '
+    const { PrismaClient } = require("@prisma/client");
+    const p = new PrismaClient();
+    (async () => {
+      const rows = await p.$queryRawUnsafe(`
+        SELECT
+          (SELECT COUNT(*) FROM information_schema.tables  WHERE table_name = $$putaway_sessions$$)  AS t1,
+          (SELECT COUNT(*) FROM information_schema.tables  WHERE table_name = $$carton_placements$$) AS t2,
+          (SELECT COUNT(*) FROM information_schema.tables  WHERE table_name = $$stations$$)          AS t3,
+          (SELECT COUNT(*) FROM information_schema.columns WHERE table_name = $$warehouse_cartons$$  AND column_name = $$currentLocationId$$) AS c1,
+          (SELECT COUNT(*) FROM information_schema.columns WHERE table_name = $$receiving_sessions$$ AND column_name = $$stationId$$)         AS c2
+      `);
+      const r = rows[0];
+      const missing = Object.values(r).some((v) => Number(v) === 0);
+      console.log(missing ? "MISSING" : "OK");
+      await p.$disconnect();
+    })().catch((e) => { console.log("PROBE_ERROR"); process.exit(0); });
+  ' 2>/dev/null || echo PROBE_ERROR)"
+  echo ">>> Probe result: $MISSING"
+  if [ "$MISSING" = "MISSING" ]; then
+    echo ">>> !!! SCHEMA DRIFT CONFIRMED BY PROBE — repairing with db push..."
+    if $PRISMA db push --skip-generate; then
+      echo ">>> Schema repaired."
+    else
+      echo ">>> WARNING: automatic repair refused (would lose data)."
+      echo ">>> Manual action required: npx prisma db push --accept-data-loss"
+    fi
+  else
+    echo ">>> Probe found no missing objects (or could not run); continuing."
+  fi
 fi
 
 # The seed is idempotent (upserts) and only creates the initial SUPER_ADMIN

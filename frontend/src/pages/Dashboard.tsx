@@ -27,7 +27,7 @@ export default function Dashboard() {
 
 /* ============================== WORKER ==================================== */
 function WorkerDashboard() {
-  const { data, loading, error } = useAsync<TerminalContext>(() => terminalApi.context(), []);
+  const { data, loading, error, reload } = useAsync<TerminalContext>(() => terminalApi.context(), []);
   const { hasPermission } = useAuth();
 
   const tasks = data?.tasks ?? [];
@@ -39,7 +39,18 @@ function WorkerDashboard() {
   const canStow = hasPermission('stowing.execute');
 
   if (loading && !data) return <div className="card">loading your work…</div>;
-  if (error) return <div className="card">Could not load work context: {error}</div>;
+  if (error) {
+    return (
+      <div className="card">
+        Could not load work context: {error}
+        <div style={{ marginTop: 12 }}>
+          <button type="button" className="btn btn-primary" onClick={() => void reload()}>
+            ↻ RETRY
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // Primary action: resume in-flight work first, else the single ready task,
   // else the first permitted module.
@@ -123,13 +134,24 @@ function WorkerDashboard() {
 
 /* =============================== ADMIN ==================================== */
 function AdminDashboard() {
-  const { data, loading, error } = useAsync<OpsOverview>(() => adminApi.overview(), []);
+  const { data, loading, error, reload } = useAsync<OpsOverview>(() => adminApi.overview(), []);
   const { hasPermission } = useAuth();
   const canReceive = hasPermission('receiving.execute');
   const canStow = hasPermission('stowing.execute');
 
   if (loading && !data) return <div className="card">loading operations…</div>;
-  if (error) return <div className="card">Could not load operations overview: {error}</div>;
+  if (error) {
+    return (
+      <div className="card">
+        Could not load operations overview: {error}
+        <div style={{ marginTop: 12 }}>
+          <button type="button" className="btn btn-primary" onClick={() => void reload()}>
+            ↻ RETRY
+          </button>
+        </div>
+      </div>
+    );
+  }
   if (!data) return null;
   const c = data.counters;
 

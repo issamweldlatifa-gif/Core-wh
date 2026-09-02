@@ -267,10 +267,24 @@ export default function ReceivingTask() {
       <div className="rt-pick">
         <h1 className="rt-h1">RECEIVING</h1>
         <p className="os-muted">Select an arrival to start or resume receiving.</p>
-        {error && <div className="rt-error">{error}</div>}
+        {error && (
+          <div className="rt-error">
+            {error}
+            <div style={{ marginTop: 12 }}>
+              <button
+                type="button"
+                className="os-btn"
+                disabled={loading}
+                onClick={() => { setError(null); void loadArrivals(); }}
+              >
+                ↻ RETRY
+              </button>
+            </div>
+          </div>
+        )}
         {loading ? (
           <div className="os-empty">loading arrivals…</div>
-        ) : arrivals.length === 0 ? (
+        ) : error ? null : arrivals.length === 0 ? (
           <div className="os-empty">No arrivals awaiting receiving.</div>
         ) : (
           <div className="rt-arrivals">

@@ -216,12 +216,37 @@ export default function PutawayTask() {
         <p className="os-muted">
           Move received cartons onto their storage locations.
         </p>
-        {error && <div className="pt-error">{error}</div>}
+        {error && (
+          <div className="pt-error">
+            {error}
+            <div style={{ marginTop: 12 }}>
+              <button
+                type="button"
+                className="os-btn"
+                disabled={busy}
+                onClick={async () => {
+                  setError(null);
+                  try {
+                    const existing = await putawayApi.active();
+                    if (existing) setSession(existing);
+                    await refreshQueue();
+                  } catch (e: any) {
+                    setError(e?.response?.data?.message ?? 'Could not load putaway.');
+                  }
+                }}
+              >
+                ↻ RETRY
+              </button>
+            </div>
+          </div>
+        )}
+        {/* When loading failed, the queue count is unknown — showing "0" would
+            mislead the worker into thinking there is genuinely nothing to do. */}
         <div className="pt-start-metric">
-          <div className="pt-metric-v">{queue.length}</div>
+          <div className="pt-metric-v">{error ? '—' : queue.length}</div>
           <div className="pt-metric-l">CARTONS WAITING</div>
         </div>
-        <button className="os-btn os-btn--primary pt-big" disabled={busy} onClick={startSession}>
+        <button className="os-btn os-btn--primary pt-big" disabled={busy || !!error} onClick={startSession}>
           START PUTAWAY
         </button>
         {queue.length > 0 && (
