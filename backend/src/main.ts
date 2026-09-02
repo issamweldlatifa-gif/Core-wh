@@ -14,8 +14,15 @@ import { existsSync } from 'fs';
 import * as path from 'path';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { repairSchemaDriftIfNeeded } from './bootstrap-schema-repair';
 
 async function bootstrap() {
+  // SCHEMA SELF-REPAIR (in-process): production proved that start.sh's repair
+  // path is not guaranteed to run (the service may start `node dist/main.js`
+  // directly). The entrypoint is the ONLY code guaranteed to execute, so the
+  // guarded, additive drift repair runs here before anything queries the DB.
+  await repairSchemaDriftIfNeeded();
+
   // FAIL FAST: refuse to boot without real JWT secrets. Previously the config
   // loader silently fell back to .env.example placeholders, which would let a
   // production instance sign tokens with publicly known keys.
