@@ -10,6 +10,7 @@ import type { ScanSource } from './scan-source';
 import { computeRoi, preprocessForOcr } from './roi';
 import { CandidateStabiliser, extractCandidates } from './candidates';
 import { ocrBusy, recogniseRoi, terminateOcr } from './ocr-client';
+import './scanner.css';
 import { isBusy, next, stateLabel, type ScannerEvent, type ScannerState } from './scanner-state';
 
 /**
@@ -63,6 +64,8 @@ export default function ContinuousScanner({
   hint,
   enableOcr = true,
   outcome = null,
+  mode,
+  onModeChange,
   onDetected,
   onClose,
 }: {
@@ -72,11 +75,27 @@ export default function ContinuousScanner({
   enableOcr?: boolean;
   /** Result of the last submission, owned by the parent (backend truth). */
   outcome?: ScanOutcome | null;
+  /** What the scanner is submitting: cartons or product units. */
+  mode?: 'CARTON' | 'PRODUCT';
+  onModeChange?: (m: 'CARTON' | 'PRODUCT') => void;
   onDetected: (value: string, source: ScanSource) => void;
   onClose: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const teardownRef = useRef<() => void>(() => {});
+
+  /**
+   * Live reference to the parent's detection callback. The camera loop is a
+   * long-lived closure; if it captured `onDetected` directly, every identity
+   * change (e.g. switching CARTON→PRODUCT mode in the parent) would re-run
+   * the whole camera effect and leave TWO decode loops running — the stale
+   * one still routing scans to the previous mode. Reading through a ref keeps
+   * ONE loop that always dispatches to the CURRENT handler.
+   */
+  const onDetectedRef = useRef(onDetected);
+  onDetectedRef.current = onDetected;
+  /** Which camera to open — a ref so FLIP can restart without re-mounting. */
+  const facingRef = useRef<'environment' | 'user'>('environment');
 
   const [state, setState] = useState<ScannerState>('IDLE');
   const [error, setError] = useState<string | null>(null);
@@ -174,7 +193,7 @@ export default function ContinuousScanner({
       send('CANDIDATE');
       send('VALIDATE');
       send('SUBMIT');
-      onDetected(value, source);
+      onDetectedRef.current(value, source);
       return true;
     };
 
@@ -231,9 +250,16 @@ export default function ContinuousScanner({
         // ---- PRIORITY 1: barcode / QR (§17) ----
         send('BARCODE_SCAN');
         const code = await readBarcode(vw, vh);
+
         if (code) {
           framesSinceBarcode = 0;
-          if (submit(code, 'CAMERA')) return;
+          if (submit(code, 'CAMERA')) {
+            // Continuous scanning (§16): the loop must survive every success.
+            // Without this rAF the scanner would show the verdict chip and
+            // silently stop decoding until it was fully reopened.
+            raf = requestAnimationFrame(tick);
+            return;
+          }
           send('RESUME');
         } else {
           framesSinceBarcode += 1;
@@ -257,7 +283,11 @@ export default function ContinuousScanner({
                 // Multi-frame stabilisation: a single weak read is never
                 // trusted (§23).
                 const stable = stabiliser.push(extractCandidates(res.text));
-                if (stable && submit(stable, 'CAMERA')) return;
+                if (stable && submit(stable, 'CAMERA')) {
+                  // Same §16 rule as the barcode path: keep the loop alive.
+                  raf = requestAnimationFrame(tick);
+                  return;
+                }
               }
             } finally {
               setOcrActive(false);
@@ -278,13 +308,27 @@ export default function ContinuousScanner({
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           audio: false,
-          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+          video: { facingMode: { ideal: facingRef.current }, width: { ideal: 1920 }, height: { ideal: 1080 } },
         });
         const track = stream.getVideoTracks()[0];
         const caps: any = track?.getCapabilities ? track.getCapabilities() : {};
         if (caps?.torch === true) setHasTorch(true);
         el!.srcObject = stream;
-        await el!.play();
+        try {
+          await el!.play();
+        } catch (playErr: any) {
+          // Chrome aborts play() when the srcObject assignment races the play
+          // pipeline (canvas streams, some Android devices). The element
+          // usually still plays — verify instead of failing the whole camera.
+          const soft = /abort|interrupt/i.test(String(playErr?.name ?? '') + String(playErr?.message ?? ''));
+          if (!soft) throw playErr;
+          await new Promise<void>((resolve) => {
+            if (el!.readyState >= 2) return resolve();
+            const ok = () => resolve();
+            el!.addEventListener('playing', ok, { once: true });
+            window.setTimeout(ok, 1500);
+          });
+        }
 
         const B = (window as any).BarcodeDetector;
         if (B) {
@@ -312,7 +356,7 @@ export default function ContinuousScanner({
     }
 
     void begin();
-  }, [enableOcr, onDetected, send]);
+  }, [enableOcr, send]);
 
   useEffect(() => {
     start();
@@ -340,6 +384,17 @@ export default function ContinuousScanner({
     } catch { /* unsupported at runtime */ }
   }, [hasTorch, torch]);
 
+  /** FLIP (§12): restart the stream on the other camera without leaving the
+   *  scanner work mode. The teardown/bring-up pair is the same one the mount
+   *  effect uses, so camera state stays consistent. */
+  const flipCamera = useCallback(() => {
+    facingRef.current = facingRef.current === 'environment' ? 'user' : 'environment';
+    setTorch(false);
+    setHasTorch(false);
+    teardownRef.current();
+    start();
+  }, [start]);
+
   const banner =
     state === 'SUCCESS' ? 'ok' : state === 'ERROR' ? 'bad' : null;
 
@@ -352,6 +407,22 @@ export default function ContinuousScanner({
             {title}
           </div>
           <div className="cs-head-meta">
+            {mode && onModeChange && (
+              <div className="cs-modes" role="tablist" aria-label="Scan mode">
+                {(['CARTON', 'PRODUCT'] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    role="tab"
+                    aria-selected={mode === m}
+                    className={`cs-mode${mode === m ? ' is-active' : ''}`}
+                    onClick={() => onModeChange(m)}
+                  >
+                    {m === 'CARTON' ? 'CARTONS' : 'PRODUCTS'}
+                  </button>
+                ))}
+              </div>
+            )}
             <span className="os-tag os-tag--muted">{scanCount} scanned</span>
             <button type="button" className="os-btn os-btn--danger" onClick={exit}>
               EXIT
@@ -368,7 +439,9 @@ export default function ContinuousScanner({
             <span className="cs-corner tr" />
             <span className="cs-corner bl" />
             <span className="cs-corner br" />
-            <div className="cs-roi-hint">ALIGN SKU / REFERENCE</div>
+            <div className="cs-roi-hint">
+              {mode === 'PRODUCT' ? 'ALIGN SKU / PRODUCT LABEL' : 'ALIGN CARTON LABEL'}
+            </div>
           </div>
 
           {/* Live operational state (§5/§31) */}
@@ -411,6 +484,9 @@ export default function ContinuousScanner({
               onClick={toggleTorch}
             >
               {torch ? 'TORCH ON' : 'TORCH'}
+            </button>
+            <button type="button" className="os-btn" disabled={!!error} onClick={flipCamera}>
+              FLIP CAMERA
             </button>
           </div>
         </footer>

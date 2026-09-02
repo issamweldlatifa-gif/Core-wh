@@ -13,7 +13,6 @@ import Racks from './modules/warehouse/Racks';
 import Levels from './modules/warehouse/Levels';
 import Locations from './modules/warehouse/Locations';
 import ExpectedArrivals from './modules/expected-arrivals/ExpectedArrivals';
-const ReceivingTerminal = lazy(() => import('./modules/receiving-terminal/ReceivingTerminal'));
 import Users from './pages/Users';
 import Roles from './pages/Roles';
 import Audit from './pages/Audit';
@@ -71,14 +70,11 @@ export default function App() {
         <Suspense fallback={<div className="login-wrap"><div className="spinner" style={{ color: 'var(--accent-2)' }} /></div>}>
         <Routes>
           <Route path="/login" element={<Login />} />
-          {/* Receiving is a DEDICATED full-page operational route (worker
-              workspace), so it lives OUTSIDE the dashboard shell to take over
-              the viewport with no competing navigation. */}
-          <Route
-            path="/warehouse/receiving"
-            element={<PermissionGate perm="receiving.view"><ReceivingTerminal /></PermissionGate>}
-          />
-          <Route path="/receiving" element={<Navigate to="/warehouse/receiving" replace />} />
+          {/* RECEIVING CONSOLIDATION — ONE canonical route: /terminal/receiving
+              (the worker-terminal workspace). Every legacy path redirects there,
+              so no entry point can ever reach the old terminal UI again. */}
+          <Route path="/warehouse/receiving" element={<Navigate to="/terminal/receiving" replace />} />
+          <Route path="/receiving" element={<Navigate to="/terminal/receiving" replace />} />
 
           {/* ---- WORKER TERMINAL (§3-§5) -------------------------------
               A worker's whole world. Full-screen, no admin navigation. */}
@@ -109,7 +105,7 @@ export default function App() {
             <Route path="corrections" element={<AdminCorrections />} />
             {/* Existing modules stay reachable from the Control Center nav. */}
             <Route path="arrivals" element={<Navigate to="/expected-arrivals" replace />} />
-            <Route path="receiving" element={<Navigate to="/warehouse/receiving" replace />} />
+            <Route path="receiving" element={<Navigate to="/terminal/receiving" replace />} />
             <Route path="structure" element={<Navigate to="/warehouse/structure" replace />} />
             <Route path="users" element={<Navigate to="/users" replace />} />
             <Route path="roles" element={<Navigate to="/roles" replace />} />

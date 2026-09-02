@@ -19,8 +19,8 @@ export default function Dashboard() {
                 Opens full-screen; the dashboard does not compete with the terminal.
               </p>
             </div>
-            <Link to="/warehouse/receiving" className="btn" style={{ textDecoration: 'none' }}>
-              ▶ Open Receiving Terminal
+            <Link to="/terminal/receiving" className="btn" style={{ textDecoration: 'none' }}>
+              ▶ Open Receiving
             </Link>
           </div>
         </div>

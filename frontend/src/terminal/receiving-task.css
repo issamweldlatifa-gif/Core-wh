@@ -111,3 +111,26 @@
   background: #000; color: var(--primary);
   letter-spacing: 0.18em; font-weight: 700;
 }
+
+/* ==========================================================================
+   RECEIVING CONSOLIDATION — session identity, product entry, exceptions.
+   ========================================================================== */
+.rt-id { display: grid; gap: 2px; min-width: 0; }
+.rt-id-sub { font-size: 0.78rem; }
+.rt-scan-big {
+  font-size: 1.25rem;
+  letter-spacing: 0.18em;
+  padding: 20px;
+  justify-self: stretch;
+}
+.rt-qty { width: 84px; text-align: center; }
+.rt-products { overflow-x: auto; }
+.rt-disc { display: grid; gap: 8px; }
+.rt-disc-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 8px; border-radius: var(--os-radius-sm);
+  background: var(--surface-2); font-size: 0.88rem;
+}
+.rt-qty::-webkit-outer-spin-button,
+.rt-qty::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.rt-qty { -moz-appearance: textfield; appearance: textfield; }

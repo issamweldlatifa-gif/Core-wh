@@ -12,24 +12,22 @@ import { useTerminalUi } from './WorkerShell';
 import './receiving-task.css';
 
 /**
- * The scanner pulls in ZXing (and, on demand, Tesseract). Loading it lazily
- * keeps the initial terminal download small on warehouse phones — it is only
- * fetched when the worker actually opens the camera.
+ * RECEIVING — the ONE canonical receiving workspace (consolidation spec §1-§22).
+ *
+ * Everything the two legacy implementations could do lives HERE now:
+ *   arrival selection + resume · carton scanning (camera/wedge/manual) ·
+ *   product unit receiving with quantity · pause/resume · expected products ·
+ *   discrepancies · activity · complete — flat hierarchy, no box-in-box.
+ *
+ * The backend stays the single source of truth: nothing counts as received
+ * until the API says so, and every input path funnels through ONE submit
+ * pipeline per entity (cartons / products).
  */
+
 const ContinuousScanner = lazy(() => import('../modules/receiving-terminal/ContinuousScanner'));
 
-/**
- * Receiving Terminal (spec §12/§13/§16/§24-§29).
- *
- * A full-screen worker workspace, not an admin widget. The workflow is
- * identical whatever produced the code — camera, wedge scanner or keyboard
- * (§11) — because every path funnels through `submitCode`.
- *
- * The backend is the source of truth: a carton is only shown as RECEIVED
- * after the API accepts it (§25).
- */
-
 type Outcome = ScanOutcome;
+type ScanMode = 'CARTON' | 'PRODUCT';
 
 function scanTypeFor(source: ScanSource): 'QR' | 'BARCODE' | 'MANUAL' {
   return source === 'CAMERA' ? 'QR' : source === 'EXTERNAL_SCANNER' ? 'BARCODE' : 'MANUAL';
@@ -45,13 +43,16 @@ export default function ReceivingTask() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [scanMode, setScanMode] = useState<ScanMode>('CARTON');
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [manual, setManual] = useState('');
+  const [productSku, setProductSku] = useState('');
+  const [productQty, setProductQty] = useState('1');
   const [log, setLog] = useState<Array<{ t: string; text: string; kind: 'ok' | 'bad' | 'info' }>>([]);
 
-  const manualRef = useRef<HTMLInputElement>(null);
-  /** Keystroke timing buffer to classify wedge-scanner bursts (§11). */
+  /** Keystroke timing buffers to classify wedge-scanner bursts (§11). */
   const stamps = useRef<number[]>([]);
+  const productStamps = useRef<number[]>([]);
 
   const ocrAllowed = stationHas(ctx?.station ?? null, 'OCR');
 
@@ -109,12 +110,8 @@ export default function ReceivingTask() {
     }
   }
 
-  /**
-   * The ONE submission path (§11/§24/§25).
-   * Camera, wedge scanner and manual entry all land here, and nothing is
-   * treated as received until the backend says so.
-   */
-  const submitCode = useCallback(async (raw: string, source: ScanSource) => {
+  /** THE carton submission path — camera, wedge scanner and manual all land here. */
+  const submitCarton = useCallback(async (raw: string, source: ScanSource) => {
     const value = raw.trim();
     if (!value || !session || busy) return;
     setBusy(true);
@@ -130,13 +127,13 @@ export default function ReceivingTask() {
         const cartonId = f.carton?.externalCartonId ?? f.carton?.id;
         const committed = await api.receiveCarton(session.id, cartonId, freshOperationId(), source);
         setSession(committed);
-        report('ok', `${cartonId} RECEIVED`);
+        const t = committed.tally;
+        report('ok', `${cartonId} RECEIVED · cartons ${t?.receivedCartons ?? 0}/${t?.expectedCartons ?? 0}`);
         push(`carton ${cartonId} received`, 'ok');
         return;
       }
 
       setSession(scanned);
-      // Explicit, readable rejection reasons (§27).
       const why =
         f?.kind === 'UNKNOWN_CARTON' ? 'UNKNOWN REFERENCE'
         : f?.kind === 'DUPLICATE_CARTON' ? 'ALREADY RECEIVED'
@@ -153,6 +150,58 @@ export default function ReceivingTask() {
     }
   }, [session, busy, report, push, setStatus]);
 
+  /**
+   * THE product submission path (migrated from the legacy terminal).
+   * Each accepted SKU moves receivedUnits forward; unexpected SKUs are
+   * recorded by the backend as discrepancies — never silently dropped.
+   */
+  const submitProduct = useCallback(async (raw: string, qty: number, source: ScanSource) => {
+    const value = raw.trim();
+    const n = Math.max(1, Math.floor(Number(qty) || 1));
+    if (!value || !session || busy) return;
+    setBusy(true);
+    setStatus({ text: 'SUBMITTING', kind: 'info' });
+    try {
+      const s = await api.receiveProduct(session.id, value, n, source, freshOperationId());
+      setSession(s);
+      const f = s.flash;
+      if (f?.kind === 'UNEXPECTED_PRODUCT') {
+        report('bad', `${value} — NOT ON EXPECTED LIST`);
+        push(`product ${value} unexpected — discrepancy recorded`, 'bad');
+      } else {
+        const t = s.tally;
+        report('ok', `${value} +${n} · units ${t?.receivedUnits ?? 0}/${t?.expectedUnits ?? 0}`);
+        push(`product ${value} +${n} received`, 'ok');
+      }
+    } catch (e: any) {
+      const m = e?.response?.data?.message ?? 'Server error';
+      report('bad', Array.isArray(m) ? m.join(', ') : String(m));
+      push(`error on ${value}`, 'bad');
+    } finally {
+      setBusy(false);
+    }
+  }, [session, busy, report, push, setStatus]);
+
+  /** One detection pipeline routed by the scanner's current work mode. */
+  const onScannerDetected = useCallback((value: string, source: ScanSource) => {
+    if (scanMode === 'PRODUCT') void submitProduct(value, 1, source);
+    else void submitCarton(value, source);
+  }, [scanMode, submitCarton, submitProduct]);
+
+  async function togglePause() {
+    if (!session) return;
+    setBusy(true);
+    try {
+      const s = session.status === 'PAUSED' ? await api.resume(session.id) : await api.pause(session.id);
+      setSession(s);
+      const paused = s.status === 'PAUSED';
+      report('info', paused ? 'SESSION PAUSED' : 'SESSION RESUMED');
+      push(paused ? 'session paused' : 'session resumed', 'info');
+    } catch (e: any) {
+      setError(e?.response?.data?.message ?? 'Could not change session state.');
+    } finally { setBusy(false); }
+  }
+
   async function complete() {
     if (!session) return;
     setBusy(true);
@@ -167,28 +216,52 @@ export default function ReceivingTask() {
     } finally { setBusy(false); }
   }
 
-  function onManualKey(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      // A fast burst is a hardware scanner, slow typing is a human (§11).
-      const s = stamps.current;
-      const fast = s.length > 4 && (s[s.length - 1] - s[0]) / s.length < 40;
-      stamps.current = [];
-      const value = manual;
-      setManual('');
-      void submitCode(value, fast ? 'EXTERNAL_SCANNER' : 'MANUAL');
-      return;
-    }
+  /** Shared wedge-scanner classifier: fast burst = hardware gun, slow = human. */
+  function wedgeAware(
+    stampsBuf: React.MutableRefObject<number[]>,
+    e: React.KeyboardEvent<HTMLInputElement>,
+  ) {
+    if (e.key === 'Enter') return true;
     if (e.key.length === 1) {
-      stamps.current.push(Date.now());
-      if (stamps.current.length > 64) stamps.current.shift();
+      stampsBuf.current.push(Date.now());
+      if (stampsBuf.current.length > 64) stampsBuf.current.shift();
     }
+    return false;
+  }
+
+  function isBurst(stampsBuf: React.MutableRefObject<number[]>) {
+    const s = stampsBuf.current;
+    const fast = s.length > 4 && (s[s.length - 1] - s[0]) / s.length < 40;
+    stampsBuf.current = [];
+    return fast;
+  }
+
+  function onCartonKey(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!wedgeAware(stamps, e)) return;
+    e.preventDefault();
+    const fast = isBurst(stamps);
+    const value = manual;
+    setManual('');
+    void submitCarton(value, fast ? 'EXTERNAL_SCANNER' : 'MANUAL');
+  }
+
+  function onProductKey(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!wedgeAware(productStamps, e)) return;
+    e.preventDefault();
+    const fast = isBurst(productStamps);
+    const value = productSku;
+    const qty = Number(productQty) || 1;
+    setProductSku('');
+    setProductQty('1');
+    void submitProduct(value, qty, fast ? 'EXTERNAL_SCANNER' : 'MANUAL');
   }
 
   const tally = session?.tally;
+  const paused = session?.status === 'PAUSED';
   const done = session && ['COMPLETED', 'COMPLETED_WITH_DISCREPANCY'].includes(session.status);
+  const openDiscrepancies = session?.discrepancies?.filter((d) => d.status === 'OPEN') ?? [];
 
-  // ---------- ARRIVAL PICKER ----------
+  // ---------- ARRIVAL SELECTION ----------
   if (!session) {
     return (
       <div className="rt-pick">
@@ -217,18 +290,23 @@ export default function ReceivingTask() {
     );
   }
 
-  // ---------- ACTIVE SESSION ----------
+  // ---------- RECEIVING SESSION (the operational workspace) ----------
   return (
     <div className="rt">
+      {/* Session identity — who/what am I receiving (§5). */}
       <div className="rt-bar">
-        <div>
+        <div className="rt-id">
           <span className="rt-session">{session.code}</span>
           <span className="os-muted"> · {session.arrival.customerName}</span>
+          <span className="rt-id-sub os-muted os-mono">
+            {session.arrival.code}{session.arrival.storeName ? ` · ${session.arrival.storeName}` : ''}
+          </span>
+          {paused && <span className="os-tag os-tag--warn">PAUSED</span>}
         </div>
         <div className="os-row">
           {!done && (
-            <button className="os-btn os-btn--primary rt-scan-btn" onClick={() => setScannerOpen(true)}>
-              OPEN SCANNER
+            <button className="os-btn" disabled={busy} onClick={togglePause}>
+              {paused ? 'RESUME' : 'PAUSE'}
             </button>
           )}
           <button className="os-btn" onClick={() => { setSession(null); void loadArrivals(); }}>
@@ -239,14 +317,26 @@ export default function ReceivingTask() {
 
       {error && <div className="rt-error">{error}</div>}
 
-      {/* Progress — the numbers a receiving worker actually needs (§4). */}
+      {/* Progress — the numbers a receiving worker actually needs (§4/§5). */}
       <div className="rt-progress">
         <Metric label="CARTONS" v={`${tally?.receivedCartons ?? 0}/${tally?.expectedCartons ?? 0}`}
-          ok={(tally?.receivedCartons ?? 0) >= (tally?.expectedCartons ?? 0)} />
-        <Metric label="UNITS" v={`${tally?.receivedUnits ?? 0}/${tally?.expectedUnits ?? 0}`} />
+          ok={(tally?.receivedCartons ?? 0) >= (tally?.expectedCartons ?? 0) && (tally?.expectedCartons ?? 0) > 0} />
+        <Metric label="UNITS" v={`${tally?.receivedUnits ?? 0}/${tally?.expectedUnits ?? 0}`}
+          ok={(tally?.receivedUnits ?? 0) >= (tally?.expectedUnits ?? 0) && (tally?.expectedUnits ?? 0) > 0} />
         <Metric label="EXCEPTIONS" v={String(tally?.openDiscrepancies ?? 0)}
           bad={(tally?.openDiscrepancies ?? 0) > 0} />
       </div>
+
+      {/* PRIMARY ACTION — visually dominant (§5). */}
+      {!done && (
+        <button
+          className="os-btn os-btn--primary rt-scan-big"
+          disabled={paused || busy}
+          onClick={() => { setScanMode('CARTON'); setScannerOpen(true); }}
+        >
+          OPEN SCANNER
+        </button>
+      )}
 
       {/* Manual fallback — always available (§28), same backend path. */}
       {!done && (
@@ -255,21 +345,61 @@ export default function ReceivingTask() {
           <div className="os-row">
             <input
               id="rt-input"
-              ref={manualRef}
               className="os-input"
               value={manual}
               onChange={(e) => setManual(e.target.value)}
-              onKeyDown={onManualKey}
+              onKeyDown={onCartonKey}
               placeholder="CTN-… then Enter"
               autoComplete="off"
               autoCapitalize="characters"
               spellCheck={false}
-              disabled={busy}
+              disabled={busy || paused}
             />
             <button
               className="os-btn"
-              disabled={busy || !manual.trim()}
-              onClick={() => { const v = manual; setManual(''); void submitCode(v, 'MANUAL'); }}
+              disabled={busy || paused || !manual.trim()}
+              onClick={() => { const v = manual; setManual(''); void submitCarton(v, 'MANUAL'); }}
+            >
+              ENTER
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Product unit receiving (migrated from the legacy terminal). */}
+      {!done && (
+        <div className="rt-manual">
+          <label className="os-label" htmlFor="rt-product">SCAN OR TYPE PRODUCT</label>
+          <div className="os-row">
+            <input
+              id="rt-product"
+              className="os-input"
+              value={productSku}
+              onChange={(e) => setProductSku(e.target.value)}
+              onKeyDown={onProductKey}
+              placeholder="SKU / reference then Enter"
+              autoComplete="off"
+              autoCapitalize="characters"
+              spellCheck={false}
+              disabled={busy || paused}
+            />
+            <input
+              className="os-input rt-qty"
+              type="number"
+              min={1}
+              value={productQty}
+              onChange={(e) => setProductQty(e.target.value)}
+              disabled={busy || paused}
+              aria-label="Quantity"
+            />
+            <button
+              className="os-btn"
+              disabled={busy || paused || !productSku.trim()}
+              onClick={() => {
+                const v = productSku; const q = Number(productQty) || 1;
+                setProductSku(''); setProductQty('1');
+                void submitProduct(v, q, 'MANUAL');
+              }}
             >
               ENTER
             </button>
@@ -314,20 +444,61 @@ export default function ReceivingTask() {
         </section>
       </div>
 
+      {/* Expected products — supporting info (migrated). */}
+      {(session.products ?? []).length > 0 && (
+        <section className="os-card">
+          <h2 className="os-card-title">Products · {session.products.length} lines</h2>
+          <div className="rt-products">
+            <table className="os-table">
+              <thead>
+                <tr><th>SKU</th><th>Name</th><th>Expected</th><th>Received</th><th>Status</th></tr>
+              </thead>
+              <tbody>
+                {session.products.map((p) => (
+                  <tr key={p.id}>
+                    <td className="mono">{p.sku ?? p.reference ?? '—'}</td>
+                    <td>{p.productName ?? '—'}</td>
+                    <td>{p.expected}</td>
+                    <td>{p.received}</td>
+                    <td><span className={`os-tag ${p.status === 'RECEIVED' ? 'os-tag--ok' : p.status === 'EXPECTED' ? 'os-tag--muted' : 'os-tag--warn'}`}>{p.status.replace(/_/g, ' ')}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {/* Open discrepancies — visible, not buried (migrated). */}
+      {openDiscrepancies.length > 0 && (
+        <section className="os-card rt-disc">
+          <h2 className="os-card-title">Exceptions · {openDiscrepancies.length} open</h2>
+          {openDiscrepancies.map((d) => (
+            <div key={d.id} className="rt-disc-item">
+              <span className="os-tag os-tag--err">{d.type.replace(/_/g, ' ')}</span>
+              <span className="os-muted">{d.reason ?? d.sku ?? d.cartonCode ?? '—'}</span>
+            </div>
+          ))}
+        </section>
+      )}
+
       {!done && (
         <div className="rt-finish">
-          <button className="os-btn" disabled={busy} onClick={complete}>COMPLETE RECEIVING</button>
+          <button className="os-btn" disabled={busy || paused} onClick={complete}>COMPLETE RECEIVING</button>
         </div>
       )}
       {done && <div className="rt-done">SESSION {session.status.replace(/_/g, ' ')}</div>}
 
+      {/* SCANNER WORK MODE — the updated full-screen experience only (§6/§7). */}
       {scannerOpen && (
         <Suspense fallback={<div className="rt-scanner-loading">STARTING SCANNER…</div>}>
         <ContinuousScanner
           title={`RECEIVING · ${session.code}`}
           enableOcr={ocrAllowed}
+          mode={scanMode}
+          onModeChange={setScanMode}
           outcome={outcome}
-          onDetected={(value, source) => { void submitCode(value, source); }}
+          onDetected={onScannerDetected}
           onClose={() => {
             setScannerOpen(false);
             setOutcome(null);
