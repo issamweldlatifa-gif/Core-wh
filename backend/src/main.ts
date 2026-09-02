@@ -1,3 +1,10 @@
+// Load .env BEFORE anything reads process.env (the fail-fast check below and
+// JwtStrategy's constructor both read env vars before ConfigModule kicks in).
+import * as dotenv from 'dotenv';
+import { resolve } from 'path';
+dotenv.config();
+dotenv.config({ path: resolve(process.cwd(), '..', '.env') });
+
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -9,7 +16,27 @@ import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 async function bootstrap() {
+  // FAIL FAST: refuse to boot without real JWT secrets. Previously the config
+  // loader silently fell back to .env.example placeholders, which would let a
+  // production instance sign tokens with publicly known keys.
+  for (const key of ['JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'] as const) {
+    const value = process.env[key];
+    if (!value || value.startsWith('replace_with_')) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `FATAL: ${key} is missing or still a placeholder. ` +
+          'Set a strong random value (e.g. `openssl rand -hex 32`) before starting.',
+      );
+      process.exit(1);
+    }
+  }
+
   const app = await NestFactory.create(AppModule);
+
+  // Behind a reverse proxy (Render, nginx, the sandbox preview) Express must
+  // trust X-Forwarded-* so req.ip is the real client IP — otherwise the
+  // login rate limiter throttles ALL users together under the proxy's IP.
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
 
   // Global API versioning -> /api/v1/*
   app.enableVersioning({
@@ -47,17 +74,21 @@ async function bootstrap() {
   // Uniform error responses.
   app.useGlobalFilters(new AllExceptionsFilter());
 
-  // OpenAPI / Swagger documentation (http://localhost:3000/api/docs)
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('AYROVI Warehouse Core API')
-    .setDescription('Phase 0 — Core system (auth, RBAC, audit, system). REST v1.')
-    .setVersion('0.1.0')
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('api/docs', app, document, {
-    swaggerOptions: { persistAuthorization: true },
-  });
+  // OpenAPI / Swagger documentation (http://localhost:3000/api/docs).
+  // BUGFIX: SWAGGER_ENABLED was documented in .env.example and render.yaml
+  // but never actually read — docs were always exposed. Now honoured.
+  if ((process.env.SWAGGER_ENABLED ?? 'true').toLowerCase() !== 'false') {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('AYROVI Warehouse Core API')
+      .setDescription('Phase 0 — Core system (auth, RBAC, audit, system). REST v1.')
+      .setVersion('0.1.0')
+      .addBearerAuth()
+      .build();
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('api/docs', app, document, {
+      swaggerOptions: { persistAuthorization: true },
+    });
+  }
 
   const publicDir = path.join(__dirname, '..', 'public');
   const indexFile = path.join(publicDir, 'index.html');
@@ -75,7 +106,9 @@ async function bootstrap() {
     const server = app.getHttpAdapter().getInstance();
     server.use(express.static(publicDir));
     server.get('*', (req, res, next) => {
-      if (req.path.startsWith('/api/')) return next();
+      // BUGFIX: also exclude the bare '/api' path (previously only '/api/'
+      // was excluded, so GET /api returned the SPA instead of reaching Nest).
+      if (req.path === '/api' || req.path.startsWith('/api/')) return next();
       res.sendFile(indexFile);
     });
   } else {

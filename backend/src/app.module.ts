@@ -31,7 +31,10 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: ['.env', '../.env', '.env.example'],
+      // SECURITY: never fall back to .env.example — it contains placeholder
+      // JWT secrets. Falling back silently would let a misconfigured
+      // production deploy run with publicly known signing keys.
+      envFilePath: ['.env', '../.env'],
     }),
     PrismaModule,
     EventsModule,

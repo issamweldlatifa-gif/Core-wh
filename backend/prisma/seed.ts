@@ -12,6 +12,14 @@
  *   DATABASE_URL=... npm run db:seed
  */
 
+// Load environment variables from .env (and the repo root fallback) so
+// `npm run db:seed` works without exporting DATABASE_URL manually.
+// PrismaClient does NOT auto-load .env at runtime (only the Prisma CLI does).
+import * as dotenv from 'dotenv';
+import * as path from 'path';
+dotenv.config(); // ./backend/.env
+dotenv.config({ path: path.join(__dirname, '..', '..', '.env') }); // repo root .env
+
 import { PrismaClient, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 

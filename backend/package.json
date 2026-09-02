@@ -30,7 +30,7 @@
     "@nestjs/platform-express": "^10.4.4",
     "@nestjs/swagger": "^7.4.2",
     "@prisma/client": "^5.22.0",
-    "bcrypt": "^5.1.1",
+    "bcrypt": "^6.0.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "helmet": "^8.3.0",
@@ -59,6 +59,15 @@
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.6.2"
   },
+  "overrides": {
+    "js-yaml": "^4.3.2",
+    "lodash": "^4.17.23",
+    "multer": "^2.3.0",
+    "body-parser": "^1.20.6",
+    "qs": "^6.16.0",
+    "file-type": "^21.3.4",
+    "tar": "^7.5.3"
+  },
   "jest": {
     "moduleFileExtensions": [
       "js",
@@ -68,15 +77,10 @@
     "rootDir": "src",
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
-      "^.+\\.(t|j)s$": "ts-jest"
+      "^.+\\.(t|j)s$": ["ts-jest", { "tsconfig": "./tsconfig.test.json" }]
     },
     "coverageDirectory": "../coverage",
     "testEnvironment": "node",
-    "globals": {
-      "ts-jest": {
-        "tsconfig": "./tsconfig.test.json"
-      }
-    },
     "moduleNameMapper": {
       "^src/(.*)$": "<rootDir>/$1"
     }
