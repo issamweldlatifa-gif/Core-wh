@@ -13,10 +13,8 @@
   /* Typography (§35): technical mono for codes/data, with an Arabic-capable
      fallback chain. Arabic must never fall back to a mono face that lacks
      shaping, so the Arabic families are listed before any generic mono. */
-  --os-font-mono: 'Courier New', Courier, ui-monospace, 'Cascadia Mono',
-    'Segoe UI Mono', 'Noto Sans Arabic', 'Cairo', 'Tajawal', monospace;
-  --os-font-ui: 'Courier New', Courier, ui-monospace, 'Cascadia Mono',
-    'Noto Sans Arabic', 'Cairo', 'Tajawal', monospace;
+  --os-font-mono: var(--font-mono);
+  --os-font-ui: var(--font-ui);
 
   /* Spacing scale — shared by both experiences (§45). */
   --os-s1: 4px;
@@ -27,8 +25,8 @@
   --os-s6: 32px;
   --os-s7: 48px;
 
-  --os-radius: 0px;
-  --os-radius-sm: 0px;
+  --os-radius: var(--r-md);
+  --os-radius-sm: var(--r-sm);
 
   --os-speed: 140ms;
 }
@@ -37,40 +35,40 @@
    WORKER TERMINAL (§33). Dark green, high contrast, large operational states.
    -------------------------------------------------------------------------- */
 .theme-worker {
-  --bg: #0c0c0c;
-  --surface: #0f0f0f;
-  --surface-2: #161616;
-  --primary: #00ff66;
-  --secondary: #00e05a;
-  --text: #ffffff;
-  --muted: #9a9a9a;
-  --success: #00ff66;
-  --warning: #ffb020;
-  --error: #ff3b30;
-  --info: #38bdf8;
-  --border: #333333;
-  --font: var(--os-font-mono);
-  /* Glow is reserved for important operational states only (§33). */
-  --glow: 0 0 18px rgba(0, 255, 102, 0.35);
+  /* Enterprise identity — same tokens as admin; density/typography differ. */
+  --bg: var(--bg-1);
+  --surface: var(--surface-1);
+  --surface-2: var(--surface-2);
+  --primary: var(--primary-500);
+  --secondary: var(--success-500);
+  --text: var(--text-1);
+  --muted: var(--text-2);
+  --success: var(--success-500);
+  --warning: var(--warning-500);
+  --error: var(--danger-500);
+  --info: var(--info-500);
+  --border: var(--border-1);
+  --font: var(--font-ui);
+  --glow: none;
 }
 
 /* --------------------------------------------------------------------------
    ADMIN CONTROL CENTER (§34). Dark blue, information-dense, technical.
    -------------------------------------------------------------------------- */
 .theme-admin {
-  --bg: #0c0c0c;
-  --surface: #0f0f0f;
-  --surface-2: #161616;
-  --primary: #00ff66;
-  --secondary: #00e05a;
-  --text: #ffffff;
-  --muted: #9a9a9a;
-  --success: #00ff66;
-  --warning: #ffb020;
-  --error: #ff3b30;
-  --info: #38bdf8;
-  --border: #333333;
-  --font: var(--os-font-mono);
+  --bg: var(--bg-1);
+  --surface: var(--surface-1);
+  --surface-2: var(--surface-2);
+  --primary: var(--primary-500);
+  --secondary: var(--success-500);
+  --text: var(--text-1);
+  --muted: var(--text-2);
+  --success: var(--success-500);
+  --warning: var(--warning-500);
+  --error: var(--danger-500);
+  --info: var(--info-500);
+  --border: var(--border-1);
+  --font: var(--font-ui);
   --glow: none;
 }
 
@@ -118,6 +116,8 @@
 .os-btn:active:not(:disabled) { transform: translateY(1px); }
 .os-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .os-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.os-btn { box-shadow: var(--shadow-1); }
+.os-btn--ghost { box-shadow: none; }
 
 /* Touch-friendly on the floor (§32/§43); compact in admin. */
 .theme-worker .os-btn { padding: 14px 20px; font-size: 1rem; min-height: 52px; }
@@ -126,22 +126,23 @@
 .os-btn--primary {
   background: var(--primary);
   border-color: var(--primary);
-  color: #04120a;
+  color: var(--on-primary);
 }
-.theme-admin .os-btn--primary { color: #06101f; }
+.os-btn--primary:hover:not(:disabled) { background: var(--primary-600); }
+.theme-admin .os-btn--primary { color: var(--on-primary); }
 .os-btn--danger { border-color: var(--error); color: var(--error); }
 .os-btn--ghost { background: transparent; }
 
 /* --- inputs -------------------------------------------------------------- */
 .os-input {
   font-family: var(--font);
-  background: var(--bg);
+  background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: var(--os-radius-sm);
   width: 100%;
 }
-.os-input:focus { outline: none; border-color: var(--primary); }
+.os-input:focus { outline: none; border-color: var(--primary); box-shadow: var(--focus-ring); }
 .theme-worker .os-input { padding: 14px 16px; font-size: 1.15rem; }
 .theme-admin .os-input { padding: 7px 10px; font-size: 0.88rem; }
 
@@ -158,7 +159,7 @@
 .os-tag {
   display: inline-block;
   padding: 3px 9px;
-  border-radius: 0px;
+  border-radius: var(--r-pill);
   font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.08em;

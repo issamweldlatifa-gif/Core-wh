@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import './styles/tokens.css';   // Enterprise Design System — single source of truth
 import './styles/index.css';
 // WAREHOUSE OS design system: shared tokens + the two shells' themes.
 import './styles/os-theme.css';
