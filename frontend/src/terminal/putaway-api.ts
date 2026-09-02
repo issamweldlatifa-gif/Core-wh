@@ -12,6 +12,13 @@ export interface QueueCarton {
   shipmentCode: string | null;
   arrivalCode: string | null;
   customerName: string | null;
+  /**
+   * Distinct product categories of the carton's arrival (CRM-pushed,
+   * UPPERCASE; 'UNKNOWN' for lines the CRM sent without a category).
+   * Operational input for the Sorting decision — Category -> Zone mapping is
+   * a pending business decision, so this is display/data only for now.
+   */
+  categories?: string[];
 }
 
 export interface PutawayPlacement {

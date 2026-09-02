@@ -88,6 +88,18 @@ export class ArrivalProductDto {
   @IsOptional() @IsString() @MaxLength(80)
   size?: string | null;
 
+  /**
+   * Product category pushed by the CRM (e.g. "SHOES", "CLOTHING",
+   * "ACCESSORIES"). Optional so existing/legacy cards keep working
+   * unchanged. Free set — the warehouse does NOT enforce an enum because the
+   * category taxonomy is owned by the CRM; the value is normalized to
+   * UPPERCASE on persist. Absent/empty -> stored as NULL and shown as
+   * UNKNOWN (never guessed from the product name).
+   */
+  @ApiPropertyOptional({ example: 'CLOTHING', nullable: true })
+  @IsOptional() @IsString() @MaxLength(120)
+  category?: string | null;
+
   @ApiPropertyOptional({ example: 'STORE-SHEIN' })
   @IsOptional() @IsString() @MaxLength(160)
   store_id?: string | null;

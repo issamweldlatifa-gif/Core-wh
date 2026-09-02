@@ -108,7 +108,7 @@ export class ReceivingService {
         },
       });
       // Seed the expected product reconciliation rows from the Expected Arrival items.
-      const lines: Record<string, { qty: number; name: string; ref: string | null; itemId: string }> = {};
+      const lines: Record<string, { qty: number; name: string; ref: string | null; itemId: string; category: string | null }> = {};
       for (const it of arrival.items) {
         const key = it.sku || it.reference || '';
         if (!key) {
@@ -116,21 +116,26 @@ export class ReceivingService {
           await tx.receivingProduct.create({
             data: {
               receivingSessionId: session.id, arrivalItemId: it.id, sku: null, reference: it.reference,
-              productName: it.productName, expectedQuantity: it.quantity, receivedQuantity: 0,
+              productName: it.productName, category: it.category ?? null,
+              expectedQuantity: it.quantity, receivedQuantity: 0,
               difference: -it.quantity, status: 'NEEDS_REVIEW',
             },
           });
           continue;
         }
         const norm = key.trim();
-        if (!lines[norm]) lines[norm] = { qty: 0, name: it.productName || '', ref: it.reference, itemId: it.id };
+        if (!lines[norm]) lines[norm] = { qty: 0, name: it.productName || '', ref: it.reference, itemId: it.id, category: it.category ?? null };
         lines[norm].qty += it.quantity;
+        // Same SKU should carry one category; if CRM lines disagree we keep
+        // the first non-null value rather than guessing.
+        if (!lines[norm].category && it.category) lines[norm].category = it.category;
       }
       for (const [sku, agg] of Object.entries(lines)) {
         await tx.receivingProduct.create({
           data: {
             receivingSessionId: session.id, arrivalItemId: agg.itemId, sku, reference: agg.ref,
-            productName: agg.name, expectedQuantity: agg.qty, receivedQuantity: 0,
+            productName: agg.name, category: agg.category,
+            expectedQuantity: agg.qty, receivedQuantity: 0,
             difference: -agg.qty, status: 'EXPECTED',
           },
         });
@@ -525,6 +530,7 @@ export class ReceivingService {
       })),
       products: session.products.map((p) => ({
         id: p.id, sku: p.sku, reference: p.reference, productName: p.productName,
+        category: p.category ?? null,
         expected: p.expectedQuantity, received: p.receivedQuantity,
         remaining: Math.max(0, p.expectedQuantity - p.receivedQuantity),
         difference: p.difference, status: p.status,

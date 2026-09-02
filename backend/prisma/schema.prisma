@@ -837,6 +837,11 @@ model ExpectedArrivalItem {
   variant     String?
   color       String?
   size        String?
+  /// Product category pushed by the Arrival CRM (normalized UPPERCASE, e.g.
+  /// "SHOES", "CLOTHING"). NULL when the CRM did not send one — the UI shows
+  /// NULL as UNKNOWN; it is NEVER guessed from the product name. Used by
+  /// Receiving display and (later) Sorting destination decisions.
+  category    String?
   // Store the product came from when a card aggregates multiple stores.
   storeId     String?
   storeName   String?
@@ -846,6 +851,7 @@ model ExpectedArrivalItem {
 
   @@index([arrivalId])
   @@index([sku])
+  @@index([category])
   @@map("expected_arrival_items")
 }
 
@@ -1061,6 +1067,11 @@ model ReceivingProduct {
   sku           String?
   reference     String?
   productName   String?
+  /// Category snapshot copied from the ExpectedArrivalItem when the session
+  /// is seeded (§ CURRENT CARD + CATEGORY). Kept on the receiving line so the
+  /// worker terminal and later Sorting see it without re-joining CRM data.
+  /// NULL = CRM never sent one -> displayed as UNKNOWN, never guessed.
+  category      String?
 
   expectedQuantity Int                    @default(0)
   receivedQuantity Int                    @default(0)

@@ -128,8 +128,13 @@ export default function ReceivingTask() {
         const committed = await api.receiveCarton(session.id, cartonId, freshOperationId(), source);
         setSession(committed);
         const t = committed.tally;
-        report('ok', `${cartonId} RECEIVED · cartons ${t?.receivedCartons ?? 0}/${t?.expectedCartons ?? 0}`);
-        push(`carton ${cartonId} received`, 'ok');
+        // Category is operational data for the next stage (Sorting). Cartons
+        // carry no per-carton contents in the CRM contract, so we surface the
+        // ARRIVAL-level categories; UNKNOWN is shown explicitly, never guessed.
+        const cats = Array.from(new Set((committed.products ?? []).map((p) => p.category ?? 'UNKNOWN')));
+        const catLine = cats.length > 0 ? ` · CAT: ${cats.join(', ')}` : '';
+        report('ok', `${cartonId} RECEIVED · cartons ${t?.receivedCartons ?? 0}/${t?.expectedCartons ?? 0}${catLine}`);
+        push(`carton ${cartonId} received${catLine}`, 'ok');
         return;
       }
 
@@ -465,13 +470,20 @@ export default function ReceivingTask() {
           <div className="rt-products">
             <table className="os-table">
               <thead>
-                <tr><th>SKU</th><th>Name</th><th>Expected</th><th>Received</th><th>Status</th></tr>
+                <tr><th>SKU</th><th>Name</th><th>Category</th><th>Expected</th><th>Received</th><th>Status</th></tr>
               </thead>
               <tbody>
                 {session.products.map((p) => (
                   <tr key={p.id}>
                     <td className="mono">{p.sku ?? p.reference ?? '—'}</td>
                     <td>{p.productName ?? '—'}</td>
+                    <td>
+                      {/* Category is operational data for Sorting — UNKNOWN is
+                          a review state, the worker must never guess it. */}
+                      {p.category
+                        ? <span className="os-tag os-tag--ok">{p.category}</span>
+                        : <span className="os-tag os-tag--warn">UNKNOWN</span>}
+                    </td>
                     <td>{p.expected}</td>
                     <td>{p.received}</td>
                     <td><span className={`os-tag ${p.status === 'RECEIVED' ? 'os-tag--ok' : p.status === 'EXPECTED' ? 'os-tag--muted' : 'os-tag--warn'}`}>{p.status.replace(/_/g, ' ')}</span></td>

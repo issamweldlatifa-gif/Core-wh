@@ -377,6 +377,9 @@ export default function PutawayTask() {
               >
                 <span className="os-mono">{c.externalCartonId}</span>
                 <span className="os-muted">{c.customerName ?? c.arrivalCode ?? ''}</span>
+                {(c.categories ?? []).map((cat) => (
+                  <span key={cat} className={`os-tag ${cat === 'UNKNOWN' ? 'os-tag--warn' : 'os-tag--ok'}`}>{cat}</span>
+                ))}
               </button>
             ))}
           </div>

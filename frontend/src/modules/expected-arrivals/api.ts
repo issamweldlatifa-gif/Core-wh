@@ -10,6 +10,8 @@ export interface ExpectedArrivalItem {
   variant: string | null;
   color: string | null;
   size: string | null;
+  /** CRM-pushed category (UPPERCASE). null = UNKNOWN — needs review. */
+  category: string | null;
   storeId: string | null;
   storeName: string | null;
 }

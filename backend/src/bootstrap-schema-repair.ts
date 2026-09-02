@@ -44,7 +44,9 @@ const PROBE_SQL = `
     (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'warehouse_cartons'  AND column_name = 'storedAt')          AS carton_stored,
     (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'receiving_sessions' AND column_name = 'stationId')         AS rs_station,
     (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'receiving_sessions' AND column_name = 'deviceType')        AS rs_device,
-    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'receiving_cartons'  AND column_name = 'source')            AS rc_source
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'receiving_cartons'  AND column_name = 'source')            AS rc_source,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'expected_arrival_items' AND column_name = 'category')      AS eai_category,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'receiving_products' AND column_name = 'category')          AS rp_category
 `;
 
 /**
@@ -180,6 +182,10 @@ const REPAIR_STATEMENTS: string[] = [
   `DO $$ BEGIN ALTER TABLE "carton_placements" ADD CONSTRAINT "carton_placements_cartonId_fkey" FOREIGN KEY ("cartonId") REFERENCES "warehouse_cartons"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
   `DO $$ BEGIN ALTER TABLE "carton_placements" ADD CONSTRAINT "carton_placements_locationId_fkey" FOREIGN KEY ("locationId") REFERENCES "locations"("id") ON DELETE RESTRICT ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
   `DO $$ BEGIN ALTER TABLE "carton_placements" ADD CONSTRAINT "carton_placements_putawaySessionId_fkey" FOREIGN KEY ("putawaySessionId") REFERENCES "putaway_sessions"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  // ---- product category from CRM card (migration 20260902210000) ----------
+  `ALTER TABLE "expected_arrival_items" ADD COLUMN IF NOT EXISTS "category" TEXT`,
+  `ALTER TABLE "receiving_products" ADD COLUMN IF NOT EXISTS "category" TEXT`,
+  `CREATE INDEX IF NOT EXISTS "expected_arrival_items_category_idx" ON "expected_arrival_items"("category")`,
 ];
 
 export async function repairSchemaDriftIfNeeded(): Promise<void> {
@@ -215,21 +221,26 @@ export async function repairSchemaDriftIfNeeded(): Promise<void> {
     }
     console.log(`[schema-repair] Repair pass done: ${applied} applied, ${failed} failed.`);
 
-    // Record the equivalent repair migration as applied so a later
-    // `prisma migrate deploy` does not re-run it (it would be a no-op anyway,
-    // but a clean ledger avoids confusion). Best effort only.
-    try {
-      await prisma.$executeRawUnsafe(`
-        INSERT INTO "_prisma_migrations"
-          ("id", "checksum", "finished_at", "migration_name", "logs", "rolled_back_at", "started_at", "applied_steps_count")
-        SELECT gen_random_uuid()::text, 'in-process-schema-repair', NOW(),
-               '20260902100000_repair_warehouse_os_drift', 'applied by in-process bootstrap repair', NULL, NOW(), 1
-        WHERE NOT EXISTS (
-          SELECT 1 FROM "_prisma_migrations" WHERE "migration_name" = '20260902100000_repair_warehouse_os_drift'
-        )
-      `);
-    } catch {
-      /* ledger bookkeeping is cosmetic — ignore */
+    // Record the equivalent repair migrations as applied so a later
+    // `prisma migrate deploy` does not re-run them (they would be no-ops
+    // anyway, but a clean ledger avoids confusion). Best effort only.
+    for (const migrationName of [
+      '20260902100000_repair_warehouse_os_drift',
+      '20260902210000_product_category_from_crm',
+    ]) {
+      try {
+        await prisma.$executeRawUnsafe(`
+          INSERT INTO "_prisma_migrations"
+            ("id", "checksum", "finished_at", "migration_name", "logs", "rolled_back_at", "started_at", "applied_steps_count")
+          SELECT gen_random_uuid()::text, 'in-process-schema-repair', NOW(),
+                 '${migrationName}', 'applied by in-process bootstrap repair', NULL, NOW(), 1
+          WHERE NOT EXISTS (
+            SELECT 1 FROM "_prisma_migrations" WHERE "migration_name" = '${migrationName}'
+          )
+        `);
+      } catch {
+        /* ledger bookkeeping is cosmetic — ignore */
+      }
     }
 
     // Verify.

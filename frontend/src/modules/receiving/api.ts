@@ -21,6 +21,8 @@ export interface ReceivingProduct {
   reference: string | null;
   productName: string | null;
   variant: string | null;
+  /** CRM-pushed category (UPPERCASE, e.g. CLOTHING). null = UNKNOWN — needs review, never guessed. */
+  category: string | null;
   expected: number;
   received: number;
   remaining: number;

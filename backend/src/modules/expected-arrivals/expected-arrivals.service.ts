@@ -112,6 +112,10 @@ export class ExpectedArrivalsService {
               variant: p.variant?.trim() || null,
               color: p.color?.trim() || null,
               size: p.size?.trim() || null,
+              // Category comes from the CRM as-is; normalized UPPERCASE for
+              // consistent grouping/sorting. Missing/empty -> NULL (UNKNOWN
+              // in the UI). Never inferred from the product name.
+              category: p.category?.trim() ? p.category.trim().toUpperCase() : null,
               storeId: p.store_id?.trim() || card.store?.id?.trim() || null,
               storeName: p.store_name?.trim() || card.store?.name?.trim() || null,
             })),
@@ -257,6 +261,7 @@ export class ExpectedArrivalsService {
         variant: it.variant,
         color: it.color,
         size: it.size,
+        category: it.category ?? null,
         storeId: it.storeId,
         storeName: it.storeName,
       })),

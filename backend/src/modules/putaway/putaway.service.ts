@@ -123,7 +123,17 @@ export class PutawayService {
         shipment: {
           select: {
             code: true,
-            expectedArrival: { select: { code: true, customerName: true } },
+            expectedArrival: {
+              select: {
+                code: true,
+                customerName: true,
+                // Categories ride with the carton into the queue so the next
+                // stage (Sorting) can decide a destination. The CRM contract
+                // has no per-carton contents, so this is the ARRIVAL-level
+                // category set. NULL category -> UNKNOWN (needs review).
+                items: { select: { category: true } },
+              },
+            },
           },
         },
       },
@@ -137,6 +147,14 @@ export class PutawayService {
       shipmentCode: c.shipment?.code ?? null,
       arrivalCode: c.shipment?.expectedArrival?.code ?? null,
       customerName: c.shipment?.expectedArrival?.customerName ?? null,
+      // Distinct categories of the arrival this carton belongs to.
+      // NOTE: Category -> Zone/Destination mapping is NOT implemented —
+      // DECISION REQUIRED (business rule does not exist in the repo).
+      categories: Array.from(
+        new Set(
+          (c.shipment?.expectedArrival?.items ?? []).map((i) => i.category ?? 'UNKNOWN'),
+        ),
+      ),
     }));
   }
 

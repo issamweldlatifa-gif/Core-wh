@@ -178,6 +178,7 @@ export default function ExpectedArrivals() {
                   <th>Variant</th>
                   <th>Color</th>
                   <th>Size</th>
+                  <th>Category</th>
                   <th>Qty</th>
                 </tr>
               </thead>
@@ -190,6 +191,7 @@ export default function ExpectedArrivals() {
                     <td>{it.variant ?? '—'}</td>
                     <td>{it.color ?? '—'}</td>
                     <td>{it.size ?? '—'}</td>
+                    <td>{it.category ? <span className="tag green">{it.category}</span> : <span className="tag yellow">UNKNOWN</span>}</td>
                     <td><strong>{it.quantity}</strong></td>
                   </tr>
                 ))}
