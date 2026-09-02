@@ -97,36 +97,54 @@
 
 /* ---- correction dialog = classic WHITE GUI window over black terminal ---- */
 .ac-modal {
-  position: fixed; inset: 0; z-index: var(--z-modal);
-  background: rgba(1, 4, 9, 0.65);
+  position: fixed; inset: 0; z-index: 900;
+  background: rgba(0, 0, 0, 0.66);
   display: grid; place-items: center; padding: 20px;
 }
 .ac-modal-box {
-  background: var(--surface-1); color: var(--text-1);
-  border: 1px solid var(--border-2);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-modal);
-  font-family: var(--font-ui);
-  padding: 18px; width: min(520px, 100%);
+  background: #f0f0f0; color: #000;
+  border: 2px solid #999999;
+  border-radius: 4px;
+  box-shadow: 5px 5px 15px rgba(0,0,0,0.5);
+  font-family: Arial, Helvetica, sans-serif;
+  padding: 15px; width: min(520px, 100%);
   display: grid; gap: 12px;
 }
-.ac-modal-title { font-size: var(--fs-lg); font-weight: var(--fw-semibold); margin: 0; color: var(--text-1); font-family: inherit; }
+.ac-modal-title { font-size: 1rem; font-weight: 700; margin: 0; color: #000; font-family: inherit; }
+.ac-modal-box .ac-sub { color: #444444; font-family: inherit; }
+.ac-modal-box .os-label { color: #555555; }
+.ac-modal-box .os-input {
+  background: #ffffff; color: #000;
+  border: 1px solid #999999; border-radius: 3px;
+  font-family: Arial, Helvetica, sans-serif;
+}
+.ac-modal-box .os-input:focus { border-color: #000000; }
 .ac-modal-warn {
-  font-size: var(--fs-xs); color: var(--warning-500);
-  background: var(--warning-subtle);
-  border: 1px solid var(--warning-border);
-  border-radius: var(--r-sm); padding: 8px 10px;
+  font-size: 0.78rem; color: #5a4a00;
+  background: #ffffe1;
+  border: 1px solid #b5a900;
+  border-radius: 0px; padding: 8px 10px;
 }
 .ac-modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.ac-modal-actions .os-btn--primary { background: var(--primary-500); border-color: var(--primary-500); color: var(--on-primary); }
-.ac-modal-actions .os-btn--primary:hover:not(:disabled) { background: var(--primary-600); }
+.ac-modal-actions .os-btn, .ac-modal-box .os-btn {
+  background: #e1e1e1; color: #000;
+  border: 1px solid #777777; border-radius: 3px;
+  font-family: Arial, Helvetica, sans-serif; font-weight: 600;
+}
+.ac-modal-actions .os-btn:hover:not(:disabled), .ac-modal-box .os-btn:hover:not(:disabled) {
+  background: #d0d0d0; border-color: #555555;
+}
+.ac-modal-actions .os-btn--primary, .ac-modal-box .os-btn--primary {
+  background: #e1e1e1; color: #000;
+  border: 2px solid #333333; border-radius: 3px; font-weight: 700;
+}
 
 .ac-snapshot {
-  background: var(--surface-2); border: 1px solid var(--border-1);
-  border-radius: var(--r-sm); padding: 8px 10px;
-  font-family: var(--font-mono); font-size: var(--fs-xs);
+  background: #ffffff; border: 1px solid #bbbbbb;
+  border-radius: 0px; padding: 8px 10px;
+  font-family: var(--os-font-mono); font-size: 0.72rem;
   white-space: pre-wrap; word-break: break-word; max-height: 180px; overflow: auto;
-  color: var(--text-2);
+  color: #333333;
 }
 
 .ac-error {
