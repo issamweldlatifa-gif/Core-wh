@@ -443,6 +443,56 @@ async function main() {
   await seed();
 
   // ------------------------------------------------------------------
+  // CATEGORY MASTER — the APPROVED §3 taxonomy (Master Blueprint). This is
+  // the canonical starting configuration; admins extend it via /categories.
+  // Upserts only: an admin-modified taxonomy is never overwritten.
+  // ------------------------------------------------------------------
+  const taxonomySeed = async () => {
+    const taxonomy: Array<{ code: string; name: string; subcategories: string[] }> = [
+      {
+        code: 'CLOTHING', name: 'Clothing',
+        subcategories: ['SHIRTS', 'T_SHIRTS', 'PANTS', 'JEANS', 'JACKETS', 'DRESSES', 'SWEATERS', 'OTHER_CLOTHING'],
+      },
+      {
+        code: 'SHOES', name: 'Shoes',
+        subcategories: ['SNEAKERS', 'SPORTS', 'BOOTS', 'SANDALS', 'FORMAL', 'OTHER_SHOES'],
+      },
+      {
+        code: 'ACCESSORIES', name: 'Accessories',
+        subcategories: ['BAGS', 'BELTS', 'HATS', 'SCARVES', 'WALLETS', 'OTHER_ACCESSORIES'],
+      },
+      { code: 'OTHER', name: 'Other', subcategories: ['UNCLASSIFIED'] },
+    ];
+    for (const cat of taxonomy) {
+      await prisma.categoryMaster.upsert({
+        where: { code: cat.code },
+        update: {}, // never overwrite admin-managed taxonomy
+        create: { code: cat.code, name: cat.name, subcategories: cat.subcategories, status: 'ACTIVE' },
+      });
+    }
+
+    // TEST/SEED sorting CONFIGURATION for the seeded structure: map the two
+    // seeded categories to their same-named TUN-MAIN zones. Pure data — the
+    // sorting workflow only ever reads CategoryZoneMapping.
+    const wh = await prisma.warehouse.findUnique({ where: { code: 'TUN-MAIN' } });
+    if (wh) {
+      for (const code of ['SHOES', 'CLOTHING']) {
+        const category = await prisma.categoryMaster.findUnique({ where: { code } });
+        const zone = await prisma.zone.findUnique({ where: { warehouseId_code: { warehouseId: wh.id, code } } });
+        if (category && zone) {
+          await prisma.categoryZoneMapping.upsert({
+            where: { categoryId_zoneId: { categoryId: category.id, zoneId: zone.id } },
+            update: {},
+            create: { categoryId: category.id, zoneId: zone.id },
+          });
+        }
+      }
+    }
+    console.log('  + Category Master seeded with the approved §3 taxonomy (+ TEST zone mappings).');
+  };
+  await taxonomySeed();
+
+  // ------------------------------------------------------------------
   // WAREHOUSE OS — stations + a floor worker so role-aware terminal routing
   // (§2/§3) can be exercised end to end. Clearly labelled TEST/SEED data.
   // ------------------------------------------------------------------
@@ -452,13 +502,14 @@ async function main() {
     const stations: Array<{
       code: string;
       name: string;
-      department: 'RECEIVING' | 'SORTING' | 'PUTAWAY' | 'PACKING';
+      department: 'RECEIVING' | 'SORTING' | 'PUTAWAY' | 'PACKING' | 'DISPATCH';
       capabilities: Array<'CAMERA' | 'BARCODE_SCANNER' | 'QR_SCANNER' | 'OCR' | 'PRINTER' | 'SCALE'>;
     }> = [
       { code: 'ST-REC-01', name: 'Receiving Dock 1', department: 'RECEIVING', capabilities: ['CAMERA', 'BARCODE_SCANNER', 'QR_SCANNER', 'OCR', 'SCALE'] },
       { code: 'ST-REC-02', name: 'Receiving Dock 2', department: 'RECEIVING', capabilities: ['CAMERA', 'BARCODE_SCANNER', 'OCR'] },
       { code: 'ST-SRT-01', name: 'Sorting Bench 1', department: 'SORTING', capabilities: ['CAMERA', 'BARCODE_SCANNER'] },
       { code: 'ST-PCK-01', name: 'Packing Bench 1', department: 'PACKING', capabilities: ['CAMERA', 'PRINTER', 'SCALE'] },
+      { code: 'ST-SHP-01', name: 'Shipping Dock 1', department: 'DISPATCH', capabilities: ['CAMERA', 'BARCODE_SCANNER', 'QR_SCANNER'] },
     ];
     for (const st of stations) {
       await prisma.station.upsert({

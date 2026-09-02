@@ -46,7 +46,7 @@ const TASK_REGISTRY: TerminalTask[] = [
     path: '/terminal/sorting',
     department: 'SORTING',
     permission: 'stowing.execute',
-    ready: false,
+    ready: true,
   },
   {
     key: 'putaway',
@@ -57,12 +57,28 @@ const TASK_REGISTRY: TerminalTask[] = [
     ready: true,
   },
   {
+    key: 'order-sorting',
+    label: 'Order Sorting',
+    path: '/terminal/order-sorting',
+    department: 'SORTING',
+    permission: 'picking.execute',
+    ready: true,
+  },
+  {
     key: 'packing',
     label: 'Packing',
     path: '/terminal/packing',
     department: 'PACKING',
     permission: 'packing.execute',
-    ready: false,
+    ready: true,
+  },
+  {
+    key: 'shipping',
+    label: 'Shipping',
+    path: '/terminal/shipping',
+    department: 'DISPATCH',
+    permission: 'shipping.execute',
+    ready: true,
   },
 ];
 

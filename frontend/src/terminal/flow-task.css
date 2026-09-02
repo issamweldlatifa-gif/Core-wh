@@ -1,0 +1,101 @@
+/* ==========================================================================
+   OPERATIONAL FLOW TASKS — Sorting, Order Sorting, Packing, Shipping.
+   ONE stylesheet for all four screens, built on the shared os-* theme
+   (single design-system direction): green = confirmed, yellow = warning,
+   red = error, blue = info. Layout mirrors the putaway two-step loop.
+   ========================================================================== */
+
+.fl { display: grid; gap: 14px; max-width: 1100px; margin: 0 auto; }
+.fl-h1 { font-size: 1.4rem; letter-spacing: 0.2em; margin: 0 0 4px; }
+.fl-sub { color: var(--muted); margin: 0; }
+
+.fl-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+
+.fl-error {
+  border: 1px solid var(--error); color: var(--error);
+  background: rgba(255, 59, 48, 0.08);
+  border-radius: var(--os-radius-sm); padding: 10px 12px;
+}
+
+/* ---- two-step indicator (scan A, then scan B) ---------------------------- */
+.fl-steps { display: grid; gap: 10px; grid-template-columns: 1fr 1fr; }
+@media (max-width: 720px) { .fl-steps { grid-template-columns: 1fr; } }
+
+.fl-step {
+  display: grid; grid-template-columns: 34px 1fr; gap: 12px; align-items: start;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--os-radius); padding: 14px;
+  opacity: 0.55; transition: opacity var(--os-speed), border-color var(--os-speed);
+}
+.fl-step.is-active { opacity: 1; border-color: var(--primary); box-shadow: var(--glow); }
+.fl-step.is-done { opacity: 1; }
+.fl-step-n {
+  width: 34px; height: 34px; border-radius: 50%;
+  display: grid; place-items: center; font-weight: 800;
+  background: var(--surface-2); color: var(--muted);
+}
+.fl-step.is-active .fl-step-n { background: var(--primary); color: #04120a; }
+.fl-step-t { font-size: 0.66rem; letter-spacing: 0.16em; color: var(--muted); }
+.fl-step-v { font-size: 1.05rem; font-weight: 700; word-break: break-all; }
+
+/* ---- THE system decision panel (§26: WHAT + NEXT) ------------------------- */
+.fl-decision {
+  background: var(--surface); border: 1px solid var(--primary);
+  border-radius: var(--os-radius); padding: 16px; box-shadow: var(--glow);
+  display: grid; gap: 8px;
+}
+.fl-decision.is-warn { border-color: var(--warning); box-shadow: none; }
+.fl-decision.is-err { border-color: var(--error); box-shadow: none; }
+.fl-decision-k { font-size: 0.66rem; letter-spacing: 0.16em; color: var(--muted); }
+.fl-decision-v { font-size: 1.35rem; font-weight: 800; letter-spacing: 0.06em; word-break: break-all; }
+.fl-decision-v.ok { color: var(--primary); }
+.fl-decision-v.warn { color: var(--warning); }
+.fl-decision-v.err { color: var(--error); }
+.fl-decision-row { display: flex; gap: 18px; flex-wrap: wrap; }
+
+/* ---- input ----------------------------------------------------------------- */
+.fl-input {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--os-radius); padding: 14px;
+}
+.fl-input .os-row { gap: 10px; }
+
+.fl-outcome {
+  border-radius: var(--os-radius-sm); padding: 12px 14px;
+  font-weight: 700; letter-spacing: 0.06em;
+  animation: fl-pop 140ms ease-out;
+}
+.fl-outcome--ok { background: rgba(0, 255, 136, 0.1); color: var(--primary); border: 1px solid var(--primary); }
+.fl-outcome--bad { background: rgba(255, 59, 48, 0.1); color: var(--error); border: 1px solid var(--error); }
+.fl-outcome--info { background: rgba(64, 156, 255, 0.1); color: var(--info, #409cff); border: 1px solid var(--info, #409cff); }
+@keyframes fl-pop { from { transform: scale(0.98); opacity: 0.4; } to { transform: scale(1); opacity: 1; } }
+
+/* ---- lists / tables ---------------------------------------------------------- */
+.fl-list { display: grid; gap: 6px; }
+.fl-row {
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  padding: 8px 10px; background: var(--surface-2); border-radius: var(--os-radius-sm);
+}
+.fl-row.is-ok { outline: 1px solid var(--primary); }
+.fl-row.is-short { outline: 1px solid var(--warning); }
+
+.fl-metrics { display: grid; gap: 10px; grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 720px) { .fl-metrics { grid-template-columns: 1fr; } }
+.fl-metric {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--os-radius); padding: 14px; text-align: center;
+}
+.fl-metric.is-ok { border-color: var(--primary); }
+.fl-metric-v { font-size: 1.6rem; font-weight: 800; }
+.fl-metric-l { font-size: 0.66rem; letter-spacing: 0.16em; color: var(--muted); }
+
+.fl-log { display: grid; gap: 4px; font-size: 0.84rem; max-height: 220px; overflow: auto; }
+.fl-log-item.ok { color: var(--primary); }
+.fl-log-item.bad { color: var(--error); }
+.fl-log-item.info { color: var(--muted); }
+
+/* big label preview on a customer bin */
+.fl-biglabel {
+  font-size: 2rem; font-weight: 900; letter-spacing: 0.1em;
+  color: var(--primary); text-transform: uppercase; word-break: break-all;
+}

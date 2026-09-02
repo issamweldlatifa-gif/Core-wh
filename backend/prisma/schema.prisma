@@ -162,6 +162,10 @@ enum AuditAction {
   CONTAINER_CREATED
   ORDER_PACKED
   SHIPMENT_DISPATCHED
+  // Operational containers + article fulfilment flow.
+  CONTAINER_READY_FOR_PACKING
+  CONTAINER_CLOSED
+  ARTICLE_SCANNED
 }
 
 enum ApiClientStatus {
@@ -514,6 +518,7 @@ model Location {
   physicalItems PhysicalItem[] // Phase 2: nullable currentLocationId on pieces (D-46) — never written by Phase 2
   cartons       WarehouseCarton[] // cartons currently stored here (written by Putaway)
   placements    CartonPlacement[]
+  articleUnits  ArticleUnit[] // per-piece storage (written by Sorting/Storage)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -631,6 +636,10 @@ model WarehouseOrder {
   updatedAt                 DateTime             @updatedAt
 
   items OrderItem[]
+  // Operational flow back-relations (fulfilment).
+  containers        OperationalContainer[]
+  articleUnits      ArticleUnit[]
+  outboundShipments OutboundShipment[]
 
   @@index([externalCustomerReference])
   @@index([status])
@@ -654,6 +663,7 @@ model OrderItem {
   updatedAt             DateTime        @updatedAt
 
   physicalItems PhysicalItem[]
+  articleUnits  ArticleUnit[]
 
   // C3: Postgres allows multiple NULLs — lines without refs are not over-constrained (D-51/D-58).
   @@unique([orderId, externalLineReference])
@@ -869,6 +879,8 @@ model ExpectedArrivalItem {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  articleUnits ArticleUnit[] // per-piece provenance back to this expected line
+
   @@index([arrivalId])
   @@index([sku])
   @@index([category])
@@ -930,6 +942,166 @@ model CategoryZoneMapping {
   @@unique([categoryId, zoneId])
   @@index([zoneId])
   @@map("category_zone_mappings")
+}
+
+// ------------------------------------------------------------------
+// OPERATIONAL FLOW — containers, per-piece articles, outbound shipments.
+//
+// After a carton is opened at Receiving, each scanned piece becomes an
+// ArticleUnit: products NEVER go back into the source carton. Articles move
+// through configurable OperationalContainers (mixed RECEIVING totes, then
+// per-customer BINs) into storage and out through packing/shipping.
+// Everything is traceable: Card -> Carton -> Receiving Scan -> Container ->
+// Location -> Order -> Bin -> Outbound Shipment -> SHIPPED.
+// ------------------------------------------------------------------
+
+enum ContainerType {
+  RECEIVING // mixed staging tote used on the receiving line
+  CUSTOMER // per-customer/order bin (BIN-xxx -> AHMED)
+}
+
+enum ContainerStatus {
+  ACTIVE
+  READY_FOR_PACKING // customer bin holds every article of its order
+  PACKED // contents packed into an outbound shipment
+  CLOSED // released after ship / emptied; kept for audit trail
+}
+
+/// Per-piece lifecycle. An article is born at the receiving scan and is
+/// NEVER returned to its source carton.
+enum ArticleUnitStatus {
+  RECEIVED // scanned out of the carton at receiving
+  IN_CONTAINER // sitting in a RECEIVING operational container
+  STORED // placed on a warehouse location by sorting/storage
+  IN_CUSTOMER_BIN // assigned + physically placed in a customer bin
+  PACKED // packed into an outbound shipment carton
+  SHIPPED // dispatched
+}
+
+enum OutboundShipmentStatus {
+  READY_TO_SHIP
+  SHIPPED
+}
+
+/// QR-identified operational container. Configuration-driven (created at
+/// runtime by workers/admins), never hardcoded.
+model OperationalContainer {
+  id     String          @id @default(uuid())
+  /// Unique scannable code = the QR value (RCN-xxxxxx / BIN-xxxxxx).
+  code   String          @unique
+  type   ContainerType
+  status ContainerStatus @default(ACTIVE)
+  /// Big human label, e.g. the customer reference on a bin ("AHMED").
+  label  String?
+
+  /// CUSTOMER bins are attached to one order. SetNull keeps container
+  /// history alive even if an order projection is ever removed.
+  orderId String?
+  order   WarehouseOrder? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  articles          ArticleUnit[]
+  outboundShipments OutboundShipment[]
+
+  @@index([type, status])
+  @@index([orderId])
+  @@map("operational_containers")
+}
+
+/// One physical piece flowing through the warehouse. Born at the receiving
+/// scan (source carton + session recorded), then: container -> storage
+/// location -> customer bin -> packed -> shipped. All FKs are SetNull-safe
+/// so operational history survives upstream cleanups; the audit log keeps
+/// the full chain regardless.
+model ArticleUnit {
+  id   String @id @default(uuid())
+  /// Human/QR display code ART-XXXXXXXX, generated server-side, immutable.
+  code String @unique
+
+  sku         String
+  productName String?
+  category    String?
+  subcategory String?
+  categoryStatus CategoryValidationStatus @default(NEEDS_REVIEW)
+
+  status ArticleUnitStatus @default(RECEIVED)
+
+  // --- provenance (receiving) ---
+  arrivalItemId      String?
+  arrivalItem        ExpectedArrivalItem? @relation(fields: [arrivalItemId], references: [id], onDelete: SetNull)
+  receivingSessionId String?
+  receivingSession   ReceivingSession?    @relation(fields: [receivingSessionId], references: [id], onDelete: SetNull)
+  sourceCartonId     String?
+  sourceCarton       WarehouseCarton?     @relation(fields: [sourceCartonId], references: [id], onDelete: SetNull)
+
+  // --- current operational container (tote or customer bin) ---
+  containerId String?
+  container   OperationalContainer? @relation(fields: [containerId], references: [id], onDelete: SetNull)
+
+  // --- storage ---
+  currentLocationId String?
+  currentLocation   Location? @relation(fields: [currentLocationId], references: [id], onDelete: SetNull)
+  storedAt          DateTime?
+
+  // --- customer order assignment (set by Order Sorting) ---
+  orderId     String?
+  order       WarehouseOrder? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  orderItemId String?
+  orderItem   OrderItem?      @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+
+  // --- outbound ---
+  outboundShipmentId String?
+  outboundShipment   OutboundShipment? @relation(fields: [outboundShipmentId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sku])
+  @@index([status])
+  @@index([containerId])
+  @@index([currentLocationId])
+  @@index([orderId])
+  @@index([receivingSessionId])
+  @@index([outboundShipmentId])
+  @@map("article_units")
+}
+
+/// Outbound shipment created at Packing. Carrier integration is an ISOLATED
+/// layer: when no carrier adapter is configured the shipment still gets an
+/// internal label code and NULL tracking — nothing is invented.
+model OutboundShipment {
+  id   String @id @default(uuid())
+  /// Internal label/QR code OUT-XXXXXX (scannable at the shipping area).
+  code String @unique
+
+  orderId String
+  order   WarehouseOrder @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  containerId String?
+  container   OperationalContainer? @relation(fields: [containerId], references: [id], onDelete: SetNull)
+
+  status OutboundShipmentStatus @default(READY_TO_SHIP)
+
+  /// Carrier integration outputs — NULL until a real adapter fills them.
+  carrier        String?
+  trackingNumber String?
+
+  packedBy  String?
+  packedAt  DateTime  @default(now())
+  shippedBy String?
+  shippedAt DateTime?
+
+  articles ArticleUnit[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([status])
+  @@map("outbound_shipments")
 }
 
 // ------------------------------------------------------------------
@@ -1053,6 +1225,7 @@ model WarehouseCarton {
 
   receivingCartons ReceivingCarton[]
   placements       CartonPlacement[]
+  articleUnits     ArticleUnit[] // pieces scanned OUT of this carton at receiving
 
   @@index([shipmentId])
   @@index([status])
@@ -1100,6 +1273,7 @@ model ReceivingSession {
   products      ReceivingProduct[]
   discrepancies ReceivingDiscrepancy[]
   corrections   OperationCorrection[]
+  articleUnits  ArticleUnit[] // pieces born in this session
   /// Station the session was executed at (§13). SetNull so retiring a
   /// station never destroys receiving history.
   stationId     String?

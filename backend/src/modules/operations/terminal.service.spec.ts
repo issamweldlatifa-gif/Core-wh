@@ -97,9 +97,10 @@ describe('TerminalService.context routing', () => {
 
     const ctx = await service.context(user);
 
-    // Two ready tasks are permitted, so the default would be the home grid;
-    // the open putaway session must override that.
-    expect(ctx.readyTaskCount).toBe(2);
+    // Several ready tasks are permitted (receiving + sorting + putaway), so
+    // the default would be the home grid; the open putaway session must
+    // override that.
+    expect(ctx.readyTaskCount).toBe(3);
     expect(ctx.home).toBe('/terminal/putaway');
   });
 
@@ -123,7 +124,7 @@ describe('TerminalService.context routing', () => {
     const ctx = await service.context(user);
 
     expect(ctx.home).toBe('/terminal');
-    expect(ctx.readyTaskCount).toBe(2);
+    expect(ctx.readyTaskCount).toBe(3);
   });
 
   it('never routes a worker without task permissions into another workspace', async () => {
@@ -146,8 +147,8 @@ describe('TerminalService.context routing', () => {
     const ctx = await service.context(user);
 
     expect(ctx.tasks.map((t) => t.key).sort()).toEqual(['putaway', 'sorting']);
-    // Sorting has no workflow yet, so putaway is the only ready one.
-    expect(ctx.home).toBe('/terminal/putaway');
+    // Sorting and putaway are both ready now -> several choices, home grid.
+    expect(ctx.home).toBe('/terminal');
   });
 
   it('scopes both session lookups to the requesting worker', async () => {

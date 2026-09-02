@@ -23,6 +23,10 @@ const WorkerShell = lazy(() => import('./terminal/WorkerShell'));
 const WorkerTerminalHome = lazy(() => import('./terminal/WorkerTerminalHome'));
 const ReceivingTask = lazy(() => import('./terminal/ReceivingTask'));
 const PutawayTask = lazy(() => import('./terminal/PutawayTask'));
+const SortingTask = lazy(() => import('./terminal/SortingTask'));
+const OrderSortingTask = lazy(() => import('./terminal/OrderSortingTask'));
+const PackingTask = lazy(() => import('./terminal/PackingTask'));
+const ShippingTask = lazy(() => import('./terminal/ShippingTask'));
 const AdminShell = lazy(() => import('./admin/AdminShell'));
 const ControlCenter = lazy(() => import('./admin/pages/ControlCenter'));
 const AdminWorkers = lazy(() => import('./admin/pages/Workers'));
@@ -97,6 +101,22 @@ export default function App() {
             <Route
               path="putaway"
               element={<PermissionGate perm="stowing.execute"><PutawayTask /></PermissionGate>}
+            />
+            <Route
+              path="sorting"
+              element={<PermissionGate perm="stowing.execute"><SortingTask /></PermissionGate>}
+            />
+            <Route
+              path="order-sorting"
+              element={<PermissionGate perm="picking.execute"><OrderSortingTask /></PermissionGate>}
+            />
+            <Route
+              path="packing"
+              element={<PermissionGate perm="packing.execute"><PackingTask /></PermissionGate>}
+            />
+            <Route
+              path="shipping"
+              element={<PermissionGate perm="shipping.execute"><ShippingTask /></PermissionGate>}
             />
           </Route>
 

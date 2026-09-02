@@ -9,6 +9,7 @@ import {
 import { beepSuccess, beepError, beepInfo, beepDone } from '../modules/receiving-terminal/feedback';
 import { stationHas } from './api';
 import { useTerminalUi } from './WorkerShell';
+import { fulfillmentApi, type OpContainer } from './fulfillment-api';
 import './receiving-task.css';
 
 /**
@@ -49,6 +50,18 @@ export default function ReceivingTask() {
   const [productSku, setProductSku] = useState('');
   const [productQty, setProductQty] = useState('1');
   const [log, setLog] = useState<Array<{ t: string; text: string; kind: 'ok' | 'bad' | 'info' }>>([]);
+  /**
+   * OPERATIONAL CONTAINER (tote) — where every scanned article physically
+   * goes: products NEVER return to the source carton. When a tote is active
+   * each product scan also creates the traceable ArticleUnit in it.
+   */
+  const [tote, setTote] = useState<OpContainer | null>(null);
+  const [totes, setTotes] = useState<OpContainer[]>([]);
+
+  const refreshTotes = useCallback(async () => {
+    try { setTotes(await fulfillmentApi.containers({ type: 'RECEIVING', status: 'ACTIVE' })); } catch { /* advisory */ }
+  }, []);
+  useEffect(() => { void refreshTotes(); }, [refreshTotes]);
 
   /** Keystroke timing buffers to classify wedge-scanner bursts (§11). */
   const stamps = useRef<number[]>([]);
@@ -172,6 +185,30 @@ export default function ReceivingTask() {
     setBusy(true);
     setStatus({ text: 'SUBMITTING', kind: 'info' });
     try {
+      // With an active tote every unit becomes a traceable ArticleUnit that
+      // physically goes INTO the container (never back into the carton).
+      if (tote) {
+        let lastFlash: any = null;
+        for (let i = 0; i < n; i += 1) {
+          const res = await fulfillmentApi.scanArticle(session.id, {
+            sku: value,
+            containerCode: tote.code,
+          });
+          lastFlash = res.flash;
+        }
+        const s = await api.session(session.id);
+        setSession(s);
+        if (lastFlash?.kind === 'UNEXPECTED_ARTICLE') {
+          report('bad', `${value} — NOT ON EXPECTED LIST → EXCEPTION (in ${tote.code})`);
+          push(`article ${value} unexpected — exception recorded, placed in ${tote.code}`, 'bad');
+        } else {
+          const t = s.tally;
+          report('ok', `${lastFlash?.article?.code ?? value} → ${tote.code} · units ${t?.receivedUnits ?? 0}/${t?.expectedUnits ?? 0}`);
+          push(`article ${value} ×${n} → ${tote.code}`, 'ok');
+        }
+        await refreshTotes();
+        return;
+      }
       const s = await api.receiveProduct(session.id, value, n, source, freshOperationId());
       setSession(s);
       const f = s.flash;
@@ -190,7 +227,7 @@ export default function ReceivingTask() {
     } finally {
       setBusy(false);
     }
-  }, [session, busy, report, push, setStatus]);
+  }, [session, busy, report, push, setStatus, tote, refreshTotes]);
 
   /** One detection pipeline routed by the scanner's current work mode. */
   const onScannerDetected = useCallback((value: string, source: ScanSource) => {
@@ -393,6 +430,42 @@ export default function ReceivingTask() {
       {/* Product unit receiving (migrated from the legacy terminal). */}
       {!done && (
         <div className="rt-manual">
+          {/* OPERATIONAL CONTAINER — where scanned articles physically go. */}
+          <div className="os-row" style={{ gap: 10, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <span className="os-label" style={{ margin: 0 }}>CONTAINER</span>
+            {tote ? (
+              <>
+                <span className="os-tag os-tag--ok">{tote.code}</span>
+                <span className="os-muted">scanned articles go into this tote</span>
+                <button className="os-btn" disabled={busy} onClick={() => setTote(null)}>RELEASE</button>
+              </>
+            ) : (
+              <>
+                {totes.slice(0, 4).map((t) => (
+                  <button key={t.id} className="os-btn" disabled={busy} onClick={() => { setTote(t); push(`container ${t.code} selected`, 'info'); }}>
+                    {t.code}
+                  </button>
+                ))}
+                <button
+                  className="os-btn os-btn--primary"
+                  disabled={busy}
+                  onClick={async () => {
+                    try {
+                      const t = await fulfillmentApi.createContainer({ type: 'RECEIVING' });
+                      setTote(t);
+                      push(`container ${t.code} created`, 'ok');
+                      await refreshTotes();
+                    } catch (e: any) {
+                      report('bad', e?.response?.data?.message ?? 'Could not create container');
+                    }
+                  }}
+                >
+                  + NEW TOTE
+                </button>
+                <span className="os-muted">no tote: units are only tallied (legacy mode)</span>
+              </>
+            )}
+          </div>
           <label className="os-label" htmlFor="rt-product">SCAN OR TYPE PRODUCT</label>
           <div className="os-row">
             <input
