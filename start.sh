@@ -59,6 +59,45 @@ else
   echo ">>> Recovery successful."
 fi
 
+# ---------------------------------------------------------------------------
+# SCHEMA-DRIFT SELF-HEAL.
+# A half-applied migration that was later marked "applied" leaves the
+# _prisma_migrations ledger clean while real tables/columns are MISSING.
+# `migrate deploy` then reports "No pending migrations" forever and every
+# request touching the missing tables 500s (this happened in production:
+# terminal/context, receiving and putaway all failed while health was "ok").
+#
+# Detect drift by diffing the live database against the Prisma schema; if
+# they differ, `prisma db push` creates the missing tables/columns/enums.
+# This is additive-safe for our case (missing objects get created); it is
+# guarded so it only runs when drift actually exists.
+# ---------------------------------------------------------------------------
+echo ">>> Verifying database schema matches the Prisma schema..."
+set +e
+$PRISMA migrate diff \
+  --from-url "$DATABASE_URL" \
+  --to-schema-datamodel prisma/schema.prisma \
+  --exit-code > /dev/null 2>&1
+DIFF_CODE=$?
+set -e
+
+if [ "$DIFF_CODE" = "2" ]; then
+  echo ">>> !!! SCHEMA DRIFT DETECTED: live DB does not match schema.prisma."
+  echo ">>> Repairing with 'prisma db push' (creates missing tables/columns)..."
+  # NO --accept-data-loss: if the repair would destroy data, push aborts and
+  # we boot anyway (drifted but alive) so an operator can intervene manually.
+  if $PRISMA db push --skip-generate; then
+    echo ">>> Schema repaired."
+  else
+    echo ">>> WARNING: automatic repair refused (would lose data)."
+    echo ">>> Manual action required: npx prisma db push --accept-data-loss"
+  fi
+elif [ "$DIFF_CODE" = "0" ]; then
+  echo ">>> Schema OK."
+else
+  echo ">>> WARNING: schema diff check failed (code $DIFF_CODE); continuing."
+fi
+
 # The seed is idempotent (upserts) and only creates the initial SUPER_ADMIN
 # when INITIAL_ADMIN_CODE + INITIAL_ADMIN_PASSWORD are present. A seed failure
 # must never stop the service from booting.
