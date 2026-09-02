@@ -2,8 +2,8 @@
 **تقرير الاستكشاف والتدقيق الشامل — قراءة فقط (READ-ONLY)**
 
 - Repository: `https://github.com/issamweldlatifa-gif/Core-wh.git`
-- Audited commit: `af7c479` — "fix(prod): self-heal schema drift at boot + surface Prisma drift errors"
-- Audit date: 2026-09-02
+- Audited commit: `c50342e` — "fix(prod): in-process schema self-repair at app entrypoint" (HEAD الحالي)
+- Audit date: 2026-09-02 (محدَّث بعد commits eceec62 و c50342e)
 - Rule applied: **كل ادعاء مدعوم بدليل من الكود (ملف + سطر). أي شيء لا دليل عليه يُكتب: `UNKNOWN — EVIDENCE NOT FOUND`. لا اقتراحات، لا إصلاحات، لا اختراع Workflows.**
 
 ---
@@ -58,9 +58,14 @@ Core-wh/
 ├── docker/nginx.conf         proxy /api → backend:3000
 ├── docs/                     ARCHITECTURE, PHASE-1/2 proposals, WAREHOUSE-OS-STATUS,
 │                             RECEIVING-TERMINAL, OPEN-DECISIONS, REPAIR-REPORT
-├── build.sh / start.sh       بناء وتشغيل Render (مع self-heal لانحراف السكيما)
+├── build.sh / start.sh       بناء وتشغيل Render (migrate deploy + فحص drift ذاتي)
 └── render.yaml               تعريف خدمة Render
 ```
+
+**طبقات حماية انحراف السكيما (ثلاث طبقات مستقلة — أُضيفت تباعاً بعد انقطاع الإنتاج):**
+1. هجرة إصلاح معلَّقة بالسجل: `backend/prisma/migrations/20260902100000_repair_warehouse_os_drift/migration.sql` — كلها أوامر إضافية محمية (IF NOT EXISTS / duplicate_object).
+2. فحص drift في `start.sh` (migrate diff + Node probe fallback → db push) — يعمل فقط إذا كان Start Command هو `./start.sh`.
+3. **إصلاح ذاتي داخل التطبيق**: `backend/src/bootstrap-schema-repair.ts` (251 سطر) يُستدعى من `main.ts:17,24` قبل إقلاع Nest — probe واحد لـ 9 كائنات؛ عند النقص يطبّق 65 أمر SQL محمياً؛ لا يمنع الإقلاع عند الفشل. هذه الطبقة هي الوحيدة المضمونة التنفيذ مهما كان Start Command (وهي التي أعادت الإنتاج للعمل فعلياً).
 
 **نمط المعمارية (دليل):**
 - Global guards: `backend/src/app.module.ts:58-59` — `JwtAuthGuard` + `PermissionsGuard` كـ `APP_GUARD` (كل endpoint محمي افتراضياً إلا `@Public()`).
@@ -265,6 +270,8 @@ Warehouse (code فريد عالمياً, مثال TUN-MAIN)
 
 **الاتساق:** شاشات Terminal/Admin الجديدة تستعمل `os-*` بانضباط؛ الصفحات القديمة تستعمل `.card/.tag`. النتيجة بصرياً متقاربة (نفس الألوان) لكن **مفردات CSS منقسمة إلى نظامين** + ملفات css لكل شاشة (global-shell, admin-shell, terminal-shell, receiving-task, putaway-task, dashboard, scanner ≈ 865 سطر إضافي).
 
+**حالات الخطأ (Error states):** شاشات العمل الحرجة الثلاث تعرض عند فشل التحميل رسالة خطأ + زر `↻ RETRY` بدل بيانات مضللة: Dashboard (عامل `Dashboard.tsx:48` وأدمن `:149`)، Putaway (`PutawayTask.tsx:238` — مع تعليق صريح بعدم عرض "0 CARTONS" عند فشل التحميل)، Receiving (`ReceivingTask.tsx:280`). بقية الصفحات (admin/pages عبر useAsync، والصفحات القديمة) تعرض رسالة الخطأ نصاً مع زر reload يدوي في الهيدر حيث وُجد.
+
 **RTL/تعريب:** لا يوجد أي دعم RTL أو نصوص عربية في الواجهة — كل النصوص إنجليزية uppercase. الخطوط العربية موجودة في سلسلة fallback فقط.
 
 ---
@@ -343,7 +350,7 @@ Warehouse (code فريد عالمياً, مثال TUN-MAIN)
 5. **ازدواج نظام الثيم** (§12): تغيير لون مستقبلي يتطلب تعديل ملفين متوازيين.
 6. **صلاحيات في الواجهة لا يقابلها مفتاح خلفي مستخدم**: nav `warehouses.view` (NavItems.ts:26) صحيح، لكن أزرار admin تعيد التوجيه لصفحات قديمة خارج ثيم admin — موثّق كقرار مقصود (WAREHOUSE-OS-STATUS.md:275-278).
 7. **بيانات seed في الإنتاج**: seed.ts يعمل عند كل إقلاع (start.sh) — البنية TUN-MAIN والعامل WORKER001 موسومة "TEST SEED" لكنها ستُنشأ في أي بيئة لا تحويها. كلمات السر الافتراضية (`ChangeMe!2024`, `Worker!2024`) قابلة للتخصيص عبر env فقط.
-8. **مخاطر تشغيل سابقة (حُلّت في af7c479 وتبقى درساً)**: انحراف سكيما الإنتاج مع سجل هجرات "نظيف" — الآن يوجد فحص drift ذاتي عند الإقلاع في start.sh.
+8. **مخاطر تشغيل سابقة (حُلّت نهائياً في c50342e وتبقى درساً)**: انحراف سكيما الإنتاج مع سجل هجرات "نظيف"، مع اكتشاف أن Start Command على Render يتجاوز `start.sh` فلا تعمل أي هجرات عند النشر — الحل النهائي إصلاح ذاتي داخل التطبيق (`bootstrap-schema-repair.ts`) يعمل قبل إقلاع Nest مهما كان أمر التشغيل. **يبقى خطر قائم**: طالما Start Command في لوحة Render ليس `./start.sh`، فإن `prisma migrate deploy` و seed لا يعملان عند النشر — أي هجرة مستقبلية جديدة لن تُطبَّق تلقائياً إلا إذا أُضيفت لقائمة REPAIR_STATEMENTS أو صُحِّح أمر التشغيل (UNKNOWN — لا يمكن التحقق من إعدادات لوحة Render من داخل الريبو).
 9. **لا بيانات mock ولا هاردكود بيانات عرض** في أي شاشة — grep على mock/TODO/FIXME في src → صفر نتيجة فعلية.
 10. **`/terminal/context` بلا `@RequirePermissions`** (operations.controller.ts:37) — محمي بـ JWT العام فقط؛ سلوك مقصود (كل مستخدم يحتاج سياقه) لكنه يستحق الرصد.
 
@@ -447,6 +454,9 @@ Warehouse (code فريد عالمياً, مثال TUN-MAIN)
 | لا أصول صور | `git ls-files` مرشّح بامتدادات الصور → 0 |
 | نظام التصميم | `styles/os-theme.css:12-56`؛ الطبقة القديمة `styles/index.css:1-25` |
 | Sorting مؤجل بقرار | `docs/WAREHOUSE-OS-STATUS.md:266-273` |
+| الإصلاح الذاتي للسكيما داخل التطبيق | `backend/src/bootstrap-schema-repair.ts:37` (PROBE_SQL)، `:55` (REPAIR_STATEMENTS — 65 أمراً)، `:185` (repairSchemaDriftIfNeeded)؛ الاستدعاء `backend/src/main.ts:17,24` |
+| هجرة إصلاح الانحراف | `backend/prisma/migrations/20260902100000_repair_warehouse_os_drift/migration.sql` |
+| أزرار RETRY في حالات فشل التحميل | `pages/Dashboard.tsx:48,149`؛ `terminal/PutawayTask.tsx:238` (+تعليق عدم عرض "0" مضلِّل `:243-244`)؛ `terminal/ReceivingTask.tsx:280` |
 | الاختبارات | 38/38 unit + 49/49 e2e ناجحة على هذا الـ commit (نُفّذت محلياً أثناء التدقيق) |
 
 ---
@@ -467,7 +477,7 @@ Warehouse (code فريد عالمياً, مثال TUN-MAIN)
 - سياسة Restrict/SetNull في السكيما (لا حذف بنية فيها مخزون؛ لا فقدان تاريخ عند حذف محطة/مستخدم).
 - بوابة المشرف على إغلاق استلام فيه اختلافات (`receiving.resolve_discrepancy`).
 - قاعدة "العامل لا يرى الإدارة" (حراسة مزدوجة واجهة+خلفية).
-- self-heal السكيما في start.sh (درس انقطاع الإنتاج).
+- طبقات إصلاح السكيما الثلاث: `bootstrap-schema-repair.ts` (داخل التطبيق — الطبقة الفعّالة في الإنتاج) + هجرة الإصلاح `20260902100000` + فحص drift في start.sh (درس انقطاع الإنتاج).
 - صيغة locationCode المقروءة-فقط `WH-ZONE-AISLE-RACK-LEVEL`.
 
 **NEEDS REDESIGN / DECISION (رصد بلا اقتراح تنفيذ):**
@@ -481,7 +491,7 @@ Warehouse (code فريد عالمياً, مثال TUN-MAIN)
 
 ## 24. No-Guessing Declaration — إقرار عدم التخمين
 
-- كل بند أعلاه مأخوذ من قراءة مباشرة للملفات على commit `af7c479`، وكل ادعاء له مرجع ملف/سطر في §22.
+- كل بند أعلاه مأخوذ من قراءة مباشرة للملفات على commit `c50342e` (HEAD)، وكل ادعاء له مرجع ملف/سطر في §22.
 - المواضع التي لم يوجد لها دليل صُرِّح بها نصاً: **UNKNOWN — EVIDENCE NOT FOUND** (بيانات حسابات الإنتاج؛ آلية LOCKED للمستخدم؛ أي كاتب لحالات REJECTED/CANCELLED/FLAGGED المذكورة في §11؛ كتابة CartonStatus.WRONG_SHIPMENT على الكيان الرئيسي).
 - لم يُعدَّل أي ملف في المستودع أثناء هذا التدقيق، ولم يُخترع أي workflow غير موجود، ولم تُقترح إصلاحات تنفيذية — التقرير وصفي بالكامل بانتظار مراجعتك قبل أي خطوة تالية.
 
