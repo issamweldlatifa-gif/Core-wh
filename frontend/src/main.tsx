@@ -2,9 +2,8 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import './styles/index.css';
-// WAREHOUSE OS design system: shared tokens + the shells' themes.
+// WAREHOUSE OS design system: shared tokens + the two shells' themes.
 import './styles/os-theme.css';
-import './styles/global-shell.css';
 import './terminal/terminal-shell.css';
 import './admin/admin-shell.css';
 

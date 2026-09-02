@@ -31,7 +31,7 @@ export function useTerminalUi(): TerminalUi {
 }
 
 export default function WorkerShell() {
-  const { me, loading } = useAuth();
+  const { me, loading, logoutFn } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -40,6 +40,7 @@ export default function WorkerShell() {
   const [status, setStatus] = useState<{ text: string; kind?: 'ok' | 'bad' | 'info' } | null>(null);
   const [lastAction, setLastAction] = useState<string | null>(null);
   const [online, setOnline] = useState(navigator.onLine);
+  const [clock, setClock] = useState(() => new Date());
 
   const reload = useCallback(async () => {
     try {
@@ -62,9 +63,11 @@ export default function WorkerShell() {
     const off = () => setOnline(false);
     window.addEventListener('online', on);
     window.addEventListener('offline', off);
+    const t = window.setInterval(() => setClock(new Date()), 30_000);
     return () => {
       window.removeEventListener('online', on);
       window.removeEventListener('offline', off);
+      window.clearInterval(t);
     };
   }, []);
 
@@ -91,13 +94,16 @@ export default function WorkerShell() {
   return (
     <TerminalUiContext.Provider value={ui}>
       <div className="os-root theme-worker wt">
-        {/* Task strip: what am I doing + operational state. Identity, brand,
-            clock and logout live ONCE in the Global Shell header. */}
+        {/* Identity strip: who am I, where am I, what am I doing (§5). */}
         <header className="wt-top">
           <div className="wt-top-left">
+            <span className="wt-brand">AYROVI</span>
             <span className="wt-task">{task?.label ?? 'TERMINAL'}</span>
           </div>
           <div className="wt-top-right">
+            <span className="wt-worker" title="Signed-in worker">
+              {me.user.name}
+            </span>
             <span className="os-tag os-tag--muted">
               {ctx?.station ? ctx.station.code : 'NO STATION'}
             </span>
@@ -111,6 +117,13 @@ export default function WorkerShell() {
             >
               TASKS
             </button>
+            <button
+              type="button"
+              className="os-btn os-btn--danger wt-top-btn"
+              onClick={() => void logoutFn()}
+            >
+              LOG OUT
+            </button>
           </div>
         </header>
 
@@ -119,13 +132,16 @@ export default function WorkerShell() {
           <Outlet />
         </main>
 
-        {/* Persistent operational status: state, last action, station (§5). */}
+        {/* Persistent operational status: state, last action, session (§5). */}
         <footer className="wt-foot">
           <span className={`wt-foot-state ${status?.kind ?? 'info'}`}>
             {status?.text ?? 'READY'}
           </span>
           <span className="wt-foot-last">{lastAction ?? '—'}</span>
-          <span className="wt-foot-meta">{ctx?.station?.name ?? 'unassigned'}</span>
+          <span className="wt-foot-meta">
+            {ctx?.station?.name ?? 'unassigned'} ·{' '}
+            {clock.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </span>
         </footer>
       </div>
     </TerminalUiContext.Provider>

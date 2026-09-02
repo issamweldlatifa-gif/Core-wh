@@ -1,10 +1,9 @@
 import { Suspense, lazy } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import GlobalShell from './components/GlobalShell';
+import AppShell from './components/AppShell';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
-import Profile from './pages/Profile';
 import WarehouseModule from './modules/warehouse';
 import StructureExplorer from './modules/warehouse/StructureExplorer';
 import Warehouses from './modules/warehouse/Warehouses';
@@ -19,11 +18,12 @@ import Users from './pages/Users';
 import Roles from './pages/Roles';
 import Audit from './pages/Audit';
 import System from './pages/System';
-// WAREHOUSE OS — Worker Terminal pages (executed inside the Global Shell).
+// WAREHOUSE OS — Worker Terminal (§3-§5) and Admin Control Center (§6).
 const WorkerShell = lazy(() => import('./terminal/WorkerShell'));
 const WorkerTerminalHome = lazy(() => import('./terminal/WorkerTerminalHome'));
 const ReceivingTask = lazy(() => import('./terminal/ReceivingTask'));
 const PutawayTask = lazy(() => import('./terminal/PutawayTask'));
+const AdminShell = lazy(() => import('./admin/AdminShell'));
 const ControlCenter = lazy(() => import('./admin/pages/ControlCenter'));
 const AdminWorkers = lazy(() => import('./admin/pages/Workers'));
 const AdminSessionDetail = lazy(() => import('./admin/pages/SessionDetail'));
@@ -80,42 +80,44 @@ export default function App() {
           />
           <Route path="/receiving" element={<Navigate to="/warehouse/receiving" replace />} />
 
-          {/* ---- ONE GLOBAL SHELL (§12): header + nav + workspace for every
-              role. Role-aware CONTENT, never role-specific layouts. -------- */}
-          <Route element={<GlobalShell />}>
+          {/* ---- WORKER TERMINAL (§3-§5) -------------------------------
+              A worker's whole world. Full-screen, no admin navigation. */}
+          <Route path="/terminal" element={<WorkerShell />}>
+            <Route index element={<WorkerTerminalHome />} />
+            <Route
+              path="receiving"
+              element={<PermissionGate perm="receiving.execute"><ReceivingTask /></PermissionGate>}
+            />
+            <Route
+              path="putaway"
+              element={<PermissionGate perm="stowing.execute"><PutawayTask /></PermissionGate>}
+            />
+          </Route>
+
+          {/* ---- ADMIN CONTROL CENTER (§6/§36-§40) ---------------------
+              Guarded by operations.view, which workers do not have (§41). */}
+          <Route
+            path="/admin"
+            element={<PermissionGate perm="operations.view"><AdminShell /></PermissionGate>}
+          >
+            <Route index element={<ControlCenter />} />
+            <Route path="workers" element={<AdminWorkers />} />
+            <Route path="workers/:id" element={<AdminWorkers />} />
+            <Route path="sessions/:id" element={<AdminSessionDetail />} />
+            <Route path="stations" element={<AdminStations />} />
+            <Route path="exceptions" element={<AdminExceptions />} />
+            <Route path="corrections" element={<AdminCorrections />} />
+            {/* Existing modules stay reachable from the Control Center nav. */}
+            <Route path="arrivals" element={<Navigate to="/expected-arrivals" replace />} />
+            <Route path="receiving" element={<Navigate to="/warehouse/receiving" replace />} />
+            <Route path="structure" element={<Navigate to="/warehouse/structure" replace />} />
+            <Route path="users" element={<Navigate to="/users" replace />} />
+            <Route path="roles" element={<Navigate to="/roles" replace />} />
+            <Route path="audit" element={<Navigate to="/audit" replace />} />
+            <Route path="system" element={<Navigate to="/system" replace />} />
+          </Route>
+          <Route element={<AppShell />}>
             <Route index element={<Dashboard />} />
-            <Route path="profile" element={<Profile />} />
-
-            {/* Worker Terminal pages inside the shell: identity/brand/logout
-                come from the Global Shell; the task strip stays operational. */}
-            <Route path="terminal" element={<WorkerShell />}>
-              <Route index element={<WorkerTerminalHome />} />
-              <Route
-                path="receiving"
-                element={<PermissionGate perm="receiving.execute"><ReceivingTask /></PermissionGate>}
-              />
-              <Route
-                path="putaway"
-                element={<PermissionGate perm="stowing.execute"><PutawayTask /></PermissionGate>}
-              />
-            </Route>
-
-            {/* Admin Control Center PAGES (chrome comes from the Global Shell). */}
-            <Route path="admin" element={<PermissionGate perm="operations.view"><ControlCenter /></PermissionGate>} />
-            <Route path="admin/workers" element={<PermissionGate perm="operations.view"><AdminWorkers /></PermissionGate>} />
-            <Route path="admin/workers/:id" element={<PermissionGate perm="operations.view"><AdminWorkers /></PermissionGate>} />
-            <Route path="admin/sessions/:id" element={<PermissionGate perm="operations.view"><AdminSessionDetail /></PermissionGate>} />
-            <Route path="admin/stations" element={<PermissionGate perm="stations.view"><AdminStations /></PermissionGate>} />
-            <Route path="admin/exceptions" element={<PermissionGate perm="operations.view"><AdminExceptions /></PermissionGate>} />
-            <Route path="admin/corrections" element={<PermissionGate perm="operations.view"><AdminCorrections /></PermissionGate>} />
-            <Route path="admin/arrivals" element={<Navigate to="/expected-arrivals" replace />} />
-            <Route path="admin/receiving" element={<Navigate to="/warehouse/receiving" replace />} />
-            <Route path="admin/structure" element={<Navigate to="/warehouse/structure" replace />} />
-            <Route path="admin/users" element={<Navigate to="/users" replace />} />
-            <Route path="admin/roles" element={<Navigate to="/roles" replace />} />
-            <Route path="admin/audit" element={<Navigate to="/audit" replace />} />
-            <Route path="admin/system" element={<Navigate to="/system" replace />} />
-
             <Route
               path="expected-arrivals"
               element={<PermissionGate perm="expected_arrivals.view"><ExpectedArrivals /></PermissionGate>}
