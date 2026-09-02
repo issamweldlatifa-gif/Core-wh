@@ -82,6 +82,41 @@ export class ExpectedArrivalsService {
     const totalUnits = products.reduce((sum, p) => sum + (Number(p.quantity) || 0), 0);
     const now = new Date();
 
+    // ---- Category validation against the Category Master (§ intake) ----
+    // Known + ACTIVE -> CONFIRMED. Missing / 'UNCLASSIFIED' / unknown /
+    // inactive -> NEEDS_REVIEW. An arbitrary string NEVER silently becomes a
+    // classified category, and a NEEDS_REVIEW line is never treated as
+    // classified downstream. One master lookup for the whole card.
+    const requestedCodes = Array.from(
+      new Set(
+        products
+          .map((p) => p.category?.trim().toUpperCase())
+          .filter((c): c is string => !!c && c !== 'UNCLASSIFIED'),
+      ),
+    );
+    const masterRows = requestedCodes.length
+      ? await this.prisma.categoryMaster.findMany({ where: { code: { in: requestedCodes } } })
+      : [];
+    const master = new Map(masterRows.map((m) => [m.code, m]));
+
+    const classify = (p: (typeof products)[number]) => {
+      const code = p.category?.trim().toUpperCase() || null;
+      const sub = p.subcategory?.trim().toUpperCase() || null;
+      if (!code || code === 'UNCLASSIFIED') {
+        return { category: code === 'UNCLASSIFIED' ? null : code, subcategory: sub, status: 'NEEDS_REVIEW' as const, reason: 'missing/unclassified' };
+      }
+      const m = master.get(code);
+      if (!m) return { category: code, subcategory: sub, status: 'NEEDS_REVIEW' as const, reason: 'unknown category' };
+      if (m.status !== 'ACTIVE') return { category: code, subcategory: sub, status: 'NEEDS_REVIEW' as const, reason: 'inactive category' };
+      // Subcategory check: only when the master restricts subcategories.
+      if (sub && m.subcategories.length > 0 && !m.subcategories.includes(sub)) {
+        return { category: code, subcategory: sub, status: 'NEEDS_REVIEW' as const, reason: 'unknown subcategory' };
+      }
+      return { category: code, subcategory: sub, status: 'CONFIRMED' as const, reason: null };
+    };
+    const verdicts = products.map(classify);
+    const needsReviewCount = verdicts.filter((v) => v.status === 'NEEDS_REVIEW').length;
+
     const arrival = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const code = await this.generateWarehouseCode(tx);
       const record = await tx.expectedArrival.create({
@@ -103,7 +138,7 @@ export class ExpectedArrivalsService {
           receivedViaApi: true,
           receivedViaApiAt: now,
           items: {
-            create: products.map((p) => ({
+            create: products.map((p, i) => ({
               productId: p.product_id?.trim() || null,
               sku: p.sku?.trim() || null,
               reference: p.reference?.trim() || null,
@@ -112,10 +147,12 @@ export class ExpectedArrivalsService {
               variant: p.variant?.trim() || null,
               color: p.color?.trim() || null,
               size: p.size?.trim() || null,
-              // Category comes from the CRM as-is; normalized UPPERCASE for
-              // consistent grouping/sorting. Missing/empty -> NULL (UNKNOWN
-              // in the UI). Never inferred from the product name.
-              category: p.category?.trim() ? p.category.trim().toUpperCase() : null,
+              // Validated classification (see classify() above). Never
+              // inferred from the product name.
+              category: verdicts[i].category,
+              subcategory: verdicts[i].subcategory,
+              classificationSource: p.classification_source?.trim() || null,
+              categoryStatus: verdicts[i].status,
               storeId: p.store_id?.trim() || card.store?.id?.trim() || null,
               storeName: p.store_name?.trim() || card.store?.name?.trim() || null,
             })),
@@ -147,6 +184,46 @@ export class ExpectedArrivalsService {
         },
         tx,
       );
+
+      // Classification traceability (same tx): one row per card summarising
+      // the verdicts, plus an explicit NEEDS_REVIEW row when any line failed
+      // validation so review queues can be driven off the audit stream.
+      await this.audit.log(
+        {
+          actorUserId: null,
+          action: 'CATEGORY_VALIDATED' as never,
+          entityType: 'expected_arrival',
+          entityId: record.id,
+          ipAddress: ip ?? null,
+          metadata: {
+            external_card_id: cardId,
+            confirmed: verdicts.filter((v) => v.status === 'CONFIRMED').length,
+            needs_review: needsReviewCount,
+            lines: verdicts.map((v, i) => ({
+              sku: products[i].sku ?? null,
+              category: v.category,
+              subcategory: v.subcategory,
+              classification_source: products[i].classification_source ?? null,
+              status: v.status,
+              reason: v.reason,
+            })),
+          },
+        },
+        tx,
+      );
+      if (needsReviewCount > 0) {
+        await this.audit.log(
+          {
+            actorUserId: null,
+            action: 'CATEGORY_NEEDS_REVIEW' as never,
+            entityType: 'expected_arrival',
+            entityId: record.id,
+            ipAddress: ip ?? null,
+            metadata: { external_card_id: cardId, lines_needing_review: needsReviewCount },
+          },
+          tx,
+        );
+      }
 
       return record;
     });
@@ -209,6 +286,73 @@ export class ExpectedArrivalsService {
     return { data: data.map((r) => this.toListShape(r)), total, take, skip };
   }
 
+  /**
+   * Manual category resolution (audited: CATEGORY_MANUALLY_CHANGED).
+   *
+   * A supervisor resolves a NEEDS_REVIEW line (or corrects a wrong one) by
+   * picking a category from the Category Master. Same rules as intake: the
+   * category must exist and be ACTIVE, the subcategory must be allowed —
+   * arbitrary text is rejected here exactly like on the card. The change is
+   * propagated to the snapshots of any receiving session that is still open,
+   * so the worker terminal reflects the resolution immediately.
+   */
+  async changeItemCategory(
+    itemId: string,
+    body: { category: string; subcategory?: string | null },
+    actor: { id: string; ip?: string | null },
+  ) {
+    const item = await this.prisma.expectedArrivalItem.findUnique({
+      where: { id: itemId },
+      include: { arrival: { select: { id: true, code: true } } },
+    });
+    if (!item) throw new NotFoundException('Arrival item not found.');
+
+    const code = (body.category ?? '').trim().toUpperCase();
+    if (!code) throw new BadRequestException('Category is required.');
+    const master = await this.prisma.categoryMaster.findUnique({ where: { code } });
+    if (!master) throw new BadRequestException(`Category ${code} does not exist in the Category Master.`);
+    if (master.status !== 'ACTIVE') throw new BadRequestException(`Category ${code} is INACTIVE.`);
+    const sub = body.subcategory?.trim().toUpperCase() || null;
+    if (sub && master.subcategories.length > 0 && !master.subcategories.includes(sub)) {
+      throw new BadRequestException(`Subcategory ${sub} is not allowed under ${code}.`);
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.expectedArrivalItem.update({
+        where: { id: itemId },
+        data: {
+          category: code,
+          subcategory: sub,
+          classificationSource: 'MANUAL',
+          categoryStatus: 'CONFIRMED' as never,
+        },
+      });
+      // Keep open receiving-session snapshots in sync (completed sessions
+      // keep their historical snapshot untouched).
+      await tx.receivingProduct.updateMany({
+        where: { arrivalItemId: itemId, session: { status: { in: ['RECEIVING', 'PAUSED'] as never[] } } },
+        data: { category: code, subcategory: sub, categoryStatus: 'CONFIRMED' as never },
+      });
+      await this.audit.log(
+        {
+          actorUserId: actor.id,
+          action: 'CATEGORY_MANUALLY_CHANGED' as never,
+          entityType: 'expected_arrival_item',
+          entityId: itemId,
+          ipAddress: actor.ip ?? null,
+          metadata: {
+            arrival: item.arrival?.code ?? null,
+            sku: item.sku,
+            before: { category: item.category, subcategory: item.subcategory, status: item.categoryStatus },
+            after: { category: code, subcategory: sub, status: 'CONFIRMED' },
+          },
+        },
+        tx,
+      );
+      return updated;
+    });
+  }
+
   async detail(idOrCode: string) {
     const arrival = await this.prisma.expectedArrival.findFirst({
       where: { OR: [{ id: idOrCode }, { code: idOrCode }] },
@@ -262,6 +406,9 @@ export class ExpectedArrivalsService {
         color: it.color,
         size: it.size,
         category: it.category ?? null,
+        subcategory: it.subcategory ?? null,
+        classificationSource: it.classificationSource ?? null,
+        categoryStatus: it.categoryStatus ?? 'NEEDS_REVIEW',
         storeId: it.storeId,
         storeName: it.storeName,
       })),

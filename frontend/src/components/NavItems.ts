@@ -23,6 +23,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: 'putaway', label: 'Putaway', path: '/terminal/putaway', permission: 'stowing.execute' },
   { key: 'admin', label: 'Control Center', path: '/admin', permission: 'operations.view' },
   { key: 'expected-arrivals', label: 'Expected Arrivals', path: '/expected-arrivals', permission: 'expected_arrivals.view' },
+  { key: 'categories', label: 'Categories', path: '/categories', permission: 'inventory.view' },
   { key: 'warehouse', label: 'Warehouse', path: '/warehouse', permission: 'warehouses.view' },
   { key: 'users', label: 'Users', path: '/users', permission: 'users.view' },
   { key: 'roles', label: 'Roles & Permissions', path: '/roles', permission: 'roles.view' },

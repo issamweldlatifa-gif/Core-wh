@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import { ExpectedArrivalsService } from '../src/modules/expected-arrivals/expected-arrivals.service';
 import { ReceivingService } from '../src/modules/receiving/receiving.service';
 import { PutawayService } from '../src/modules/putaway/putaway.service';
+import { CategoriesService } from '../src/modules/categories/categories.service';
 
 /**
  * CURRENT CARD + CATEGORY — end-to-end (service layer, real Postgres).
@@ -43,7 +44,7 @@ describe('CURRENT CARD + CATEGORY', () => {
     prisma = new PrismaClient();
     arrivals = new ExpectedArrivalsService(prisma as any, noAudit);
     receiving = new ReceivingService(prisma as any, noAudit);
-    putaway = new PutawayService(prisma as any, noAudit);
+    putaway = new PutawayService(prisma as any, noAudit, new CategoriesService(prisma as any, noAudit));
   });
 
   afterAll(async () => {

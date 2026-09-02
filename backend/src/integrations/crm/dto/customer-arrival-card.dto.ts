@@ -91,14 +91,24 @@ export class ArrivalProductDto {
   /**
    * Product category pushed by the CRM (e.g. "SHOES", "CLOTHING",
    * "ACCESSORIES"). Optional so existing/legacy cards keep working
-   * unchanged. Free set — the warehouse does NOT enforce an enum because the
-   * category taxonomy is owned by the CRM; the value is normalized to
-   * UPPERCASE on persist. Absent/empty -> stored as NULL and shown as
-   * UNKNOWN (never guessed from the product name).
+   * unchanged. Normalized to UPPERCASE on persist and VALIDATED against the
+   * warehouse Category Master at intake: known+ACTIVE -> CONFIRMED, anything
+   * else (missing / UNCLASSIFIED / unknown / inactive) -> NEEDS_REVIEW.
+   * Arbitrary strings never silently become categories.
    */
   @ApiPropertyOptional({ example: 'CLOTHING', nullable: true })
   @IsOptional() @IsString() @MaxLength(120)
   category?: string | null;
+
+  /** Optional subcategory (e.g. "SPORTS" under "SHOES"). */
+  @ApiPropertyOptional({ example: 'SHIRTS', nullable: true })
+  @IsOptional() @IsString() @MaxLength(120)
+  subcategory?: string | null;
+
+  /** Who classified on the CRM side: AI or MANUAL. Reference/trace only. */
+  @ApiPropertyOptional({ enum: ['AI', 'MANUAL'], nullable: true })
+  @IsOptional() @IsString() @IsIn(['AI', 'MANUAL'])
+  classification_source?: 'AI' | 'MANUAL' | null;
 
   @ApiPropertyOptional({ example: 'STORE-SHEIN' })
   @IsOptional() @IsString() @MaxLength(160)

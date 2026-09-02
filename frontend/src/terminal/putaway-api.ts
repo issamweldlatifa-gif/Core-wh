@@ -15,10 +15,26 @@ export interface QueueCarton {
   /**
    * Distinct product categories of the carton's arrival (CRM-pushed,
    * UPPERCASE; 'UNKNOWN' for lines the CRM sent without a category).
-   * Operational input for the Sorting decision — Category -> Zone mapping is
-   * a pending business decision, so this is display/data only for now.
    */
   categories?: string[];
+  /** Per-line classification (validated against the Category Master). */
+  classification?: Array<{
+    category: string | null;
+    subcategory: string | null;
+    status: 'CONFIRMED' | 'NEEDS_REVIEW';
+  }>;
+  /**
+   * Sorting verdict resolved from the configured Category -> Zone mapping:
+   *  - DESTINATION: route the carton to `zone`,
+   *  - NEEDS_REVIEW: classification unresolved -> MANUAL REVIEW REQUIRED,
+   *  - UNMAPPED / AMBIGUOUS: mapping configuration incomplete -> no
+   *    destination is suggested (never guessed).
+   */
+  sorting?:
+    | { kind: 'DESTINATION'; zone: { id: string; code: string; name: string } }
+    | { kind: 'NEEDS_REVIEW' }
+    | { kind: 'UNMAPPED'; categories: string[] }
+    | { kind: 'AMBIGUOUS'; zones: string[] };
 }
 
 export interface PutawayPlacement {

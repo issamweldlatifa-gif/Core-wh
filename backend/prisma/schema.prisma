@@ -144,6 +144,16 @@ enum AuditAction {
   PUTAWAY_PAUSED
   PUTAWAY_RESUMED
   PUTAWAY_COMPLETED
+  // Category Master / classification traceability.
+  CATEGORY_CREATED
+  CATEGORY_UPDATED
+  CATEGORY_STATUS_CHANGED
+  CATEGORY_MAPPING_SET
+  CATEGORY_MAPPING_REMOVED
+  CATEGORY_VALIDATED
+  CATEGORY_NEEDS_REVIEW
+  CATEGORY_MANUALLY_CHANGED
+  SORTING_DESTINATION_SELECTED
   // Placeholders for later phases (NOT implemented in Phase 0/1).
   ITEM_RECEIVED
   ITEM_STORED
@@ -409,6 +419,7 @@ model Zone {
 
   aisles    Aisle[]
   locations Location[]
+  categoryMappings CategoryZoneMapping[]
 
   @@unique([warehouseId, code])
   @@index([warehouseId])
@@ -840,8 +851,17 @@ model ExpectedArrivalItem {
   /// Product category pushed by the Arrival CRM (normalized UPPERCASE, e.g.
   /// "SHOES", "CLOTHING"). NULL when the CRM did not send one — the UI shows
   /// NULL as UNKNOWN; it is NEVER guessed from the product name. Used by
-  /// Receiving display and (later) Sorting destination decisions.
+  /// Receiving display and Sorting destination decisions.
   category    String?
+  /// Optional subcategory from the CRM (e.g. "SPORTS" under "SHOES").
+  subcategory String?
+  /// Who classified the product on the CRM side: AI | MANUAL. Reference only.
+  classificationSource String?
+  /// Validation verdict against the Category Master at intake time:
+  /// CONFIRMED    — category exists in the master and is ACTIVE.
+  /// NEEDS_REVIEW — missing / UNCLASSIFIED / unknown / inactive category.
+  /// A NEEDS_REVIEW line is NEVER treated as classified downstream.
+  categoryStatus CategoryValidationStatus @default(NEEDS_REVIEW)
   // Store the product came from when a card aggregates multiple stores.
   storeId     String?
   storeName   String?
@@ -853,6 +873,63 @@ model ExpectedArrivalItem {
   @@index([sku])
   @@index([category])
   @@map("expected_arrival_items")
+}
+
+// ------------------------------------------------------------------
+// Category Master — the controlled vocabulary for product categories.
+// Categories arrive on the CRM Card (AI or MANUAL classified); intake
+// validates them against this master. Arbitrary strings NEVER become
+// categories. Independent of the physical Warehouse Tree; the optional
+// CategoryZoneMapping below links a category to a sorting Zone as pure
+// CONFIGURATION (managed at runtime, never hardcoded).
+// ------------------------------------------------------------------
+
+/// Verdict of validating a CRM-pushed category against the Category Master.
+enum CategoryValidationStatus {
+  CONFIRMED
+  NEEDS_REVIEW
+}
+
+enum CategoryStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model CategoryMaster {
+  id        String         @id @default(uuid())
+  /// Canonical UPPERCASE code, e.g. SHOES / CLOTHING / ACCESSORIES.
+  code      String         @unique
+  name      String
+  status    CategoryStatus @default(ACTIVE)
+  /// Optional allowed subcategories (UPPERCASE codes). Empty = any/none.
+  /// Kept as a simple list: subcategories are labels, not a second tree.
+  subcategories String[]   @default([])
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  zoneMappings CategoryZoneMapping[]
+
+  @@index([status])
+  @@map("category_master")
+}
+
+/// Category -> sorting Zone destination. Warehouse CONFIGURATION, not code:
+/// admins manage rows here; sorting reads them. Unique per (category, zone
+/// scope) so one category has at most one destination per warehouse.
+model CategoryZoneMapping {
+  id         String         @id @default(uuid())
+  categoryId String
+  category   CategoryMaster @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  /// Destination zone. Restrict: a zone referenced by sorting config cannot
+  /// be silently deleted from under the workflow.
+  zoneId     String
+  zone       Zone           @relation(fields: [zoneId], references: [id], onDelete: Restrict)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  @@unique([categoryId, zoneId])
+  @@index([zoneId])
+  @@map("category_zone_mappings")
 }
 
 // ------------------------------------------------------------------
@@ -1069,9 +1146,11 @@ model ReceivingProduct {
   productName   String?
   /// Category snapshot copied from the ExpectedArrivalItem when the session
   /// is seeded (§ CURRENT CARD + CATEGORY). Kept on the receiving line so the
-  /// worker terminal and later Sorting see it without re-joining CRM data.
+  /// worker terminal and Sorting see it without re-joining CRM data.
   /// NULL = CRM never sent one -> displayed as UNKNOWN, never guessed.
-  category      String?
+  category       String?
+  subcategory    String?
+  categoryStatus CategoryValidationStatus @default(NEEDS_REVIEW)
 
   expectedQuantity Int                    @default(0)
   receivedQuantity Int                    @default(0)

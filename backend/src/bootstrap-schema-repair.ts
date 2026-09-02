@@ -46,7 +46,10 @@ const PROBE_SQL = `
     (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'receiving_sessions' AND column_name = 'deviceType')        AS rs_device,
     (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'receiving_cartons'  AND column_name = 'source')            AS rc_source,
     (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'expected_arrival_items' AND column_name = 'category')      AS eai_category,
-    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'receiving_products' AND column_name = 'category')          AS rp_category
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'receiving_products' AND column_name = 'category')          AS rp_category,
+    (SELECT COUNT(*) FROM information_schema.tables  WHERE table_schema = 'public' AND table_name = 'category_master')       AS category_master,
+    (SELECT COUNT(*) FROM information_schema.tables  WHERE table_schema = 'public' AND table_name = 'category_zone_mappings') AS category_zone_mappings,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'expected_arrival_items' AND column_name = 'categoryStatus') AS eai_category_status
 `;
 
 /**
@@ -186,6 +189,47 @@ const REPAIR_STATEMENTS: string[] = [
   `ALTER TABLE "expected_arrival_items" ADD COLUMN IF NOT EXISTS "category" TEXT`,
   `ALTER TABLE "receiving_products" ADD COLUMN IF NOT EXISTS "category" TEXT`,
   `CREATE INDEX IF NOT EXISTS "expected_arrival_items_category_idx" ON "expected_arrival_items"("category")`,
+  // ---- category master + validation (migration 20260903090000) ------------
+  `DO $$ BEGIN CREATE TYPE "CategoryValidationStatus" AS ENUM ('CONFIRMED', 'NEEDS_REVIEW'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  `DO $$ BEGIN CREATE TYPE "CategoryStatus" AS ENUM ('ACTIVE', 'INACTIVE'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'CATEGORY_CREATED'`,
+  `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'CATEGORY_UPDATED'`,
+  `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'CATEGORY_STATUS_CHANGED'`,
+  `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'CATEGORY_MAPPING_SET'`,
+  `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'CATEGORY_MAPPING_REMOVED'`,
+  `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'CATEGORY_VALIDATED'`,
+  `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'CATEGORY_NEEDS_REVIEW'`,
+  `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'CATEGORY_MANUALLY_CHANGED'`,
+  `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'SORTING_DESTINATION_SELECTED'`,
+  `CREATE TABLE IF NOT EXISTS "category_master" (
+    "id" TEXT NOT NULL,
+    "code" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "status" "CategoryStatus" NOT NULL DEFAULT 'ACTIVE',
+    "subcategories" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    CONSTRAINT "category_master_pkey" PRIMARY KEY ("id")
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "category_master_code_key" ON "category_master"("code")`,
+  `CREATE INDEX IF NOT EXISTS "category_master_status_idx" ON "category_master"("status")`,
+  `CREATE TABLE IF NOT EXISTS "category_zone_mappings" (
+    "id" TEXT NOT NULL,
+    "categoryId" TEXT NOT NULL,
+    "zoneId" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    CONSTRAINT "category_zone_mappings_pkey" PRIMARY KEY ("id")
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "category_zone_mappings_categoryId_zoneId_key" ON "category_zone_mappings"("categoryId", "zoneId")`,
+  `CREATE INDEX IF NOT EXISTS "category_zone_mappings_zoneId_idx" ON "category_zone_mappings"("zoneId")`,
+  `DO $$ BEGIN ALTER TABLE "category_zone_mappings" ADD CONSTRAINT "category_zone_mappings_categoryId_fkey" FOREIGN KEY ("categoryId") REFERENCES "category_master"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  `DO $$ BEGIN ALTER TABLE "category_zone_mappings" ADD CONSTRAINT "category_zone_mappings_zoneId_fkey" FOREIGN KEY ("zoneId") REFERENCES "zones"("id") ON DELETE RESTRICT ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  `ALTER TABLE "expected_arrival_items" ADD COLUMN IF NOT EXISTS "subcategory" TEXT`,
+  `ALTER TABLE "expected_arrival_items" ADD COLUMN IF NOT EXISTS "classificationSource" TEXT`,
+  `ALTER TABLE "expected_arrival_items" ADD COLUMN IF NOT EXISTS "categoryStatus" "CategoryValidationStatus" NOT NULL DEFAULT 'NEEDS_REVIEW'`,
+  `ALTER TABLE "receiving_products" ADD COLUMN IF NOT EXISTS "subcategory" TEXT`,
+  `ALTER TABLE "receiving_products" ADD COLUMN IF NOT EXISTS "categoryStatus" "CategoryValidationStatus" NOT NULL DEFAULT 'NEEDS_REVIEW'`,
 ];
 
 export async function repairSchemaDriftIfNeeded(): Promise<void> {
@@ -227,6 +271,7 @@ export async function repairSchemaDriftIfNeeded(): Promise<void> {
     for (const migrationName of [
       '20260902100000_repair_warehouse_os_drift',
       '20260902210000_product_category_from_crm',
+      '20260903090000_category_master_and_validation',
     ]) {
       try {
         await prisma.$executeRawUnsafe(`

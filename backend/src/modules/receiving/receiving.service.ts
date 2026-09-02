@@ -108,7 +108,12 @@ export class ReceivingService {
         },
       });
       // Seed the expected product reconciliation rows from the Expected Arrival items.
-      const lines: Record<string, { qty: number; name: string; ref: string | null; itemId: string; category: string | null }> = {};
+      type Agg = {
+        qty: number; name: string; ref: string | null; itemId: string;
+        category: string | null; subcategory: string | null;
+        categoryStatus: 'CONFIRMED' | 'NEEDS_REVIEW';
+      };
+      const lines: Record<string, Agg> = {};
       for (const it of arrival.items) {
         const key = it.sku || it.reference || '';
         if (!key) {
@@ -117,6 +122,8 @@ export class ReceivingService {
             data: {
               receivingSessionId: session.id, arrivalItemId: it.id, sku: null, reference: it.reference,
               productName: it.productName, category: it.category ?? null,
+              subcategory: it.subcategory ?? null,
+              categoryStatus: (it.categoryStatus ?? 'NEEDS_REVIEW') as never,
               expectedQuantity: it.quantity, receivedQuantity: 0,
               difference: -it.quantity, status: 'NEEDS_REVIEW',
             },
@@ -124,17 +131,27 @@ export class ReceivingService {
           continue;
         }
         const norm = key.trim();
-        if (!lines[norm]) lines[norm] = { qty: 0, name: it.productName || '', ref: it.reference, itemId: it.id, category: it.category ?? null };
+        if (!lines[norm]) {
+          lines[norm] = {
+            qty: 0, name: it.productName || '', ref: it.reference, itemId: it.id,
+            category: it.category ?? null, subcategory: it.subcategory ?? null,
+            categoryStatus: (it.categoryStatus ?? 'NEEDS_REVIEW') as Agg['categoryStatus'],
+          };
+        }
         lines[norm].qty += it.quantity;
         // Same SKU should carry one category; if CRM lines disagree we keep
-        // the first non-null value rather than guessing.
+        // the first non-null value rather than guessing. A single
+        // NEEDS_REVIEW line taints the aggregate (never over-claim CONFIRMED).
         if (!lines[norm].category && it.category) lines[norm].category = it.category;
+        if (!lines[norm].subcategory && it.subcategory) lines[norm].subcategory = it.subcategory;
+        if ((it.categoryStatus ?? 'NEEDS_REVIEW') === 'NEEDS_REVIEW') lines[norm].categoryStatus = 'NEEDS_REVIEW';
       }
       for (const [sku, agg] of Object.entries(lines)) {
         await tx.receivingProduct.create({
           data: {
             receivingSessionId: session.id, arrivalItemId: agg.itemId, sku, reference: agg.ref,
             productName: agg.name, category: agg.category,
+            subcategory: agg.subcategory, categoryStatus: agg.categoryStatus as never,
             expectedQuantity: agg.qty, receivedQuantity: 0,
             difference: -agg.qty, status: 'EXPECTED',
           },
@@ -531,6 +548,8 @@ export class ReceivingService {
       products: session.products.map((p) => ({
         id: p.id, sku: p.sku, reference: p.reference, productName: p.productName,
         category: p.category ?? null,
+        subcategory: p.subcategory ?? null,
+        categoryStatus: p.categoryStatus ?? 'NEEDS_REVIEW',
         expected: p.expectedQuantity, received: p.receivedQuantity,
         remaining: Math.max(0, p.expectedQuantity - p.receivedQuantity),
         difference: p.difference, status: p.status,

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
 import { PrismaModule } from '../../prisma/prisma.module';
+import { CategoriesModule } from '../categories/categories.module';
 import { PutawayService } from './putaway.service';
 import { PutawayController } from './putaway.controller';
 
@@ -9,7 +10,7 @@ import { PutawayController } from './putaway.controller';
  * keeps an append-only placement ledger.
  */
 @Module({
-  imports: [PrismaModule, AuditModule],
+  imports: [PrismaModule, AuditModule, CategoriesModule],
   controllers: [PutawayController],
   providers: [PutawayService],
   exports: [PutawayService],

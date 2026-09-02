@@ -27,6 +27,27 @@ const ContinuousScanner = lazy(() => import('../modules/receiving-terminal/Conti
 
 type Step = 'CARTON' | 'LOCATION';
 
+/**
+ * Distinct CATEGORY/SUBCATEGORY pairs for a queued carton. Falls back to the
+ * legacy `categories` list when the backend predates per-line classification.
+ */
+function dedupeClassification(c: QueueCarton) {
+  const lines = c.classification ?? [];
+  if (lines.length === 0) {
+    return (c.categories ?? []).map((cat) => ({
+      category: cat === 'UNKNOWN' ? null : cat,
+      subcategory: null as string | null,
+      status: (cat === 'UNKNOWN' ? 'NEEDS_REVIEW' : 'CONFIRMED') as 'CONFIRMED' | 'NEEDS_REVIEW',
+    }));
+  }
+  const seen = new Map<string, (typeof lines)[number]>();
+  for (const l of lines) {
+    const key = `${l.category ?? ''}|${l.subcategory ?? ''}|${l.status}`;
+    if (!seen.has(key)) seen.set(key, l);
+  }
+  return Array.from(seen.values());
+}
+
 interface StagedCarton {
   code: string;
   arrivalCode: string | null;
@@ -377,9 +398,28 @@ export default function PutawayTask() {
               >
                 <span className="os-mono">{c.externalCartonId}</span>
                 <span className="os-muted">{c.customerName ?? c.arrivalCode ?? ''}</span>
-                {(c.categories ?? []).map((cat) => (
-                  <span key={cat} className={`os-tag ${cat === 'UNKNOWN' ? 'os-tag--warn' : 'os-tag--ok'}`}>{cat}</span>
+                {/* CATEGORY / SUBCATEGORY — validated classification. */}
+                {dedupeClassification(c).map((cl) => (
+                  <span
+                    key={`${cl.category}|${cl.subcategory}`}
+                    className={`os-tag ${cl.status === 'CONFIRMED' ? 'os-tag--ok' : 'os-tag--warn'}`}
+                  >
+                    {cl.category ?? 'UNKNOWN'}{cl.subcategory ? ` / ${cl.subcategory}` : ''}
+                  </span>
                 ))}
+                {/* DESTINATION — resolved from configuration, never guessed. */}
+                {c.sorting?.kind === 'DESTINATION' && (
+                  <span className="os-tag os-tag--ok">→ {c.sorting.zone.code}</span>
+                )}
+                {c.sorting?.kind === 'NEEDS_REVIEW' && (
+                  <span className="os-tag os-tag--err">MANUAL REVIEW REQUIRED</span>
+                )}
+                {c.sorting?.kind === 'UNMAPPED' && (
+                  <span className="os-tag os-tag--warn">NO DESTINATION CONFIGURED</span>
+                )}
+                {c.sorting?.kind === 'AMBIGUOUS' && (
+                  <span className="os-tag os-tag--warn">MULTIPLE DESTINATIONS</span>
+                )}
               </button>
             ))}
           </div>

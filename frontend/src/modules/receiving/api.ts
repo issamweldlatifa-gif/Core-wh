@@ -23,6 +23,10 @@ export interface ReceivingProduct {
   variant: string | null;
   /** CRM-pushed category (UPPERCASE, e.g. CLOTHING). null = UNKNOWN — needs review, never guessed. */
   category: string | null;
+  /** Optional subcategory (e.g. SPORTS under SHOES). */
+  subcategory?: string | null;
+  /** Verdict against the Category Master: CONFIRMED or NEEDS_REVIEW. */
+  categoryStatus?: 'CONFIRMED' | 'NEEDS_REVIEW';
   expected: number;
   received: number;
   remaining: number;

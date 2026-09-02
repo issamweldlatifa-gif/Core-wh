@@ -12,8 +12,18 @@ export interface ExpectedArrivalItem {
   size: string | null;
   /** CRM-pushed category (UPPERCASE). null = UNKNOWN — needs review. */
   category: string | null;
+  subcategory?: string | null;
+  /** CRM classification origin: AI | MANUAL. */
+  classificationSource?: string | null;
+  /** Verdict against the Category Master. */
+  categoryStatus?: 'CONFIRMED' | 'NEEDS_REVIEW';
   storeId: string | null;
   storeName: string | null;
+}
+
+export interface ChangeCategoryPayload {
+  category: string;
+  subcategory?: string | null;
 }
 
 export interface ExpectedArrival {
@@ -57,5 +67,10 @@ export const api = {
   detail: (idOrCode: string) =>
     client
       .get<ExpectedArrivalDetail>(`/v1/expected-arrivals/${encodeURIComponent(idOrCode)}`)
+      .then((r) => r.data),
+  /** Manual resolution of a NEEDS REVIEW line against the Category Master (audited). */
+  changeCategory: (itemId: string, payload: ChangeCategoryPayload) =>
+    client
+      .post(`/v1/expected-arrivals/items/${encodeURIComponent(itemId)}/category`, payload)
       .then((r) => r.data),
 };

@@ -7,6 +7,7 @@ import {
 import { Prisma, ScanSource } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { CategoriesService } from '../categories/categories.service';
 
 /**
  * Putaway / stowing — move RECEIVED cartons onto real storage locations.
@@ -48,6 +49,7 @@ export class PutawayService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly categories: CategoriesService,
   ) {}
 
   private async genCode(tx: Prisma.TransactionClient) {
@@ -127,35 +129,60 @@ export class PutawayService {
               select: {
                 code: true,
                 customerName: true,
-                // Categories ride with the carton into the queue so the next
-                // stage (Sorting) can decide a destination. The CRM contract
-                // has no per-carton contents, so this is the ARRIVAL-level
-                // category set. NULL category -> UNKNOWN (needs review).
-                items: { select: { category: true } },
+                // Classification rides with the carton into the queue so the
+                // sorting step can decide a destination. The CRM contract has
+                // no per-carton contents, so this is the ARRIVAL-level set.
+                items: { select: { category: true, subcategory: true, categoryStatus: true } },
               },
             },
           },
         },
       },
     });
-    return cartons.map((c) => ({
-      id: c.id,
-      externalCartonId: c.externalCartonId,
-      cartonNumber: c.cartonNumber,
-      totalCartons: c.totalCartons,
-      receivedAt: c.receivedAt,
-      shipmentCode: c.shipment?.code ?? null,
-      arrivalCode: c.shipment?.expectedArrival?.code ?? null,
-      customerName: c.shipment?.expectedArrival?.customerName ?? null,
-      // Distinct categories of the arrival this carton belongs to.
-      // NOTE: Category -> Zone/Destination mapping is NOT implemented —
-      // DECISION REQUIRED (business rule does not exist in the repo).
-      categories: Array.from(
-        new Set(
-          (c.shipment?.expectedArrival?.items ?? []).map((i) => i.category ?? 'UNKNOWN'),
-        ),
-      ),
-    }));
+
+    return Promise.all(
+      cartons.map(async (c) => {
+        const items = c.shipment?.expectedArrival?.items ?? [];
+        // A line is only usable for routing when its category was CONFIRMED
+        // against the master. Any non-confirmed line -> the carton needs
+        // manual review; a wrong destination is never suggested.
+        const confirmed = items.filter((i) => i.categoryStatus === 'CONFIRMED' && i.category);
+        const hasUnconfirmed = items.length === 0 || confirmed.length < items.length;
+        const codes = Array.from(new Set(confirmed.map((i) => i.category as string)));
+
+        // Sorting destination comes from CONFIGURATION (CategoryZoneMapping),
+        // resolved at read time — never hardcoded.
+        const destination = hasUnconfirmed
+          ? ({ kind: 'NEEDS_REVIEW' } as const)
+          : await this.categories.resolveDestination(codes);
+
+        return {
+          id: c.id,
+          externalCartonId: c.externalCartonId,
+          cartonNumber: c.cartonNumber,
+          totalCartons: c.totalCartons,
+          receivedAt: c.receivedAt,
+          shipmentCode: c.shipment?.code ?? null,
+          arrivalCode: c.shipment?.expectedArrival?.code ?? null,
+          customerName: c.shipment?.expectedArrival?.customerName ?? null,
+          // Distinct categories of the arrival (kept for compatibility).
+          categories: Array.from(new Set(items.map((i) => i.category ?? 'UNKNOWN'))),
+          // Per-line classification for display.
+          classification: items.map((i) => ({
+            category: i.category ?? null,
+            subcategory: i.subcategory ?? null,
+            status: i.categoryStatus ?? 'NEEDS_REVIEW',
+          })),
+          /**
+           * Sorting verdict:
+           *  - DESTINATION  + zone   -> route the carton there
+           *  - NEEDS_REVIEW          -> MANUAL REVIEW REQUIRED (no guessing)
+           *  - UNMAPPED / AMBIGUOUS  -> configuration incomplete; no destination
+           */
+          sorting: destination,
+        };
+      }),
+    );
   }
 
   async detail(id: string) {
@@ -352,6 +379,51 @@ export class PutawayService {
           moved: result.moved,
         },
       });
+
+      // Sorting traceability: record which destination the CONFIGURED
+      // category mapping resolved to at placement time, alongside the zone
+      // actually used. Categories survive into Putaway, and the decision is
+      // reconstructable from the audit trail. Read-only — never blocks or
+      // redirects the placement, and CartonPlacement stays append-only.
+      try {
+        const context = await this.prisma.warehouseCarton.findUnique({
+          where: { id: cartonId },
+          select: {
+            shipment: {
+              select: {
+                expectedArrival: {
+                  select: { items: { select: { category: true, subcategory: true, categoryStatus: true } } },
+                },
+              },
+            },
+            currentLocation: { select: { zone: { select: { code: true } } } },
+          },
+        });
+        const items = context?.shipment?.expectedArrival?.items ?? [];
+        const confirmed = items.filter((i) => i.categoryStatus === 'CONFIRMED' && i.category);
+        const allConfirmed = items.length > 0 && confirmed.length === items.length;
+        const resolved = allConfirmed
+          ? await this.categories.resolveDestination(
+              Array.from(new Set(confirmed.map((i) => i.category as string))),
+            )
+          : ({ kind: 'NEEDS_REVIEW' } as const);
+        await this.audit.log({
+          actorUserId: actor.id,
+          action: 'SORTING_DESTINATION_SELECTED' as never,
+          entityType: 'warehouse_carton',
+          entityId: cartonId,
+          metadata: {
+            categories: Array.from(new Set(items.map((i) => i.category ?? 'UNKNOWN'))),
+            configured_destination: resolved.kind === 'DESTINATION' ? resolved.zone.code : null,
+            resolution: resolved.kind,
+            actual_zone: context?.currentLocation?.zone?.code ?? null,
+            location: location.locationCode,
+            sessionId: session.id,
+          },
+        });
+      } catch {
+        // Trace logging must never fail the placement itself.
+      }
     }
 
     return {

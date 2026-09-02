@@ -84,6 +84,9 @@ function makeMocks() {
 
   const prisma: any = {
     ...txClient,
+    // Category Master lookup used by intake validation. Empty master here:
+    // any category on a card resolves to NEEDS_REVIEW in these unit tests.
+    categoryMaster: { findMany: async () => [] },
     $transaction: async (fn: any) => fn(txClient),
   };
 
@@ -144,14 +147,22 @@ describe('ExpectedArrivalsService', () => {
     expect(stored.items[1]).toMatchObject({ sku: 'SB-2', quantity: 2, size: '42', color: 'Black' });
 
     // Audit row recorded in-transaction with the required event metadata.
-    expect(audits).toHaveLength(1);
-    expect(audits[0].action).toBe('CUSTOMER_ARRIVAL_CARD_RECEIVED');
-    expect(audits[0].metadata).toMatchObject({
+    // (The category validation summary rows are asserted separately below.)
+    const cardAudits = audits.filter((a) => a.action === 'CUSTOMER_ARRIVAL_CARD_RECEIVED');
+    expect(cardAudits).toHaveLength(1);
+    expect(cardAudits[0].metadata).toMatchObject({
       source: 'ARRIVAL_CRM',
       external_card_id: 'CARD-ARR-2026-000145',
       warehouse_arrival_id: stored.code,
       status: 'SUCCESS',
     });
+
+    // Category validation trail: with an empty master, every line is
+    // NEEDS_REVIEW — one summary row plus one explicit NEEDS_REVIEW row.
+    const validated = audits.filter((a) => a.action === 'CATEGORY_VALIDATED');
+    expect(validated).toHaveLength(1);
+    expect(validated[0].metadata).toMatchObject({ confirmed: 0, needs_review: 2 });
+    expect(audits.filter((a) => a.action === 'CATEGORY_NEEDS_REVIEW')).toHaveLength(1);
   });
 
   it('is idempotent: a double send of the same card returns the SAME Expected Arrival', async () => {
@@ -165,8 +176,8 @@ describe('ExpectedArrivalsService', () => {
     expect(first.created).toBe(true);
     expect(second.created).toBe(false);
     expect(rows).toHaveLength(1);
-    // Audit only on actual creation.
-    expect(audits).toHaveLength(1);
+    // Card audit only on actual creation (replays add nothing).
+    expect(audits.filter((a) => a.action === 'CUSTOMER_ARRIVAL_CARD_RECEIVED')).toHaveLength(1);
   });
 
   it('rejects a card with no products without creating a partial record', async () => {

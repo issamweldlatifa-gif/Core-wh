@@ -30,6 +30,7 @@ const AdminSessionDetail = lazy(() => import('./admin/pages/SessionDetail'));
 const AdminStations = lazy(() => import('./admin/pages/Stations'));
 const AdminExceptions = lazy(() => import('./admin/pages/Exceptions'));
 const AdminCorrections = lazy(() => import('./admin/pages/Corrections'));
+const Categories = lazy(() => import('./modules/categories/Categories'));
 
 /** Guards a route by the required back-end permission; redirects otherwise. */
 function PermissionGate({ perm, children }: { perm: string; children: JSX.Element }) {
@@ -124,6 +125,10 @@ export default function App() {
             <Route
               path="expected-arrivals"
               element={<PermissionGate perm="expected_arrivals.view"><ExpectedArrivals /></PermissionGate>}
+            />
+            <Route
+              path="categories"
+              element={<PermissionGate perm="inventory.view"><Categories /></PermissionGate>}
             />
             <Route path="warehouse" element={<PermissionGate perm="warehouses.view"><WarehouseModule /></PermissionGate>}>
               <Route index element={<Navigate to="structure" replace />} />

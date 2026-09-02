@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, type ExpectedArrival, type ExpectedArrivalDetail } from './api';
+import { categoriesApi, type Category } from '../categories/api';
+import { useAuth } from '../../context/AuthContext';
 
 function fmtDate(iso: string | null): string {
   if (!iso) return '—';
@@ -20,12 +22,41 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 export default function ExpectedArrivals() {
+  const { hasPermission } = useAuth();
+  const canResolve = hasPermission('inventory.manage');
   const [rows, setRows] = useState<ExpectedArrival[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<ExpectedArrivalDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  // Manual NEEDS-REVIEW resolution (validated against the Category Master).
+  const [master, setMaster] = useState<Category[]>([]);
+  const [resolving, setResolving] = useState<string | null>(null); // itemId being edited
+  const [resolveCat, setResolveCat] = useState('');
+  const [resolveSub, setResolveSub] = useState('');
+  const [resolveBusy, setResolveBusy] = useState(false);
+  const [resolveErr, setResolveErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!canResolve) return;
+    categoriesApi.list().then((c) => setMaster(c.filter((x) => x.status === 'ACTIVE'))).catch(() => {});
+  }, [canResolve]);
+
+  async function resolveItem(itemId: string) {
+    if (!resolveCat || !selected) return;
+    setResolveBusy(true); setResolveErr(null);
+    try {
+      await api.changeCategory(itemId, { category: resolveCat, subcategory: resolveSub || null });
+      const detail = await api.detail(selected.id);
+      setSelected(detail);
+      setResolving(null); setResolveCat(''); setResolveSub('');
+    } catch (e: any) {
+      setResolveErr(e?.response?.data?.message ?? e?.message ?? 'Failed to change category.');
+    } finally {
+      setResolveBusy(false);
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -191,7 +222,42 @@ export default function ExpectedArrivals() {
                     <td>{it.variant ?? '—'}</td>
                     <td>{it.color ?? '—'}</td>
                     <td>{it.size ?? '—'}</td>
-                    <td>{it.category ? <span className="tag green">{it.category}</span> : <span className="tag yellow">UNKNOWN</span>}</td>
+                    <td>
+                      {it.categoryStatus === 'CONFIRMED' && it.category
+                        ? <span className="tag green">{it.category}{it.subcategory ? ` / ${it.subcategory}` : ''}{it.classificationSource ? ` · ${it.classificationSource}` : ''}</span>
+                        : (
+                          <>
+                            <span className="tag yellow">{it.category ? `${it.category} · NEEDS REVIEW` : 'NEEDS REVIEW'}</span>
+                            {canResolve && resolving !== it.id && (
+                              <button
+                                className="btn"
+                                type="button"
+                                style={{ marginLeft: 8 }}
+                                onClick={() => { setResolving(it.id); setResolveCat(''); setResolveSub(''); setResolveErr(null); }}
+                              >Resolve</button>
+                            )}
+                            {canResolve && resolving === it.id && (
+                              <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', marginLeft: 8, flexWrap: 'wrap' }}>
+                                <select value={resolveCat} onChange={(e) => { setResolveCat(e.target.value); setResolveSub(''); }}>
+                                  <option value="">category…</option>
+                                  {master.map((m) => <option key={m.id} value={m.code}>{m.code}</option>)}
+                                </select>
+                                {(master.find((m) => m.code === resolveCat)?.subcategories?.length ?? 0) > 0 && (
+                                  <select value={resolveSub} onChange={(e) => setResolveSub(e.target.value)}>
+                                    <option value="">subcategory…</option>
+                                    {master.find((m) => m.code === resolveCat)!.subcategories.map((s) => (
+                                      <option key={s} value={s}>{s}</option>
+                                    ))}
+                                  </select>
+                                )}
+                                <button className="btn" type="button" disabled={resolveBusy || !resolveCat} onClick={() => void resolveItem(it.id)}>Save</button>
+                                <button className="btn" type="button" disabled={resolveBusy} onClick={() => setResolving(null)}>Cancel</button>
+                                {resolveErr && <span className="tag yellow">{resolveErr}</span>}
+                              </span>
+                            )}
+                          </>
+                        )}
+                    </td>
                     <td><strong>{it.quantity}</strong></td>
                   </tr>
                 ))}

@@ -131,7 +131,12 @@ export default function ReceivingTask() {
         // Category is operational data for the next stage (Sorting). Cartons
         // carry no per-carton contents in the CRM contract, so we surface the
         // ARRIVAL-level categories; UNKNOWN is shown explicitly, never guessed.
-        const cats = Array.from(new Set((committed.products ?? []).map((p) => p.category ?? 'UNKNOWN')));
+        const cats = Array.from(new Set((committed.products ?? []).map((p) => {
+          if (p.categoryStatus === 'CONFIRMED' && p.category) {
+            return p.subcategory ? `${p.category}/${p.subcategory}` : p.category;
+          }
+          return 'NEEDS REVIEW';
+        })));
         const catLine = cats.length > 0 ? ` · CAT: ${cats.join(', ')}` : '';
         report('ok', `${cartonId} RECEIVED · cartons ${t?.receivedCartons ?? 0}/${t?.expectedCartons ?? 0}${catLine}`);
         push(`carton ${cartonId} received${catLine}`, 'ok');
@@ -477,12 +482,22 @@ export default function ReceivingTask() {
                   <tr key={p.id}>
                     <td className="mono">{p.sku ?? p.reference ?? '—'}</td>
                     <td>{p.productName ?? '—'}</td>
-                    <td>
-                      {/* Category is operational data for Sorting — UNKNOWN is
-                          a review state, the worker must never guess it. */}
-                      {p.category
-                        ? <span className="os-tag os-tag--ok">{p.category}</span>
-                        : <span className="os-tag os-tag--warn">UNKNOWN</span>}
+    <td>
+                      {/* Category is operational data for Sorting. Only a
+                          category CONFIRMED against the Category Master is
+                          green; anything else is an explicit NEEDS REVIEW —
+                          the worker never classifies manually here. */}
+                      {p.categoryStatus === 'CONFIRMED' && p.category
+                        ? (
+                          <span className="os-tag os-tag--ok">
+                            {p.category}{p.subcategory ? ` / ${p.subcategory}` : ''}
+                          </span>
+                        )
+                        : (
+                          <span className="os-tag os-tag--warn">
+                            {p.category ? `${p.category} · NEEDS REVIEW` : 'NEEDS REVIEW'}
+                          </span>
+                        )}
                     </td>
                     <td>{p.expected}</td>
                     <td>{p.received}</td>
