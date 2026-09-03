@@ -50,7 +50,20 @@ const PROBE_SQL = `
     (SELECT COUNT(*) FROM information_schema.tables  WHERE table_schema = 'public' AND table_name = 'category_master')       AS category_master,
     (SELECT COUNT(*) FROM information_schema.tables  WHERE table_schema = 'public' AND table_name = 'category_zone_mappings') AS category_zone_mappings,
     (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'operational_containers' AND column_name = 'capacity')   AS container_capacity,
-    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'expected_arrival_items' AND column_name = 'categoryStatus') AS eai_category_status
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'expected_arrival_items' AND column_name = 'categoryStatus') AS eai_category_status,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'article_units' AND column_name = 'containerId')          AS au_container,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'article_units' AND column_name = 'currentLocationId')   AS au_location,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'article_units' AND column_name = 'storedAt')           AS au_stored,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'article_units' AND column_name = 'orderId')            AS au_order,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'article_units' AND column_name = 'orderItemId')        AS au_order_item,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'article_units' AND column_name = 'outboundShipmentId')  AS au_shipment,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'article_units' AND column_name = 'receivingSessionId')  AS au_session,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'article_units' AND column_name = 'sourceCartonId')      AS au_carton,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'outbound_shipments' AND column_name = 'packedAt')      AS ob_packed,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'outbound_shipments' AND column_name = 'containerId')    AS ob_container,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'outbound_shipments' AND column_name = 'carrier')        AS ob_carrier,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'operational_containers' AND column_name = 'createdBy')   AS container_created_by,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'operational_containers' AND column_name = 'orderId')     AS container_order
 `;
 
 /**
@@ -253,6 +266,9 @@ const REPAIR_STATEMENTS: string[] = [
     CONSTRAINT "operational_containers_pkey" PRIMARY KEY ("id")
   )`,
   `ALTER TABLE "operational_containers" ADD COLUMN IF NOT EXISTS "capacity" INTEGER NOT NULL DEFAULT 50`,
+  `ALTER TABLE "operational_containers" ADD COLUMN IF NOT EXISTS "createdBy" TEXT`,
+  `ALTER TABLE "operational_containers" ADD COLUMN IF NOT EXISTS "label" TEXT`,
+  `ALTER TABLE "operational_containers" ADD COLUMN IF NOT EXISTS "orderId" TEXT`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "operational_containers_code_key" ON "operational_containers"("code")`,
   `CREATE INDEX IF NOT EXISTS "operational_containers_type_status_idx" ON "operational_containers"("type", "status")`,
   `CREATE INDEX IF NOT EXISTS "operational_containers_orderId_idx" ON "operational_containers"("orderId")`,
@@ -273,6 +289,13 @@ const REPAIR_STATEMENTS: string[] = [
     "updatedAt" TIMESTAMP(3) NOT NULL,
     CONSTRAINT "outbound_shipments_pkey" PRIMARY KEY ("id")
   )`,
+  `ALTER TABLE "outbound_shipments" ADD COLUMN IF NOT EXISTS "containerId" TEXT`,
+  `ALTER TABLE "outbound_shipments" ADD COLUMN IF NOT EXISTS "carrier" TEXT`,
+  `ALTER TABLE "outbound_shipments" ADD COLUMN IF NOT EXISTS "trackingNumber" TEXT`,
+  `ALTER TABLE "outbound_shipments" ADD COLUMN IF NOT EXISTS "packedBy" TEXT`,
+  `ALTER TABLE "outbound_shipments" ADD COLUMN IF NOT EXISTS "packedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP`,
+  `ALTER TABLE "outbound_shipments" ADD COLUMN IF NOT EXISTS "shippedBy" TEXT`,
+  `ALTER TABLE "outbound_shipments" ADD COLUMN IF NOT EXISTS "shippedAt" TIMESTAMP(3)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "outbound_shipments_code_key" ON "outbound_shipments"("code")`,
   `CREATE INDEX IF NOT EXISTS "outbound_shipments_orderId_idx" ON "outbound_shipments"("orderId")`,
   `CREATE INDEX IF NOT EXISTS "outbound_shipments_status_idx" ON "outbound_shipments"("status")`,
@@ -300,6 +323,15 @@ const REPAIR_STATEMENTS: string[] = [
     "updatedAt" TIMESTAMP(3) NOT NULL,
     CONSTRAINT "article_units_pkey" PRIMARY KEY ("id")
   )`,
+  `ALTER TABLE "article_units" ADD COLUMN IF NOT EXISTS "arrivalItemId" TEXT`,
+  `ALTER TABLE "article_units" ADD COLUMN IF NOT EXISTS "receivingSessionId" TEXT`,
+  `ALTER TABLE "article_units" ADD COLUMN IF NOT EXISTS "sourceCartonId" TEXT`,
+  `ALTER TABLE "article_units" ADD COLUMN IF NOT EXISTS "containerId" TEXT`,
+  `ALTER TABLE "article_units" ADD COLUMN IF NOT EXISTS "currentLocationId" TEXT`,
+  `ALTER TABLE "article_units" ADD COLUMN IF NOT EXISTS "storedAt" TIMESTAMP(3)`,
+  `ALTER TABLE "article_units" ADD COLUMN IF NOT EXISTS "orderId" TEXT`,
+  `ALTER TABLE "article_units" ADD COLUMN IF NOT EXISTS "orderItemId" TEXT`,
+  `ALTER TABLE "article_units" ADD COLUMN IF NOT EXISTS "outboundShipmentId" TEXT`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "article_units_code_key" ON "article_units"("code")`,
   `CREATE INDEX IF NOT EXISTS "article_units_sku_idx" ON "article_units"("sku")`,
   `CREATE INDEX IF NOT EXISTS "article_units_status_idx" ON "article_units"("status")`,
