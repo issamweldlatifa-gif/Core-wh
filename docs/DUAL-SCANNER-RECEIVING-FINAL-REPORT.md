@@ -3,7 +3,7 @@
 
 **Execution order:** «AYROVI WAREHOUSE CORE — P0 — DUAL SCANNER ARCHITECTURE — SOFTWARE SCANNER + HARDWARE SCANNER — Receiving Station Only — Extensible Architecture».
 **Date:** 2026-09-03
-**Delivery commit:** recorded by the follow-up doc commit (see git log).
+**Delivery commit:** `f22c5dd` (this report: follow-up record commit).
 **Flow preserved:** Arrival → Receiving → Container/Tote → Customer Sorting → Customer Bin → Packing → Shipping → Archive/Trace — unchanged.
 **Scope discipline (§19 / FINAL RULE):** the dual mode is applied **only** inside Receiving. Sorting / Packing / Shipping / Customer-Bin terminals keep using the software `ContinuousScanner` untouched — no new station scanners, no worker-specific targets were added.
 
