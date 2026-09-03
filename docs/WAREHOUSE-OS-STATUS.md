@@ -1,16 +1,18 @@
 # WAREHOUSE OS — implementation status
 
-Last updated: 2026-09-01 · local HEAD `putaway integration`
+Last updated: 2026-09-03 · local HEAD Admin Control Center V1 `6a552ec`
 
 ## Commits (local, not yet pushed)
 
 ```
-(new)    feat(os): cross-task resume routing + putaway in admin drill-down
-f873784  feat(putaway): stowing workflow, append-only placement ledger
-7596b1f  docs: WAREHOUSE OS status, verification and env recovery
-e099bc6  feat(os): station-linked sessions + route-level code splitting
-bbe3b0f  feat(os): Worker Terminal + Admin Control Center (phase 2 frontend)
-2168f16  fix: continuous camera scanner, structure 500s, terminal logout   <- last pushed
+6a552ec  feat(admin): Admin Control Center V1 — unified shell, live overview, workforce boards   <- local HEAD
+e391237  Control Center: fulfillment pipeline counters + KPI strip
+3072fde  Admin Outbound Shipments board
+41f6689  Admin Orders board
+31937cf  docs: report updated — camera, traceability board, printable labels
+1e4d22b  Camera scanning on flow terminals, admin Traceability board, printable QR labels
+cd3950a  docs: operational flow execution report
+e1d579d  Operational warehouse flow: containers, per-piece articles, sorting/order-sorting/packing/shipping
 ```
 
 `origin` is intentionally **not** configured, so no credential is stored in
@@ -98,12 +100,47 @@ an `IN PROGRESS · <code>` badge on the matching task cards. Covered by
 
 ### Admin Control Center — `/admin` (§6, §36–§40)
 
-`frontend/src/admin/` — `AdminShell.tsx` plus `pages/`: `ControlCenter`,
-`Workers` (list + drill-down), `SessionDetail`, `Stations`, `Exceptions`,
-`Corrections`, and the shared `CorrectionDialog`.
+V1 shipped as a **dedicated workspace**: `/admin` is its own route tree
+(HEADER + SIDEBAR + MAIN) outside the generic app shell, guarded by
+`operations.view` — workers are redirected to `/terminal`, never shown a
+denial page.
+
+- `AdminShell.tsx` — unified header: AYROVI // WAREHOUSE CORE · CONTROL
+  CENTER · WAREHOUSE (TUN-MAIN) · STATUS ● OPERATIONAL · SYSTEM ONLINE ·
+  ROLE · ALERTS · live clock · user menu (Profile / Log out). Sidebar
+  groups: CONTROL (Overview, Operations) · WORKFORCE (Workers, Stations,
+  Tasks) · WAREHOUSE (Warehouse Tree*, Containers, Categories*) ·
+  FULFILLMENT (Orders, Shipments) · MONITORING (Exceptions, Live
+  Activity, Audit / Trace) · SYSTEM (Settings*). `*` = cross-module
+  links into the generic app shell. ONE `overview()` poll every 30 s is
+  shared with the pages through the Outlet context (`controlData.ts`).
+- `pages/ControlCenter.tsx` — the control room: Warehouse Status +
+  8-stage Operation Pipeline (RECEIVING → RECEIVING TOTES → CATEGORY
+  SORTING → STORAGE → CUSTOMER ORDER SORTING → CUSTOMER BINS → PACKING →
+  SHIPPING) with per-stage real counts, Operations panels, Workers,
+  Stations, Open Exceptions and Live Activity boards (reusable panels
+  exported: `WarehouseStatus`, `Pipeline`, `OperationsPanel`,
+  `WorkersPanel`, `StationsPanel`, `ExceptionsPanel`, `ActivityPanel`).
+- V1 additions: `pages/Operations.tsx` (pipeline + operational panels),
+  `pages/Tasks.tsx` (workforce task registry), `pages/Activity.tsx`
+  (live audit stream, 15 s poll, action filters), `pages/Containers.tsx`
+  (RECEIVING totes + CUSTOMER bins).
+- Existing pages reused under the same shell: `Workers` (list +
+  drill-down incl. putaway history), `SessionDetail`, `Stations`,
+  `Exceptions`, `Corrections` + shared `CorrectionDialog`, `Traceability`,
+  `Orders`, `OutboundShipments`.
 
 Every correction goes through `CorrectionDialog`, which enforces a reason and
 shows the original state before confirming.
+
+Backend aggregates (all derived from real tables — no invented numbers):
+- `GET /v1/operations/overview` — warehouse + system state, pipeline,
+  per-operation panels, live workers (status / current task / last
+  activity), exceptions by severity, station board, active receiving &
+  putaway sessions, recent audit stream.
+- `GET /v1/operations/activity?limit=` — bounded operational event feed.
+- `GET /v1/operations/tasks` — terminal `TASK_REGISTRY` projection
+  (executors by permission, stations, active stations, open work).
 
 ### Backend (§7–§10, §41)
 
@@ -150,6 +187,13 @@ Other checks:
 - A user with no operational permissions gets 403 on every putaway route and
   an empty task list — never routed into `/admin`.
 - Bundle: 750 kB → **272 kB** (214 → 85 kB gzipped) after code splitting.
+- **Admin Control Center V1** (report: `docs/ADMIN-CONTROL-CENTER-V1-REPORT.md`):
+  backend build clean, **38/38** unit tests, **87/87** e2e tests, frontend
+  `tsc --noEmit` + `vite build` clean, and a headless-Chromium pass over all
+  12 `/admin` routes (overview, operations, workers, stations, tasks,
+  containers, orders, shipments, exceptions, activity, traceability,
+  corrections) — no console errors, no failed API calls, all panels served
+  by live warehouse data.
 - **Full cross-task cycle** proven end to end on live data: CRM arrival card +
   shipment (`CTN-E2E-9002`) → receiving session → QR scan
   (`CARTON_IDENTIFIED`) → receive → complete → carton appears in the putaway
