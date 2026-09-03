@@ -220,6 +220,11 @@ describe('telemetry (order §16)', () => {
     expect(s.barcodeAttempts).toBe(0);
     expect(s.accepted).toBe(1);
     expect(s.ocrCorrections).toBe(1);
+    // final-order §27 latency distribution over attempts
+    expect(s.latency.p50).toBeGreaterThanOrEqual(0);
+    expect(s.latency.max).toBeGreaterThanOrEqual(s.latency.p99);
+    expect(s.latency.p99).toBeGreaterThanOrEqual(s.latency.p95);
+    expect(s.latency.p95).toBeGreaterThanOrEqual(s.latency.p50);
     // dual-order §12 — csv exposes method/provider/attempt fields
     expect(t.toCSV()).toContain('ts,attemptNumber,scanMethod,provider,scannerType');
     t.clear();

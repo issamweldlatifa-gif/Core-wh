@@ -1,6 +1,7 @@
 # AYROVI RECEIVING SCANNER — FINAL EXECUTION ORDER (v1.0 — single reference)
 
 **P0 — FINAL RECEIVING SCANNER · REAL-TIME SOFTWARE + HARDWARE SCANNER · Industrial-Speed Architecture**
+**Revision:** v1.1 (2026-09-03) — §5–§7 Prefetch/ScanContext, §11 local expected matching, §18–§20 warm engine + session cleanup, §27 latency distribution now implemented; v1.0 text preserved below.
 **Status:** ⭐ THE reference for the Receiving Scanner. Supersedes all earlier scanner orders/reports:
 `SCANNER-OCR-P0-DELIVERY-REPORT.md` · `SCANNER-OCR-UNIFIED-P0-FINAL-REPORT.md` · `DUAL-SCANNER-RECEIVING-FINAL-REPORT.md`.
 **Change control:** No further scanner orders will be layered on top of this file. Future change = a new revision of **this** document (v1.1, …). The developer executes THIS order and returns with the measured numbers below; we only then decide whether further optimisation is needed.
@@ -171,22 +172,62 @@ Legend: ✅ shipped & measured (commit) · 🔶 specified — to be built in thi
 | 1–2 / 21–24 | Dual modes, device policy, provider layer, HID wedge, hardware panel, unified pipeline | ✅ `f22c5dd` | `ReceivingScanner.tsx`, `scan-method.ts`, `hardware-wedge.ts`, `hardware-scan.ts`, `HardwareScannerPanel.tsx`, `providers.ts` |
 | 3 | Camera open-once / stays live (software) | ✅ | `ContinuousScanner.tsx` — single `start()`, loop continues across SUCCESS/ERROR |
 | 4 | Red line non-blocking, dynamic ROI / target line | ✅ | `textlines.ts`, `targeting` config, `ContinuousScanner` PRODUCT/CARTON |
-| 5–7 | **Prefetch → ScanContext → normalized expected values** | 🔶 | build on `ReceivingTask` load + `validate.ts`/`normalize.ts`; new `scan-context.ts` |
+| 5–7 | **Prefetch → ScanContext → normalized expected values** | ✅ v1.1 | `scan-context.ts` (typed expected buckets, one-time normalisation, local O(1) lookup) built in `ReceivingTask` the moment session data loads |
 | 8–10 | Staged frame pipeline, barcode-first, targeted OCR | ✅ | `ContinuousScanner`, `preprocess.ts`, `fields.ts` |
-| 11 | Expected-value local matching | 🔶 | extend `validate.ts`/confidence for expected-first comparison (no DB search) |
+| 11 | Expected-value local matching | ✅ v1.1 | `scan-context.localExpectedMatch` + scanner validates against the context's expected set (overrides raw corpus); never queries backend per frame |
 | 12/14–17 | No-guess, instant error, auto success, early-exit consensus | ✅ | confidence gate, state machine, `multiframe.ts` |
-| 13 | Latency ≤1 s + measured p50/99 | ⚠️ | benchmark scripts exist (`benchmark/`) — device run pending |
-| 18 | Warm scanner engine | 🔶 | keep OCR/decoder across sessions; revise `terminateOcr` usage |
-| 19 | Session cleanup without shutdown | 🔶 | new cleanup on complete (scan state/results/buffers) |
-| 20 | New session reuse | 🔶 | prefetch + warm reuse |
+| 13 | Latency ≤1 s + measured p50/99 | ⚠️ device | telemetry now emits p50/p90/p95/p99/max per session (`summary().latency`); device numbers pending |
+| 18 | Warm scanner engine | ✅ v1.1 | `engine.ts` ref-counted manager + `ocr-client.warmOcr`; scanner acquires (warms) on mount, `terminateOcr` removed from session teardown |
+| 19 | Session cleanup without shutdown | ✅ v1.1 | `engine.release()` keeps engine warm under idle grace (5 min default); session state/buffers dropped by React on session change |
+| 20 | New session reuse | ✅ v1.1 | re-acquire before grace reuses the warm worker (tested: single warm load across sessions) |
 | 25 | Capability layer | ✅ | `detectCapabilities` + `detectHardwareCapabilities` + `planAdvancedConstraints` |
-| 26–29 | Acceleration policy + profiling + device benchmark | ⚠️/🔶 | timestamps partially in telemetry `stages`; full p50/99 + devices pending |
-| 30 | Local decision, no per-frame network | 🔶 (OCR already local; barcode local expected match to add) | |
+| 26–29 | Acceleration policy + profiling + device benchmark | ⚠️ device · ✅ profiling | `TelemetrySummary.latency` (p50–max) + `stages` timestamps; real-device benchmark still the deliverable |
+| 30 | Local decision, no per-frame network | ✅ v1.1 | recognition compares against the in-memory expected context (`scan-context.ts`); backend only records/confirms after the local decision |
 | 31 | Duplicate protection | ✅ | `dedupe.ts` (camera + hardware, 1 event stress-tested) |
-| 32–33 | Telemetry fields + permissions | ✅ | `telemetry.ts` (scan_method/provider/attempt + byMethod); camera permission only in software |
-| 36–39 | Test matrix / acceptance on device | ⚠️ | unit 71/71 + synthetic corpus; real-device acceptance pending |
+| 32–33 | Telemetry fields + permissions | ✅ | `telemetry.ts`: scan_method/provider/attempt/targetType + latency p50–max; camera permission only in software |
+| 36–39 | Test matrix / acceptance on device | ⚠️ | unit 87/87 + synthetic corpus; real-device acceptance pending |
 
 **Baseline numbers already measured (synthetic corpus — NOT device numbers; the developer must replace with real-device results):** QR 100% (≈33 ms), Code128 100% (≈6.5 ms), in-corpus text auto+confirm 94.1 %, wrong-article auto-entries 0, OCR end-to-end ≈43 ms, hardware wedge per-read overhead ≈5 µs, duplicate stress = 1 event. (`SCANNER-OCR-UNIFIED-P0-FINAL-REPORT.md`, `DUAL-SCANNER-RECEIVING-FINAL-REPORT.md`, `frontend/benchmark/tmp/*.json`.)
+
+# APPENDIX B — v1.1 implementation delta (2026-09-03)
+
+Executed the 🔶 build items of v1.0 in this repo. Real-device numbers remain the
+developer deliverable — nothing here claims device speed.
+
+**What was implemented**
+1. **Prefetch ScanContext (§5–§7):** new `frontend/src/modules/receiving-terminal/scan-context.ts`.
+   `ReceivingTask` builds the context (carton/product expected buckets) the moment
+   session data loads — before the worker presses Scan. Expected values are
+   normalised **once** with the same `normaliseToken` the OCR path uses.
+2. **Local expected matching (§11/§30):** `buildScanContext().byValue` + `localExpectedMatch`
+   give an O(1) local compare; the scanner validates against the context's expected
+   set (overrides raw `corpus` when provided). No per-frame/per-OCR backend or DB work.
+3. **Warm scanner engine (§18–§20):** new `engine.ts` ref-counted manager +
+   `ocr-client.warmOcr()` (pre-loads the tesseract worker). `ContinuousScanner`
+   `acquire({warm})` on open and `release()` on close — the engine is NOT torn down
+   per session; it idles warm (default 5 min grace) and a re-open reuses it
+   (tested: exactly one worker load across back-to-back sessions).
+4. **Session cleanup without shutdown (§19):** session state/results/buffers drop
+   with the session (React), the engine release keeps the runtime warm; the old
+   per-teardown `terminateOcr()` call was removed from the scanner.
+5. **Latency distribution (§27):** `TelemetrySummary.latency = { p50, p90, p95, p99, max }`
+   over attempts (plus existing `stages` per-attempt timestamps). Per-attempt CSV
+   now also carries `targetType` (CARTON | SKU | REFERENCE).
+
+**Verification this delta:** `vitest run` → **87/87** (added 9 `scan-context` tests +
+7 `engine` tests; telemetry test asserts percentile ordering); `tsc --noEmit` clean
+(app + node configs); `vite build` clean.
+
+**Files changed by the delta:** `scan-context.ts`(+test) · `engine.ts`(+test) ·
+`ocr-client.ts` (warmOcr) · `telemetry.ts` (targetType + latency p50–max) ·
+`ContinuousScanner.tsx` (scanContext + engine acquire/release + targetType, no
+per-teardown OCR kill) · `ReceivingScanner.tsx` (pass-through) · `ReceivingTask.tsx`
+(prefetch build) · `scan-logic.test.ts` (latency assertion).
+**Delivery commit:** recorded by the follow-up doc commit on master.
+
+**Still on the developer (unchanged):** real Android-device runs, filling the
+ANNEX table, p50/p95/p99 + CPU/RAM/FPS on those devices, screen recording,
+screenshots, and the §39 acceptance pass.
 
 **Return of results:** developer delivers §38 items + fills the Annex device table below; numbers are added to a new revision of this file (v1.1) only after review.
 

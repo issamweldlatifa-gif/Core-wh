@@ -56,6 +56,19 @@ export function ocrBusy(): boolean {
 }
 
 /**
+ * Warm the OCR runtime WITHOUT recognising anything (final order §18): loads
+ * the tesseract chunk + worker + language data in the background so the first
+ * real OCR pass does not pay the initialisation cost. Idempotent.
+ */
+export async function warmOcr(): Promise<void> {
+  try {
+    await getWorker();
+  } catch {
+    /* getWorker already resets workerPromise on failure — a later call retries */
+  }
+}
+
+/**
  * Recognise text in a preprocessed ROI canvas.
  * Returns raw text + Tesseract confidence, or null when unavailable.
  * Frames are dropped while a previous pass is in flight.

@@ -8,6 +8,7 @@ import {
 } from '../modules/receiving-terminal/scan-source';
 import { beepSuccess, beepError, beepInfo, beepDone } from '../modules/receiving-terminal/feedback';
 import { cleanCode } from '../modules/receiving-terminal/validate';
+import { buildScanContext, type ScanContext } from '../modules/receiving-terminal/scan-context';
 import { stationHas } from './api';
 import { useTerminalUi } from './WorkerShell';
 import { fulfillmentApi, type OpContainer } from './fulfillment-api';
@@ -108,6 +109,21 @@ export default function ReceivingTask() {
     }
     return [...out];
   }, [session, scanMode]);
+
+  /**
+   * §5–§7 PREFETCH: build the session's expected-value ScanContext the moment
+   * the card data is loaded (before the worker scans). Values are normalised
+   * ONCE, comparison-ready, and held in memory for local expected matching —
+   * no per-frame/database work inside the recognition loop (§11/§30).
+   */
+  const scanContext: ScanContext = useMemo(
+    () => buildScanContext({
+      mode: scanMode,
+      cartons: session?.cartons ?? [],
+      products: session?.products ?? [],
+    }),
+    [session, scanMode],
+  );
 
   /** Single place where an outcome is surfaced: banner + sound (§26/§27). */
   const report = useCallback((kind: 'ok' | 'bad' | 'info', text: string) => {
@@ -649,6 +665,7 @@ export default function ReceivingTask() {
           onModeChange={setScanMode}
           outcome={outcome}
           corpus={corpus}
+          scanContext={scanContext}
           onDetected={onScannerDetected}
           onClose={() => {
             setScannerOpen(false);

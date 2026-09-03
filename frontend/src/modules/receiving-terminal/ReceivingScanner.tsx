@@ -18,6 +18,7 @@ import type { ScanOutcome } from './ContinuousScanner';
 import type { ScanSource } from './scan-source';
 import { detectCapabilities } from './scan-source';
 import { chooseScanMethods, type ScanMethod } from './scan-method';
+import type { ScanContext } from './scan-context';
 import { deviceClassOf } from './scan-method';
 import { beepInfo } from './feedback';
 import HardwareScannerPanel from './HardwareScannerPanel';
@@ -34,6 +35,8 @@ export interface ReceivingScannerProps {
   onDetected: (value: string, source: ScanSource) => void;
   onClose: () => void;
   corpus?: string[];
+  /** Prefetched expected-value context (final order §5–§7). */
+  scanContext?: ScanContext | null;
   demoMode?: boolean;
   demoCodes?: string[];
 }

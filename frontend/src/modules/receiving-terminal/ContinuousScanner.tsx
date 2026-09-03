@@ -27,10 +27,12 @@ import { matchAgainstCorpus, type CorpusMatch } from './validate';
 import { computeConfidence, type ConfidenceResult, type DetectionType } from './confidence';
 import { createConsensus, type ConsensusAggregator } from './multiframe';
 import { createTelemetry, exposeDebugHandle, type ScanAttempt, type TelemetrySink } from './telemetry';
-import { ocrBusy, recogniseRoi, terminateOcr } from './ocr-client';
+import { ocrBusy, recogniseRoi } from './ocr-client';
 import { isBusy, next, stateLabel, type ScannerEvent, type ScannerState } from './scanner-state';
 import { findDominantLine, lineCropBox, profileForLineSkew, type LineRegion } from './textlines';
 import { EMPTY_DEDUPE, isDuplicate, noteSubmission, type DedupeState } from './dedupe';
+import { receivingEngine } from './engine';
+import type { ScanContext } from './scan-context';
 import { openDemoScannerInput, openPhoneScannerInput, type ScannerInput } from './providers';
 import './scanner.css';
 
@@ -143,6 +145,9 @@ interface Props {
   onClose: () => void;
   /** Known AYROVI codes to validate OCR against (order §10). */
   corpus?: string[];
+  /** Prefetched expected-value context (final order §5–§7/§11): overrides corpus
+   *  with the locally-normalised expected set when provided. */
+  scanContext?: ScanContext | null;
   /** Per-instance config overrides (threshold tuning / benchmarks). */
   scanConfig?: DeepPartial<ScanConfig>;
   /** Named scanner operating envelope (§27). Defaults to BALANCED. */
@@ -167,6 +172,7 @@ export default function ContinuousScanner({
   onDetected,
   onClose,
   corpus,
+  scanContext = null,
   scanConfig,
   scannerProfile = 'BALANCED',
   demoMode = false,
@@ -196,6 +202,7 @@ export default function ContinuousScanner({
   const stateRef = useRef<ScannerState>('IDLE');
   const cfgRef = useRef<ScanConfig>(DEFAULT_SCAN_CONFIG);
   const corpusRef = useRef<string[]>([]);
+  const scanContextRef = useRef<ScanContext | null>(null);
   const pendingRef = useRef<PendingConfirm | null>(null);
   const telemetryRef = useRef<TelemetrySink | null>(null);
   const capsRef = useRef<DeviceCapabilities | null>(null);
@@ -203,6 +210,8 @@ export default function ContinuousScanner({
   const modeRef = useRef<'CARTON' | 'PRODUCT'>('CARTON');
   modeRef.current = mode ?? 'CARTON';
   const demoModeRef = useRef<boolean>(demoMode);
+  const enableOcrRef = useRef<boolean>(enableOcr);
+  enableOcrRef.current = enableOcr;
   demoModeRef.current = demoMode;
 
   // Live guide mirror — the loop writes here without a re-render per frame.
@@ -243,8 +252,13 @@ export default function ContinuousScanner({
     modeRef.current = mode ?? 'CARTON';
   }, [scanConfig, mode, scannerProfile]);
   useEffect(() => {
-    corpusRef.current = (corpus ?? []).map((c) => (c || '').trim().toUpperCase()).filter(Boolean);
-  }, [corpus]);
+    scanContextRef.current = scanContext ?? null;
+    // Expected-value matching (§11/§30): when a prefetched ScanContext exists we
+    // validate against ITS normalised expected set (local, pre-built) only.
+    corpusRef.current = scanContext
+      ? scanContext.values
+      : (corpus ?? []).map((c) => (c || '').trim().toUpperCase()).filter(Boolean);
+  }, [scanContext, corpus]);
 
   /** Backend verdict → SUBMITTING → SUCCESS/ERROR, then back to scanning. */
   useEffect(() => {
@@ -320,7 +334,6 @@ export default function ContinuousScanner({
       inputRef.current = null;
       consensus.reset();
       telemetryRef.current = null;
-      void terminateOcr();
     };
     teardownRef.current = teardown;
 
@@ -337,6 +350,9 @@ export default function ContinuousScanner({
       void telemetry.record({
         ts: Date.now(),
         mode: modeRef.current,
+        targetType: modeRef.current === 'PRODUCT'
+          ? (scanContextRef.current?.targetType ?? 'SKU')
+          : 'CARTON',
         scanMethod: 'software',
         provider: isDemo ? 'demo-camera' : 'software-camera',
         scannerType: detection === 'OCR' ? 'tesseract' : nativeDetector ? 'native' : 'zxing',
@@ -870,9 +886,17 @@ export default function ContinuousScanner({
   // -------------------------------------------------------------------------
   useEffect(() => {
     capsRef.current = detectCapabilities();
+    // §18/§20: warm the reusable scanner engine while this scanner is open. The
+    // engine is NOT shut down on unmount — it idles warm for the next session.
+    const engine = receivingEngine();
+    const wantsOcr = enableOcrRef.current;
+    if (wantsOcr) engine.acquire({ warm: true });
     start();
     return () => {
       teardownRef.current();
+      // §19 “clean, don't shut down”: release leaves the engine warm (idle
+      // grace), so the next Receiving session reuses OCR/decoder instantly.
+      if (wantsOcr) engine.release();
       try {
         if (typeof window !== 'undefined') (window as any).__ayroviScanTelemetry = undefined;
       } catch { /* noop */ }

@@ -36,6 +36,8 @@ export interface ScanAttempt {
   provider?: string;
   /** Monotonic attempt counter inside this scan session (dual order §12). */
   attemptNumber?: number;
+  /** What the station expects (CARTON | SKU | REFERENCE) — final order §32. */
+  targetType?: string;
   /** ms spent decoding/recognising this attempt. */
   processingMs: number;
   ocrConfidence?: number; // 0..1
@@ -93,6 +95,8 @@ export interface TelemetrySummary {
   avgScanTimeMs: number;
   avgOcrMs: number;
   p95ScanMs: number;
+  /** End-to-end latency distribution over attempts (final order §27/§38). */
+  latency: { p50: number; p90: number; p95: number; p99: number; max: number };
   /** Averages of stage timings across attempts that measured them (§28). */
   avgStages: StageAverages;
   recent: ScanAttempt[];
@@ -175,11 +179,12 @@ export function createTelemetry(maxAttempts = 500, scanSessionId?: string): Tele
       if (a.finalResult === 'rejected') falsePositives += 1;
     }
     const avg = (xs: number[]) => (xs.length ? xs.reduce((x, y) => x + y, 0) / xs.length : 0);
-    const p95 = (xs: number[]) => {
+    const pct = (xs: number[], q: number) => {
       if (!xs.length) return 0;
       const s = xs.slice().sort((x, y) => x - y);
-      return s[Math.min(s.length - 1, Math.max(0, Math.ceil(s.length * 0.95) - 1))] ?? 0;
+      return s[Math.min(s.length - 1, Math.max(0, Math.ceil(s.length * q) - 1))] ?? 0;
     };
+    const p95 = (xs: number[]) => pct(xs, 0.95);
     const retries = droppedLow + qualityBlocked;
     return {
       attempts: ring.length,
@@ -205,6 +210,13 @@ export function createTelemetry(maxAttempts = 500, scanSessionId?: string): Tele
       avgScanTimeMs: avg(scanTimes),
       avgOcrMs: avg(ocrTimes),
       p95ScanMs: p95(scanTimes),
+      latency: {
+        p50: pct(scanTimes, 0.5),
+        p90: pct(scanTimes, 0.9),
+        p95: pct(scanTimes, 0.95),
+        p99: pct(scanTimes, 0.99),
+        max: scanTimes.length ? Math.max(...scanTimes) : 0,
+      },
       avgStages: {
         targetDetectionMs: stageCounts.targetDetectionMs ? stageSums.targetDetectionMs / stageCounts.targetDetectionMs : 0,
         barcodeDecodeMs: stageCounts.barcodeDecodeMs ? stageSums.barcodeDecodeMs / stageCounts.barcodeDecodeMs : 0,
