@@ -6,3 +6,6 @@ dist
 .env.*.local
 vite.config.js
 vite.config.d.ts
+
+# level-2 offline validation build artifact
+benchmark/level2/tmp/
