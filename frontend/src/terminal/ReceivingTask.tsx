@@ -27,7 +27,10 @@ import './receiving-task.css';
  * pipeline per entity (cartons / products).
  */
 
-const ContinuousScanner = lazy(() => import('../modules/receiving-terminal/ContinuousScanner'));
+// Dual-scanner host (this order): device-aware Software/Hardware selection.
+// Camera is never the implicit default on desktop — hardware (USB/BT wedge)
+// is. Both methods funnel into the same onDetected receiving pipeline.
+const ReceivingScanner = lazy(() => import('../modules/receiving-terminal/ReceivingScanner'));
 
 type Outcome = ScanOutcome;
 type ScanMode = 'CARTON' | 'PRODUCT';
@@ -636,10 +639,10 @@ export default function ReceivingTask() {
       )}
       {done && <div className="rt-done">SESSION {session.status.replace(/_/g, ' ')}</div>}
 
-      {/* SCANNER WORK MODE — the updated full-screen experience only (§6/§7). */}
+      {/* SCANNER WORK MODE — dual scanner host (software + hardware, §1/§5/§8). */}
       {scannerOpen && (
         <Suspense fallback={<div className="rt-scanner-loading">STARTING SCANNER…</div>}>
-        <ContinuousScanner
+        <ReceivingScanner
           title={`RECEIVING · ${session.code}`}
           enableOcr={ocrAllowed}
           mode={scanMode}

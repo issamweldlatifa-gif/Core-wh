@@ -1,0 +1,14 @@
+{
+ "method": "hardware",
+ "readsFed": 45,
+ "accepted": 45,
+ "blocked": 0,
+ "duplicatesSuppressed": 0,
+ "uniqueCodes": 45,
+ "onOrderCodes": 40,
+ "flaggedOutOfOrder": 5,
+ "duplicateStreamEvents": 1,
+ "overheadAvgUs": 5.1,
+ "overheadP95Us": 10.5,
+ "elapsedMs": 1
+}

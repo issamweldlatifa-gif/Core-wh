@@ -126,6 +126,16 @@ export interface TelemetryConfig {
   maxAttempts: number;
 }
 
+/** Hardware scanner input (dual-scanner order §5) — HID wedge / BT / USB. */
+export interface HardwareConfig {
+  /** Keys that terminate a keyboard-wedge code (Enter is the scanner default). */
+  terminatorKeys: string[];
+  /** Safety net: wedge codes longer than this are dropped as junk. */
+  maxCodeLength: number;
+  /** Minimum plausible code length. */
+  minCodeLength: number;
+}
+
 export interface ScanConfig {
   camera: CameraConfig;
   ocr: OcrConfig;
@@ -135,6 +145,7 @@ export interface ScanConfig {
   validation: ValidationConfig;
   confidence: ConfidenceConfig;
   telemetry: TelemetryConfig;
+  hardware: HardwareConfig;
 }
 
 /** Default configuration — production-conservative. Override per-deployment or
@@ -196,6 +207,11 @@ export const DEFAULT_SCAN_CONFIG: ScanConfig = {
   },
   telemetry: {
     maxAttempts: 500,
+  },
+  hardware: {
+    terminatorKeys: ['Enter'],
+    maxCodeLength: 64,
+    minCodeLength: 4,
   },
 };
 

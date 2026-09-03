@@ -40,3 +40,8 @@ export {
 export type { LineRegion } from '../src/modules/receiving-terminal/textlines';
 export { isDuplicate, noteSubmission, EMPTY_DEDUPE } from '../src/modules/receiving-terminal/dedupe';
 export type { DedupeState } from '../src/modules/receiving-terminal/dedupe';
+// Hardware scanner path (dual order §5/§7) — shared receiving decision.
+export { sanitiseWedgeRead, prepareHardwareRead } from '../src/modules/receiving-terminal/hardware-scan';
+export type { HardwareReadResult } from '../src/modules/receiving-terminal/hardware-scan';
+export { WedgeParser, DEFAULT_TERMINATORS } from '../src/modules/receiving-terminal/hardware-wedge';
+export type { WedgeEvent } from '../src/modules/receiving-terminal/hardware-wedge';

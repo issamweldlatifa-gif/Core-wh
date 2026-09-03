@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AYROVI — Dual Scanner UI Preview (layout mock, not a runtime capture)</title>
+<style>
+  :root { --bg:#000; --panel:#0c120f; --line:#223229; --text:#eaf5ef; --muted:#8fa69a;
+          --ok:#00ff66; --warn:#ffc247; --bad:#ff6a5f; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:#050806; color:var(--text); font-family: ui-sans-serif, system-ui, 'Segoe UI', Roboto, Arial; }
+  .note { max-width: 1100px; margin: 0 auto; padding: 14px 18px; color:#ffd37a;
+          border-bottom: 1px solid #333; font-size: 0.85rem; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 22px 18px; display:flex; flex-direction:column; gap:28px; }
+  .cap { font-size: 0.75rem; letter-spacing: 0.24em; color: var(--muted); text-transform: uppercase; }
+  .frame { border:1px solid var(--line); border-radius:14px; overflow:hidden; background:var(--panel);
+           box-shadow: 0 18px 60px rgba(0,0,0,.6); }
+  .head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px;
+          background:#10160f; border-bottom:1px solid var(--line); }
+  .title { display:flex; align-items:center; gap:10px; font-weight:800; letter-spacing:.08em; font-size:.88rem; }
+  .dot { width:10px; height:10px; border-radius:50%; }
+  .dot.ok { background: var(--ok); box-shadow:0 0 10px var(--ok); }
+  .dot.bad { background:#555; }
+  .meta { display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
+  .tabs { display:flex; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+  .tab { padding:6px 12px; font-size:.66rem; font-weight:800; letter-spacing:.1em; cursor:pointer;
+         background:transparent; color:var(--muted); border:0; }
+  .tab.on { background: var(--ok); color:#000; }
+  .chip { font-size:.62rem; letter-spacing:.14em; color:var(--muted); border:1px solid var(--line);
+          padding:4px 8px; border-radius:999px; }
+  .btn { font:inherit; font-size:.68rem; font-weight:800; letter-spacing:.08em; padding:7px 14px;
+         border-radius:8px; border:1px solid var(--line); background:#131a15; color:var(--text); cursor:pointer; }
+  .btn.primary { background: var(--ok); color:#000; border-color: var(--ok); }
+  .btn.danger { border-color:#a33; color:#ff9d94; }
+  .btn:disabled { opacity:.5; cursor:default; }
+  /* software camera stage */
+  .stage { position:relative; height:340px; background:
+      radial-gradient(900px 420px at 50% -10%, #10241a 0%, #000 60%), #000; overflow:hidden; }
+  .stage .camline { position:absolute; left:0; right:0; top:52px; height:3px;
+      background: linear-gradient(90deg, transparent, #1f3a2c, transparent); }
+  .roi { position:absolute; left:50%; top:54%; width:70%; height:34%; transform:translate(-50%,-50%);
+      border:2px solid rgba(255,77,77,.65); border-radius:12px;
+      box-shadow:0 0 0 100vmax rgba(0,0,0,.5); }
+  .roi i { position:absolute; width:16px; height:16px; border:3px solid #ff4d4d; }
+  .roi i.tl { top:-3px; left:-3px; border-right:0; border-bottom:0; }
+  .roi i.tr { top:-3px; right:-3px; border-left:0; border-bottom:0; }
+  .roi i.bl { bottom:-3px; left:-3px; border-right:0; border-top:0; }
+  .roi i.br { bottom:-3px; right:-3px; border-left:0; border-top:0; }
+  .scanline { position:absolute; left:2%; right:2%; top:56%; height:3px; margin-top:-1px; border-radius:999px;
+      background:linear-gradient(90deg, transparent, #ff2d2d 20%, #ff8080 50%, #ff2d2d 80%, transparent);
+      box-shadow:0 0 14px 2px rgba(255,60,60,.9); }
+  .roihint { position:absolute; left:0; right:0; bottom:-30px; text-align:center; color:#ffb3ae;
+      font-size:.7rem; letter-spacing:.18em; }
+  .stat { position:absolute; top:14px; left:50%; transform:translateX(-50%); padding:6px 14px;
+      border-radius:999px; background:rgba(0,0,0,.75); border:1px solid var(--line);
+      font-size:.72rem; font-weight:800; letter-spacing:.12em; }
+  .stat .ph { color: #7cff9b; }
+  .foot { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 14px;
+      border-top:1px solid var(--line); color:var(--muted); font-size:.68rem; }
+  .foot .btns { display:flex; gap:8px; }
+  /* hardware body */
+  .hbody { padding:26px 22px; display:flex; flex-direction:column; gap:18px; }
+  .hero { display:flex; flex-direction:column; align-items:center; gap:6px; text-align:center; }
+  .bigdot { font-size:52px; line-height:1; color:var(--ok); text-shadow:0 0 18px rgba(0,255,102,.55); }
+  .hero .l1 { font-weight:800; letter-spacing:.1em; }
+  .hero .l2 { color:var(--ok); font-size:.8rem; letter-spacing:.1em; }
+  .hero .l3 { color:var(--muted); font-size:.72rem; }
+  .actions { display:flex; flex-wrap:wrap; gap:10px; justify-content:center; }
+  .caps { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:10px; }
+  .capb { border:1px solid var(--line); border-radius:10px; padding:11px 12px; display:flex; gap:10px; align-items:flex-start; }
+  .c { width:9px; height:9px; border-radius:50%; margin-top:5px; }
+  .c.on { background:var(--ok); box-shadow:0 0 8px var(--ok); }
+  .c.no { background:#444; }
+  .capb b { font-size:.74rem; letter-spacing:.04em; display:block; }
+  .capb span { color:var(--muted); font-size:.64rem; line-height:1.45; }
+  .last { font-size:.68rem; letter-spacing:.24em; color:var(--muted); }
+  .lrow { display:flex; align-items:center; gap:14px; border:1px solid var(--line); border-radius:8px;
+      padding:9px 14px; background:rgba(255,255,255,.03); font-size:.9rem; letter-spacing:.08em; }
+  .lrow .mono { font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; }
+  .tag { font-size:.6rem; font-weight:800; letter-spacing:.08em; padding:3px 8px; border-radius:999px; }
+  .tag.ok { color:var(--ok); border:1px solid rgba(0,255,102,.5); }
+  .tag.mut { color:var(--muted); border:1px solid var(--line); }
+  .tag.warn { color:var(--warn); border:1px solid rgba(255,194,71,.5); }
+</style>
+</head>
+<body>
+<div class="note">
+  ⚠ AYROVI DUAL SCANNER — STATIC LAYOUT PREVIEW generated from the implemented
+  component structure (<code>ReceivingScanner.tsx</code> / <code>ContinuousScanner.tsx</code> /
+  <code>HardwareScannerPanel.tsx</code>). This is NOT a runtime screenshot/GIF: no browser was
+  available in this environment. On a device, capture real footage by opening Receiving →
+  SCAN → Software/Hardware (hardware panel includes a DEV: SIMULATE WEDGE button and the
+  software panel supports <code>demoMode</code> for the same-code-path demo).
+</div>
+
+<div class="wrap">
+  <div class="cap">Mode 1 · Software Scan — Receiving (Smartphone default) · header shows method tabs SOFTWARE | HARDWARE</div>
+  <div class="frame">
+    <div class="head">
+      <div class="title"><span class="dot ok"></span>RECEIVING · RC-2026-0917</div>
+      <div class="meta">
+        <div class="tabs" role="tablist">
+          <button class="tab on">SOFTWARE</button>
+          <button class="tab">HARDWARE</button>
+        </div>
+        <button class="tab" style="background:#111">CARTONS</button>
+        <button class="tab">PRODUCTS</button>
+        <span class="chip">3 scanned</span>
+        <button class="btn danger">EXIT</button>
+      </div>
+    </div>
+    <div class="stage">
+      <div class="camline"></div>
+      <div class="stat"><span class="ph">MATCHED</span> <span style="color:var(--muted)"> · OCR</span></div>
+      <div class="roi">
+        <i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i>
+        <div class="scanline"></div>
+        <div class="roihint">ALIGN CARTON LABEL</div>
+      </div>
+    </div>
+    <div class="foot">
+      <div>Scanner stays open — keep passing cartons. Barcode/QR first, text (OCR) as fallback.</div>
+      <div class="btns"><button class="btn">TORCH</button><button class="btn">FLIP CAMERA</button></div>
+    </div>
+  </div>
+
+  <div class="cap">Mode 2 · Hardware Scan — Receiving (Desktop default) · no camera, no permission prompt</div>
+  <div class="frame">
+    <div class="head">
+      <div class="title"><span class="dot ok"></span>RECEIVING · RC-2026-0917 · HARDWARE</div>
+      <div class="meta">
+        <div class="tabs" role="tablist">
+          <button class="tab">SOFTWARE</button>
+          <button class="tab on">HARDWARE</button>
+        </div>
+        <span class="chip">EXTERNAL SCANNER</span>
+        <button class="btn danger">EXIT</button>
+      </div>
+    </div>
+    <div class="hbody">
+      <div class="hero">
+        <div class="bigdot">●</div>
+        <div class="l1">Hardware Scanner</div>
+        <div class="l2">Status: Connected</div>
+        <div class="l3">Ready to scan — scan a code with the USB / Bluetooth device</div>
+      </div>
+      <div class="actions">
+        <button class="btn primary">RECONNECT</button>
+        <button class="btn">PAIR BLUETOOTH</button>
+        <button class="btn" title="Dev/QA">DEV: SIMULATE WEDGE</button>
+      </div>
+      <div class="caps">
+        <div class="capb"><span class="c on"></span><div><b>USB / HID wedge</b><span>keyboard-wedge capture — works with most USB scanners</span></div></div>
+        <div class="capb"><span class="c on"></span><div><b>Bluetooth</b><span>Web Bluetooth (serial-over-BLE barcode service)</span></div></div>
+        <div class="capb"><span class="c no"></span><div><b>WebUSB</b><span>vendor profiles for future industrial scanners</span></div></div>
+      </div>
+      <div class="last">LAST SCAN</div>
+      <div class="lrow"><span class="mono">SKU-100200300</span><span class="tag ok">ACCEPTED</span></div>
+      <div class="lrow"><span class="mono">CTN-000123</span><span class="tag ok">ACCEPTED</span></div>
+      <div class="lrow"><span class="mono">CTN-000123</span><span class="tag warn">DUPLICATE · IGNORED</span></div>
+      <div style="color:var(--muted);font-size:.66rem;border-top:1px solid var(--line);padding-top:12px">
+        USB / HID scans arrive as a fast keyboard burst — no camera or browser permission is used.
+        Bluetooth &amp; WebUSB connect through the provider seam and reuse the exact same receiving pipeline.
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

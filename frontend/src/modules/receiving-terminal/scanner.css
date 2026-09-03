@@ -243,3 +243,63 @@
   border-color: var(--primary, #00ff66);
   color: #000;
 }
+
+/* ==========================================================================
+   DUAL SCANNER — hardware panel + loading fallback (dual-scanner order §8)
+   ========================================================================== */
+.cs-loading-fallback {
+  position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center;
+  justify-content: center; background: #000; color: var(--text, #fff);
+  font-weight: 700; letter-spacing: 0.2em;
+}
+
+/* hardware panel */
+.hw-body {
+  display: flex; flex-direction: column; gap: 18px;
+  padding: 28px 26px; overflow: auto;
+  background:
+    radial-gradient(1200px 600px at 50% -10%, rgba(0, 255, 102, 0.06), transparent 60%),
+    #000;
+}
+.hw-hero { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
+.hw-indicator { font-size: 56px; line-height: 1; }
+.hw-indicator.is-on { color: #00ff66; text-shadow: 0 0 18px rgba(0,255,102,0.6); }
+.hw-indicator.is-off { color: #555; }
+.hw-status-text { display: flex; gap: 12px; align-items: baseline; font-size: 1.05rem; }
+.hw-status-text strong { letter-spacing: 0.1em; }
+.hw-on { color: #00ff66; }
+.hw-off { color: #ff6a5f; }
+.hw-sub { color: var(--muted, #9fb0a4); font-size: 0.8rem; }
+.hw-error {
+  align-self: center; color: #ff6a5f; font-size: 0.78rem;
+  border: 1px solid rgba(255,106,95,0.4); padding: 8px 14px; border-radius: 8px;
+}
+.hw-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+.hw-caps {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+.hw-cap {
+  display: flex; gap: 10px; align-items: flex-start;
+  border: 1px solid var(--border, #26352c); border-radius: 10px; padding: 12px;
+  background: rgba(255,255,255,0.02);
+}
+.hw-cap-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; flex: 0 0 auto; }
+.hw-cap-dot.ok { background: #00ff66; box-shadow: 0 0 8px rgba(0,255,102,0.6); }
+.hw-cap-dot.no { background: #444; }
+.hw-cap-name { font-weight: 700; font-size: 0.8rem; letter-spacing: 0.04em; }
+.hw-cap-desc { color: var(--muted, #9fb0a4); font-size: 0.7rem; margin-top: 3px; line-height: 1.45; }
+.hw-list-title { font-size: 0.72rem; letter-spacing: 0.24em; color: var(--muted, #9fb0a4); }
+.hw-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.hw-row {
+  display: flex; align-items: center; gap: 14px;
+  border: 1px solid var(--border, #26352c); border-radius: 8px; padding: 10px 14px;
+  background: rgba(255,255,255,0.03);
+}
+.hw-code { font-size: 1rem; letter-spacing: 0.12em; }
+.hw-time { margin-left: auto; font-size: 0.7rem; }
+.hw-empty { font-size: 0.8rem; }
+.hw-foot {
+  margin-top: auto; color: var(--muted, #9fb0a4); font-size: 0.7rem; line-height: 1.6;
+  border-top: 1px solid var(--border, #26352c); padding-top: 12px;
+}

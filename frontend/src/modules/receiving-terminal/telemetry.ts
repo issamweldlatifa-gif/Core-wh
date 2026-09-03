@@ -12,7 +12,7 @@
  * operator dump a CSV from a terminal for the real-device §17 benchmark.
  */
 
-export type DetectionType = 'BARCODE' | 'QR' | 'OCR' | 'MANUAL';
+export type DetectionType = 'BARCODE' | 'QR' | 'OCR' | 'MANUAL' | 'SCANNER';
 export type ValidationResult = 'exact' | 'candidate' | 'none' | 'no_corpus' | 'na';
 export type FinalResult =
   | 'accepted' // submitted → backend accepted
@@ -30,6 +30,12 @@ export interface ScanAttempt {
   mode?: 'CARTON' | 'PRODUCT';
   scannerType: 'native' | 'zxing' | 'tesseract' | 'manual' | 'external';
   detectionType: DetectionType;
+  /** Dual-scanner order §12 — which scanner method produced this attempt. */
+  scanMethod?: 'software' | 'hardware';
+  /** Provider label (SoftwareScannerProvider / USB HID wedge / Bluetooth …). */
+  provider?: string;
+  /** Monotonic attempt counter inside this scan session (dual order §12). */
+  attemptNumber?: number;
   /** ms spent decoding/recognising this attempt. */
   processingMs: number;
   ocrConfidence?: number; // 0..1
@@ -64,6 +70,8 @@ export interface StageAverages {
 
 export interface TelemetrySummary {
   attempts: number;
+  /** Dual-scanner order §13 — attempts split by software / hardware. */
+  byMethod: { software: number; hardware: number };
   byDetection: Record<DetectionType, number>;
   barcodeOk: number;
   barcodeAttempts: number;
@@ -107,9 +115,16 @@ export interface TelemetrySink {
 export function createTelemetry(maxAttempts = 500, scanSessionId?: string): TelemetrySink {
   const ring: ScanAttempt[] = [];
   let manualFallbacks = 0;
+  let nextAttempt = 0;
 
   const finalize = (): TelemetrySummary => {
-    const byDetection: Record<DetectionType, number> = { BARCODE: 0, QR: 0, OCR: 0, MANUAL: 0 };
+    const byMethod = { software: 0, hardware: 0 };
+    const byDetection: Record<DetectionType, number> = { BARCODE: 0, QR: 0, OCR: 0, MANUAL: 0, SCANNER: 0 };
+    for (const a of ring) {
+      if (a.scanMethod === 'hardware') byMethod.hardware += 1;
+      else byMethod.software += 1;
+      byDetection[a.detectionType] += 1;
+    }
     let barcodeOk = 0;
     let barcodeAttempts = 0;
     let ocrRuns = 0;
@@ -140,7 +155,6 @@ export function createTelemetry(maxAttempts = 500, scanSessionId?: string): Tele
       }
     }
     for (const a of ring) {
-      byDetection[a.detectionType] += 1;
       scanTimes.push(a.processingMs);
       if (a.detectionType === 'OCR') {
         ocrRuns += 1;
@@ -169,6 +183,7 @@ export function createTelemetry(maxAttempts = 500, scanSessionId?: string): Tele
     const retries = droppedLow + qualityBlocked;
     return {
       attempts: ring.length,
+      byMethod,
       byDetection,
       barcodeOk,
       barcodeAttempts,
@@ -203,7 +218,8 @@ export function createTelemetry(maxAttempts = 500, scanSessionId?: string): Tele
 
   return {
     record(a) {
-      ring.push({ scanSessionId, ...a });
+      nextAttempt += 1;
+      ring.push({ scanSessionId, attemptNumber: nextAttempt, ...a });
       if (ring.length > maxAttempts) ring.shift();
     },
     markBackendVerdict(acceptedVerdict) {
@@ -224,9 +240,10 @@ export function createTelemetry(maxAttempts = 500, scanSessionId?: string): Tele
       manualFallbacks = 0;
     },
     toCSV() {
-      const head = 'ts,scannerType,detectionType,processingMs,ocrConfidence,imageQuality,validationResult,finalResult,failureReason,mode';
+      const head = 'ts,attemptNumber,scanMethod,provider,scannerType,detectionType,processingMs,ocrConfidence,imageQuality,validationResult,finalResult,failureReason,mode';
       const rows = ring.map((a) => [
-        a.ts, a.scannerType, a.detectionType, a.processingMs,
+        a.ts, a.attemptNumber ?? '', a.scanMethod ?? '', a.provider ?? '',
+        a.scannerType, a.detectionType, a.processingMs,
         a.ocrConfidence ?? '', a.imageQuality ?? '', a.validationResult, a.finalResult,
         a.failureReason ?? '', a.mode ?? '',
       ].join(','));
@@ -239,10 +256,10 @@ export function createTelemetry(maxAttempts = 500, scanSessionId?: string): Tele
 }
 
 /** Read-only debug handle: console.table(window.__ayroviScanTelemetry.summary()). */
-export function exposeDebugHandle(sink: TelemetrySink): void {
+export function exposeDebugHandle(sink: TelemetrySink, key = '__ayroviScanTelemetry'): void {
   if (typeof window === 'undefined') return;
   try {
-    (window as any).__ayroviScanTelemetry = {
+    (window as any)[key] = {
       summary: () => sink.summary(),
       csv: () => sink.toCSV(),
       clear: () => sink.clear(),

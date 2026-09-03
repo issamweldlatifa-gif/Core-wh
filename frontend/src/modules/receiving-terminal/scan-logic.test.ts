@@ -209,16 +209,19 @@ describe('fields (order §8)', () => {
 describe('telemetry (order §16)', () => {
   it('aggregates rates and never stores images', () => {
     const t = createTelemetry(100, 'S-1');
-    t.record({ ts: 1, scanSessionId: 'S-1', mode: 'CARTON', scannerType: 'tesseract', detectionType: 'OCR', processingMs: 120, ocrConfidence: 0.6, imageQuality: 0.7, validationResult: 'candidate', finalResult: 'worker_confirmed', deviceType: 'SMARTPHONE' });
-    t.record({ ts: 2, scanSessionId: 'S-1', mode: 'CARTON', scannerType: 'native', detectionType: 'BARCODE', processingMs: 30, validationResult: 'na', finalResult: 'auto_submitted', deviceType: 'SMARTPHONE' });
+    t.record({ ts: 1, scanSessionId: 'S-1', mode: 'CARTON', scanMethod: 'software', provider: 'software-camera', scannerType: 'tesseract', detectionType: 'OCR', processingMs: 120, ocrConfidence: 0.6, imageQuality: 0.7, validationResult: 'candidate', finalResult: 'worker_confirmed', deviceType: 'SMARTPHONE' });
+    t.record({ ts: 2, scanSessionId: 'S-1', mode: 'CARTON', scanMethod: 'hardware', provider: 'hid', scannerType: 'external', detectionType: 'SCANNER', processingMs: 30, validationResult: 'na', finalResult: 'auto_submitted', deviceType: 'HID' });
     t.markBackendVerdict(true);
     const s = t.summary();
     expect(s.attempts).toBe(2);
+    expect(s.byMethod).toEqual({ software: 1, hardware: 1 });
     expect(s.byDetection.OCR).toBe(1);
-    expect(s.barcodeAttempts).toBe(1);
+    expect(s.byDetection.SCANNER).toBe(1);
+    expect(s.barcodeAttempts).toBe(0);
     expect(s.accepted).toBe(1);
     expect(s.ocrCorrections).toBe(1);
-    expect(t.toCSV()).toContain('ts,scannerType');
+    // dual-order §12 — csv exposes method/provider/attempt fields
+    expect(t.toCSV()).toContain('ts,attemptNumber,scanMethod,provider,scannerType');
     t.clear();
     expect(t.summary().attempts).toBe(0);
   });

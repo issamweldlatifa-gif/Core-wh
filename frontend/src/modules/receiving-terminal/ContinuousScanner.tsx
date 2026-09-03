@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   BarcodeFormat,
   DecodeHintType,
@@ -151,6 +151,8 @@ interface Props {
   demoMode?: boolean;
   /** DEMO: codes the simulated labels cycle through. */
   demoCodes?: string[];
+  /** Optional node rendered in the header (e.g. dual-scanner method tabs). */
+  headerExtra?: ReactNode;
 }
 
 const GUIDE_START: GuideState = { phase: 'SEARCHING', advice: [], line: 0.5 };
@@ -169,6 +171,7 @@ export default function ContinuousScanner({
   scannerProfile = 'BALANCED',
   demoMode = false,
   demoCodes,
+  headerExtra,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const demoRef = useRef<HTMLCanvasElement>(null);
@@ -334,6 +337,8 @@ export default function ContinuousScanner({
       void telemetry.record({
         ts: Date.now(),
         mode: modeRef.current,
+        scanMethod: 'software',
+        provider: isDemo ? 'demo-camera' : 'software-camera',
         scannerType: detection === 'OCR' ? 'tesseract' : nativeDetector ? 'native' : 'zxing',
         detectionType: detection,
         processingMs,
@@ -951,6 +956,7 @@ export default function ContinuousScanner({
                 ))}
               </div>
             )}
+            {headerExtra}
             <span className="os-tag os-tag--muted">{scanCount} scanned</span>
             <button type="button" className="os-btn os-btn--danger" onClick={exit}>
               EXIT
