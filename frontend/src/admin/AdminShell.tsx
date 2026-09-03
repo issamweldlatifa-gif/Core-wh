@@ -52,6 +52,7 @@ const NAV: NavEntry[] = [
   { to: '/admin/exceptions', label: 'Exceptions', group: 'MONITORING', permission: 'operations.view' },
   { to: '/admin/activity', label: 'Live Activity', group: 'MONITORING', permission: 'operations.view' },
   { to: '/admin/traceability', label: 'Audit / Trace', group: 'MONITORING', permission: 'operations.view' },
+  { to: '/admin/data-control', label: 'Data Control', group: 'MONITORING', permission: 'operations.view' },
 
   // SYSTEM
   { to: '/system', label: 'Settings', group: 'SYSTEM', permission: 'system.view', external: true },

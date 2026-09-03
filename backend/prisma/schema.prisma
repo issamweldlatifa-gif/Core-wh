@@ -138,6 +138,7 @@ enum AuditAction {
   CORRECTION_APPLIED
   RECEIVING_REVERSED
   SESSION_REOPENED
+  DATA_VOIDED // admin soft-voided an operational record (Data Control)
   SESSION_REASSIGNED
   // Putaway / stowing — cartons onto real storage locations.
   PUTAWAY_STARTED
@@ -722,6 +723,7 @@ enum ExpectedArrivalStatus {
   PAUSED // receiving session paused (no data lost)
   RECEIVED // fully received with no open discrepancies
   RECEIVED_WITH_DISCREPANCY // received but closed with shortages/overages/etc.
+  VOIDED // admin voided the arrival card (duplicate / wrong entry) — kept for audit
 }
 
 // Shipment card provenance (mirrors the CRM normalized source).
@@ -752,6 +754,7 @@ enum CartonStatus {
   STORED // put away to a real storage location (Putaway / stowing)
   FLAGGED // worker flagged for review
   WRONG_SHIPMENT // scanned carton belongs to a different shipment
+  VOIDED // admin voided the carton record (duplicate / wrong entry) — kept for audit
 }
 
 // Receiving Session lifecycle.
@@ -965,6 +968,7 @@ enum ContainerStatus {
   READY_FOR_PACKING // customer bin holds every article of its order
   PACKED // contents packed into an outbound shipment
   CLOSED // released after ship / emptied; kept for audit trail
+  VOIDED // admin voided the container (wrong / duplicate tote or bin) — kept for audit
 }
 
 /// Per-piece lifecycle. An article is born at the receiving scan and is
@@ -976,6 +980,7 @@ enum ArticleUnitStatus {
   IN_CUSTOMER_BIN // assigned + physically placed in a customer bin
   PACKED // packed into an outbound shipment carton
   SHIPPED // dispatched
+  VOIDED // admin voided the article (wrong / duplicate scan) — kept for audit
 }
 
 enum OutboundShipmentStatus {

@@ -232,4 +232,37 @@ export class OperationsController {
   reopenSession(@Body() body: { sessionId: string; reason: string }, @Req() req: any) {
     return this.correctionsSvc.reopenSession(body.sessionId, body.reason, actorOf(req));
   }
+
+  // ---- Admin Data Control (soft-void; view to read, correct to act) -------
+
+  @Get('data-control/search')
+  @RequirePermissions('operations.view')
+  @ApiOperation({ summary: 'Search operational records by code or info (WAR/CTN/RCN/BIN/ART/ORD...).' })
+  @ApiQuery({ name: 'q', required: true })
+  dataControlSearch(@Query('q') q?: string) {
+    return this.ops.dataControlSearch(q ?? '');
+  }
+
+  @Get('data-control/voided')
+  @RequirePermissions('operations.view')
+  @ApiOperation({ summary: 'Recent admin soft-voids from the audit trail.' })
+  dataControlVoided() {
+    return this.ops.dataControlVoided();
+  }
+
+  @Post('data-control/void')
+  @RequirePermissions('operations.correct')
+  @ApiOperation({ summary: 'Soft-void an operational record (admin only, audited, never deletes).' })
+  dataControlVoid(
+    @Body()
+    body: {
+      kind: 'arrival' | 'order' | 'container' | 'article' | 'carton';
+      id?: string;
+      code: string;
+      reason?: string;
+    },
+    @Req() req: any,
+  ) {
+    return this.ops.dataControlVoid(body, actorOf(req));
+  }
 }

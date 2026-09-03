@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { AuditAction } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -80,11 +80,12 @@ const OPS_AUDIT_ACTIONS = [
   'CATEGORY_VALIDATED',
   'CATEGORY_NEEDS_REVIEW',
   'CATEGORY_MANUALLY_CHANGED',
+  'DATA_VOIDED',
 ] as AuditAction[];
 
 /** Human/barcode code to show in the activity stream for an audit row, in
  * priority order of metadata keys. */
-const ENTITY_CODE_KEYS = ['article', 'shipment', 'bin', 'container', 'carton', 'session', 'location', 'order'];
+const ENTITY_CODE_KEYS = ['article', 'shipment', 'bin', 'container', 'carton', 'session', 'location', 'order', 'arrival'];
 
 type Metric = { key: string; value: number; unit: string };
 
@@ -997,6 +998,342 @@ export class OperationsService {
       include: { actor: { select: { id: true, name: true, employeeCode: true } } },
     });
     return rows.map((r) => this.toActivityEvent(r as never));
+  }
+
+  // =====================================================================
+  // Admin Data Control — soft-void (COMMAND #2). Admin-only (operations.correct).
+  // Voiding NEVER deletes: it moves rows to a terminal VOIDED/CANCELLED state,
+  // records the admin + reason in the audit trail, and clears operational
+  // pointers (containerId/orderId/orderItemId) so live derived counts (FULL,
+  // expected-vs-count) stay honest. Duplicate cards / wrong scans can be
+  // voided by any code (WAR/CTN/RCN/BIN/ART/ORD) or search info.
+  // =====================================================================
+
+  /** Unified search across every voidable operational entity. */
+  async dataControlSearch(q: string) {
+    const term = (q ?? '').trim();
+    if (!term) return [];
+    const ci = { contains: term, mode: 'insensitive' as Prisma.QueryMode };
+    const [arrivals, containers, orders, articles, cartons] = await Promise.all([
+      this.prisma.expectedArrival.findMany({
+        where: {
+          OR: [{ code: ci }, { customerName: ci }, { customerArrivalCardId: ci }, { arrivalReference: ci }],
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: { id: true, code: true, customerName: true, status: true, createdAt: true },
+      }),
+      this.prisma.operationalContainer.findMany({
+        where: { OR: [{ code: ci }, { label: ci }] },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: {
+          id: true,
+          code: true,
+          type: true,
+          status: true,
+          label: true,
+          createdAt: true,
+          order: { select: { externalOrderReference: true } },
+        },
+      }),
+      this.prisma.warehouseOrder.findMany({
+        where: {
+          OR: [{ externalOrderReference: ci }, { externalCustomerReference: ci }],
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: { id: true, externalOrderReference: true, externalCustomerReference: true, status: true, createdAt: true },
+      }),
+      this.prisma.articleUnit.findMany({
+        where: { OR: [{ code: ci }, { sku: ci }, { productName: ci }] },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: {
+          id: true,
+          code: true,
+          sku: true,
+          productName: true,
+          status: true,
+          createdAt: true,
+          container: { select: { code: true } },
+          order: { select: { externalOrderReference: true } },
+        },
+      }),
+      this.prisma.warehouseCarton.findMany({
+        where: { OR: [{ externalCartonId: ci }, { qrCodeValue: ci }, { barcodeValue: ci }] },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: { id: true, externalCartonId: true, qrCodeValue: true, barcodeValue: true, status: true, createdAt: true },
+      }),
+    ]);
+    const rows = [
+      ...arrivals.map((a) => ({
+        id: a.id,
+        kind: 'arrival' as const,
+        code: a.code,
+        label: a.customerName ?? '',
+        status: a.status,
+        createdAt: a.createdAt,
+      })),
+      ...containers.map((c) => ({
+        id: c.id,
+        kind: 'container' as const,
+        code: c.code,
+        label: `${c.type === 'CUSTOMER' ? 'BIN' : 'TOTE'}${c.order ? ` · ${c.order.externalOrderReference}` : ''}${c.label ? ` · ${c.label}` : ''}`,
+        status: c.status,
+        createdAt: c.createdAt,
+      })),
+      ...orders.map((o) => ({
+        id: o.id,
+        kind: 'order' as const,
+        code: o.externalOrderReference,
+        label: o.externalCustomerReference ?? '',
+        status: o.status,
+        createdAt: o.createdAt,
+      })),
+      ...articles.map((x) => ({
+        id: x.id,
+        kind: 'article' as const,
+        code: x.code,
+        label: [x.sku, x.productName, x.container?.code, x.order?.externalOrderReference].filter(Boolean).join(' · '),
+        status: x.status,
+        createdAt: x.createdAt,
+      })),
+      ...cartons.map((x) => ({
+        id: x.id,
+        kind: 'carton' as const,
+        code: x.externalCartonId ?? x.qrCodeValue ?? x.barcodeValue ?? '',
+        label: [x.qrCodeValue, x.barcodeValue].filter(Boolean).join(' · '),
+        status: x.status,
+        createdAt: x.createdAt,
+      })),
+    ];
+    return rows.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, 50);
+  }
+
+  /** Recent admin voids (audit-derived), newest first. */
+  async dataControlVoided() {
+    const rows = await this.prisma.auditLog.findMany({
+      where: { action: 'DATA_VOIDED' },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      include: { actor: { select: { id: true, name: true, employeeCode: true } } },
+    });
+    return rows.map((r) => {
+      const meta = (r.metadata ?? {}) as Record<string, unknown>;
+      return {
+        id: r.id,
+        at: r.createdAt.toISOString(),
+        kind: r.entityType,
+        code: r.entityId,
+        reason: meta.reason ?? null,
+        previousStatus: meta.previousStatus ?? null,
+        cascaded: meta.cascaded ?? [],
+        admin: r.actor ? { id: r.actor.id, name: r.actor.name, employeeCode: r.actor.employeeCode } : null,
+      };
+    });
+  }
+
+  /** Soft-void one operational record. Resolves by primary key when `id` is
+   * given (unambiguous — duplicate scans of the same code are then each
+   * independently voidable), otherwise falls back to a code scan. */
+  async dataControlVoid(
+    input: { kind: 'arrival' | 'order' | 'container' | 'article' | 'carton'; id?: string; code: string; reason?: string },
+    actor: { id: string; ip?: string },
+  ) {
+    const code = (input.code ?? '').trim();
+    const reason = (input.reason ?? '').trim();
+    if (!code) throw new BadRequestException('code is required.');
+    // A written reason is part of the void contract (soft void = state +
+    // reason + actor), mirroring the Corrections rule.
+    if (reason.length < 2) throw new BadRequestException('A written reason (at least 2 characters) is required.');
+
+    const audit = (payload: {
+      kind: string;
+      code: string;
+      reason?: string;
+      alias?: string;
+      previousStatus?: string;
+      extra?: Record<string, unknown>;
+      cascaded?: unknown[];
+    }) =>
+      this.prisma.auditLog.create({
+        data: {
+          actorUserId: actor.id || null,
+          ipAddress: actor.ip ?? null,
+          action: 'DATA_VOIDED',
+          entityType: payload.kind,
+          entityId: payload.code,
+          metadata: {
+            code: payload.code,
+            kind: payload.kind,
+            reason: payload.reason ?? null,
+            previousStatus: payload.previousStatus ?? null,
+            [payload.alias ?? payload.kind]: payload.code,
+            ...(payload.extra ?? {}),
+            cascaded: payload.cascaded ?? [],
+          } as Prisma.InputJsonValue,
+        },
+      });
+
+    if (input.kind === 'arrival') {
+      const row = input.id
+        ? await this.prisma.expectedArrival.findUnique({ where: { id: input.id } })
+        : await this.prisma.expectedArrival.findFirst({
+            where: { OR: [{ code }, { customerArrivalCardId: code }, { arrivalReference: code }] },
+          });
+      if (!row) throw new NotFoundException(`No arrival card found for "${code}".`);
+      if (row.status === 'VOIDED') throw new ConflictException(`Arrival ${code} is already voided.`);
+      const sessions = await this.prisma.receivingSession.count({ where: { arrivalId: row.id } });
+      if (sessions > 0) {
+        throw new BadRequestException(
+          `Arrival ${code} has ${sessions} receiving session(s) — finish or cancel them first (Corrections), then void.`,
+        );
+      }
+      await this.prisma.expectedArrival.update({ where: { id: row.id }, data: { status: 'VOIDED' } });
+      await audit({ kind: 'arrival', code, alias: 'arrival', reason, previousStatus: row.status });
+      return { ok: true, kind: 'arrival', code, previousStatus: row.status, status: 'VOIDED', cascaded: [] };
+    }
+
+    if (input.kind === 'carton') {
+      const row = input.id
+        ? await this.prisma.warehouseCarton.findUnique({ where: { id: input.id } })
+        : await this.prisma.warehouseCarton.findFirst({
+            where: { OR: [{ externalCartonId: code }, { qrCodeValue: code }, { barcodeValue: code }] },
+          });
+      if (!row) throw new NotFoundException(`No carton found for "${code}".`);
+      if (row.status === 'VOIDED') throw new ConflictException(`Carton ${code} is already voided.`);
+      if (row.status === 'RECEIVED' || row.status === 'STORED') {
+        const produced = await this.prisma.articleUnit.count({ where: { sourceCartonId: row.id } });
+        if (produced > 0) {
+          throw new BadRequestException(
+            `Carton ${code} already produced ${produced} article(s) — void the articles instead, or use Corrections.`,
+          );
+        }
+      }
+      const show = row.externalCartonId ?? row.qrCodeValue ?? row.barcodeValue ?? row.id;
+      await this.prisma.warehouseCarton.update({ where: { id: row.id }, data: { status: 'VOIDED' } });
+      await audit({ kind: 'carton', code: show, alias: 'carton', reason, previousStatus: row.status });
+      return { ok: true, kind: 'carton', code: show, previousStatus: row.status, status: 'VOIDED', cascaded: [] };
+    }
+
+    if (input.kind === 'container') {
+      const row = input.id
+        ? await this.prisma.operationalContainer.findUnique({ where: { id: input.id } })
+        : await this.prisma.operationalContainer.findUnique({ where: { code } });
+      if (!row) throw new NotFoundException(`No container found for "${code}".`);
+      if (row.status === 'VOIDED') throw new ConflictException(`Container ${code} is already voided.`);
+      if (row.status !== 'ACTIVE' && row.status !== 'READY_FOR_PACKING') {
+        throw new BadRequestException(
+          `Container ${code} is ${row.status} — only ACTIVE / READY_FOR_PACKING containers can be voided.`,
+        );
+      }
+      const contents = await this.prisma.articleUnit.findMany({
+        where: { containerId: row.id, status: { not: 'VOIDED' } },
+        select: { code: true },
+      });
+      if (contents.length) {
+        await this.prisma.articleUnit.updateMany({
+          where: { containerId: row.id, status: { not: 'VOIDED' } },
+          data: { status: 'VOIDED', containerId: null, orderId: null, orderItemId: null },
+        });
+      }
+      await this.prisma.operationalContainer.update({ where: { id: row.id }, data: { status: 'VOIDED' } });
+      const cascaded = contents.map((a) => ({ kind: 'article', code: a.code }));
+      await audit({
+        kind: 'container',
+        code,
+        alias: row.type === 'CUSTOMER' ? 'bin' : 'container',
+        reason,
+        previousStatus: row.status,
+        extra: { containerType: row.type, articlesVoided: contents.length },
+        cascaded,
+      });
+      return { ok: true, kind: 'container', code, previousStatus: row.status, status: 'VOIDED', cascaded };
+    }
+
+    if (input.kind === 'article') {
+      const row = input.id
+        ? await this.prisma.articleUnit.findUnique({ where: { id: input.id } })
+        : await this.prisma.articleUnit.findUnique({ where: { code } });
+      if (!row) throw new NotFoundException(`No article found for "${code}".`);
+      if (row.status === 'VOIDED') throw new ConflictException(`Article ${code} is already voided.`);
+      if (row.status === 'PACKED' || row.status === 'SHIPPED') {
+        throw new BadRequestException(`Article ${code} is ${row.status} — void it before it leaves via Corrections.`);
+      }
+      await this.prisma.articleUnit.update({
+        where: { id: row.id },
+        data: { status: 'VOIDED', containerId: null, orderId: null, orderItemId: null },
+      });
+      await audit({ kind: 'article', code, alias: 'article', reason, previousStatus: row.status });
+      return { ok: true, kind: 'article', code, previousStatus: row.status, status: 'VOIDED', cascaded: [] };
+    }
+
+    if (input.kind === 'order') {
+      const row = input.id
+        ? await this.prisma.warehouseOrder.findUnique({ where: { id: input.id } })
+        : await this.prisma.warehouseOrder.findFirst({
+            where: { OR: [{ externalOrderReference: { equals: code, mode: 'insensitive' } }, { externalCustomerReference: { equals: code, mode: 'insensitive' } }] },
+          });
+      if (!row) throw new NotFoundException(`No order found for "${code}".`);
+      if (row.status !== 'OPEN') {
+        if (row.status === 'CANCELLED') throw new ConflictException(`Order ${code} is already cancelled.`);
+        throw new BadRequestException(`Order ${code} is ${row.status} — only OPEN orders can be voided.`);
+      }
+      const bins = await this.prisma.operationalContainer.findMany({
+        where: { orderId: row.id, type: 'CUSTOMER', status: { in: ['ACTIVE', 'READY_FOR_PACKING'] } },
+        select: { id: true, code: true },
+      });
+      const binIds = bins.map((b) => b.id);
+      let articles = 0;
+      if (binIds.length) {
+        const art = await this.prisma.articleUnit.findMany({
+          where: { containerId: { in: binIds }, status: { not: 'VOIDED' } },
+          select: { code: true },
+        });
+        articles = art.length;
+        if (articles) {
+          await this.prisma.articleUnit.updateMany({
+            where: { containerId: { in: binIds }, status: { not: 'VOIDED' } },
+            data: { status: 'VOIDED', containerId: null, orderId: null, orderItemId: null },
+          });
+        }
+        await this.prisma.operationalContainer.updateMany({
+          where: { id: { in: binIds } },
+          data: { status: 'VOIDED' },
+        });
+      }
+      await this.prisma.orderItem.updateMany({
+        where: { orderId: row.id, status: 'OPEN' },
+        data: { status: 'CANCELLED' },
+      });
+      const cancelledItems = await this.prisma.orderItem.count({ where: { orderId: row.id, status: 'CANCELLED' } });
+      await this.prisma.warehouseOrder.update({ where: { id: row.id }, data: { status: 'CANCELLED' } });
+      const cascaded = [
+        ...bins.map((b) => ({ kind: 'container', code: b.code })),
+        ...(articles ? [{ kind: 'article', code: `${articles} article(s) in voided bins` }] : []),
+      ];
+      await audit({
+        kind: 'order',
+        code: row.externalOrderReference,
+        alias: 'order',
+        reason,
+        previousStatus: row.status,
+        extra: { binsVoided: bins.length, itemsCancelled: cancelledItems, articlesVoided: articles },
+        cascaded,
+      });
+      return {
+        ok: true,
+        kind: 'order',
+        code: row.externalOrderReference,
+        previousStatus: row.status,
+        status: 'CANCELLED',
+        cascaded,
+      };
+    }
+
+    throw new BadRequestException(`Unsupported void kind "${input.kind}".`);
   }
 
   private toActivityEvent(row: {

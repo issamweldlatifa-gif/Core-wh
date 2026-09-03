@@ -303,4 +303,51 @@ export const adminApi = {
     client.post('/v1/operations/corrections/resolve-exception', { discrepancyId, reason, resolution }).then((r) => r.data),
   reopenSession: (sessionId: string, reason: string) =>
     client.post('/v1/operations/corrections/reopen-session', { sessionId, reason }).then((r) => r.data),
+
+  // Admin Data Control — soft-void (COMMAND #2). Read = operations.view,
+  // void = operations.correct (admin only).
+  dataControlSearch: (q: string) =>
+    client.get<DataControlHit[]>('/v1/operations/data-control/search', { params: { q } }).then((r) => r.data),
+  dataControlVoided: () =>
+    client.get<DataControlVoidedRow[]>('/v1/operations/data-control/voided').then((r) => r.data),
+  dataControlVoid: (kind: DataControlKind, code: string, reason?: string, id?: string) =>
+    client.post<DataControlVoidResult>('/v1/operations/data-control/void', { kind, code, reason, id }).then((r) => r.data),
 };
+
+export type DataControlKind = 'arrival' | 'order' | 'container' | 'article' | 'carton';
+
+export interface DataControlHit {
+  /** Stable primary key — used to void exactly one record when several
+   * records share the same scanned code (duplicate scans). */
+  id: string;
+  kind: DataControlKind;
+  code: string;
+  label: string;
+  status: string;
+  createdAt: string;
+}
+
+export interface DataControlCascade {
+  kind: string;
+  code: string;
+}
+
+export interface DataControlVoidResult {
+  ok: true;
+  kind: DataControlKind;
+  code: string;
+  previousStatus: string;
+  status: string;
+  cascaded: DataControlCascade[];
+}
+
+export interface DataControlVoidedRow {
+  id: string;
+  at: string;
+  kind: string | null;
+  code: string | null;
+  reason: string | null;
+  previousStatus: string | null;
+  cascaded: unknown;
+  admin: { id: string; name: string; employeeCode: string } | null;
+}

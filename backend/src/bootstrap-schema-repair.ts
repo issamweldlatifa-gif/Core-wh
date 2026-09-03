@@ -254,6 +254,7 @@ const REPAIR_STATEMENTS: string[] = [
   `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'CONTAINER_READY_FOR_PACKING'`,
   `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'CONTAINER_CLOSED'`,
   `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'ARTICLE_SCANNED'`,
+  `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'DATA_VOIDED'`,
   `CREATE TABLE IF NOT EXISTS "operational_containers" (
     "id" TEXT NOT NULL,
     "code" TEXT NOT NULL,
@@ -350,6 +351,11 @@ const REPAIR_STATEMENTS: string[] = [
   `DO $$ BEGIN ALTER TABLE "article_units" ADD CONSTRAINT "article_units_orderId_fkey" FOREIGN KEY ("orderId") REFERENCES "warehouse_orders"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
   `DO $$ BEGIN ALTER TABLE "article_units" ADD CONSTRAINT "article_units_orderItemId_fkey" FOREIGN KEY ("orderItemId") REFERENCES "order_items"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
   `DO $$ BEGIN ALTER TABLE "article_units" ADD CONSTRAINT "article_units_outboundShipmentId_fkey" FOREIGN KEY ("outboundShipmentId") REFERENCES "outbound_shipments"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  // ---- admin data-control soft-void terminal states (20260903140000) -----
+  `ALTER TYPE "ExpectedArrivalStatus" ADD VALUE IF NOT EXISTS 'VOIDED'`,
+  `ALTER TYPE "CartonStatus" ADD VALUE IF NOT EXISTS 'VOIDED'`,
+  `ALTER TYPE "ContainerStatus" ADD VALUE IF NOT EXISTS 'VOIDED'`,
+  `ALTER TYPE "ArticleUnitStatus" ADD VALUE IF NOT EXISTS 'VOIDED'`,
 ];
 
 export async function repairSchemaDriftIfNeeded(): Promise<void> {
@@ -394,6 +400,7 @@ export async function repairSchemaDriftIfNeeded(): Promise<void> {
       '20260903090000_category_master_and_validation',
       '20260903120000_operational_flow_containers_articles_outbound',
       '20260903130000_container_capacity',
+      '20260903140000_admin_data_void_control',
     ]) {
       try {
         await prisma.$executeRawUnsafe(`

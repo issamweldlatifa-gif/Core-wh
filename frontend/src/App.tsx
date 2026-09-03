@@ -40,6 +40,7 @@ const AdminOrders = lazy(() => import('./admin/pages/Orders'));
 const AdminOutboundShipments = lazy(() => import('./admin/pages/OutboundShipments'));
 const AdminTasks = lazy(() => import('./admin/pages/Tasks'));
 const AdminActivity = lazy(() => import('./admin/pages/Activity'));
+const AdminDataControl = lazy(() => import('./admin/pages/DataControl'));
 const AdminReceivingContainers = lazy(() => import('./admin/pages/ReceivingContainers'));
 const AdminCustomerBins = lazy(() => import('./admin/pages/CustomerBins'));
 const AdminContainerDetail = lazy(() => import('./admin/pages/ContainerDetail'));
@@ -176,6 +177,7 @@ export default function App() {
             <Route path="receiving-containers" element={<AdminReceivingContainers />} />
             <Route path="customer-bins" element={<AdminCustomerBins />} />
             <Route path="containers/:code" element={<AdminContainerDetail />} />
+            <Route path="data-control" element={<AdminDataControl />} />
             {/* Legacy alias — old generic containers board now covered by the
                 Receiving Containers board. */}
             <Route path="containers" element={<Navigate to="/admin/receiving-containers" replace />} />
