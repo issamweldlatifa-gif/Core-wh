@@ -27,6 +27,7 @@ import { matchAgainstCorpus, type CorpusMatch } from './validate';
 import { computeConfidence, type ConfidenceResult, type DetectionType } from './confidence';
 import { createConsensus, type ConsensusAggregator } from './multiframe';
 import { createTelemetry, exposeDebugHandle, type ScanAttempt, type TelemetrySink } from './telemetry';
+import { exposeBenchmarkSnapshot } from './device-benchmark';
 import { ocrBusy, recogniseRoi } from './ocr-client';
 import { isBusy, next, stateLabel, type ScannerEvent, type ScannerState } from './scanner-state';
 import { findDominantLine, lineCropBox, profileForLineSkew, type LineRegion } from './textlines';
@@ -196,6 +197,7 @@ export default function ContinuousScanner({
   const [hasTorch, setHasTorch] = useState(false);
   const [scanCount, setScanCount] = useState(0);
   const [fps, setFps] = useState(0);
+  const fpsRef = useRef(0);
   const [pending, setPending] = useState<PendingConfirm | null>(null);
   const [guide, setGuide] = useState<GuideState>(GUIDE_START);
 
@@ -324,6 +326,16 @@ export default function ContinuousScanner({
     const telemetry: TelemetrySink = createTelemetry(cfgRef.current.telemetry.maxAttempts);
     telemetryRef.current = telemetry;
     exposeDebugHandle(telemetry);
+    exposeBenchmarkSnapshot(
+      telemetry,
+      '__ayroviScanTelemetry',
+      () => ({
+        method: 'software',
+        provider: isDemo ? 'demo-camera' : 'software-camera',
+        deviceType: capsRef.current?.deviceType,
+        fpsAvg: fpsRef.current,
+      }),
+    );
 
     const teardown = () => {
       running = false;
@@ -708,7 +720,9 @@ export default function ContinuousScanner({
       fpsFrames += 1;
       const nowMs = performance.now();
       if (nowMs - fpsSince >= 1000) {
-        setFps(Math.round((fpsFrames * 1000) / (nowMs - fpsSince)));
+        const nextFps = Math.round((fpsFrames * 1000) / (nowMs - fpsSince));
+        fpsRef.current = nextFps;
+        setFps(nextFps);
         fpsFrames = 0;
         fpsSince = nowMs;
       }

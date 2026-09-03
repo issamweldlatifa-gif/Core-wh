@@ -112,6 +112,8 @@ export interface TelemetrySink {
   summary(): TelemetrySummary;
   clear(): void;
   toCSV(): string;
+  /** Copy of all retained attempts (for device-benchmark snapshots). */
+  dump(): ScanAttempt[];
   readonly count: number;
 }
 
@@ -263,6 +265,9 @@ export function createTelemetry(maxAttempts = 500, scanSessionId?: string): Tele
     },
     get count() {
       return ring.length;
+    },
+    dump() {
+      return ring.slice();
     },
   };
 }

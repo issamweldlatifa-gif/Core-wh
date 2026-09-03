@@ -233,6 +233,11 @@ screenshots, and the §39 acceptance pass.
 
 ## ANNEX — Real-device benchmark table (to be filled on device)
 
+> 🛠️ Developer tooling for this table: `docs/RECEIVING-SCANNER-DEVELOPER-RUNBOOK.md` —
+> step-by-step device execution + `copy(window.__ayroviScanTelemetry.snapshotCsv())`
+> produces each ANNEX row automatically (p50/90/95/99/max + per-decode success &
+> latency), so the numbers below are filled from real runs, not guesses.
+
 | Device | Camera FPS | Resolution | QR ms | Barcode ms | SKU OCR ms | Ref OCR ms | p50 | p95 | p99 | max | Success % | Retry % | CPU % | RAM MB | Net req/scan | Frames/successful scan |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | (model 1 — average Android) | | | | | | | | | | | | | | | | |

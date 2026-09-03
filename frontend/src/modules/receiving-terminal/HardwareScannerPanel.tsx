@@ -14,6 +14,7 @@ import type { ScanOutcome } from './ContinuousScanner';
 import type { ScanSource } from './scan-source';
 import { DEFAULT_SCAN_CONFIG } from './scan-config';
 import { createTelemetry, exposeDebugHandle, type TelemetrySink } from './telemetry';
+import { exposeBenchmarkSnapshot } from './device-benchmark';
 import { attachHidScanner, detectHardwareCapabilities, connectBleScanner } from './hardware-wedge';
 import { prepareHardwareRead } from './hardware-scan';
 import { EMPTY_DEDUPE, type DedupeState } from './dedupe';
@@ -69,7 +70,14 @@ export default function HardwareScannerPanel({
   const [banner, setBanner] = useState<{ kind: 'ok' | 'bad'; text: string; token: number } | null>(null);
 
   // expose a separate debug handle so hardware telemetry is measurable (§12)
-  useEffect(() => exposeDebugHandle(telem, '__ayroviHardwareTelemetry'), [telem]);
+  useEffect(() => {
+    exposeDebugHandle(telem, '__ayroviHardwareTelemetry');
+    exposeBenchmarkSnapshot(telem, '__ayroviHardwareTelemetry', () => ({
+      method: 'hardware',
+      provider: ble === 'on' ? 'bluetooth' : 'hid',
+      deviceType: 'HID',
+    }));
+  }, [telem, ble]);
 
   // ---- attach the HID wedge listener (no permission needed) ----
   useEffect(() => {
