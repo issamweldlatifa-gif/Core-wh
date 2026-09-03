@@ -115,6 +115,13 @@ export class FulfillmentController {
 
   // ---- 6. shipping --------------------------------------------------------------
 
+  @Get('outbound-shipments')
+  @RequirePermissions('operations.view')
+  @ApiOperation({ summary: 'Recent outbound shipments (admin board).' })
+  listOutboundShipments(@Query('status') status?: string, @Query('q') q?: string) {
+    return this.fulfillment.listOutboundShipments({ status, q });
+  }
+
   @Get('shipping/shipments/:code')
   @RequirePermissions('shipping.execute')
   @ApiOperation({ summary: 'Shipping scan: outbound shipment detail (order, articles, tracking).' })

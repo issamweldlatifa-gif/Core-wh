@@ -839,6 +839,35 @@ export class FulfillmentService {
   }
 
   /** Recent article units for the admin traceability board. */
+  /** Admin board: recent outbound shipments with order/container/tracking. */
+  async listOutboundShipments(filter: { status?: string; q?: string }) {
+    const q = filter.q?.trim().toUpperCase();
+    return this.prisma.outboundShipment.findMany({
+      where: {
+        ...(filter.status ? { status: filter.status as never } : {}),
+        ...(q
+          ? {
+              OR: [
+                { code: { contains: q } },
+                { trackingNumber: { contains: q } },
+                { order: { externalOrderReference: { contains: q } } },
+                { order: { externalCustomerReference: { contains: q } } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: { packedAt: 'desc' },
+      take: 100,
+      select: {
+        code: true, status: true, carrier: true, trackingNumber: true,
+        packedAt: true, shippedAt: true,
+        order: { select: { externalOrderReference: true, externalCustomerReference: true } },
+        container: { select: { code: true } },
+        _count: { select: { articles: true } },
+      },
+    });
+  }
+
   async listArticles(filter: { status?: string; q?: string }) {
     const q = filter.q?.trim().toUpperCase();
     return this.prisma.articleUnit.findMany({

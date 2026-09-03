@@ -380,6 +380,21 @@ describe('OPERATIONAL FLOW — receiving tote -> sorting -> bin -> pack -> ship'
   });
 
   // 15 --------------------------------------------------------------
+  it('outbound shipments board lists the dispatched shipment with counts', async () => {
+    const rows = await fulfillment.listOutboundShipments({ q: outCode });
+    expect(rows.length).toBe(1);
+    expect(rows[0].code).toBe(outCode);
+    expect(rows[0].status).toBe('SHIPPED');
+    expect(rows[0].order.externalCustomerReference).toBe('AHMED');
+    expect(rows[0]._count.articles).toBe(2);
+    // status filter works and search by customer reference matches too
+    const ready = await fulfillment.listOutboundShipments({ status: 'READY_TO_SHIP', q: outCode });
+    expect(ready.length).toBe(0);
+    const byCustomer = await fulfillment.listOutboundShipments({ q: 'AHMED' });
+    expect(byCustomer.some((r) => r.code === outCode)).toBe(true);
+  });
+
+  // 16 --------------------------------------------------------------
   it('articleTrace returns the full chain up to SHIPPED', async () => {
     const t = await fulfillment.articleTrace(articleCode);
     expect(t.article.status).toBe('SHIPPED');

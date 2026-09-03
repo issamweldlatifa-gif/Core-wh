@@ -102,4 +102,10 @@ Each follows SCAN → SYSTEM DECISION → ACTION → CONFIRMATION → NEXT ITEM,
 - New API: `GET /api/v1/fulfillment/articles` (operations.view) — recent article units with container/location/order/shipment joins.
 - Verified: 38/38 unit + 85/85 e2e still green; live HTTP smoke of scan → board → trace.
 
+### Follow-up: admin Outbound boards
+- **`/admin/orders`** (new "Outbound" nav group, operations.view): read-only orders board over the existing `GET /orders` surface — OPEN/CANCELLED/ALL filters, search, per-order counts, and a detail panel with fulfilled/requested per line (computed from article units), customer bins and outbound shipments. Intake stays integration-only by design.
+- **`/admin/shipments`** (Outbound group, operations.view): outbound-shipments board — READY_TO_SHIP / SHIPPED / ALL filters, search by OUT code / order / customer / tracking, piece counts, carrier + tracking columns (NULL → INTERNAL until a real carrier adapter is connected). Dispatch itself remains worker-terminal-only.
+- New API: `GET /api/v1/fulfillment/outbound-shipments?status=&q=` (operations.view) — 100 most recent shipments with order/container/article-count joins.
+- Verified: 38/38 unit + **86/86 e2e** (new board test in `operational-flow.e2e-spec.ts`); live HTTP smoke of both boards.
+
 No conflicts with existing code: all suites that existed before are still green, receiving/putaway flows untouched, card integration untouched.
