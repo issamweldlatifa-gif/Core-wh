@@ -1186,9 +1186,10 @@ export default function ContinuousScanner({
             <span className={`cs-phase cs-phase--${guide.phase}`} data-phase={guide.phase}>
               {PHASE_LABEL[guide.phase]}
             </span>
-            {ocrActive && (
-              <span className="cs-sub">
-                {' '}· OCR{cfgRef.current.ocr.engine === 'ppocr' ? ' · L2' : ''}
+            {ocrActive && <span className="cs-sub"> · OCR</span>}
+            {enableOcr && (
+              <span className={`cs-engine${cfgRef.current.ocr.engine === 'ppocr' ? ' is-l2' : ''}`}>
+                {cfgRef.current.ocr.engine === 'ppocr' ? ' · PP-OCR L2' : ' · TESSERACT'}
               </span>
             )}
             {detector && !ocrActive && <span className="cs-sub"> · {detector === 'native' ? 'FAST' : 'ZXING'}</span>}

@@ -64,6 +64,11 @@
 .cs-status[data-state="SUCCESS"] { color: #00ff66; border-color: #00ff66; }
 .cs-status[data-state="ERROR"] { color: #ff3b30; border-color: #ff3b30; }
 .cs-sub { color: #9a9a9a; font-weight: 600; }
+/* Always-visible OCR engine chip: tells the operator which engine is active so
+   a stale look is never ambiguous (TESSERACT = product default; PP-OCR L2 =
+   level-2 opt-in enabled). */
+.cs-engine { color: #9a9a9a; font-weight: 700; }
+.cs-engine.is-l2 { color: #7cff9b; }
 
 /* ---- Industrial phase indicator (unified P0 §21) ------------------------ */
 .cs-phase {

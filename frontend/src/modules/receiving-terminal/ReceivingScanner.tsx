@@ -58,9 +58,25 @@ function storedMethod(available: ScanMethod[], fallback: ScanMethod): ScanMethod
   return fallback;
 }
 
+/**
+ * Resolve the OCR engine for this browser/device:
+ *   1. Explicit `?ocr=ppocr|tesseract` in the URL wins AND is persisted — an
+ *      easy switch on a phone (no console needed). This is a dev/benchmark
+ *      affordance; it never ships as a product default.
+ *   2. Otherwise the stored localStorage value.
+ *   3. Otherwise the product default 'tesseract' (unchanged until on-device
+ *      numbers are collected — see runbook §7).
+ */
 function storedOcrEngine(): 'tesseract' | 'ppocr' {
   if (typeof localStorage === 'undefined') return 'tesseract';
   try {
+    if (typeof window !== 'undefined') {
+      const q = new URLSearchParams(window.location.search).get('ocr');
+      if (q === 'ppocr' || q === 'tesseract') {
+        localStorage.setItem(OCR_ENGINE_KEY, q);
+        return q;
+      }
+    }
     const v = localStorage.getItem(OCR_ENGINE_KEY);
     if (v === 'ppocr') return 'ppocr';
   } catch { /* ignore */ }
