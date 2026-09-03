@@ -30,6 +30,8 @@ const NAV: NavEntry[] = [
   { to: '/admin/arrivals', label: 'Expected Arrivals', permission: 'expected_arrivals.view', group: 'Inbound' },
   { to: '/admin/receiving', label: 'Receiving', permission: 'receiving.view', group: 'Inbound' },
 
+  { to: '/admin/orders', label: 'Orders', permission: 'operations.view', group: 'Outbound' },
+
   { to: '/admin/structure', label: 'Structure', permission: 'warehouses.view', group: 'Warehouse' },
 
   { to: '/admin/users', label: 'Users', permission: 'users.view', group: 'System' },

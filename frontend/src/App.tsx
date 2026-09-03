@@ -35,6 +35,7 @@ const AdminStations = lazy(() => import('./admin/pages/Stations'));
 const AdminExceptions = lazy(() => import('./admin/pages/Exceptions'));
 const AdminCorrections = lazy(() => import('./admin/pages/Corrections'));
 const AdminTraceability = lazy(() => import('./admin/pages/Traceability'));
+const AdminOrders = lazy(() => import('./admin/pages/Orders'));
 const Categories = lazy(() => import('./modules/categories/Categories'));
 
 /** Guards a route by the required back-end permission; redirects otherwise. */
@@ -135,6 +136,7 @@ export default function App() {
             <Route path="exceptions" element={<AdminExceptions />} />
             <Route path="corrections" element={<AdminCorrections />} />
             <Route path="traceability" element={<AdminTraceability />} />
+            <Route path="orders" element={<AdminOrders />} />
             {/* Existing modules stay reachable from the Control Center nav. */}
             <Route path="arrivals" element={<Navigate to="/expected-arrivals" replace />} />
             <Route path="receiving" element={<Navigate to="/terminal/receiving" replace />} />
