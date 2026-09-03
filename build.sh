@@ -50,7 +50,7 @@ cp -r "$ROOT_DIR/frontend/dist/." public/
 # from, so a stale deploy is visible at a glance (System page + /api health).
 COMMIT_SHORT="$(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 COMMIT_FULL="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || echo unknown)"
-SPA_JS="$(ls frontend/dist/assets/index-*.js 2>/dev/null | xargs -n1 basename 2>/dev/null | head -1 || echo unknown)"
+SPA_JS="$(ls "$ROOT_DIR/frontend/dist"/assets/index-*.js 2>/dev/null | xargs -n1 basename 2>/dev/null | head -1 || echo unknown)"
 cat > public/build-info.json <<JSON
 {
   "commitShort": "$COMMIT_SHORT",
