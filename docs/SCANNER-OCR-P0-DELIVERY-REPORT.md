@@ -1,4 +1,5 @@
 # SCANNER + OCR — P0 Delivery Report (Receiving Terminal)
+> ⚠️ **SUPERSEDED (2026-09-03) — merged into a single final reference:** [`docs/RECEIVING-SCANNER-FINAL-ORDER.md`](RECEIVING-SCANNER-FINAL-ORDER.md) is now THE one Receiving Scanner order. Do not treat this report as an active order.
 
 **Order scope:** AYROVI Warehouse Core — «أمر تقني P0» — Scanner + OCR rework for the Receiving Terminal.
 **Flow preserved:** Arrival → Receiving → Container/Tote → Customer Sorting → Customer Bin → Packing → Shipping → Archive/Trace.

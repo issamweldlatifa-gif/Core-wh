@@ -1,4 +1,5 @@
 # Unified P0 — Receiving Smart Industrial-Grade Scanner + OCR + Direct Target Recognition — Final Delivery Report
+> ⚠️ **SUPERSEDED (2026-09-03) — merged into a single final reference:** [`docs/RECEIVING-SCANNER-FINAL-ORDER.md`](RECEIVING-SCANNER-FINAL-ORDER.md) is now THE one Receiving Scanner order. Do not treat this report as an active order.
 
 **Execution order:** «P0 — RECEIVING SMART INDUSTRIAL-GRADE SCANNER Unified Execution Order — Scanner + OCR + Direct Target Recognition».
 **Flow preserved (unchanged):** Arrival → Receiving → Container/Tote → Customer Sorting → Customer Bin → Packing → Shipping → Archive/Trace.

@@ -1,4 +1,5 @@
 # P0 — Dual Scanner Architecture — Final Delivery Report
+> ⚠️ **SUPERSEDED (2026-09-03) — merged into a single final reference:** [`docs/RECEIVING-SCANNER-FINAL-ORDER.md`](RECEIVING-SCANNER-FINAL-ORDER.md) is now THE one Receiving Scanner order. Do not treat this report as an active order.
 ### Software Scanner + Hardware Scanner (Receiving Station only · Extensible Scanner Core)
 
 **Execution order:** «AYROVI WAREHOUSE CORE — P0 — DUAL SCANNER ARCHITECTURE — SOFTWARE SCANNER + HARDWARE SCANNER — Receiving Station Only — Extensible Architecture».
