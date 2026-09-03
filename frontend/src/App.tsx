@@ -29,6 +29,7 @@ const PackingTask = lazy(() => import('./terminal/PackingTask'));
 const ShippingTask = lazy(() => import('./terminal/ShippingTask'));
 const AdminShell = lazy(() => import('./admin/AdminShell'));
 const ControlCenter = lazy(() => import('./admin/pages/ControlCenter'));
+const AdminOperations = lazy(() => import('./admin/pages/Operations'));
 const AdminWorkers = lazy(() => import('./admin/pages/Workers'));
 const AdminSessionDetail = lazy(() => import('./admin/pages/SessionDetail'));
 const AdminStations = lazy(() => import('./admin/pages/Stations'));
@@ -37,6 +38,9 @@ const AdminCorrections = lazy(() => import('./admin/pages/Corrections'));
 const AdminTraceability = lazy(() => import('./admin/pages/Traceability'));
 const AdminOrders = lazy(() => import('./admin/pages/Orders'));
 const AdminOutboundShipments = lazy(() => import('./admin/pages/OutboundShipments'));
+const AdminTasks = lazy(() => import('./admin/pages/Tasks'));
+const AdminActivity = lazy(() => import('./admin/pages/Activity'));
+const AdminContainers = lazy(() => import('./admin/pages/Containers'));
 const Categories = lazy(() => import('./modules/categories/Categories'));
 
 /** Guards a route by the required back-end permission; redirects otherwise. */
@@ -86,10 +90,10 @@ export default function App() {
           <Route path="/receiving" element={<Navigate to="/terminal/receiving" replace />} />
 
           {/* ---- GLOBAL APPLICATION SHELL ------------------------------
-              ONE shell for every role: global header (brand + clock +
-              compact identity + account menu), permission-filtered nav,
-              page workspace. Workers, admins and auditors all land here;
-              only the content and nav items differ (RBAC-driven). */}
+              Generic application pages (Dashboard, profile, warehouse tree,
+              admin CRUD modules) + the WORKER TERMINAL workspace. The Admin
+              Control Center is NOT nested here: it is its own dedicated
+              shell below (HEADER + SIDEBAR + MAIN). */}
           <Route element={<GlobalShell />}>
             <Route index element={<Dashboard />} />
             <Route path="/profile" element={<Profile />} />
@@ -122,32 +126,6 @@ export default function App() {
               element={<PermissionGate perm="shipping.execute"><ShippingTask /></PermissionGate>}
             />
           </Route>
-
-          {/* ---- ADMIN CONTROL CENTER (§6/§36-§40) ---------------------
-              Guarded by operations.view, which workers do not have (§41). */}
-          <Route
-            path="/admin"
-            element={<PermissionGate perm="operations.view"><AdminShell /></PermissionGate>}
-          >
-            <Route index element={<ControlCenter />} />
-            <Route path="workers" element={<AdminWorkers />} />
-            <Route path="workers/:id" element={<AdminWorkers />} />
-            <Route path="sessions/:id" element={<AdminSessionDetail />} />
-            <Route path="stations" element={<AdminStations />} />
-            <Route path="exceptions" element={<AdminExceptions />} />
-            <Route path="corrections" element={<AdminCorrections />} />
-            <Route path="traceability" element={<AdminTraceability />} />
-            <Route path="orders" element={<AdminOrders />} />
-            <Route path="shipments" element={<AdminOutboundShipments />} />
-            {/* Existing modules stay reachable from the Control Center nav. */}
-            <Route path="arrivals" element={<Navigate to="/expected-arrivals" replace />} />
-            <Route path="receiving" element={<Navigate to="/terminal/receiving" replace />} />
-            <Route path="structure" element={<Navigate to="/warehouse/structure" replace />} />
-            <Route path="users" element={<Navigate to="/users" replace />} />
-            <Route path="roles" element={<Navigate to="/roles" replace />} />
-            <Route path="audit" element={<Navigate to="/audit" replace />} />
-            <Route path="system" element={<Navigate to="/system" replace />} />
-          </Route>
             <Route
               path="expected-arrivals"
               element={<PermissionGate perm="expected_arrivals.view"><ExpectedArrivals /></PermissionGate>}
@@ -170,6 +148,37 @@ export default function App() {
             <Route path="roles" element={<PermissionGate perm="roles.view"><Roles /></PermissionGate>} />
             <Route path="audit" element={<PermissionGate perm="audit.view"><Audit /></PermissionGate>} />
             <Route path="system" element={<PermissionGate perm="system.view"><System /></PermissionGate>} />
+          </Route>
+
+          {/* ---- ADMIN CONTROL CENTER V1 (§6/§34) ----------------------
+              Dedicated unified shell (HEADER + SIDEBAR + MAIN), guarded by
+              operations.view — workers never land here (§41/§46). */}
+          <Route
+            path="/admin"
+            element={<PermissionGate perm="operations.view"><AdminShell /></PermissionGate>}
+          >
+            <Route index element={<ControlCenter />} />
+            <Route path="operations" element={<AdminOperations />} />
+            <Route path="workers" element={<AdminWorkers />} />
+            <Route path="workers/:id" element={<AdminWorkers />} />
+            <Route path="sessions/:id" element={<AdminSessionDetail />} />
+            <Route path="stations" element={<AdminStations />} />
+            <Route path="exceptions" element={<AdminExceptions />} />
+            <Route path="corrections" element={<AdminCorrections />} />
+            <Route path="traceability" element={<AdminTraceability />} />
+            <Route path="orders" element={<AdminOrders />} />
+            <Route path="shipments" element={<AdminOutboundShipments />} />
+            <Route path="tasks" element={<AdminTasks />} />
+            <Route path="activity" element={<AdminActivity />} />
+            <Route path="containers" element={<AdminContainers />} />
+            {/* Legacy aliases to generic modules. */}
+            <Route path="arrivals" element={<Navigate to="/expected-arrivals" replace />} />
+            <Route path="receiving" element={<Navigate to="/terminal/receiving" replace />} />
+            <Route path="structure" element={<Navigate to="/warehouse/structure" replace />} />
+            <Route path="users" element={<Navigate to="/users" replace />} />
+            <Route path="roles" element={<Navigate to="/roles" replace />} />
+            <Route path="audit" element={<Navigate to="/audit" replace />} />
+            <Route path="system" element={<Navigate to="/system" replace />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

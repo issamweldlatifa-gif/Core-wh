@@ -131,6 +131,21 @@ export class OperationsController {
     return this.ops.workers();
   }
 
+  @Get('activity')
+  @RequirePermissions('operations.view')
+  @ApiOperation({ summary: 'Live Activity feed: recent operational events from the audit trail.' })
+  @ApiQuery({ name: 'limit', required: false })
+  activity(@Query('limit') limit?: string) {
+    return this.ops.activity(limit ? Number(limit) : 50);
+  }
+
+  @Get('tasks')
+  @RequirePermissions('operations.view')
+  @ApiOperation({ summary: 'Workforce task registry with real station/executor/open-work counts.' })
+  tasks() {
+    return this.ops.taskBoard();
+  }
+
   @Get('workers/:id')
   @RequirePermissions('operations.view')
   @ApiOperation({ summary: 'One worker and their recent sessions.' })

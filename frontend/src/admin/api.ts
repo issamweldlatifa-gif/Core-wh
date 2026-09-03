@@ -2,8 +2,66 @@ import client from '../api/client';
 
 /** Admin Control Center API surface (§6/§36-§40). */
 
+export interface MetricCell {
+  key: 'active' | 'waiting' | 'attention' | 'ready' | 'blocked' | 'done' | 'exceptions' | 'info';
+  value: number;
+  unit: string;
+}
+
+export interface PipelineStage {
+  id: string;
+  title: string;
+  cells: MetricCell[];
+}
+
+export interface OperationRow {
+  id: string;
+  title: string;
+  status: { label: string; tone: 'ok' | 'warn' | 'muted' };
+  current: number;
+  attention: number;
+  cells: MetricCell[];
+  open: string | null;
+}
+
+export interface ActivityEvent {
+  id: string;
+  at: string;
+  action: string;
+  entityType: string | null;
+  entity: string | null;
+  worker: { id: string; name: string; employeeCode: string } | null;
+}
+
+export interface ExceptionRowLight {
+  id: string;
+  type: string;
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+  status: string;
+  reason: string | null;
+  expectedQuantity: number | null;
+  actualQuantity: number | null;
+  difference: number | null;
+  createdAt: string;
+  session: { id: string; code: string; arrival: { code: string; customerName: string } | null } | null;
+  worker: { id: string; name: string; employeeCode: string } | null;
+}
+
+export interface WorkerLiveRow {
+  id: string;
+  name: string;
+  employeeCode: string;
+  status: string;
+  roles: string[];
+  station: { id: string; code: string; name: string; department: string } | null;
+  activeTask: { kind: 'RECEIVING' | 'PUTAWAY'; code: string; startedAt: string } | null;
+  lastActivityAt: string | null;
+}
+
 export interface OpsOverview {
   generatedAt: string;
+  warehouse: { id: string; code: string; name: string; status: string } | null;
+  system: { status: 'ONLINE' };
   counters: {
     activeSessions: number;
     todaySessions: number;
@@ -16,19 +74,38 @@ export interface OpsOverview {
     activePutawaySessions: number;
     cartonsStoredToday: number;
     awaitingPutaway: number;
+    openOrders: number;
+    articlesAwaitingSorting: number;
+    articlesStored: number;
+    binsReadyForPacking: number;
+    shipmentsReadyToShip: number;
+    shippedToday: number;
+    piecesStoredToday: number;
+    articlesInCustomerBins: number;
+    articlesAwaitingOrder: number;
   };
+  pipeline: PipelineStage[];
+  operations: OperationRow[];
+  workers: WorkerLiveRow[];
+  exceptions: {
+    open: number;
+    bySeverity: Record<'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW', number>;
+    recent: ExceptionRowLight[];
+  };
+  activity: ActivityEvent[];
   stations: Array<{
     id: string; code: string; name: string; department: string; status: string;
     capabilities: string[];
     worker: { id: string; name: string; employeeCode: string } | null;
+    workerTask: string | null;
   }>;
   activeSessions: Array<{
     id: string; code: string; status: string; startedAt: string;
     arrival: { id: string; code: string; customerName: string; storeName: string | null } | null;
+    stationCode: string | null;
     worker: { id: string; name?: string; employeeCode?: string } | null;
     cartonEvents: number; discrepancies: number;
   }>;
-  /** Live stowing activity (§36). */
   putawaySessions: Array<{
     id: string; code: string; status: string; startedAt: string;
     worker: { id: string; name: string; employeeCode: string } | null;
@@ -42,6 +119,8 @@ export interface WorkerRow {
   roles: string[];
   station: { id: string; code: string; name: string; department: string } | null;
   sessionsToday: number;
+  activeTask?: { kind: 'RECEIVING' | 'PUTAWAY'; code: string; startedAt: string } | null;
+  lastActivityAt?: string | null;
 }
 
 export interface WorkerDetail {
@@ -87,7 +166,8 @@ export interface SessionDetail {
 }
 
 export interface ExceptionRow {
-  id: string; type: string; status: string; reason: string | null;
+  id: string; type: string; severity?: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+  status: string; reason: string | null;
   expectedQuantity: number | null; actualQuantity: number | null; difference: number | null;
   createdAt: string; resolvedAt: string | null; resolution: string | null;
   session: { id: string; code: string; arrival: { code: string; customerName: string } | null } | null;
@@ -109,8 +189,27 @@ export interface StationRow {
   assignedWorker: { id: string; name: string; employeeCode: string } | null;
 }
 
+export interface TaskRow {
+  key: string; label: string; path: string; department: string;
+  permission: string; ready: boolean;
+  executors: number;
+  stations: number; activeStations: number;
+  open: number | null;
+}
+
+export interface ContainerRow {
+  id: string; code: string; type: 'RECEIVING' | 'CUSTOMER'; status: string;
+  label: string | null;
+  order: { externalOrderReference: string; externalCustomerReference: string } | null;
+  _count: { articles: number };
+  createdAt: string; updatedAt: string;
+}
+
 export const adminApi = {
   overview: () => client.get<OpsOverview>('/v1/operations/overview').then((r) => r.data),
+  activity: (limit = 60) =>
+    client.get<ActivityEvent[]>('/v1/operations/activity', { params: { limit } }).then((r) => r.data),
+  tasks: () => client.get<TaskRow[]>('/v1/operations/tasks').then((r) => r.data),
   workers: () => client.get<WorkerRow[]>('/v1/operations/workers').then((r) => r.data),
   worker: (id: string) => client.get<WorkerDetail>(`/v1/operations/workers/${id}`).then((r) => r.data),
   session: (id: string) => client.get<SessionDetail>(`/v1/operations/sessions/${id}`).then((r) => r.data),
@@ -126,6 +225,9 @@ export const adminApi = {
     client.post<StationRow>(`/v1/stations/${id}/status`, { status }).then((r) => r.data),
   assignStation: (id: string, workerId: string | null) =>
     client.post<StationRow>(`/v1/stations/${id}/assign`, { workerId }).then((r) => r.data),
+
+  containers: (params?: { type?: string; status?: string }) =>
+    client.get<ContainerRow[]>('/v1/fulfillment/containers', { params }).then((r) => r.data),
 
   // Corrections — every one carries a mandatory reason (§39).
   reverseCarton: (receivingCartonId: string, reason: string) =>

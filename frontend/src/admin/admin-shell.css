@@ -1,88 +1,228 @@
 /* ==========================================================================
-   ADMIN CONTROL CENTER (§6/§34/§43) — information-dense, technical.
-   Same design system as the terminal, deliberately different IA (§45).
+   ADMIN CONTROL CENTER V1 — unified HEADER + SIDEBAR + MAIN control room.
+   Same design system as the terminal (os-theme.css tokens): black, phosphor
+   green accent, mono type, 0px radius, 140ms motion. No glassmorphism, no
+   gradients, no rounded SaaS cards — an information-dense control room.
    ========================================================================== */
 
-.ac { display: grid; grid-template-columns: 232px 1fr; min-height: 100%; }
+/* ---- root layout --------------------------------------------------------- */
+.ac { display: flex; flex-direction: column; height: 100vh; height: 100dvh; background: var(--bg); overflow: hidden; }
 .ac-boot { display: grid; place-items: center; height: 100%; min-height: 320px; }
+.ac-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 240px 1fr; }
 
-/* ---- sidebar ------------------------------------------------------------- */
+/* ==========================================================================
+   HEADER (§2) — fixed, single row, floor state always visible.
+   ========================================================================== */
+.ac-top {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 7px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+  z-index: 40;
+}
+
+.ac-top-brand { display: flex; align-items: baseline; gap: 8px; white-space: nowrap; min-width: 0; }
+.ac-brand-main { font-weight: 800; letter-spacing: 0.18em; color: var(--primary); font-size: 15px; }
+.ac-brand-slash { color: var(--muted); font-size: 12px; }
+.ac-brand-sub { font-size: 10px; letter-spacing: 0.22em; color: var(--muted); }
+
+.ac-top-scope {
+  font-size: 10px; font-weight: 800; letter-spacing: 0.18em; color: #04120a;
+  background: var(--primary); padding: 3px 8px; margin-left: 4px;
+}
+
+/* the live floor strip */
+.ac-top-strip { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.ac-top-strip::-webkit-scrollbar { display: none; }
+.ac-top-item { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; font-size: 0.82rem; }
+.ac-top-item .mono { color: var(--text); font-weight: 700; }
+.ac-top-k { font-size: 0.6rem; letter-spacing: 0.16em; color: var(--muted); }
+.ac-top-sep { width: 1px; height: 16px; background: var(--border); flex: none; }
+.ac-top-item .os-tag { font-size: 0.66rem; padding: 2px 6px; }
+
+/* clock + user menu */
+.ac-top-user { display: flex; align-items: center; gap: 10px; position: relative; flex: none; }
+.ac-top-clock { font-family: var(--os-font-mono); font-size: 0.95rem; font-weight: 700; letter-spacing: 0.06em; color: var(--text); font-variant-numeric: tabular-nums; }
+.ac-user-btn {
+  display: flex; align-items: center; gap: 7px;
+  background: none; border: 1px solid transparent; cursor: pointer;
+  font-family: var(--font); font-size: 0.82rem; color: var(--text);
+  padding: 4px 8px;
+}
+.ac-user-btn:hover { border-color: var(--border); background: var(--surface-2); }
+.ac-user-name { font-weight: 700; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ac-user-sep { color: var(--muted); }
+.ac-user-role { color: var(--primary); letter-spacing: 0.04em; }
+.ac-user-caret { color: var(--muted); font-size: 10px; }
+
+.ac-menu {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 70;
+  min-width: 220px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  display: grid; padding: 4px;
+}
+.ac-menu-item {
+  display: block; width: 100%; text-align: left;
+  background: none; border: none; cursor: pointer;
+  font-family: var(--font); font-size: 0.82rem; color: var(--text);
+  padding: 9px 10px; text-decoration: none;
+}
+.ac-menu-item:hover { background: var(--surface); color: var(--primary); }
+.ac-menu-item--danger { color: var(--error); }
+
+/* ==========================================================================
+   SIDEBAR (§3) — grouped navigation.
+   ========================================================================== */
 .ac-side {
   display: flex; flex-direction: column;
   background: var(--surface);
   border-right: 1px solid var(--border);
-  position: sticky; top: 0; height: 100%; overflow: auto;
+  overflow-y: auto;
+  min-height: 0;
 }
-.ac-brand { padding: 16px; border-bottom: 1px solid var(--border); }
-.ac-brand-main {
-  display: block; font-weight: 800; letter-spacing: 0.2em; color: var(--primary);
-}
-.ac-brand-sub { display: block; font-size: 0.7rem; color: var(--muted); letter-spacing: 0.1em; }
-
-.ac-nav { flex: 1; padding: 10px 8px; }
-.ac-nav-group { margin-bottom: 14px; }
+.ac-nav { flex: 1; padding: 10px 8px 4px; }
+.ac-nav-group { margin-bottom: 12px; }
 .ac-nav-title {
-  font-size: 0.62rem; letter-spacing: 0.16em; text-transform: uppercase;
-  color: var(--muted); padding: 6px 10px;
+  font-size: 0.62rem; letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--muted); padding: 6px 10px 4px;
 }
 .ac-link {
-  display: block; padding: 7px 10px; margin-bottom: 2px;
-  border-radius: var(--os-radius-sm);
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  padding: 7px 10px; margin-bottom: 2px;
   color: var(--text); text-decoration: none; font-size: 0.85rem;
   border-left: 2px solid transparent;
   transition: background var(--os-speed), border-color var(--os-speed);
 }
 .ac-link:hover { background: var(--surface-2); }
-.ac-link.is-active {
-  background: var(--surface-2);
-  border-left-color: var(--primary);
-  color: var(--primary);
-  font-weight: 600;
-}
+.ac-link.is-active { background: var(--surface-2); border-left-color: var(--primary); color: var(--primary); font-weight: 700; }
+.ac-link--ext { color: var(--muted); }
+.ac-link-arrow { font-size: 0.7rem; color: var(--muted); }
+.ac-side-foot { padding: 10px; font-size: 0.62rem; border-top: 1px solid var(--border); }
 
+/* ==========================================================================
+   MAIN
+   ========================================================================== */
+.ac-main { overflow-y: auto; padding: 18px 20px 28px; min-width: 0; }
 
-/* ---- main ---------------------------------------------------------------- */
-.ac-main { padding: 20px 24px; overflow: auto; min-width: 0; }
-
-.ac-head { margin-bottom: 18px; }
-.ac-title { font-size: 1.25rem; margin: 0 0 4px; font-weight: 700; }
+.ac-head { margin-bottom: 16px; }
+.ac-title { font-size: 1.3rem; margin: 0 0 4px; font-weight: 800; letter-spacing: 0.04em; }
 .ac-sub { color: var(--muted); font-size: 0.85rem; margin: 0; }
 
-/* ---- KPI strip ----------------------------------------------------------- */
-.ac-kpis {
-  display: grid; gap: 10px; margin-bottom: 18px;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-}
-.ac-kpi {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--os-radius); padding: 12px 14px;
-}
-.ac-kpi-value { font-size: 1.6rem; font-weight: 700; line-height: 1.1; }
-.ac-kpi-label {
-  font-size: 0.66rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted);
-  margin-top: 4px;
-}
+/* KPI strip */
+.ac-kpis { display: grid; gap: 10px; margin-bottom: 16px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.ac-kpi { background: var(--surface); border: 1px solid var(--border); padding: 10px 12px; }
+.ac-kpi-value { font-size: 1.6rem; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.ac-kpi-label { font-size: 0.64rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-top: 4px; }
 .ac-kpi--alert .ac-kpi-value { color: var(--warning); }
 .ac-kpi--bad .ac-kpi-value { color: var(--error); }
-.ac-kpi--ok .ac-kpi-value { color: var(--secondary); }
+.ac-kpi--ok .ac-kpi-value { color: var(--success); }
+.ac-kpi--info .ac-kpi-value { color: var(--info); }
 
-/* ---- panels -------------------------------------------------------------- */
+/* section cards used across control room */
+.cc-section { margin-bottom: 16px; }
+.cc-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.cc-title { font-size: 0.72rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); margin: 0; font-weight: 800; }
+.cc-title .cc-live { color: var(--success); }
+
+.ac-2col { display: grid; gap: 16px; grid-template-columns: 1fr 1fr; align-items: start; }
+.ac-error { border: 1px solid var(--error); color: var(--error); background: rgba(239, 68, 68, 0.08); padding: 8px 10px; font-size: 0.82rem; }
+
+.ac-linkbtn { background: none; border: none; padding: 0; cursor: pointer; color: var(--primary); font: inherit; text-decoration: underline; }
+
+/* ---- status colour helpers (semantics §10) ------------------------------ */
+.tone-ok { color: var(--success); }
+.tone-warn { color: var(--warning); }
+.tone-err { color: var(--error); }
+.tone-info { color: var(--info); }
+.tone-muted { color: var(--muted); }
+
+/* live dot */
+.live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: baseline; }
+.live-dot--ok { background: var(--success); box-shadow: 0 0 8px rgba(0, 255, 102, 0.5); }
+.live-dot--warn { background: var(--warning); }
+.live-dot--err { background: var(--error); box-shadow: 0 0 8px rgba(255, 59, 48, 0.5); }
+.live-dot--info { background: var(--info); }
+.live-dot--muted { background: var(--muted); }
+
+/* ==========================================================================
+   STATUS LINE (A — WAREHOUSE STATUS)
+   ========================================================================== */
+.ac-statusline { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.ac-status-cell { background: var(--surface); border: 1px solid var(--border); padding: 10px 12px; }
+.ac-status-cell .ac-kpi-value { font-size: 1.15rem; }
+.ac-status-cell .ac-kpi-label { font-size: 0.62rem; }
+
+/* ==========================================================================
+   OPERATION PIPELINE (B)
+   ========================================================================== */
+.ac-pipe { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding-bottom: 4px; }
+.ac-stage {
+  flex: 1 1 158px; min-width: 158px;
+  background: var(--surface); border: 1px solid var(--border);
+  padding: 10px;
+}
+.ac-stage-idx { color: var(--primary); font-size: 0.66rem; font-weight: 800; letter-spacing: 0.16em; }
+.ac-stage-title { font-size: 0.76rem; font-weight: 800; letter-spacing: 0.1em; margin: 2px 0 8px; text-transform: uppercase; }
+.ac-stage-cells { display: grid; gap: 6px; }
+.ac-metric { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; align-items: baseline; }
+.ac-metric-value { font-size: 1.05rem; font-weight: 800; font-variant-numeric: tabular-nums; grid-row: span 2; }
+.ac-metric-label { font-size: 0.6rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.ac-metric-unit { font-size: 0.6rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; }
+.ac-pipe-arrow { align-self: center; color: var(--primary); font-size: 1rem; padding: 0 2px; flex: none; }
+
+/* OPERATIONS panels (§5) */
+.ac-ops-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.ac-ops-table th { text-align: left; font-size: 0.66rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.ac-ops-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.ac-ops-table .op-title { font-weight: 800; letter-spacing: 0.06em; }
+.ac-ops-metrics { font-size: 0.7rem; color: var(--muted); }
+.ac-ops-count { font-size: 1.15rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.ac-ops-count--attention { color: var(--error); }
+
+/* ==========================================================================
+   EXCEPTIONS (§8)
+   ========================================================================== */
+.sev-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 12px; }
+.sev-cell { border: 1px solid var(--border); background: var(--surface); padding: 8px 10px; }
+.sev-cell .sev-num { font-size: 1.3rem; font-weight: 800; }
+.sev-label { font-size: 0.62rem; letter-spacing: 0.16em; color: var(--muted); text-transform: uppercase; }
+.sev--CRITICAL .sev-num { color: var(--error); }
+.sev--HIGH .sev-num { color: var(--error); }
+.sev--MEDIUM .sev-num { color: var(--warning); }
+.sev--LOW .sev-num { color: var(--muted); }
+.os-tag--sev-critical { color: var(--error); border-color: var(--error); }
+.os-tag--sev-high { color: #ff6a5f; border-color: #ff6a5f; }
+.os-tag--sev-medium { color: var(--warning); border-color: var(--warning); }
+.os-tag--sev-low { color: var(--muted); border-color: var(--muted); }
+
+/* ==========================================================================
+   LIVE ACTIVITY (§9)
+   ========================================================================== */
+.ac-activity { display: grid; gap: 0; max-height: 420px; overflow-y: auto; border: 1px solid var(--border); background: var(--surface); }
+.ac-ev { display: grid; grid-template-columns: 74px 120px 1fr 1fr; gap: 10px; padding: 7px 10px; border-bottom: 1px solid var(--border); align-items: baseline; font-size: 0.82rem; }
+.ac-ev:last-child { border-bottom: none; }
+.ac-ev-time { color: var(--muted); font-family: var(--os-font-mono); font-size: 0.74rem; font-variant-numeric: tabular-nums; }
+.ac-ev-entity { font-family: var(--os-font-mono); font-weight: 700; word-break: break-all; }
+.ac-ev-action { font-size: 0.72rem; letter-spacing: 0.04em; color: var(--info); }
+.ac-ev-worker { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ==========================================================================
+   Workers table (§6) / Stations table (§7) inside control room
+   ========================================================================== */
+.ac-scroll { overflow: auto; }
+
+/* misc re-used from the earlier admin pages ------------------------------- */
 .ac-panels { display: grid; gap: 14px; }
-.ac-2col { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
-@media (max-width: 1100px) { .ac-2col { grid-template-columns: 1fr; } }
+.ac-linkbtn { background: none; border: none; padding: 0; cursor: pointer; color: var(--primary); font: inherit; text-decoration: underline; }
 
-.ac-linkbtn {
-  background: none; border: none; padding: 0; cursor: pointer;
-  color: var(--primary); font: inherit; text-decoration: underline;
-}
-
-/* ---- timeline ------------------------------------------------------------ */
+/* timeline (session drill-down) */
 .ac-timeline { display: grid; gap: 0; }
-.ac-tl-item {
-  display: grid; grid-template-columns: 74px 132px 1fr; gap: 10px;
-  padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.82rem;
-  align-items: baseline;
-}
+.ac-tl-item { display: grid; grid-template-columns: 74px 132px 1fr; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.82rem; align-items: baseline; }
 .ac-tl-time { color: var(--muted); font-family: var(--os-font-mono); font-size: 0.76rem; }
 .ac-tl-kind { font-size: 0.66rem; letter-spacing: 0.1em; font-weight: 700; }
 .ac-tl-kind[data-k="CARTON"] { color: var(--secondary); }
@@ -93,69 +233,51 @@
 .ac-tl-kind[data-k="SESSION_START"], .ac-tl-kind[data-k="SESSION_END"] { color: var(--muted); }
 
 /* ---- correction dialog = classic WHITE GUI window over black terminal ---- */
-.ac-modal {
-  position: fixed; inset: 0; z-index: 900;
-  background: rgba(0, 0, 0, 0.66);
-  display: grid; place-items: center; padding: 20px;
-}
-.ac-modal-box {
-  background: #f0f0f0; color: #000;
-  border: 2px solid #999999;
-  border-radius: 4px;
-  box-shadow: 5px 5px 15px rgba(0,0,0,0.5);
-  font-family: Arial, Helvetica, sans-serif;
-  padding: 15px; width: min(520px, 100%);
-  display: grid; gap: 12px;
-}
+.ac-modal { position: fixed; inset: 0; z-index: 900; background: rgba(0, 0, 0, 0.66); display: grid; place-items: center; padding: 20px; }
+.ac-modal-box { background: #f0f0f0; color: #000; border: 2px solid #999999; box-shadow: 5px 5px 15px rgba(0,0,0,0.5); font-family: Arial, Helvetica, sans-serif; padding: 15px; width: min(520px, 100%); display: grid; gap: 12px; }
 .ac-modal-title { font-size: 1rem; font-weight: 700; margin: 0; color: #000; font-family: inherit; }
 .ac-modal-box .ac-sub { color: #444444; font-family: inherit; }
 .ac-modal-box .os-label { color: #555555; }
-.ac-modal-box .os-input {
-  background: #ffffff; color: #000;
-  border: 1px solid #999999; border-radius: 3px;
-  font-family: Arial, Helvetica, sans-serif;
-}
+.ac-modal-box .os-input { background: #ffffff; color: #000; border: 1px solid #999999; font-family: Arial, Helvetica, sans-serif; }
 .ac-modal-box .os-input:focus { border-color: #000000; }
-.ac-modal-warn {
-  font-size: 0.78rem; color: #5a4a00;
-  background: #ffffe1;
-  border: 1px solid #b5a900;
-  border-radius: 0px; padding: 8px 10px;
-}
+.ac-modal-warn { font-size: 0.78rem; color: #5a4a00; background: #ffffe1; border: 1px solid #b5a900; padding: 8px 10px; }
 .ac-modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.ac-modal-actions .os-btn, .ac-modal-box .os-btn {
-  background: #e1e1e1; color: #000;
-  border: 1px solid #777777; border-radius: 3px;
-  font-family: Arial, Helvetica, sans-serif; font-weight: 600;
-}
-.ac-modal-actions .os-btn:hover:not(:disabled), .ac-modal-box .os-btn:hover:not(:disabled) {
-  background: #d0d0d0; border-color: #555555;
-}
-.ac-modal-actions .os-btn--primary, .ac-modal-box .os-btn--primary {
-  background: #e1e1e1; color: #000;
-  border: 2px solid #333333; border-radius: 3px; font-weight: 700;
+.ac-modal-actions .os-btn, .ac-modal-box .os-btn { background: #e1e1e1; color: #000; border: 1px solid #777777; font-family: Arial, Helvetica, sans-serif; font-weight: 600; }
+.ac-modal-actions .os-btn:hover:not(:disabled), .ac-modal-box .os-btn:hover:not(:disabled) { background: #d0d0d0; border-color: #555555; }
+.ac-modal-actions .os-btn--primary, .ac-modal-box .os-btn--primary { background: #e1e1e1; color: #000; border: 2px solid #333333; font-weight: 700; }
+
+.ac-snapshot { background: #ffffff; border: 1px solid #bbbbbb; padding: 8px 10px; font-family: var(--os-font-mono); font-size: 0.72rem; white-space: pre-wrap; word-break: break-word; max-height: 180px; overflow: auto; color: #333333; }
+
+/* legend of NOT AVAILABLE markers (data rule §13) */
+.ac-na { color: var(--muted); font-size: 0.78rem; }
+
+/* ==========================================================================
+   RESPONSIVE (§12) — desktop first, tablet, mobile fallback.
+   ========================================================================== */
+@media (max-width: 1180px) {
+  .ac-2col { grid-template-columns: 1fr; }
 }
 
-.ac-snapshot {
-  background: #ffffff; border: 1px solid #bbbbbb;
-  border-radius: 0px; padding: 8px 10px;
-  font-family: var(--os-font-mono); font-size: 0.72rem;
-  white-space: pre-wrap; word-break: break-word; max-height: 180px; overflow: auto;
-  color: #333333;
-}
-
-.ac-error {
-  border: 1px solid var(--error); color: var(--error);
-  background: rgba(239, 68, 68, 0.08);
-  border-radius: var(--os-radius-sm); padding: 8px 10px; font-size: 0.82rem;
-}
-
-/* ---- responsive (§43) ---------------------------------------------------- */
-@media (max-width: 860px) {
-  .ac { grid-template-columns: 1fr; }
-  .ac-side { position: static; height: auto; flex-direction: column; }
-  .ac-nav { display: flex; flex-wrap: wrap; gap: 4px; }
-  .ac-nav-group { margin: 0; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+@media (max-width: 920px) {
+  .ac-body { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .ac-side { border-right: none; border-bottom: 1px solid var(--border); max-height: none; overflow: visible; }
+  .ac-nav { display: flex; flex-wrap: wrap; gap: 6px 2px; padding: 8px; }
+  .ac-nav-group { margin: 0; display: flex; flex-wrap: wrap; gap: 2px; align-items: center; }
   .ac-nav-title { display: none; }
-  .ac-main { padding: 14px; }
+  .ac-link { border-left: none; border-bottom: 2px solid transparent; padding: 6px 8px; }
+  .ac-link.is-active { border-bottom-color: var(--primary); border-left: none; }
+  .ac-side-foot { display: none; }
+  .ac-main { padding: 12px; }
+  .ac-ev { grid-template-columns: 64px 1fr 1fr; }
+  .ac-ev-worker { grid-column: 2 / 4; }
+}
+
+@media (max-width: 700px) {
+  .ac-top { flex-wrap: wrap; gap: 6px; padding: 6px 10px; }
+  .ac-top-strip { order: 3; flex-basis: 100%; }
+  .ac-top-clock { display: none; }
+  .ac-user-name { max-width: 120px; }
+  .sev-grid { grid-template-columns: repeat(2, 1fr); }
+  .ac-kpis { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+  .ac-stage { min-width: 132px; }
 }

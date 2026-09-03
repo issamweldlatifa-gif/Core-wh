@@ -31,7 +31,7 @@ export interface TerminalTask {
  * plus its route; identity, station, scanner, audio, session, permissions and
  * audit are inherited from the shared framework.
  */
-const TASK_REGISTRY: TerminalTask[] = [
+export const TASK_REGISTRY: TerminalTask[] = [
   {
     key: 'receiving',
     label: 'Receiving',
