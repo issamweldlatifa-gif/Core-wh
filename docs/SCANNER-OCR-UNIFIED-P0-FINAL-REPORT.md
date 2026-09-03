@@ -5,7 +5,7 @@
 **Scope of this order:** the Receiving scanner’s recognition engine only. No backend auth-code change, no workflow change.
 **Working model implemented:** `Point → Detect → Read → Validate → Match → Continue`.
 **Recognition policy kept:** barcode/QR **first** — a valid decoded code wins and OCR is skipped; OCR is only a fallback behind a confidence gate; candidates/possible-matches from the corpus may **never** auto-submit (worker confirm only); NO MATCH → retry/manual — never an auto-entered wrong article.
-**Date:** 2026-09-03 · **Commit (delivery):** recorded by the follow-up doc commit on master (see git log)
+**Date:** 2026-09-03 · **Delivery commit:** `851f780` (this report: follow-up record commit)
 
 ---
 
