@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StationsService } from './stations.service';
 
@@ -164,4 +164,58 @@ export class TerminalService {
       resume,
     };
   }
+
+  // ---------------------------------------------------------------------
+  // COMMAND #3 — Worker Control: the worker's own assigned tasks. These are
+  // concrete instructions an admin attached to this specific worker; they
+  // appear on the terminal home. Scoped strictly to the authenticated user.
+  // ---------------------------------------------------------------------
+  async myAssignments(userId: string) {
+    const [open, recent] = await Promise.all([
+      this.prisma.workerTaskAssignment.findMany({
+        where: { workerId: userId, status: 'OPEN' },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.workerTaskAssignment.findMany({
+        where: { workerId: userId, status: { in: ['DONE', 'CANCELLED'] } },
+        orderBy: { completedAt: 'desc' },
+        take: 10,
+      }),
+    ]);
+    const shape = (r: any) => ({
+      id: r.id,
+      title: r.title,
+      description: r.description,
+      relatedType: r.relatedType,
+      relatedCode: r.relatedCode,
+      status: r.status,
+      note: r.note,
+      createdAt: r.createdAt.toISOString(),
+      completedAt: r.completedAt?.toISOString() ?? null,
+    });
+    return { open: open.map(shape), recent: recent.map(shape) };
+  }
+
+  async completeAssignment(userId: string, assignmentId: string, note?: string) {
+    const row = await this.prisma.workerTaskAssignment.findUnique({ where: { id: assignmentId } });
+    if (!row) throw new NotFoundException('No such assigned task.');
+    if (row.workerId !== userId) throw new NotFoundException('No such assigned task for this worker.');
+    if (row.status !== 'OPEN') throw new ConflictException(`Task "${row.title}" is already ${row.status}.`);
+    const noteText = (note ?? '').trim();
+    await this.prisma.workerTaskAssignment.update({
+      where: { id: assignmentId },
+      data: { status: 'DONE', note: noteText || null, completedById: userId, completedAt: new Date() },
+    });
+    await this.prisma.auditLog.create({
+      data: {
+        actorUserId: userId,
+        action: 'TASK_COMPLETED' as any,
+        entityType: 'worker_task',
+        entityId: row.id,
+        metadata: { taskId: row.id, title: row.title, note: noteText || null } as any,
+      },
+    });
+    return { ok: true, id: assignmentId, status: 'DONE' };
+  }
 }
+

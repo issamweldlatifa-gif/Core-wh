@@ -55,6 +55,43 @@
 }
 .wt-resume strong { font-size: 1.1rem; }
 
+/* ---- assigned tasks (COMMAND #3) ------------------------------------------ */
+.wt-assigned {
+  border: 1px solid var(--primary);
+  border-left: 4px solid var(--primary);
+  border-radius: var(--os-radius);
+  background: var(--surface);
+  margin-bottom: 20px;
+  overflow: hidden;
+}
+.wt-assigned-title {
+  font-size: 0.72rem; letter-spacing: 0.2em; color: var(--primary);
+  padding: 10px 14px 6px; margin: 0;
+}
+.wt-assigned-list { list-style: none; margin: 0; padding: 0; }
+.wt-assigned-item {
+  display: flex; gap: 14px; align-items: center;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+}
+.wt-assigned-item:first-of-type { border-top: none; }
+.wt-assigned-main { display: grid; gap: 4px; flex: 1; min-width: 0; }
+.wt-assigned-title-text {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  font-weight: 700; letter-spacing: 0.04em;
+}
+.wt-assigned-rel { font-size: 0.7rem; padding: 1px 8px; }
+.wt-assigned-desc { font-size: 0.84rem; }
+.wt-assigned-done {
+  border: 1px solid var(--success); color: var(--success);
+  background: transparent; border-radius: var(--os-radius);
+  font-family: var(--font); font-weight: 700; letter-spacing: 0.14em;
+  padding: 8px 16px; cursor: pointer;
+  transition: background var(--os-speed), color var(--os-speed);
+}
+.wt-assigned-done:hover:not(:disabled) { background: var(--success); color: #fff; }
+.wt-assigned-done:disabled { opacity: 0.5; cursor: not-allowed; }
+
 .wt-tasks {
   display: grid; gap: 14px;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));

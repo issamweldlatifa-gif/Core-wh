@@ -54,8 +54,25 @@ export interface TerminalContext {
   } | null;
 }
 
+export interface TerminalAssignment {
+  id: string;
+  title: string;
+  description: string | null;
+  relatedType: string | null;
+  relatedCode: string | null;
+  status: string;
+  note: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
 export const terminalApi = {
   context: () => client.get<TerminalContext>('/v1/terminal/context').then((r) => r.data),
+  // COMMAND #3 — my assigned tasks (an admin attached them to this worker).
+  assignments: () =>
+    client.get<{ open: TerminalAssignment[]; recent: TerminalAssignment[] }>('/v1/terminal/assignments').then((r) => r.data),
+  completeAssignment: (id: string) =>
+    client.post(`/v1/terminal/assignments/${id}/complete`, {}).then((r) => r.data),
 };
 
 /** Does the worker's station advertise a capability? (§10/§11) */

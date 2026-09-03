@@ -127,7 +127,34 @@ export interface WorkerRow {
   sessionsToday: number;
   activeTask?: { kind: 'RECEIVING' | 'PUTAWAY'; code: string; startedAt: string } | null;
   lastActivityAt?: string | null;
+  /** COMMAND #3 — Worker Control presence. */
+  workedToday?: boolean;
+  pendingTasks?: number;
+  createdAt?: string;
 }
+
+export interface WorkerTaskRow {
+  id: string;
+  title: string;
+  description: string | null;
+  relatedType: string | null;
+  relatedCode: string | null;
+  status: string;
+  note: string | null;
+  createdAt: string;
+  completedAt: string | null;
+  cancelledAt: string | null;
+  worker: { id: string; name: string; employeeCode: string; status: string } | null;
+  createdBy: { id: string; name: string; employeeCode: string } | null;
+  completedBy: { id: string; name: string; employeeCode: string } | null;
+}
+
+/** Worker roles that can be created/assigned from the Worker Control page. */
+export const WORKER_ROLE_OPTIONS = [
+  { name: 'INBOUND_WORKER', label: 'Inbound / Receiving' },
+  { name: 'PICKER', label: 'Picker / Sorting' },
+  { name: 'PACKER', label: 'Packer / Packing' },
+];
 
 export interface WorkerDetail {
   worker: WorkerRow;
@@ -270,6 +297,30 @@ export const adminApi = {
   tasks: () => client.get<TaskRow[]>('/v1/operations/tasks').then((r) => r.data),
   workers: () => client.get<WorkerRow[]>('/v1/operations/workers').then((r) => r.data),
   worker: (id: string) => client.get<WorkerDetail>(`/v1/operations/workers/${id}`).then((r) => r.data),
+
+  // COMMAND #3 — Worker Control actions (admin only: users.manage).
+  createWorker: (d: { name: string; employeeCode: string; password: string; roles: string[]; email?: string }) =>
+    client.post<{ id: string; name: string; employeeCode: string; status: string; roles: string[] }>('/v1/users', {
+      name: d.name,
+      employeeCode: d.employeeCode,
+      email: d.email ?? null,
+      password: d.password,
+      roles: d.roles,
+      credentialMode: 'PASSWORD',
+      isActive: true,
+    }).then((r) => r.data),
+  blockWorker: (id: string, reason?: string) =>
+    client.post(`/v1/operations/workers/${id}/block`, { reason }).then((r) => r.data),
+  unblockWorker: (id: string) =>
+    client.post(`/v1/operations/workers/${id}/unblock`, {}).then((r) => r.data),
+  removeWorker: (id: string, reason: string) =>
+    client.post(`/v1/operations/workers/${id}/remove`, { reason }).then((r) => r.data),
+  workerTasks: (params?: { workerId?: string; status?: string }) =>
+    client.get<WorkerTaskRow[]>('/v1/operations/worker-tasks', { params }).then((r) => r.data),
+  workerTaskCreate: (d: { workerId: string; title: string; description?: string; relatedType?: string; relatedCode?: string }) =>
+    client.post<{ ok: true; id: string; status: string }>('/v1/operations/worker-tasks', d).then((r) => r.data),
+  workerTaskCancel: (id: string, reason?: string) =>
+    client.post(`/v1/operations/worker-tasks/${id}/cancel`, { reason }).then((r) => r.data),
   session: (id: string) => client.get<SessionDetail>(`/v1/operations/sessions/${id}`).then((r) => r.data),
   exceptions: (status = 'OPEN') =>
     client.get<ExceptionRow[]>('/v1/operations/exceptions', { params: { status } }).then((r) => r.data),

@@ -40,6 +40,19 @@ export class TerminalController {
     const a = actorOf(req);
     return this.terminal.context({ id: a.id, permissions: a.permissions });
   }
+
+  // COMMAND #3 — the worker's own assigned tasks (strictly self-scoped).
+  @Get('assignments')
+  @ApiOperation({ summary: 'Assigned tasks for the current worker (open + recent).' })
+  assignments(@Req() req: any) {
+    return this.terminal.myAssignments(actorOf(req).id);
+  }
+
+  @Post('assignments/:id/complete')
+  @ApiOperation({ summary: 'Mark one of my assigned tasks as done (with optional note).' })
+  completeAssignment(@Param('id') id: string, @Body() body: { note?: string }, @Req() req: any) {
+    return this.terminal.completeAssignment(actorOf(req).id, id, body?.note);
+  }
 }
 
 @ApiTags('Stations')
@@ -264,5 +277,57 @@ export class OperationsController {
     @Req() req: any,
   ) {
     return this.ops.dataControlVoid(body, actorOf(req));
+  }
+
+  // ---- Worker Control (COMMAND #3; admin only — users.manage) --------------
+
+  @Post('workers/:id/block')
+  @RequirePermissions('users.manage')
+  @ApiOperation({ summary: 'Block a worker (LOCKED — temporary, reversible, login refused).' })
+  blockWorker(@Param('id') id: string, @Body() body: { reason?: string }, @Req() req: any) {
+    return this.ops.blockWorker(id, actorOf(req), body?.reason);
+  }
+
+  @Post('workers/:id/unblock')
+  @RequirePermissions('users.manage')
+  @ApiOperation({ summary: 'Unblock a worker (LOCKED → ACTIVE).' })
+  unblockWorker(@Param('id') id: string, @Req() req: any) {
+    return this.ops.unblockWorker(id, actorOf(req));
+  }
+
+  @Post('workers/:id/remove')
+  @RequirePermissions('users.manage')
+  @ApiOperation({ summary: 'Remove a worker permanently (DISABLED — account kept for audit; open tasks cancelled).' })
+  removeWorker(@Param('id') id: string, @Body() body: { reason: string }, @Req() req: any) {
+    return this.ops.removeWorker(id, actorOf(req), body?.reason);
+  }
+
+  // ---- Worker task assignments (admin side) ---------------------------------
+
+  @Get('worker-tasks')
+  @RequirePermissions('users.manage')
+  @ApiOperation({ summary: 'List worker task assignments (optionally filtered).' })
+  @ApiQuery({ name: 'workerId', required: false })
+  @ApiQuery({ name: 'status', required: false })
+  workerTasks(@Query('workerId') workerId?: string, @Query('status') status?: string) {
+    return this.ops.workerTasksList(workerId, status);
+  }
+
+  @Post('worker-tasks')
+  @RequirePermissions('users.manage')
+  @ApiOperation({ summary: 'Assign a specific task to a worker.' })
+  workerTaskCreate(
+    @Body()
+    body: { workerId: string; title: string; description?: string; relatedType?: string; relatedCode?: string },
+    @Req() req: any,
+  ) {
+    return this.ops.workerTaskCreate(body, actorOf(req));
+  }
+
+  @Post('worker-tasks/:id/cancel')
+  @RequirePermissions('users.manage')
+  @ApiOperation({ summary: 'Cancel an open assigned task (with optional reason).' })
+  workerTaskCancel(@Param('id') id: string, @Body() body: { reason?: string }, @Req() req: any) {
+    return this.ops.workerTaskCancel(id, actorOf(req), body?.reason);
   }
 }

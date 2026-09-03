@@ -53,6 +53,10 @@ export class AuthService {
         ipAddress: ctx?.ip,
         metadata: { reason: `account_${user.status}` },
       });
+      // Worker Control (COMMAND #3): a LOCKED account was temporarily blocked
+      // (reversible by a manager), a DISABLED one was removed for good. Say so
+      // plainly so the worker knows to ask a manager instead of retrying.
+      if (user.status === 'LOCKED') throw new ForbiddenException('Account is blocked by a manager — contact your supervisor.');
       throw new ForbiddenException('Account is not active.');
     }
 

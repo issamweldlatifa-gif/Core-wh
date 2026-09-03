@@ -139,6 +139,9 @@ enum AuditAction {
   RECEIVING_REVERSED
   SESSION_REOPENED
   DATA_VOIDED // admin soft-voided an operational record (Data Control)
+  TASK_ASSIGNED // admin assigned a specific task to a worker (Worker Control)
+  TASK_COMPLETED // worker completed an assigned task
+  TASK_CANCELLED // admin cancelled an assigned task
   SESSION_REASSIGNED
   // Putaway / stowing — cartons onto real storage locations.
   PUTAWAY_STARTED
@@ -181,6 +184,45 @@ enum ApiClientStatus {
 // A User is the primary entity of the system. The employee/access code
 // merely IDENTIFIES the user; it is NOT a permission. Permissions are
 // defined on Roles, never on the code.
+// =====================================================================
+// COMMAND #3 — Worker Control: admin task assignments.
+// A concrete instruction an admin attaches to ONE worker (e.g. "receive
+// arrival WAR-..."). The worker sees OPEN assignments in the terminal and
+// closes them with a note; the admin sees all of them in Workers control.
+// =====================================================================
+enum AssignmentStatus {
+  OPEN
+  DONE
+  CANCELLED
+}
+
+model WorkerTaskAssignment {
+  id            String           @id @default(uuid())
+  workerId      String
+  worker        User             @relation("WorkerAssignments", fields: [workerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  title         String
+  description   String?
+  relatedType   String? // ARRIVAL | SHIPMENT | ORDER | STATION | OTHER
+  relatedCode   String?
+  status        AssignmentStatus @default(OPEN)
+  createdById   String?
+  createdBy     User?            @relation("AssignmentCreator", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  note          String? // worker's completion note
+  completedById String?
+  completedBy   User?   @relation("AssignmentCompleted", fields: [completedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  completedAt   DateTime?
+  cancelledById String?
+  cancelledBy   User?   @relation("AssignmentCancelled", fields: [cancelledById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  cancelledAt   DateTime?
+  cancelReason  String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@index([workerId, status])
+  @@index([status])
+  @@map("worker_task_assignments")
+}
+
 model User {
   id             String         @id @default(uuid())
   name           String
@@ -197,6 +239,11 @@ model User {
   sessions         Session[]
   roles            UserRole[]
   createdAudit     AuditLog[]            @relation("Actor")
+  // COMMAND #3 — Worker Control: task assignments.
+  workerTaskAssignments WorkerTaskAssignment[] @relation("WorkerAssignments")
+  workerTaskCreators    WorkerTaskAssignment[] @relation("AssignmentCreator")
+  workerTaskCompletions WorkerTaskAssignment[] @relation("AssignmentCompleted")
+  workerTaskCancels     WorkerTaskAssignment[] @relation("AssignmentCancelled")
   // WAREHOUSE OS back-relations.
   stationsAssigned Station[]             @relation("StationWorker")
   correctionsMade  OperationCorrection[] @relation("CorrectionAdmin")

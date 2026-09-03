@@ -131,6 +131,7 @@
 
 .ac-2col { display: grid; gap: 16px; grid-template-columns: 1fr 1fr; align-items: start; }
 .ac-error { border: 1px solid var(--error); color: var(--error); background: rgba(239, 68, 68, 0.08); padding: 8px 10px; font-size: 0.82rem; }
+.ac-ok { border: 1px solid var(--success); color: var(--success); background: rgba(16, 185, 129, 0.08); padding: 8px 10px; font-size: 0.82rem; }
 
 .ac-linkbtn { background: none; border: none; padding: 0; cursor: pointer; color: var(--primary); font: inherit; text-decoration: underline; }
 
@@ -290,4 +291,15 @@
   .sev-grid { grid-template-columns: repeat(2, 1fr); }
   .ac-kpis { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
   .ac-stage { min-width: 132px; }
+}
+
+/* ---- Worker Control / admin page helpers (COMMAND #3) -------------------- */
+.ac-linkbtn--danger { color: var(--error); }
+.ac-linkbtn:disabled { color: var(--muted); cursor: not-allowed; }
+.ac-rowbtns { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
+.ac-rowbtns .ac-linkbtn { white-space: nowrap; }
+.os-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+textarea.os-input { resize: vertical; }
+@media (max-width: 700px) {
+  .os-grid2 { grid-template-columns: 1fr; }
 }

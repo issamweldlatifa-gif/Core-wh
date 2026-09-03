@@ -1366,14 +1366,21 @@ export class OperationsService {
 
   /** Workers with their operational footprint (§37) + live task (§6). */
   async workers() {
+    // COMMAND #3 — Worker Control. This is the floor/operator workforce: every
+    // account that is NOT pure back-office (SUPER_ADMIN / WAREHOUSE_ADMIN),
+    // REGARDLESS of status — blocked (LOCKED) and removed (DISABLED) workers
+    // stay visible so an admin can unblock, re-check or audit them. Presence
+    // answers "does this worker work today or not?" honestly per worker.
+    const BACK_OFFICE = ['SUPER_ADMIN', 'WAREHOUSE_ADMIN'];
     const users = await this.prisma.user.findMany({
-      where: { status: 'ACTIVE' },
-      orderBy: { name: 'asc' },
+      where: { NOT: { roles: { some: { role: { name: { in: BACK_OFFICE } } } } } },
+      orderBy: [{ status: 'asc' }, { name: 'asc' }],
       select: {
         id: true,
         name: true,
         employeeCode: true,
         status: true,
+        createdAt: true,
         roles: { select: { role: { select: { name: true } } } },
         stationsAssigned: { select: { id: true, code: true, name: true, department: true } },
       },
@@ -1383,12 +1390,19 @@ export class OperationsService {
     since.setHours(0, 0, 0, 0);
 
     const userIds = users.map((u) => u.id);
-    const [grouped, openReceiving, openPutaway] = await Promise.all([
+    const [recvGrouped, putGrouped, openReceiving, openPutaway] = await Promise.all([
       this.prisma.receivingSession.groupBy({
         by: ['startedBy'],
         where: { startedAt: { gte: since } },
         _count: { _all: true },
       }),
+      userIds.length
+        ? this.prisma.putawaySession.groupBy({
+            by: ['workerId'],
+            where: { startedAt: { gte: since } },
+            _count: { _all: true },
+          })
+        : Promise.resolve([]),
       userIds.length
         ? this.prisma.receivingSession.findMany({
             where: { status: { in: ['RECEIVING', 'PAUSED'] }, startedBy: { in: userIds } },
@@ -1402,7 +1416,10 @@ export class OperationsService {
           })
         : Promise.resolve([]),
     ]);
-    const countByWorker = new Map(grouped.map((g) => [g.startedBy, g._count._all]));
+    const recvToday = new Map<string, number>();
+    for (const g of recvGrouped) recvToday.set(g.startedBy ?? '', g._count._all);
+    const putToday = new Map<string, number>();
+    for (const g of putGrouped) putToday.set(g.workerId ?? '', g._count._all);
     const taskByUser = new Map<string, { kind: 'RECEIVING' | 'PUTAWAY'; code: string; startedAt: Date }>();
     for (const s of openReceiving) {
       if (s.startedBy) taskByUser.set(s.startedBy, { kind: 'RECEIVING', code: s.code, startedAt: s.startedAt });
@@ -1411,18 +1428,190 @@ export class OperationsService {
       if (p.workerId) taskByUser.set(p.workerId, { kind: 'PUTAWAY', code: p.code, startedAt: p.startedAt });
     }
     const lastAt = await this.lastOpsActivityByUser(userIds);
+    const openAssignments = await this.prisma.workerTaskAssignment.groupBy({
+      by: ['workerId'],
+      where: { status: 'OPEN' },
+      _count: { _all: true },
+    });
+    const openTasksByWorker = new Map<string, number>();
+    for (const a of openAssignments) openTasksByWorker.set(a.workerId, a._count._all);
 
-    return users.map((u) => ({
-      id: u.id,
-      name: u.name,
-      employeeCode: u.employeeCode,
-      status: u.status,
-      roles: u.roles.map((r) => r.role.name),
-      station: u.stationsAssigned[0] ?? null,
-      sessionsToday: countByWorker.get(u.id) ?? 0,
-      activeTask: taskByUser.get(u.id) ?? null,
-      lastActivityAt: lastAt.get(u.id)?.toISOString() ?? null,
+    return users.map((u) => {
+      const rToday = recvToday.get(u.id) ?? 0;
+      const pToday = putToday.get(u.id) ?? 0;
+      const last = lastAt.get(u.id);
+      const workedToday = rToday + pToday > 0 || (!!last && last.getTime() >= since.getTime());
+      return {
+        id: u.id,
+        name: u.name,
+        employeeCode: u.employeeCode,
+        status: u.status,
+        roles: u.roles.map((r) => r.role.name),
+        station: u.stationsAssigned[0] ?? null,
+        sessionsToday: rToday + pToday,
+        activeTask: taskByUser.get(u.id) ?? null,
+        lastActivityAt: last?.toISOString() ?? null,
+        workedToday,
+        pendingTasks: openTasksByWorker.get(u.id) ?? 0,
+        createdAt: u.createdAt.toISOString(),
+      };
+    });
+  }
+
+  // =====================================================================
+  // COMMAND #3 — Worker Control (admin only, audited; page /admin/workers).
+  //   BLOCK   ACTIVE  -> LOCKED   (temporary; worker cannot log in; reversible)
+  //   REMOVE  ACTIVE/LOCKED -> DISABLED (permanent; account kept for audit)
+  //   UNBLOCK LOCKED  -> ACTIVE
+  // Statuses other than ACTIVE already refuse login at /auth/login; we also
+  // revoke live sessions so an open token dies fast. Protected accounts
+  // (SUPER_ADMIN, or yourself) cannot be managed from this surface.
+  // =====================================================================
+
+  private async requireManageableWorker(workerId: string) {
+    const target = await this.prisma.user.findUnique({
+      where: { id: workerId },
+      select: { id: true, name: true, employeeCode: true, status: true, roles: { select: { role: { select: { name: true } } } } },
+    });
+    if (!target) throw new NotFoundException(`No worker found for id "${workerId}".`);
+    const roleNames = target.roles.map((r) => r.role.name);
+    if (roleNames.includes('SUPER_ADMIN')) {
+      throw new BadRequestException('This account is a protected SUPER_ADMIN and cannot be managed here.');
+    }
+    return target;
+  }
+
+  private async auditWorkerControl(actor: { id: string; ip?: string }, action: string, target: any, detail: Record<string, unknown>) {
+    return this.prisma.auditLog.create({
+      data: {
+        actorUserId: actor.id || null,
+        ipAddress: actor.ip ?? null,
+        action: action as any,
+        entityType: 'user',
+        entityId: target.employeeCode,
+        metadata: detail as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  private async revokeUserSessions(userId: string) {
+    try {
+      await this.prisma.session.updateMany({ where: { userId, status: 'ACTIVE' }, data: { status: 'REVOKED', revokedAt: new Date() } });
+    } catch {
+      /* sessions may not exist for this user — not fatal */
+    }
+  }
+
+  async blockWorker(workerId: string, actor: { id: string; ip?: string }, reason?: string) {
+    const target = await this.requireManageableWorker(workerId);
+    if (target.id === actor.id) throw new BadRequestException('You cannot block your own account.');
+    if (target.status === 'LOCKED') throw new ConflictException(`${target.employeeCode} is already blocked.`);
+    if (target.status !== 'ACTIVE') throw new BadRequestException(`${target.employeeCode} is ${target.status} — only ACTIVE workers can be blocked.`);
+    await this.prisma.user.update({ where: { id: target.id }, data: { status: 'LOCKED' } });
+    await this.revokeUserSessions(target.id);
+    await this.auditWorkerControl(actor, 'USER_STATUS_CHANGED', target, { change: 'BLOCK', from: 'ACTIVE', to: 'LOCKED', reason: reason ?? null });
+    return { ok: true, id: target.id, employeeCode: target.employeeCode, status: 'LOCKED' };
+  }
+
+  async unblockWorker(workerId: string, actor: { id: string; ip?: string }) {
+    const target = await this.requireManageableWorker(workerId);
+    if (target.status !== 'LOCKED') throw new BadRequestException(`${target.employeeCode} is ${target.status} — only blocked (LOCKED) workers can be unblocked.`);
+    await this.prisma.user.update({ where: { id: target.id }, data: { status: 'ACTIVE' } });
+    await this.auditWorkerControl(actor, 'USER_STATUS_CHANGED', target, { change: 'UNBLOCK', from: 'LOCKED', to: 'ACTIVE' });
+    return { ok: true, id: target.id, employeeCode: target.employeeCode, status: 'ACTIVE' };
+  }
+
+  async removeWorker(workerId: string, actor: { id: string; ip?: string }, reason?: string) {
+    const target = await this.requireManageableWorker(workerId);
+    if (target.id === actor.id) throw new BadRequestException('You cannot remove your own account.');
+    if (target.status === 'DISABLED') throw new ConflictException(`${target.employeeCode} is already removed.`);
+    if (reason === undefined || reason.trim().length < 2) {
+      throw new BadRequestException('A written reason is required to permanently remove a worker.');
+    }
+    await this.prisma.user.update({ where: { id: target.id }, data: { status: 'DISABLED' } });
+    await this.revokeUserSessions(target.id);
+    await this.prisma.workerTaskAssignment.updateMany({ where: { workerId: target.id, status: 'OPEN' }, data: { status: 'CANCELLED', cancelledById: actor.id, cancelledAt: new Date(), cancelReason: `worker removed — ${reason.trim()}` } });
+    await this.auditWorkerControl(actor, 'USER_STATUS_CHANGED', target, { change: 'REMOVE', from: target.status, to: 'DISABLED', reason: reason.trim() });
+    return { ok: true, id: target.id, employeeCode: target.employeeCode, status: 'DISABLED' };
+  }
+
+  // ---- Worker task assignments (admin side) --------------------------------
+
+  async workerTasksList(workerId?: string, status?: string) {
+    const rows = await this.prisma.workerTaskAssignment.findMany({
+      where: {
+        ...(workerId ? { workerId } : {}),
+        ...(status && status !== 'ALL' ? { status: status as any } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 300,
+      include: {
+        worker: { select: { id: true, name: true, employeeCode: true, status: true } },
+        createdBy: { select: { id: true, name: true, employeeCode: true } },
+        completedBy: { select: { id: true, name: true, employeeCode: true } },
+      },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      description: r.description,
+      relatedType: r.relatedType,
+      relatedCode: r.relatedCode,
+      status: r.status,
+      note: r.note,
+      createdAt: r.createdAt.toISOString(),
+      completedAt: r.completedAt?.toISOString() ?? null,
+      cancelledAt: r.cancelledAt?.toISOString() ?? null,
+      worker: r.worker ? { id: r.worker.id, name: r.worker.name, employeeCode: r.worker.employeeCode, status: r.worker.status } : null,
+      createdBy: r.createdBy ? { id: r.createdBy.id, name: r.createdBy.name, employeeCode: r.createdBy.employeeCode } : null,
+      completedBy: r.completedBy ? { id: r.completedBy.id, name: r.completedBy.name, employeeCode: r.completedBy.employeeCode } : null,
     }));
+  }
+
+  async workerTaskCreate(
+    input: { workerId: string; title: string; description?: string; relatedType?: string; relatedCode?: string },
+    actor: { id: string; ip?: string },
+  ) {
+    const workerId = (input.workerId ?? '').trim();
+    const title = (input.title ?? '').trim();
+    if (!workerId) throw new BadRequestException('workerId is required.');
+    if (title.length < 3) throw new BadRequestException('A task title of at least 3 characters is required.');
+    const worker = await this.requireManageableWorker(workerId);
+    if (worker.status === 'DISABLED') throw new BadRequestException(`${worker.employeeCode} was removed — reactivate before assigning tasks.`);
+    const row = await this.prisma.workerTaskAssignment.create({
+      data: {
+        workerId,
+        title,
+        description: input.description?.trim() ? input.description.trim() : null,
+        relatedType: input.relatedType || null,
+        relatedCode: input.relatedCode || null,
+        createdById: actor.id || null,
+      },
+    });
+    await this.auditWorkerControl(actor, 'TASK_ASSIGNED', worker, {
+      taskId: row.id,
+      title,
+      relatedType: input.relatedType ?? null,
+      relatedCode: input.relatedCode ?? null,
+    });
+    return { ok: true, id: row.id, status: 'OPEN' };
+  }
+
+  async workerTaskCancel(id: string, actor: { id: string; ip?: string }, reason?: string) {
+    const row = await this.prisma.workerTaskAssignment.findUnique({ where: { id }, include: { worker: { select: { id: true, name: true, employeeCode: true, status: true } } } });
+    if (!row) throw new NotFoundException(`No task assignment found for "${id}".`);
+    if (row.status !== 'OPEN') throw new ConflictException(`Task ${id} is already ${row.status}.`);
+    const reasonText = (reason ?? '').trim();
+    await this.prisma.workerTaskAssignment.update({
+      where: { id },
+      data: { status: 'CANCELLED', cancelledById: actor.id || null, cancelledAt: new Date(), cancelReason: reasonText || 'cancelled by admin' },
+    });
+    await this.auditWorkerControl(actor, 'TASK_CANCELLED', row.worker, {
+      taskId: row.id,
+      title: row.title,
+      reason: reasonText || null,
+    });
+    return { ok: true, id, status: 'CANCELLED' };
   }
 
   /** Workforce → Tasks board: canonical registry + real floor numbers. */
