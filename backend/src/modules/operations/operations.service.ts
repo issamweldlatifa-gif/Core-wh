@@ -28,6 +28,12 @@ export class OperationsService {
       activePutaway,
       cartonsStoredToday,
       awaitingPutaway,
+      openOrders,
+      articlesAwaitingSorting,
+      articlesStored,
+      binsReadyForPacking,
+      shipmentsReadyToShip,
+      shippedToday,
     ] = await Promise.all([
       this.prisma.station.findMany({
         orderBy: [{ department: 'asc' }, { code: 'asc' }],
@@ -59,6 +65,17 @@ export class OperationsService {
       this.prisma.warehouseCarton.count({
         where: { status: 'RECEIVED', currentLocationId: null },
       }),
+      // Fulfillment pipeline (operational flow §1–§7).
+      this.prisma.warehouseOrder.count({ where: { status: 'OPEN' } }),
+      this.prisma.articleUnit.count({ where: { status: 'IN_CONTAINER' } }),
+      this.prisma.articleUnit.count({ where: { status: 'STORED' } }),
+      this.prisma.operationalContainer.count({
+        where: { type: 'CUSTOMER', status: 'READY_FOR_PACKING' },
+      }),
+      this.prisma.outboundShipment.count({ where: { status: 'READY_TO_SHIP' } }),
+      this.prisma.outboundShipment.count({
+        where: { status: 'SHIPPED', shippedAt: { gte: since } },
+      }),
     ]);
 
     // Resolve worker identities for the active sessions in one query rather
@@ -86,6 +103,13 @@ export class OperationsService {
         activePutawaySessions: activePutaway.length,
         cartonsStoredToday,
         awaitingPutaway,
+        // Fulfillment pipeline
+        openOrders,
+        articlesAwaitingSorting,
+        articlesStored,
+        binsReadyForPacking,
+        shipmentsReadyToShip,
+        shippedToday,
       },
       putawaySessions: activePutaway.map((p) => ({
         id: p.id,

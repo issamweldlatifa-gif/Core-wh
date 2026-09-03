@@ -108,4 +108,9 @@ Each follows SCAN → SYSTEM DECISION → ACTION → CONFIRMATION → NEXT ITEM,
 - New API: `GET /api/v1/fulfillment/outbound-shipments?status=&q=` (operations.view) — 100 most recent shipments with order/container/article-count joins.
 - Verified: 38/38 unit + **86/86 e2e** (new board test in `operational-flow.e2e-spec.ts`); live HTTP smoke of both boards.
 
+### Follow-up: Control Center fulfillment pipeline
+- `GET /operations/overview` counters extended with the fulfillment pipeline: `openOrders`, `articlesAwaitingSorting` (IN_CONTAINER), `articlesStored`, `binsReadyForPacking`, `shipmentsReadyToShip`, `shippedToday` — all computed in the same single `Promise.all` batch as the existing counters.
+- Control Center gained a "Fulfillment pipeline" KPI strip (receiving → sorting → packing → shipping); each tile is clickable and jumps to the matching board (Orders / Traceability / Shipments). Existing KPIs, tables and receiving/putaway sections untouched.
+- Verified: 38/38 unit + **87/87 e2e** (new overview-counters case); live HTTP smoke of `/operations/overview` returning the six new counters.
+
 No conflicts with existing code: all suites that existed before are still green, receiving/putaway flows untouched, card integration untouched.

@@ -34,6 +34,31 @@ export default function ControlCenter() {
         <Kpi label="Stored today" value={c.cartonsStoredToday} />
       </div>
 
+      <section className="os-card" style={{ marginTop: 14 }}>
+        <div className="os-spread">
+          <h2 className="os-card-title">Fulfillment pipeline</h2>
+          <span className="os-muted">receiving → sorting → packing → shipping</span>
+        </div>
+        <div className="ac-kpis">
+          <Kpi label="Open orders" value={c.openOrders ?? 0}
+               onClick={() => navigate('/admin/orders')} />
+          <Kpi label="Awaiting sorting" value={c.articlesAwaitingSorting ?? 0}
+               tone={c.articlesAwaitingSorting ? 'alert' : undefined}
+               onClick={() => navigate('/admin/traceability')} />
+          <Kpi label="Articles stored" value={c.articlesStored ?? 0}
+               onClick={() => navigate('/admin/traceability')} />
+          <Kpi label="Bins ready to pack" value={c.binsReadyForPacking ?? 0}
+               tone={c.binsReadyForPacking ? 'alert' : undefined}
+               onClick={() => navigate('/admin/orders')} />
+          <Kpi label="Ready to ship" value={c.shipmentsReadyToShip ?? 0}
+               tone={c.shipmentsReadyToShip ? 'alert' : undefined}
+               onClick={() => navigate('/admin/shipments')} />
+          <Kpi label="Shipped today" value={c.shippedToday ?? 0}
+               tone={c.shippedToday ? 'ok' : undefined}
+               onClick={() => navigate('/admin/shipments')} />
+        </div>
+      </section>
+
       <div className="ac-2col">
         <section className="os-card">
           <h2 className="os-card-title">Active receiving sessions</h2>
@@ -124,9 +149,21 @@ export default function ControlCenter() {
   );
 }
 
-function Kpi({ label, value, tone }: { label: string; value: number | string; tone?: 'ok' | 'bad' | 'alert' }) {
+function Kpi({ label, value, tone, onClick }: {
+  label: string;
+  value: number | string;
+  tone?: 'ok' | 'bad' | 'alert';
+  onClick?: () => void;
+}) {
   return (
-    <div className={`ac-kpi${tone ? ` ac-kpi--${tone}` : ''}`}>
+    <div
+      className={`ac-kpi${tone ? ` ac-kpi--${tone}` : ''}`}
+      onClick={onClick}
+      style={onClick ? { cursor: 'pointer' } : undefined}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => { if (e.key === 'Enter') onClick(); } : undefined}
+    >
       <div className="ac-kpi-value">{value}</div>
       <div className="ac-kpi-label">{label}</div>
     </div>

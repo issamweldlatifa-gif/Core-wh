@@ -4,6 +4,7 @@ import { ReceivingService } from '../src/modules/receiving/receiving.service';
 import { CategoriesService } from '../src/modules/categories/categories.service';
 import { FulfillmentService } from '../src/modules/fulfillment/fulfillment.service';
 import { OrdersService } from '../src/modules/orders/orders.service';
+import { OperationsService } from '../src/modules/operations/operations.service';
 
 /**
  * OPERATIONAL WAREHOUSE FLOW — full chain on a real Postgres:
@@ -394,7 +395,24 @@ describe('OPERATIONAL FLOW — receiving tote -> sorting -> bin -> pack -> ship'
     expect(byCustomer.some((r) => r.code === outCode)).toBe(true);
   });
 
-  // 16 --------------------------------------------------------------
+  // 16b -------------------------------------------------------------
+  it('control-center overview exposes the fulfillment pipeline counters', async () => {
+    const operations = new OperationsService(prisma as any);
+    const overview = await operations.overview();
+    const c = overview.counters as any;
+    // presence + sane types (absolute values depend on concurrent data)
+    for (const key of [
+      'openOrders', 'articlesAwaitingSorting', 'articlesStored',
+      'binsReadyForPacking', 'shipmentsReadyToShip', 'shippedToday',
+    ]) {
+      expect(typeof c[key]).toBe('number');
+      expect(c[key]).toBeGreaterThanOrEqual(0);
+    }
+    // this suite just shipped one shipment today
+    expect(c.shippedToday).toBeGreaterThanOrEqual(1);
+  });
+
+  // 17 --------------------------------------------------------------
   it('articleTrace returns the full chain up to SHIPPED', async () => {
     const t = await fulfillment.articleTrace(articleCode);
     expect(t.article.status).toBe('SHIPPED');
