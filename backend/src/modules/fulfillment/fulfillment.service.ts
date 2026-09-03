@@ -838,6 +838,27 @@ export class FulfillmentService {
     };
   }
 
+  /** Recent article units for the admin traceability board. */
+  async listArticles(filter: { status?: string; q?: string }) {
+    const q = filter.q?.trim().toUpperCase();
+    return this.prisma.articleUnit.findMany({
+      where: {
+        ...(filter.status ? { status: filter.status as never } : {}),
+        ...(q ? { OR: [{ code: { contains: q } }, { sku: { contains: q } }] } : {}),
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 100,
+      select: {
+        code: true, sku: true, productName: true, category: true, subcategory: true,
+        status: true, updatedAt: true,
+        container: { select: { code: true, label: true } },
+        currentLocation: { select: { locationCode: true } },
+        order: { select: { externalOrderReference: true, externalCustomerReference: true } },
+        outboundShipment: { select: { code: true, status: true } },
+      },
+    });
+  }
+
   // ------------------------------------------------------------------
   // helpers
   // ------------------------------------------------------------------

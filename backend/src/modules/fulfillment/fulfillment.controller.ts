@@ -131,6 +131,13 @@ export class FulfillmentController {
 
   // ---- traceability ----------------------------------------------------------------
 
+  @Get('articles')
+  @RequirePermissions('operations.view')
+  @ApiOperation({ summary: 'Recent article units (admin traceability board).' })
+  listArticles(@Query('status') status?: string, @Query('q') q?: string) {
+    return this.fulfillment.listArticles({ status, q });
+  }
+
   @Get('articles/:code/trace')
   @RequirePermissions('operations.view')
   @ApiOperation({ summary: 'Full traceability chain for one article (Card -> ... -> SHIPPED).' })

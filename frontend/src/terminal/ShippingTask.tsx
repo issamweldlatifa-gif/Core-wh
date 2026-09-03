@@ -1,8 +1,11 @@
-import { useCallback, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useRef, useState } from 'react';
 import { fulfillmentApi, type OutboundShipmentView } from './fulfillment-api';
 import { beepSuccess, beepError, beepInfo, beepDone } from '../modules/receiving-terminal/feedback';
+import { stationHas } from './api';
 import { useTerminalUi } from './WorkerShell';
 import './flow-task.css';
+
+const ContinuousScanner = lazy(() => import('../modules/receiving-terminal/ContinuousScanner'));
 
 /**
  * SHIPPING terminal.
@@ -14,8 +17,10 @@ import './flow-task.css';
  */
 
 export default function ShippingTask() {
-  const { setStatus, setLastAction } = useTerminalUi();
+  const { ctx, setStatus, setLastAction } = useTerminalUi();
+  const ocrAllowed = stationHas(ctx?.station ?? null, 'OCR');
 
+  const [scannerOpen, setScannerOpen] = useState(false);
   const [shipment, setShipment] = useState<OutboundShipmentView | null>(null);
   const [manual, setManual] = useState('');
   const [busy, setBusy] = useState(false);
@@ -76,9 +81,14 @@ export default function ShippingTask() {
           <h1 className="fl-h1">SHIPPING</h1>
           <p className="fl-sub">Scan the shipment label → confirm dispatch.</p>
         </div>
-        <div className="fl-metric is-ok" style={{ padding: '8px 16px' }}>
-          <div className="fl-metric-v">{shippedCount}</div>
-          <div className="fl-metric-l">SHIPPED NOW</div>
+        <div className="os-row" style={{ gap: 10, alignItems: 'center' }}>
+          <button className="os-btn os-btn--primary" onClick={() => setScannerOpen(true)}>
+            OPEN SCANNER
+          </button>
+          <div className="fl-metric is-ok" style={{ padding: '8px 16px' }}>
+            <div className="fl-metric-v">{shippedCount}</div>
+            <div className="fl-metric-l">SHIPPED NOW</div>
+          </div>
         </div>
       </div>
 
@@ -111,10 +121,22 @@ export default function ShippingTask() {
         </div>
       </div>
 
-      {outcome && (
+      {outcome && !scannerOpen && (
         <div key={outcome.token} className={`fl-outcome fl-outcome--${outcome.kind}`}>
           {outcome.kind === 'ok' ? '✓ ' : outcome.kind === 'bad' ? '✕ ' : ''}{outcome.text}
         </div>
+      )}
+
+      {scannerOpen && (
+        <Suspense fallback={<div className="os-empty">STARTING SCANNER…</div>}>
+          <ContinuousScanner
+            title="SCAN SHIPMENT LABEL"
+            enableOcr={ocrAllowed}
+            outcome={outcome}
+            onDetected={(value) => { void scan(value); }}
+            onClose={() => { setScannerOpen(false); setOutcome(null); }}
+          />
+        </Suspense>
       )}
 
       {shipment && (

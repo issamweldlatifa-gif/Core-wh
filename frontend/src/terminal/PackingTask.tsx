@@ -1,8 +1,12 @@
-import { useCallback, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useRef, useState } from 'react';
 import { fulfillmentApi, type PackingView } from './fulfillment-api';
 import { beepSuccess, beepError, beepInfo, beepDone } from '../modules/receiving-terminal/feedback';
+import { stationHas } from './api';
 import { useTerminalUi } from './WorkerShell';
+import { printLabel } from './print-label';
 import './flow-task.css';
+
+const ContinuousScanner = lazy(() => import('../modules/receiving-terminal/ContinuousScanner'));
 
 /**
  * PACKING terminal.
@@ -14,13 +18,16 @@ import './flow-task.css';
  */
 
 export default function PackingTask() {
-  const { setStatus, setLastAction } = useTerminalUi();
+  const { ctx, setStatus, setLastAction } = useTerminalUi();
+  const ocrAllowed = stationHas(ctx?.station ?? null, 'OCR');
 
+  const [scannerOpen, setScannerOpen] = useState(false);
   const [view, setView] = useState<PackingView | null>(null);
   const [manual, setManual] = useState('');
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<{ kind: 'ok' | 'bad' | 'info'; text: string; token: number } | null>(null);
   const [packedShipment, setPackedShipment] = useState<{ code: string; carrier: string | null; trackingNumber: string | null } | null>(null);
+  const [packedOrder, setPackedOrder] = useState<{ reference: string; customer: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const report = useCallback((kind: 'ok' | 'bad' | 'info', text: string) => {
@@ -59,6 +66,7 @@ export default function PackingTask() {
       const res = await fulfillmentApi.pack(view.bin.code);
       beepDone();
       setPackedShipment(res.shipment);
+      setPackedOrder(view.order);
       report('ok', `PACKED → SHIPMENT ${res.shipment.code}`);
       setView(null);
       setStatus({ text: 'SCAN NEXT BIN', kind: 'info' });
@@ -75,6 +83,9 @@ export default function PackingTask() {
           <h1 className="fl-h1">PACKING</h1>
           <p className="fl-sub">Scan a customer bin → verify contents → pack into a shipping carton.</p>
         </div>
+        <button className="os-btn os-btn--primary" onClick={() => setScannerOpen(true)}>
+          OPEN SCANNER
+        </button>
       </div>
 
       <div className="fl-input">
@@ -106,10 +117,22 @@ export default function PackingTask() {
         </div>
       </div>
 
-      {outcome && (
+      {outcome && !scannerOpen && (
         <div key={outcome.token} className={`fl-outcome fl-outcome--${outcome.kind}`}>
           {outcome.kind === 'ok' ? '✓ ' : outcome.kind === 'bad' ? '✕ ' : ''}{outcome.text}
         </div>
+      )}
+
+      {scannerOpen && (
+        <Suspense fallback={<div className="os-empty">STARTING SCANNER…</div>}>
+          <ContinuousScanner
+            title="SCAN CUSTOMER BIN"
+            enableOcr={ocrAllowed}
+            outcome={outcome}
+            onDetected={(value) => { void scanBin(value); }}
+            onClose={() => { setScannerOpen(false); setOutcome(null); }}
+          />
+        </Suspense>
       )}
 
       {view && (
@@ -178,6 +201,23 @@ export default function PackingTask() {
             </div>
           </div>
           <div className="os-muted">Status: READY_TO_SHIP — move the carton to the shipping area.</div>
+          <button
+            className="os-btn os-btn--primary"
+            onClick={() =>
+              printLabel({
+                kind: 'SHIPPING LABEL',
+                code: packedShipment.code,
+                bigLabel: packedOrder?.customer ?? null,
+                lines: [
+                  ...(packedOrder ? [{ k: 'ORDER', v: packedOrder.reference }] : []),
+                  { k: 'CARRIER', v: packedShipment.carrier ?? 'INTERNAL' },
+                  { k: 'TRACKING', v: packedShipment.trackingNumber ?? '—' },
+                ],
+              })
+            }
+          >
+            🖨 PRINT LABEL
+          </button>
         </div>
       )}
     </div>

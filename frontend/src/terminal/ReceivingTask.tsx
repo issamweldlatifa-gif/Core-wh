@@ -10,6 +10,7 @@ import { beepSuccess, beepError, beepInfo, beepDone } from '../modules/receiving
 import { stationHas } from './api';
 import { useTerminalUi } from './WorkerShell';
 import { fulfillmentApi, type OpContainer } from './fulfillment-api';
+import { printLabel } from './print-label';
 import './receiving-task.css';
 
 /**
@@ -455,6 +456,7 @@ export default function ReceivingTask() {
                       setTote(t);
                       push(`container ${t.code} created`, 'ok');
                       await refreshTotes();
+                      printLabel({ kind: 'RECEIVING TOTE', code: t.code });
                     } catch (e: any) {
                       report('bad', e?.response?.data?.message ?? 'Could not create container');
                     }

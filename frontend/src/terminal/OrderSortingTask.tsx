@@ -1,8 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { fulfillmentApi, type OrderSortingScanResult, type OpContainer } from './fulfillment-api';
 import { beepSuccess, beepError, beepInfo, beepDone } from '../modules/receiving-terminal/feedback';
+import { stationHas } from './api';
 import { useTerminalUi } from './WorkerShell';
+import { printLabel } from './print-label';
 import './flow-task.css';
+
+const ContinuousScanner = lazy(() => import('../modules/receiving-terminal/ContinuousScanner'));
 
 /**
  * CUSTOMER ORDER SORTING terminal.
@@ -22,9 +26,11 @@ import './flow-task.css';
 type Step = 'ARTICLE' | 'BIN';
 
 export default function OrderSortingTask() {
-  const { setStatus, setLastAction } = useTerminalUi();
+  const { ctx, setStatus, setLastAction } = useTerminalUi();
+  const ocrAllowed = stationHas(ctx?.station ?? null, 'OCR');
 
   const [step, setStep] = useState<Step>('ARTICLE');
+  const [scannerOpen, setScannerOpen] = useState(false);
   const [decision, setDecision] = useState<OrderSortingScanResult | null>(null);
   const [manual, setManual] = useState('');
   const [busy, setBusy] = useState(false);
@@ -118,6 +124,13 @@ export default function OrderSortingTask() {
       push(`bin ${bin.code} created for ${ref}`, 'ok');
       setNewBinRef('');
       await refreshBins();
+      // Print the big customer label right away — the bin is useless unlabelled.
+      printLabel({
+        kind: 'CUSTOMER BIN',
+        code: bin.code,
+        bigLabel: bin.label ?? ref,
+        lines: [{ k: 'ORDER', v: bin.order?.externalOrderReference ?? ref.toUpperCase() }],
+      });
     } catch (e: any) {
       const m = e?.response?.data?.message ?? 'Could not create bin';
       report('bad', Array.isArray(m) ? m.join(', ') : String(m));
@@ -131,9 +144,14 @@ export default function OrderSortingTask() {
           <h1 className="fl-h1">ORDER SORTING</h1>
           <p className="fl-sub">Article → customer order → customer bin.</p>
         </div>
-        <div className="fl-metric is-ok" style={{ padding: '8px 16px' }}>
-          <div className="fl-metric-v">{assigned}</div>
-          <div className="fl-metric-l">ASSIGNED</div>
+        <div className="os-row" style={{ gap: 10, alignItems: 'center' }}>
+          <button className="os-btn os-btn--primary" onClick={() => setScannerOpen(true)}>
+            OPEN SCANNER
+          </button>
+          <div className="fl-metric is-ok" style={{ padding: '8px 16px' }}>
+            <div className="fl-metric-v">{assigned}</div>
+            <div className="fl-metric-l">ASSIGNED</div>
+          </div>
         </div>
       </div>
 
@@ -226,10 +244,22 @@ export default function OrderSortingTask() {
         </div>
       </div>
 
-      {outcome && (
+      {outcome && !scannerOpen && (
         <div key={outcome.token} className={`fl-outcome fl-outcome--${outcome.kind}`}>
           {outcome.kind === 'ok' ? '✓ ' : outcome.kind === 'bad' ? '✕ ' : ''}{outcome.text}
         </div>
+      )}
+
+      {scannerOpen && (
+        <Suspense fallback={<div className="os-empty">STARTING SCANNER…</div>}>
+          <ContinuousScanner
+            title={step === 'ARTICLE' ? 'SCAN ARTICLE' : `SCAN BIN ${assignment?.bin?.code ?? ''}`}
+            enableOcr={ocrAllowed}
+            outcome={outcome}
+            onDetected={(value) => { void submit(value); }}
+            onClose={() => { setScannerOpen(false); setOutcome(null); }}
+          />
+        </Suspense>
       )}
 
       <div className="pt-cols" style={{ display: 'grid', gap: 14, gridTemplateColumns: '1fr 1fr' }}>
@@ -246,6 +276,21 @@ export default function OrderSortingTask() {
                   {b.status}
                 </span>
                 <span className="os-muted">{b._count?.articles ?? 0} items</span>
+                <button
+                  className="os-btn"
+                  style={{ padding: '2px 10px' }}
+                  title="Print the bin QR label"
+                  onClick={() =>
+                    printLabel({
+                      kind: 'CUSTOMER BIN',
+                      code: b.code,
+                      bigLabel: b.label,
+                      lines: b.order ? [{ k: 'ORDER', v: b.order.externalOrderReference }] : [],
+                    })
+                  }
+                >
+                  🖨
+                </button>
               </div>
             ))}
           </div>

@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { fulfillmentApi, type SortingScanResult } from './fulfillment-api';
 import { beepSuccess, beepError, beepInfo } from '../modules/receiving-terminal/feedback';
+import { stationHas } from './api';
 import { useTerminalUi } from './WorkerShell';
 import './flow-task.css';
+
+const ContinuousScanner = lazy(() => import('../modules/receiving-terminal/ContinuousScanner'));
 
 /**
  * SORTING + STORAGE terminal (§26 loop: SCAN -> SYSTEM DECISION -> ACTION ->
@@ -17,9 +20,11 @@ import './flow-task.css';
 type Step = 'ARTICLE' | 'LOCATION';
 
 export default function SortingTask() {
-  const { setStatus, setLastAction } = useTerminalUi();
+  const { ctx, setStatus, setLastAction } = useTerminalUi();
+  const ocrAllowed = stationHas(ctx?.station ?? null, 'OCR');
 
   const [step, setStep] = useState<Step>('ARTICLE');
+  const [scannerOpen, setScannerOpen] = useState(false);
   const [decision, setDecision] = useState<SortingScanResult | null>(null);
   const [manual, setManual] = useState('');
   const [busy, setBusy] = useState(false);
@@ -98,9 +103,14 @@ export default function SortingTask() {
           <h1 className="fl-h1">SORTING</h1>
           <p className="fl-sub">Article → configured destination → storage location.</p>
         </div>
-        <div className="fl-metric is-ok" style={{ padding: '8px 16px' }}>
-          <div className="fl-metric-v">{stored}</div>
-          <div className="fl-metric-l">STORED</div>
+        <div className="os-row" style={{ gap: 10, alignItems: 'center' }}>
+          <button className="os-btn os-btn--primary" onClick={() => setScannerOpen(true)}>
+            OPEN SCANNER
+          </button>
+          <div className="fl-metric is-ok" style={{ padding: '8px 16px' }}>
+            <div className="fl-metric-v">{stored}</div>
+            <div className="fl-metric-l">STORED</div>
+          </div>
         </div>
       </div>
 
@@ -199,7 +209,7 @@ export default function SortingTask() {
         </div>
       </div>
 
-      {outcome && (
+      {outcome && !scannerOpen && (
         <div key={outcome.token} className={`fl-outcome fl-outcome--${outcome.kind}`}>
           {outcome.kind === 'ok' ? '✓ ' : outcome.kind === 'bad' ? '✕ ' : ''}{outcome.text}
         </div>
@@ -216,6 +226,18 @@ export default function SortingTask() {
             ))}
           </div>
         </section>
+      )}
+
+      {scannerOpen && (
+        <Suspense fallback={<div className="os-empty">STARTING SCANNER…</div>}>
+          <ContinuousScanner
+            title={step === 'ARTICLE' ? 'SCAN ARTICLE' : `PLACE ${dest?.article.code ?? ''} — SCAN LOCATION`}
+            enableOcr={ocrAllowed}
+            outcome={outcome}
+            onDetected={(value) => { void submit(value); }}
+            onClose={() => { setScannerOpen(false); setOutcome(null); }}
+          />
+        </Suspense>
       )}
     </div>
   );

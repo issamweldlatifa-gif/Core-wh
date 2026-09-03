@@ -25,6 +25,7 @@ const NAV: NavEntry[] = [
   { to: '/admin/stations', label: 'Stations', permission: 'stations.view', group: 'Operations' },
   { to: '/admin/exceptions', label: 'Exceptions', permission: 'operations.view', group: 'Operations' },
   { to: '/admin/corrections', label: 'Corrections', permission: 'operations.view', group: 'Operations' },
+  { to: '/admin/traceability', label: 'Traceability', permission: 'operations.view', group: 'Operations' },
 
   { to: '/admin/arrivals', label: 'Expected Arrivals', permission: 'expected_arrivals.view', group: 'Inbound' },
   { to: '/admin/receiving', label: 'Receiving', permission: 'receiving.view', group: 'Inbound' },
