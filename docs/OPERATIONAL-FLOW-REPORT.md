@@ -93,8 +93,13 @@ Each follows SCAN → SYSTEM DECISION → ACTION → CONFIRMATION → NEXT ITEM,
 2. **No outbound carrier/shipping API exists anywhere in the repo.** The existing "shipments" module is INBOUND only (CRM Shipment Cards). Packing therefore uses an isolated `CarrierAdapter` seam with a `NullCarrierAdapter`: internal `OUT-` label, `carrier`/`trackingNumber` NULL. Nothing was invented. Connecting DHL/Aramex/etc. later = one adapter class, zero workflow changes.
 3. **Carton→article provenance is optional**: the CRM contract still has no per-carton product manifest (card-level only — previously flagged to the Card developer). `scan-article` accepts an optional `cartonCode` and records it when the worker scans the carton first; without it the article still traces to card/arrival/session.
 4. `PhysicalItem` (Phase-2 D-47-guarded model) was left untouched; the per-piece lifecycle lives in the new `ArticleUnit`. If you later want the two unified, that is a deliberate follow-up migration.
-5. New terminal screens use manual/wedge input; the camera `ContinuousScanner` component is currently wired only into Receiving/Putaway and can be added to the four new screens as a follow-up.
-6. Printing of container/label QR codes (physical printer integration) is out of scope; the codes are the QR values and are displayed on-screen.
+5. ~~New terminal screens use manual/wedge input~~ — **CLOSED in `1e4d22b`**: the camera `ContinuousScanner` is now wired into all four flow terminals (Sorting, Order Sorting, Packing, Shipping) with the same OPEN SCANNER button, outcome feedback and station-gated OCR as Receiving/Putaway.
+6. ~~Printing of container/label QR codes out of scope~~ — **CLOSED in `1e4d22b`**: `print-label.ts` renders QR labels as SVG (via the already-bundled @zxing encoder, zero new dependencies) and opens the browser print dialog: BIN labels (big customer name) printed on creation + 🖨 reprint per bin, RCN tote label on creation, OUT shipping label after packing. Dedicated thermal-printer drivers remain out of scope (browser print covers A4/label printers).
 7. Order-sorting uses permission `picking.execute` (PICKER role); assign workers accordingly.
+
+### Follow-up `1e4d22b` additions
+- **Admin Traceability board** — `/admin/traceability` (operations.view): search/scan any `ART-` code → the full non-negotiable chain rendered hop-by-hop (Card → Arrival → Inbound Shipment → Carton → Receiving Session → Container → Storage Location → Order → Customer → Outbound Shipment → Tracking → Shipped At; unreached hops dimmed), plus a live board of recent articles filterable by status with one-click TRACE.
+- New API: `GET /api/v1/fulfillment/articles` (operations.view) — recent article units with container/location/order/shipment joins.
+- Verified: 38/38 unit + 85/85 e2e still green; live HTTP smoke of scan → board → trace.
 
 No conflicts with existing code: all suites that existed before are still green, receiving/putaway flows untouched, card integration untouched.
