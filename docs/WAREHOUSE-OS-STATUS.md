@@ -1,11 +1,12 @@
 # WAREHOUSE OS — implementation status
 
-Last updated: 2026-09-03 · local HEAD Admin Control Center V1 `6a552ec`
+Last updated: 2026-09-03 · local HEAD Admin Control Center FLOW MODEL PATCH `314338d`
 
 ## Commits (local, not yet pushed)
 
 ```
-6a552ec  feat(admin): Admin Control Center V1 — unified shell, live overview, workforce boards   <- local HEAD
+314338d  fix(admin): Control Center flow model patch — no category gate in the pipeline   <- local HEAD
+6a552ec  feat(admin): Admin Control Center V1 — unified shell, live overview, workforce boards
 e391237  Control Center: fulfillment pipeline counters + KPI strip
 3072fde  Admin Outbound Shipments board
 41f6689  Admin Orders board
@@ -115,12 +116,18 @@ denial page.
   links into the generic app shell. ONE `overview()` poll every 30 s is
   shared with the pages through the Outlet context (`controlData.ts`).
 - `pages/ControlCenter.tsx` — the control room: Warehouse Status +
-  8-stage Operation Pipeline (RECEIVING → RECEIVING TOTES → CATEGORY
-  SORTING → STORAGE → CUSTOMER ORDER SORTING → CUSTOMER BINS → PACKING →
-  SHIPPING) with per-stage real counts, Operations panels, Workers,
-  Stations, Open Exceptions and Live Activity boards (reusable panels
-  exported: `WarehouseStatus`, `Pipeline`, `OperationsPanel`,
-  `WorkersPanel`, `StationsPanel`, `ExceptionsPanel`, `ActivityPanel`).
+  the Operation Pipeline + Operations panels, Workers, Stations, Open
+  Exceptions and Live Activity boards (reusable panels exported:
+  `WarehouseStatus`, `Pipeline`, `OperationsPanel`, `WorkersPanel`,
+  `StationsPanel`, `ExceptionsPanel`, `ActivityPanel`).
+- **FLOW MODEL PATCH applied (`314338d`, report
+  `docs/ADMIN-CONTROL-CENTER-FLOW-MODEL-PATCH.md`)**: the pipeline models
+  the operational flow with **no Category gate** — `ARRIVAL → RECEIVING →
+  RECEIVING CONTAINER / TOTE → CUSTOMER SORTING → CUSTOMER BIN → PACKING →
+  SHIPPING → ARCHIVE / TRACE`. Category sorting / storage are optional
+  paths only; the RECEIVING container/tote is the basic operational unit
+  (ACTIVE/CLOSED + live article counts); CUSTOMER SORTING is the
+  Article → Customer → Order → Bin stage.
 - V1 additions: `pages/Operations.tsx` (pipeline + operational panels),
   `pages/Tasks.tsx` (workforce task registry), `pages/Activity.tsx`
   (live audit stream, 15 s poll, action filters), `pages/Containers.tsx`
@@ -194,6 +201,13 @@ Other checks:
   containers, orders, shipments, exceptions, activity, traceability,
   corrections) — no console errors, no failed API calls, all panels served
   by live warehouse data.
+- **FLOW MODEL PATCH** (report: `docs/ADMIN-CONTROL-CENTER-FLOW-MODEL-PATCH.md`):
+  pipeline rebuilt to `ARRIVAL → RECEIVING → RECEIVING CONTAINER / TOTE →
+  CUSTOMER SORTING → CUSTOMER BIN → PACKING → SHIPPING → ARCHIVE / TRACE`
+  with no Category gate; e2e case 16c locks the contract — **88/88** e2e,
+  **38/38** unit, backend + frontend builds clean; browser pass over the
+  pipeline / operations / containers / workers pages with live TOTE + BIN
+  rows (no console errors).
 - **Full cross-task cycle** proven end to end on live data: CRM arrival card +
   shipment (`CTN-E2E-9002`) → receiving session → QR scan
   (`CARTON_IDENTIFIED`) → receive → complete → carton appears in the putaway
