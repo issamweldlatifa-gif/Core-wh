@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scanner — Level-2 layout preview (not a real screenshot)</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #0b0f0d; color: #e6ece8;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    min-height: 100vh; padding: 18px;
+  }
+  .notice {
+    background: #2a1f00; border: 1px solid #b98a1f; color: #ffe08a;
+    padding: 8px 12px; border-radius: 8px; font-size: 12px;
+    max-width: 760px; margin: 0 auto 14px; text-align: center; letter-spacing: .02em;
+  }
+  .wrap { display: flex; gap: 22px; justify-content: center; align-items: flex-start; flex-wrap: wrap; }
+  /* phone */
+  .phone {
+    width: 360px; background: #05070a; border-radius: 26px; overflow: hidden;
+    border: 1px solid #26352c; box-shadow: 0 10px 40px rgba(0,0,0,.6);
+  }
+  .top { padding: 10px 12px; display: flex; align-items: center; gap: 8px; background: #0b0f0d; border-bottom: 1px solid #1b2620; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #00ff66; flex: 0 0 auto; }
+  .ttl { font-weight: 700; letter-spacing: .08em; font-size: 12px; flex: 1; }
+  .modechip { font-size: 10px; color: #cfd6e2; background: #18211b; border: 1px solid #26352c; padding: 3px 8px; border-radius: 999px; }
+  .modechip.on { color: #0b0f0d; background: #00ff66; font-weight: 700; }
+  .scount { color: #9a9a9a; font-size: 10px; }
+  .stage {
+    position: relative; height: 420px;
+    background:
+      radial-gradient(circle at 30% 25%, rgba(70,90,80,.5), transparent 60%),
+      linear-gradient(160deg, #141b17 0%, #0a0e0c 55%, #121a15 100%);
+    overflow: hidden;
+  }
+  /* faux camera grain */
+  .stage::before {
+    content: ''; position: absolute; inset: 0; opacity: .35;
+    background-image:
+      linear-gradient(rgba(255,255,255,.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.03) 1px, transparent 1px);
+    background-size: 18px 18px;
+  }
+  /* a faint label silhouette to evoke the live camera subject */
+  .label {
+    position: absolute; left: 50%; top: 54%; transform: translate(-50%, -50%);
+    width: 220px; height: 74px; background: #f3f0e4; border-radius: 6px;
+    padding: 8px 10px; color: #000; font-size: 8px; line-height: 1.5; opacity: .92;
+  }
+  .label b { font-size: 9px; letter-spacing: .06em; }
+  .bar { height: 2px; background: #000; width: 100%; margin: 5px 0; }
+  .label .ln { height: 7px; background: #000; margin: 2px 0; width: 78%; }
+  /* aim frame — strip (SKU/REFERENCE) */
+  .roi {
+    position: absolute; left: 14%; top: 30%; width: 72%; height: 26%;
+    border: 2px solid rgba(255,77,77,.6); border-radius: 10px;
+    box-shadow: 0 0 0 100vmax rgba(0,0,0,.45);
+  }
+  .roi .scan {
+    position: absolute; left: 1%; right: 1%; top: 50%; height: 3px; margin-top: -1px; border-radius: 999px;
+    background: linear-gradient(90deg, transparent, #ffd24d 18%, #ffe08a 50%, #ffd24d 82%, transparent);
+    box-shadow: 0 0 14px 2px rgba(255,200,60,.8);
+  }
+  .roi .corner { position: absolute; width: 18px; height: 18px; border: 2px solid #ff4d4d; }
+  .roi .tl { top: -2px; left: -2px; border-right: 0; border-bottom: 0; }
+  .roi .tr { top: -2px; right: -2px; border-left: 0; border-bottom: 0; }
+  .roi .bl { bottom: -2px; left: -2px; border-right: 0; border-top: 0; }
+  .roi .br { bottom: -2px; right: -2px; border-left: 0; border-top: 0; }
+  .hint {
+    position: absolute; left: 0; right: 0; bottom: -26px; text-align: center;
+    color: #ffd24d; font-size: 10px; letter-spacing: .3em; font-weight: 700;
+  }
+  /* status pill */
+  .status {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,.75); border: 1px solid #26352c; color: #fff;
+    padding: 6px 14px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .12em;
+    white-space: nowrap; z-index: 3;
+  }
+  .status .ph { color: #5ad0ff; }
+  .status .sub { color: #9a9a9a; font-weight: 600; }
+  .status .sub.l2 { color: #7cff9b; }
+  .guide {
+    position: absolute; left: 50%; bottom: 58px; transform: translateX(-50%);
+    background: rgba(0,0,0,.6); border: 1px solid #26352c; color: #ffd24d;
+    font-size: 10px; padding: 6px 12px; border-radius: 999px; letter-spacing: .06em; white-space: nowrap; z-index: 3;
+  }
+  .lastcode { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); color: #9a9a9a; font-size: 11px; z-index: 3; }
+  .foot {
+    background: #0b0f0d; border-top: 1px solid #1b2620;
+    padding: 10px 12px; display: flex; justify-content: space-between; gap: 8px;
+  }
+  .foot .hint2 { color: #7d8a83; font-size: 9px; line-height: 1.4; padding-right: 6px; flex: 1; }
+  .btn {
+    border: 1px solid #26352c; color: #cfd6e2; background: #101613; font: inherit;
+    font-size: 10px; padding: 7px 12px; border-radius: 8px; letter-spacing: .06em; cursor: default;
+  }
+  /* notes panel */
+  .notes { max-width: 340px; background: #0e1411; border: 1px solid #26352c; border-radius: 12px; padding: 14px 16px; font-size: 12px; line-height: 1.65; }
+  .notes h3 { margin: 0 0 8px; color: #7cff9b; font-size: 12px; letter-spacing: .08em; }
+  .notes ul { margin: 0; padding-left: 16px; }
+  .notes li { margin: 4px 0; color: #cfd6e2; }
+  .notes .warn { color: #ffe08a; }
+  .chip { display:inline-block; background:#18211b; border:1px solid #2b3a30; border-radius:6px; padding:0 5px; margin:0 2px; font-size:10px; color:#7cff9b;}
+</style>
+</head>
+<body>
+  <div class="notice">
+    ⚠️ معاينة تخطيط (Layout preview) — <b>ليست لقطة شاشة من جهاز حقيقي</b>. لا توجد كاميرا/متصفح في بيئة التطوير؛
+    هذه محاكاة للتصميم لأغراض المراجعة فقط، واللقطة الحقيقية تؤخذ لاحقاً على الهاتف (runbook §38-29).
+  </div>
+  <div class="wrap">
+    <div class="phone">
+      <div class="top">
+        <span class="dot"></span>
+        <span class="ttl">RECEIVING · RCV-000202</span>
+        <span class="modechip on">CARTONS</span>
+        <span class="modechip">PRODUCTS</span>
+        <span class="scount">1 scanned</span>
+      </div>
+      <div class="stage">
+        <span class="status"><span class="ph">READING</span> <span class="sub">· OCR</span><span class="sub l2"> · L2</span> <span class="sub">· 24fps</span></span>
+        <div class="label">
+          <b>ALIGN CARTON LABEL</b><br>
+          <div class="bar"></div>
+          <div class="ln" style="width:60%"></div>
+          <div class="ln" style="width:92%"></div>
+          <div class="ln" style="width:44%"></div>
+        </div>
+        <div class="roi">
+          <span class="corner tl"></span><span class="corner tr"></span>
+          <span class="corner bl"></span><span class="corner br"></span>
+          <span class="scan"></span>
+          <span class="hint">ALIGN SKU · SB</span>
+        </div>
+        <div class="guide">SB2310176616632001 → MATCH ✓</div>
+        <div class="lastcode">sb2310176616632001</div>
+      </div>
+      <div class="foot">
+        <div class="hint2">Camera stays LIVE — Barcode/QR first, then text (level-2 OCR).</div>
+        <span class="btn">TORCH</span>
+        <span class="btn">FLIP CAMERA</span>
+      </div>
+    </div>
+
+    <div class="notes">
+      <h3>ماذا سترى عندما يعمل البناء الجديد فعلياً</h3>
+      <ul>
+        <li>شارة <span class="chip">· L2</span> بجانب OCR تظهر <b>فقط</b> عندما يعمل محرك PP-OCR (افتراضياً تبقى <span class="chip">· OCR</span> بدون L2).</li>
+        <li>إطار التوجيه: أصفر/كهرماني + خط مسح نحاسي في وضع النص (SKU/REFERENCE)، أزرق لمربع QR، أحمر كالمعتاد للنطاق العام.</li>
+        <li>نص الإطار يشتق من البطاقة: <span class="chip">ALIGN SKU · SB</span> عندما تبدأ منتجات البطاقة بـ sb (حالياً: "ALIGN SKU / REFERENCE" بدون بادئة).</li>
+        <li class="warn">لتجربته حقيقياً: فعّل المحرك ثم أعِد نشر Render وافتح بطاقة منتجات → SCAN. بدون تفعيل ppocr، المظهر يبقى قريباً من القديم عمداً.</li>
+      </ul>
+    </div>
+  </div>
+</body>
+</html>
