@@ -1186,7 +1186,11 @@ export default function ContinuousScanner({
             <span className={`cs-phase cs-phase--${guide.phase}`} data-phase={guide.phase}>
               {PHASE_LABEL[guide.phase]}
             </span>
-            {ocrActive && <span className="cs-sub"> · OCR</span>}
+            {ocrActive && (
+              <span className="cs-sub">
+                {' '}· OCR{cfgRef.current.ocr.engine === 'ppocr' ? ' · L2' : ''}
+              </span>
+            )}
             {detector && !ocrActive && <span className="cs-sub"> · {detector === 'native' ? 'FAST' : 'ZXING'}</span>}
             {fps > 0 && <span className="cs-sub"> · {fps}fps</span>}
           </div>

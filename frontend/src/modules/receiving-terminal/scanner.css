@@ -94,6 +94,19 @@
 }
 .cs-roi-hint { color: #ffb3ae; }
 
+/* Aim-frame affordance by derived scan profile (P3): the ROI geometry always
+   matches the analysed region — these only tint/annotate so the operator can
+   see at a glance what to aim (square = QR, band = barcode/carton, strip =
+   text SKU/Reference line). */
+.cs-roi[data-frame='square'] .cs-corner { border-color: #3ecbff; }
+.cs-roi[data-frame='square'] .cs-roi-hint { color: #8fd8ff; }
+.cs-roi[data-frame='strip'] .cs-roi-hint { color: #ffd24d; letter-spacing: 0.3em; }
+.cs-roi[data-frame='strip'] .cs-scanline {
+  background: linear-gradient(90deg, transparent, #ffd24d 18%, #ffe08a 50%, #ffd24d 82%, transparent);
+  box-shadow: 0 0 14px 2px rgba(255, 200, 60, 0.8);
+}
+.cs-roi[data-frame='band'] .cs-roi-hint { color: #ffb3ae; }
+
 .cs-lastcode {
   position: absolute; left: 50%; transform: translateX(-50%); bottom: 96px;
   color: #9a9a9a; font-size: 0.8rem; letter-spacing: 0.1em;
