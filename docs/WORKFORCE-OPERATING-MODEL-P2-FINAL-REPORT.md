@@ -1,6 +1,6 @@
 # PARTIE 2 — WORKFORCE OPERATING MODEL — Final Delivery Report
 
-**Date:** 2026-09-03 · **Commit hash:** `6736cfe` (single delivery commit: reference doc + verification suite)
+**Date:** 2026-09-03 · **Commit hash:** `c8e3f59` (single delivery commit: reference doc + verification suite)
 **Branch:** `master` · **Live:** deployed to Render after push (documentation/test-only release — no runtime behaviour change).
 
 ---
@@ -15,7 +15,7 @@ tests; where it conflicts with the AYROVI source-of-truth flow, the conflict is 
 
 ## 1. Commit hash
 
-`6736cfe` — *“PARTIE 2 — Workforce Operating Model: reference doc + model verification suite”*
+`c8e3f59` — *“PARTIE 2 — Workforce Operating Model: reference doc + model verification suite”*
 (also contains the prior delivered state: Worker Control COMMAND #3 `7fee9eb`, Data Control `83ceed8`).
 
 ## 2. Roles — before / after
