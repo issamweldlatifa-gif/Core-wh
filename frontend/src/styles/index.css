@@ -137,6 +137,7 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 .login-logo .b1 { font-size: 26px; font-weight: 800; letter-spacing: 3px; color: var(--accent-2); }
 .login-logo .b2 { font-size: 12px; letter-spacing: 5px; color: var(--text-dim); text-transform: uppercase; }
 .login-sub { text-align: center; color: var(--text-dim); font-size: 13px; margin: 4px 0 26px; }
+.login-build { margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--border); text-align: center; color: var(--text-dim); font-size: 11px; letter-spacing: 0.08em; }
 .login-card .field { margin-bottom: 16px; }
 
 @media (max-width: 720px) {

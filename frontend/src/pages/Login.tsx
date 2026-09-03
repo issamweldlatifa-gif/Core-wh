@@ -1,7 +1,8 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { apiErrorMessage } from '../api/client';
+import { useFetch } from '../hooks/useFetch';
 
 /**
  * Internal employee login screen.
@@ -10,6 +11,7 @@ import { apiErrorMessage } from '../api/client';
 export default function Login() {
   const { loginFn } = useAuth();
   const navigate = useNavigate();
+  const { data: health } = useFetch<any>('/v1/system/health');
 
   const [identifier, setIdentifier] = useState('');
   const [secret, setSecret] = useState('');
@@ -72,6 +74,13 @@ export default function Login() {
           {loading ? <span className="spinner" /> : null}
           {loading ? 'Signing in…' : 'Sign in'}
         </button>
+
+        {health?.build?.commitShort && health.build.commitShort !== 'dev' && (
+          <div className="login-build mono">
+            BUILD {health.build.commitShort}
+            {health.build.spaAsset ? ` · ${health.build.spaAsset.replace('index-', '').replace('.js', '')}` : ''}
+          </div>
+        )}
       </form>
     </div>
   );

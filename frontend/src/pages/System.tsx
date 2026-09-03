@@ -18,9 +18,11 @@ export default function System() {
           {health ? (
             <ul style={{ color: 'var(--text-dim)' }}>
               <li>Status: <strong style={{ color: 'var(--success)' }}>{health.status}</strong></li>
-              <li>Version: {health.version}</li>
-              <li>Phase: {health.phase}</li>
+              <li>Version: {health.version} · Phase: {health.phase}</li>
               <li>Database: {health.database}</li>
+              <li>Build commit: <strong className="mono">{health.build?.commitShort ?? '—'}</strong></li>
+              <li>SPA asset: <span className="mono">{health.build?.spaAsset ?? '—'}</span></li>
+              <li>Built at: {health.build?.builtAt ? new Date(health.build.builtAt).toLocaleString() : '—'}</li>
             </ul>
           ) : <p className="empty">Loading…</p>}
         </div>

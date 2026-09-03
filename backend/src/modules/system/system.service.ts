@@ -41,7 +41,23 @@ export class SystemService {
       version: '0.1.0',
       phase: '0',
       database: db ? 'up' : 'down',
+      build: this.readBuildInfo(),
       timestamp: new Date().toISOString(),
     };
+  }
+
+  /** Reads public/build-info.json written by build.sh (additive; absent in dev).
+   *  Runtime cwd is backend/ and the SPA is served from backend/public (see
+   *  main.ts), so from dist/modules/system that is three levels up. */
+  private readBuildInfo(): Record<string, string> {
+    try {
+      const fs = require('fs') as typeof import('fs');
+      const path = require('path') as typeof import('path');
+      const file = path.join(__dirname, '..', '..', '..', 'public', 'build-info.json');
+      if (!fs.existsSync(file)) return { commitShort: 'dev', spaAsset: 'vite' };
+      return JSON.parse(fs.readFileSync(file, 'utf8'));
+    } catch {
+      return { commitShort: 'unknown', spaAsset: 'unknown' };
+    }
   }
 }

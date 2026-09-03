@@ -46,5 +46,19 @@ rm -rf public
 mkdir -p public
 cp -r "$ROOT_DIR/frontend/dist/." public/
 
-echo ">>> BUILD COMPLETE."
+# Build manifest: expose exactly which commit + SPA asset this bundle was built
+# from, so a stale deploy is visible at a glance (System page + /api health).
+COMMIT_SHORT="$(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+COMMIT_FULL="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || echo unknown)"
+SPA_JS="$(ls frontend/dist/assets/index-*.js 2>/dev/null | xargs -n1 basename 2>/dev/null | head -1 || echo unknown)"
+cat > public/build-info.json <<JSON
+{
+  "commitShort": "$COMMIT_SHORT",
+  "commitFull": "$COMMIT_FULL",
+  "spaAsset": "$SPA_JS",
+  "builtAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+JSON
+
+echo ">>> BUILD COMPLETE (commit=$COMMIT_SHORT spa=$SPA_JS)."
 echo ">>> Database migrations + seeding run at boot, via ./start.sh"
