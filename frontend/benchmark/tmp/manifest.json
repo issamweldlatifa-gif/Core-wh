@@ -7,170 +7,372 @@
   "1Z999AA10123456784",
   "ORD-2026-00891",
   "AYROVI-99213",
-  "SO-88231-K"
+  "SO-88231-K",
+  "SKU-250125789",
+  "SKU-764332100",
+  "SO-55991-K",
+  "CUST-55991-AB"
  ],
  "labels": [
   {
    "id": 1,
    "category": "clear",
    "gt": "SO-88231-K",
-   "file": "01-clear.png"
+   "file": "01-clear.png",
+   "kind": "text",
+   "labelKind": "CARTON"
   },
   {
    "id": 2,
    "category": "clear",
    "gt": "SKU-100200300",
-   "file": "02-clear.png"
+   "file": "02-clear.png",
+   "kind": "text",
+   "labelKind": "CARTON"
   },
   {
    "id": 3,
    "category": "clear",
    "gt": "TUN-88912",
-   "file": "03-clear.png"
+   "file": "03-clear.png",
+   "kind": "text",
+   "labelKind": "CARTON"
   },
   {
    "id": 4,
    "category": "small_text",
    "gt": "CTN-000123",
-   "file": "04-small_text.png"
+   "file": "04-small_text.png",
+   "kind": "text",
+   "labelKind": "CARTON"
   },
   {
    "id": 5,
    "category": "small_text",
    "gt": "SO-88231-K",
-   "file": "05-small_text.png"
+   "file": "05-small_text.png",
+   "kind": "text",
+   "labelKind": "CARTON"
   },
   {
    "id": 6,
    "category": "small_text",
    "gt": "SKU-100200300",
-   "file": "06-small_text.png"
+   "file": "06-small_text.png",
+   "kind": "text",
+   "labelKind": "CARTON"
   },
   {
    "id": 7,
    "category": "low_light",
    "gt": "CTN-000123",
-   "file": "07-low_light.png"
+   "file": "07-low_light.png",
+   "kind": "text",
+   "labelKind": "CARTON"
   },
   {
    "id": 8,
    "category": "low_light",
    "gt": "SO-88231-K",
-   "file": "08-low_light.png"
+   "file": "08-low_light.png",
+   "kind": "text",
+   "labelKind": "CARTON"
   },
   {
    "id": 9,
    "category": "low_light",
    "gt": "SKU-100200300",
-   "file": "09-low_light.png"
+   "file": "09-low_light.png",
+   "kind": "text",
+   "labelKind": "CARTON"
   },
   {
    "id": 10,
    "category": "glare",
    "gt": "SKU-100200300",
-   "file": "10-glare.png"
+   "file": "10-glare.png",
+   "kind": "text",
+   "labelKind": "CARTON"
   },
   {
    "id": 11,
    "category": "glare",
    "gt": "1Z999AA10123456784",
-   "file": "11-glare.png"
+   "file": "11-glare.png",
+   "kind": "text",
+   "labelKind": "CARTON"
   },
   {
    "id": 12,
    "category": "glare",
    "gt": "ORD-2026-00891",
-   "file": "12-glare.png"
+   "file": "12-glare.png",
+   "kind": "text",
+   "labelKind": "CARTON"
   },
   {
    "id": 13,
    "category": "tilted",
    "gt": "1Z999AA10123456784",
-   "file": "13-tilted.png"
+   "file": "13-tilted.png",
+   "kind": "text",
+   "labelKind": "CARTON"
   },
   {
    "id": 14,
    "category": "tilted",
    "gt": "CTN-000123",
-   "file": "14-tilted.png"
+   "file": "14-tilted.png",
+   "kind": "text",
+   "labelKind": "CARTON"
   },
   {
    "id": 15,
    "category": "tilted",
    "gt": "SKU-100200300",
-   "file": "15-tilted.png"
+   "file": "15-tilted.png",
+   "kind": "text",
+   "labelKind": "CARTON"
   },
   {
    "id": 16,
    "category": "damaged",
    "gt": "SKU-100200300",
-   "file": "16-damaged.png"
+   "file": "16-damaged.png",
+   "kind": "text",
+   "labelKind": "CARTON"
   },
   {
    "id": 17,
    "category": "damaged",
    "gt": "TUN-88912",
-   "file": "17-damaged.png"
+   "file": "17-damaged.png",
+   "kind": "text",
+   "labelKind": "CARTON"
   },
   {
    "id": 18,
    "category": "damaged",
    "gt": "SO-88231-K",
-   "file": "18-damaged.png"
+   "file": "18-damaged.png",
+   "kind": "text",
+   "labelKind": "CARTON"
   },
   {
    "id": 19,
    "category": "font_sans-bold",
    "gt": "ORD-2026-00891",
-   "file": "19-font_sans-bold.png"
+   "file": "19-font_sans-bold.png",
+   "kind": "text",
+   "labelKind": "CARTON"
   },
   {
    "id": 20,
    "category": "font_mono",
    "gt": "SO-88231-K",
-   "file": "20-font_mono.png"
+   "file": "20-font_mono.png",
+   "kind": "text",
+   "labelKind": "CARTON"
   },
   {
    "id": 21,
    "category": "font_serif",
    "gt": "TUN-88912",
-   "file": "21-font_serif.png"
+   "file": "21-font_serif.png",
+   "kind": "text",
+   "labelKind": "CARTON"
   },
   {
    "id": 22,
    "category": "printer_lowdpi",
    "gt": "ABO-123456",
-   "file": "22-printer_lowdpi.png"
+   "file": "22-printer_lowdpi.png",
+   "kind": "text",
+   "labelKind": "CARTON"
   },
   {
    "id": 23,
    "category": "printer_lowdpi",
    "gt": "TUN-88912",
-   "file": "23-printer_lowdpi.png"
+   "file": "23-printer_lowdpi.png",
+   "kind": "text",
+   "labelKind": "CARTON"
   },
   {
    "id": 24,
    "category": "printer_lowdpi",
    "gt": "SKU-100200300",
-   "file": "24-printer_lowdpi.png"
+   "file": "24-printer_lowdpi.png",
+   "kind": "text",
+   "labelKind": "CARTON"
   },
   {
    "id": 25,
    "category": "label_size",
    "gt": "CTN-000123",
-   "file": "25-label_size.png"
+   "file": "25-label_size.png",
+   "kind": "text",
+   "labelKind": "CARTON"
   },
   {
    "id": 26,
    "category": "label_size",
    "gt": "SKU-100200300",
-   "file": "26-label_size.png"
+   "file": "26-label_size.png",
+   "kind": "text",
+   "labelKind": "CARTON"
   },
   {
    "id": 27,
    "category": "label_size",
    "gt": "ABO-123456",
-   "file": "27-label_size.png"
+   "file": "27-label_size.png",
+   "kind": "text",
+   "labelKind": "CARTON"
+  },
+  {
+   "id": 28,
+   "category": "sku_direct",
+   "gt": "SKU-250125789",
+   "file": "28-sku_direct.png",
+   "kind": "text",
+   "labelKind": "PRODUCT"
+  },
+  {
+   "id": 29,
+   "category": "sku_direct",
+   "gt": "SKU-764332100",
+   "file": "29-sku_direct.png",
+   "kind": "text",
+   "labelKind": "PRODUCT"
+  },
+  {
+   "id": 30,
+   "category": "ref_direct",
+   "gt": "SO-55991-K",
+   "file": "30-ref_direct.png",
+   "kind": "text",
+   "labelKind": "PRODUCT"
+  },
+  {
+   "id": 31,
+   "category": "ref_direct",
+   "gt": "CUST-55991-AB",
+   "file": "31-ref_direct.png",
+   "kind": "text",
+   "labelKind": "PRODUCT"
+  },
+  {
+   "id": 32,
+   "category": "motion",
+   "gt": "SKU-100200300",
+   "file": "32-motion.png",
+   "kind": "text",
+   "labelKind": "CARTON"
+  },
+  {
+   "id": 33,
+   "category": "motion",
+   "gt": "1Z999AA10123456784",
+   "file": "33-motion.png",
+   "kind": "text",
+   "labelKind": "CARTON"
+  },
+  {
+   "id": 34,
+   "category": "motion",
+   "gt": "ABO-123456",
+   "file": "34-motion.png",
+   "kind": "text",
+   "labelKind": "CARTON"
+  },
+  {
+   "id": 35,
+   "category": "no_match",
+   "gt": "XZZ-999999",
+   "file": "35-no_match.png",
+   "kind": "text",
+   "labelKind": "CARTON"
+  },
+  {
+   "id": 36,
+   "category": "no_match",
+   "gt": "KLM-404040",
+   "file": "36-no_match.png",
+   "kind": "text",
+   "labelKind": "CARTON"
+  },
+  {
+   "id": 37,
+   "category": "no_match",
+   "gt": "WIP-000123",
+   "file": "37-no_match.png",
+   "kind": "text",
+   "labelKind": "CARTON"
+  },
+  {
+   "id": 38,
+   "category": "confusable",
+   "gt": "SKU-100200301",
+   "file": "38-confusable.png",
+   "kind": "text",
+   "labelKind": "PRODUCT"
+  },
+  {
+   "id": 39,
+   "category": "confusable",
+   "gt": "ABO-123457",
+   "file": "39-confusable.png",
+   "kind": "text",
+   "labelKind": "PRODUCT"
+  },
+  {
+   "id": 40,
+   "category": "qr_clear",
+   "gt": "SO-88231-K",
+   "file": "40-qr_clear.png",
+   "kind": "qr",
+   "labelKind": "CARTON"
+  },
+  {
+   "id": 41,
+   "category": "qr_clear",
+   "gt": "ORD-2026-00891",
+   "file": "41-qr_clear.png",
+   "kind": "qr",
+   "labelKind": "CARTON"
+  },
+  {
+   "id": 42,
+   "category": "qr_clear",
+   "gt": "TUN-88912",
+   "file": "42-qr_clear.png",
+   "kind": "qr",
+   "labelKind": "CARTON"
+  },
+  {
+   "id": 43,
+   "category": "barcode_clear",
+   "gt": "ABO-123456",
+   "file": "43-barcode_clear.png",
+   "kind": "barcode",
+   "labelKind": "CARTON"
+  },
+  {
+   "id": 44,
+   "category": "barcode_clear",
+   "gt": "SKU-100200300",
+   "file": "44-barcode_clear.png",
+   "kind": "barcode",
+   "labelKind": "CARTON"
+  },
+  {
+   "id": 45,
+   "category": "barcode_clear",
+   "gt": "SO-88231-K",
+   "file": "45-barcode_clear.png",
+   "kind": "barcode",
+   "labelKind": "CARTON"
   }
  ]
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { assessQuality, quickGuidance, QUALITY_THRESHOLDS } from './image-quality';
 import { selectProfile, applyProfile, estimateSkewDeg, legacyPreprocess, type ProfileId } from './preprocess';
+import { grayToPixels } from './pixels';
 import { syntheticLabel, blur, darken, glare, rotate, toRgba } from './testing/synth';
 
 describe('image-quality gate (order §6)', () => {
@@ -82,6 +83,28 @@ describe('preprocessing profiles (order §7)', () => {
       for (let i = 0; i < r.gray.length; i += 1) if (r.gray[i] > max) max = r.gray[i];
       expect(max, p).toBe(255);
     }
+  });
+
+  it('regression: applyProfile consumes RGBA Pixels — callers must widen luma', () => {
+    // runOcr / the benchmark hold the ROI as a LUMA buffer (Gray). They must
+    // pass it through grayToPixels BEFORE applyProfile (which runs toGray
+    // internally). Feeding a raw luma buffer as if it were RGBA scrambles the
+    // data (strided re-read) and silently breaks OCR — this locks the pattern.
+    const g = syntheticLabel({ seed: 11 });
+    const rgba = toRgba(g, 640, 220);
+    const viaRgba = applyProfile(
+      { data: rgba.data.slice() as Uint8ClampedArray, width: 640, height: 220 },
+      'A_NORMAL',
+    );
+    const viaWiden = applyProfile(
+      { data: grayToPixels(g, 640, 220).data.slice() as Uint8ClampedArray, width: 640, height: 220 },
+      'A_NORMAL',
+    );
+    expect(viaWiden.gray).toEqual(viaRgba.gray);
+    // dark-on-light polarity: binarised glyphs must stay DARK on a WHITE label.
+    let dark = 0;
+    for (let i = 0; i < viaRgba.gray.length; i += 1) if (viaRgba.gray[i] < 128) dark += 1;
+    expect(dark / viaRgba.gray.length).toBeLessThan(0.4);
   });
 
   it('C_SMALL_TEXT upscales when asked', () => {

@@ -39,6 +39,27 @@ export interface ScanAttempt {
   failureReason?: string;
   deviceType?: string;
   frames?: number; // consensus votes behind an OCR result
+  /**
+   * Stage timings (unified P0 §28) — where the worker's time goes:
+   * target detection / barcode decode / OCR / validation / match / total.
+   * Measured per attempt; aggregated in summary().
+   */
+  stages?: {
+    targetDetectionMs?: number;
+    barcodeDecodeMs?: number;
+    ocrMs?: number;
+    validationMs?: number;
+    matchMs?: number;
+    totalMs?: number;
+  };
+}
+
+export interface StageAverages {
+  targetDetectionMs: number;
+  barcodeDecodeMs: number;
+  ocrMs: number;
+  validationMs: number;
+  matchMs: number;
 }
 
 export interface TelemetrySummary {
@@ -52,14 +73,20 @@ export interface TelemetrySummary {
   ocrUsableRate: number;
   ocrCorrections: number; // candidate-match read confirmed by the worker
   manualFallbacks: number;
+  manualFallbackRate: number; // 0..1 over attempts
   droppedLow: number;
+  retries: number; // droppedLow + qualityBlocked → worker asked to retry
+  retryRate: number; // 0..1 over attempts
   qualityBlocked: number;
   submitted: number;
   falsePositives: number;
+  falsePositiveRate: number; // 0..1 over submitted
   accepted: number;
   avgScanTimeMs: number;
   avgOcrMs: number;
   p95ScanMs: number;
+  /** Averages of stage timings across attempts that measured them (§28). */
+  avgStages: StageAverages;
   recent: ScanAttempt[];
 }
 
@@ -95,6 +122,23 @@ export function createTelemetry(maxAttempts = 500, scanSessionId?: string): Tele
     let accepted = 0;
     const scanTimes: number[] = [];
     const ocrTimes: number[] = [];
+    const stageSums: Record<keyof StageAverages, number> = {
+      targetDetectionMs: 0, barcodeDecodeMs: 0, ocrMs: 0, validationMs: 0, matchMs: 0,
+    };
+    const stageCounts: Record<keyof StageAverages, number> = {
+      targetDetectionMs: 0, barcodeDecodeMs: 0, ocrMs: 0, validationMs: 0, matchMs: 0,
+    };
+    for (const a of ring) {
+      if (a.stages) {
+        for (const k of Object.keys(stageSums) as (keyof StageAverages)[]) {
+          const v = a.stages[k];
+          if (typeof v === 'number' && Number.isFinite(v)) {
+            stageSums[k] += v;
+            stageCounts[k] += 1;
+          }
+        }
+      }
+    }
     for (const a of ring) {
       byDetection[a.detectionType] += 1;
       scanTimes.push(a.processingMs);
@@ -122,6 +166,7 @@ export function createTelemetry(maxAttempts = 500, scanSessionId?: string): Tele
       const s = xs.slice().sort((x, y) => x - y);
       return s[Math.min(s.length - 1, Math.max(0, Math.ceil(s.length * 0.95) - 1))] ?? 0;
     };
+    const retries = droppedLow + qualityBlocked;
     return {
       attempts: ring.length,
       byDetection,
@@ -133,14 +178,25 @@ export function createTelemetry(maxAttempts = 500, scanSessionId?: string): Tele
       ocrUsableRate: ocrRuns ? ocrUsable / ocrRuns : 0,
       ocrCorrections,
       manualFallbacks,
+      manualFallbackRate: ring.length ? manualFallbacks / ring.length : 0,
       droppedLow,
+      retries,
+      retryRate: ring.length ? retries / ring.length : 0,
       qualityBlocked,
       submitted,
       falsePositives,
+      falsePositiveRate: submitted ? falsePositives / submitted : 0,
       accepted,
       avgScanTimeMs: avg(scanTimes),
       avgOcrMs: avg(ocrTimes),
       p95ScanMs: p95(scanTimes),
+      avgStages: {
+        targetDetectionMs: stageCounts.targetDetectionMs ? stageSums.targetDetectionMs / stageCounts.targetDetectionMs : 0,
+        barcodeDecodeMs: stageCounts.barcodeDecodeMs ? stageSums.barcodeDecodeMs / stageCounts.barcodeDecodeMs : 0,
+        ocrMs: stageCounts.ocrMs ? stageSums.ocrMs / stageCounts.ocrMs : 0,
+        validationMs: stageCounts.validationMs ? stageSums.validationMs / stageCounts.validationMs : 0,
+        matchMs: stageCounts.matchMs ? stageSums.matchMs / stageCounts.matchMs : 0,
+      },
       recent: ring.slice(-20),
     };
   };

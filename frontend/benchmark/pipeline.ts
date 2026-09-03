@@ -31,3 +31,12 @@ export type { CorpusMatch } from '../src/modules/receiving-terminal/validate';
 export { computeConfidence } from '../src/modules/receiving-terminal/confidence';
 export type { ConfidenceResult } from '../src/modules/receiving-terminal/confidence';
 export { extractCandidates, normaliseToken as normToken } from '../src/modules/receiving-terminal/candidates';
+export {
+  findTextLines,
+  findDominantLine,
+  lineCropBox,
+  profileForLineSkew,
+} from '../src/modules/receiving-terminal/textlines';
+export type { LineRegion } from '../src/modules/receiving-terminal/textlines';
+export { isDuplicate, noteSubmission, EMPTY_DEDUPE } from '../src/modules/receiving-terminal/dedupe';
+export type { DedupeState } from '../src/modules/receiving-terminal/dedupe';

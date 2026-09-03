@@ -49,6 +49,32 @@ export interface OcrConfig {
   qualityGateEnabled: boolean;
 }
 
+/**
+ * Direct-target recognition (unified P0 §5/§6/§8/§9).
+ *
+ * For single-line targets (SKU / Reference) the scanner first finds the text
+ * line inside the scan region and OCR is then run on the DYNAMIC crop of that
+ * line — never on the whole region — after a cheap orientation/alignment
+ * check. These knobs tune that targeting stage only; they carry no business
+ * meaning.
+ */
+export interface TargetingConfig {
+  /** Master switch for dynamic-line targeting (§8). */
+  enabled: boolean;
+  /** Use the dynamic line only in PRODUCT/SKU mode (cartons keep the band). */
+  productOnly: boolean;
+  /** Line strength (normalised 0..1) required to trust a detected line. */
+  minScore: number;
+  /** Consecutive quick detections before the UI switches to TARGET FOUND. */
+  stableFrames: number;
+  /** Vertical margin added around the detected line (fraction of line height). */
+  margin: number;
+  /** Analyse line detection on at most this many px wide (cost bound). */
+  analysisMaxWidth: number;
+  /** Every N frames re-check cheap guidance while searching (§12 feedback). */
+  alignCheckCadence: number;
+}
+
 export interface ConsensusConfig {
   /** Votes (weighted frames) required before an OCR token is stable. */
   votesRequired: number;
@@ -103,6 +129,7 @@ export interface TelemetryConfig {
 export interface ScanConfig {
   camera: CameraConfig;
   ocr: OcrConfig;
+  targeting: TargetingConfig;
   consensus: ConsensusConfig;
   duplicate: DuplicateConfig;
   validation: ValidationConfig;
@@ -136,6 +163,15 @@ export const DEFAULT_SCAN_CONFIG: ScanConfig = {
     smallTextUpscale: 2,
     qualityGateLevel: 'MARGINAL', // MARGINAL passes; BAD is refused
     qualityGateEnabled: true,
+  },
+  targeting: {
+    enabled: true,
+    productOnly: true,
+    minScore: 0.3,
+    stableFrames: 2,
+    margin: 0.5,
+    analysisMaxWidth: 720,
+    alignCheckCadence: 6,
   },
   consensus: {
     votesRequired: 3,
@@ -179,4 +215,63 @@ export function mergeConfig(base: ScanConfig, patch: DeepPartial<ScanConfig>): S
     }
   }
   return out as ScanConfig;
+}
+
+/**
+ * Scanner operating profiles (unified P0 §27).
+ *
+ * Named, configurable performance envelopes the scanner can run under
+ * (FAST / BALANCED / HIGH_ACCURACY / LOW_LIGHT / SMALL_TEXT). They tune
+ * camera request, OCR cadence/size and consensus strictness ONLY — they are
+ * pure configuration and never touch Receiving business logic. Picking a
+ * profile is done by the caller (device capability layer or operator), not by
+ * the receiving workflow itself.
+ */
+export type ScannerProfileKey = 'FAST' | 'BALANCED' | 'HIGH_ACCURACY' | 'LOW_LIGHT' | 'SMALL_TEXT';
+
+export const SCANNER_PROFILE_KEYS: ScannerProfileKey[] = [
+  'FAST', 'BALANCED', 'HIGH_ACCURACY', 'LOW_LIGHT', 'SMALL_TEXT',
+];
+
+/** Deltas over DEFAULT_SCAN_CONFIG. Empty = profile is the default baseline. */
+export const SCANNER_PROFILES: Record<ScannerProfileKey, DeepPartial<ScanConfig>> = {
+  FAST: {
+    camera: {
+      resolution: {
+        SMARTPHONE: { width: 960, height: 540 },
+        TABLET: { width: 960, height: 540 },
+        DESKTOP: { width: 1280, height: 720 },
+        UNKNOWN: { width: 960, height: 540 },
+      },
+      desiredFrameRate: { ideal: 30, max: 30 },
+    },
+    ocr: { framesBeforeOcr: 8, ocrCadence: 4, ocrMaxWidth: 720, smallTextUpscale: 1 },
+    consensus: { votesRequired: 2, windowFrames: 8 },
+  },
+  BALANCED: {},
+  HIGH_ACCURACY: {
+    camera: {
+      resolution: {
+        SMARTPHONE: { width: 1280, height: 720 },
+        TABLET: { width: 1280, height: 720 },
+        DESKTOP: { width: 1920, height: 1080 },
+        UNKNOWN: { width: 1280, height: 720 },
+      },
+    },
+    ocr: { framesBeforeOcr: 24, ocrCadence: 12, ocrMaxWidth: 1280, smallTextUpscale: 2 },
+    consensus: { votesRequired: 3, windowFrames: 16 },
+  },
+  LOW_LIGHT: {
+    ocr: { smallTextUpscale: 2, ocrMaxWidth: 960, qualityGateEnabled: true },
+    consensus: { votesRequired: 3, windowFrames: 12 },
+  },
+  SMALL_TEXT: {
+    ocr: { smallTextUpscale: 3, ocrMaxWidth: 1280, framesBeforeOcr: 14, ocrCadence: 8 },
+    consensus: { votesRequired: 3, windowFrames: 14 },
+  },
+};
+
+/** Apply a named profile over a base config (deep merge). */
+export function applyScannerProfile(base: ScanConfig, key: ScannerProfileKey): ScanConfig {
+  return mergeConfig(base, SCANNER_PROFILES[key]);
 }

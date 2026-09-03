@@ -65,6 +65,35 @@
 .cs-status[data-state="ERROR"] { color: #ff3b30; border-color: #ff3b30; }
 .cs-sub { color: #9a9a9a; font-weight: 600; }
 
+/* ---- Industrial phase indicator (unified P0 §21) ------------------------ */
+.cs-phase {
+  font-weight: 800;
+  letter-spacing: 0.16em;
+}
+.cs-phase--SEARCHING { color: #cfd6e2; animation: cs-pulse 1.4s infinite; }
+.cs-phase--TARGET_FOUND { color: #7cff9b; text-shadow: 0 0 10px rgba(0,255,102,0.35); }
+.cs-phase--READING { color: #5ad0ff; }
+.cs-phase--VALIDATING { color: #ffc247; }
+.cs-phase--MATCHED { color: #00ff66; text-shadow: 0 0 12px rgba(0,255,102,0.5); }
+.cs-phase--LOW_CONFIDENCE { color: #ff6b5e; }
+.cs-phase--CONFIRM_NEEDED { color: #ffc247; }
+
+/* ---- Red scan line = the target area the engine reads (unified P0 §7) --- */
+.cs-roi { border-color: rgba(255, 64, 64, 0.6); box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.5); }
+.cs-corner { border-color: #ff4d4d; }
+.cs-scanline {
+  position: absolute;
+  left: 1%; right: 1%;
+  height: 3px;
+  margin-top: -1px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, #ff2d2d 18%, #ff5757 50%, #ff2d2d 82%, transparent);
+  box-shadow: 0 0 14px 2px rgba(255, 40, 40, 0.85);
+  transition: top 0.12s ease-out;
+  pointer-events: none;
+}
+.cs-roi-hint { color: #ffb3ae; }
+
 .cs-lastcode {
   position: absolute; left: 50%; transform: translateX(-50%); bottom: 96px;
   color: #9a9a9a; font-size: 0.8rem; letter-spacing: 0.1em;

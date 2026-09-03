@@ -19,6 +19,15 @@ import sys
 
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
+try:
+    import numpy as _np
+except Exception:  # pragma: no cover
+    _np = None
+
+import qrcode
+import barcode
+from barcode.writer import ImageWriter
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, 'tmp', 'labels')
 FONT_DIR = '/usr/share/fonts/truetype/dejavu'
@@ -42,6 +51,21 @@ CODES = [
     'AYROVI-99213',
     'SO-88231-K',
 ]
+
+# Extra codes the NEW unified-P0 categories render. They are added to the
+# session corpus so SKU/Reference direct scans can MATCH — the order's premise.
+CORPUS_EXTRA = [
+    'SKU-250125789',
+    'SKU-764332100',
+    'SO-55991-K',
+    'CUST-55991-AB',
+]
+
+# Codes intentionally NOT in the corpus (safety categories: no-match).
+NO_MATCH_CODES = ['XZZ-999999', 'KLM-404040', 'WIP-000123']
+# Codes printed almost like a real corpus code but NOT in it (wrong-OCR must
+# never auto-enter: candidate/possible-match only).
+CONFUSABLE_CODES = ['SKU-100200301', 'ABO-123457']
 
 BG = 244
 INK = 12
@@ -102,18 +126,58 @@ def low_dpi(img: Image.Image, factor: float = 0.42):
     return small.resize((w, h), Image.BILINEAR)
 
 
+def motion_smear(img: Image.Image, k: int = 10):
+    """Horizontal motion blur (camera moved while scanning)."""
+    g = img.convert('L')
+    w, h = g.size
+    if _np is None:
+        return g
+    a = _np.asarray(g, dtype=_np.float64)
+    out = _np.empty_like(a)
+    # box over trailing k px along x (causal) — direction-agnostic enough
+    for x in range(w):
+        lo = max(0, x - k)
+        out[:, x] = a[:, lo:x + 1].mean(axis=1)
+    return Image.fromarray(_np.clip(out, 0, 255).astype(_np.uint8))
+
+
+def qr_image(code: str, box: int = 7):
+    q = qrcode.QRCode(version=None, box_size=box, border=2,
+                      error_correction=qrcode.constants.ERROR_CORRECT_M)
+    q.add_data(code)
+    q.make(fit=True)
+    return q.make_image(fill_color='black', back_color='white').convert('L')
+
+
+def barcode_image(code: str):
+    """Code128 rendered by python-barcode; returned as a grayscale PIL image."""
+    bc = barcode.get('code128', code, writer=ImageWriter())
+    tmp = os.path.join(HERE, 'tmp', f'_bc_{abs(hash(code))}')
+    bc.save(tmp, options={'write_text': False, 'module_width': 0.30,
+                          'module_height': 16, 'quiet_zone': 6.5, 'font_size': 0})
+    path = tmp + '.png'
+    try:
+        return Image.open(path).convert('L')
+    finally:
+        if os.path.exists(path):
+            os.remove(path)
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     rng = random.Random(20260903)
     manifest = []
     idx = 0
 
-    def emit(category, img, code):
+    def emit(category, img, code, kind='text', label_kind='CARTON'):
         nonlocal idx
         idx += 1
         fname = f'{idx:02d}-{category}.png'
         img.save(os.path.join(OUT, fname))
-        manifest.append({'id': idx, 'category': category, 'gt': code, 'file': fname})
+        manifest.append({
+            'id': idx, 'category': category, 'gt': code,
+            'file': fname, 'kind': kind, 'labelKind': label_kind,
+        })
 
     # 1 · Clear labels
     for code in rng.sample(CODES, 3):
@@ -157,8 +221,33 @@ def main():
             img = draw_label(code, 760, 'sans', 40)
         emit('label_size', img, code)
 
+    # =====================================================================
+    # UNIFIED P0 categories (ids continue after the frozen §17 set)
+    # =====================================================================
+    # 10 · Direct SKU target (single-line product label → line OCR)
+    for code in CORPUS_EXTRA[:2]:
+        emit('sku_direct', draw_label(code, 620, 'sans', 46), code, label_kind='PRODUCT')
+    # 11 · Direct Reference target
+    for code in CORPUS_EXTRA[2:]:
+        emit('ref_direct', draw_label(code, 620, 'mono', 46), code, label_kind='PRODUCT')
+    # 12 · Motion (camera moved while scanning)
+    for code in rng.sample(CODES, 3):
+        emit('motion', motion_smear(draw_label(code, 620, 'sans', 44), k=11), code)
+    # 13 · No Match — printed code NOT in the session corpus
+    for code in NO_MATCH_CODES:
+        emit('no_match', draw_label(code, 620, 'sans', 46), code)
+    # 14 · Wrong OCR — code nearly equal to a real corpus code, but NOT it
+    for code in CONFUSABLE_CODES:
+        emit('confusable', draw_label(code, 620, 'sans', 46), code, label_kind='PRODUCT')
+    # 15 · Fast path: real QR codes
+    for code in rng.sample(CODES, 3):
+        emit('qr_clear', qr_image(code), code, kind='qr')
+    # 16 · Fast path: real Code128 barcodes
+    for code in rng.sample(CODES, 3):
+        emit('barcode_clear', barcode_image(code), code, kind='barcode')
+
     with open(os.path.join(HERE, 'tmp', 'manifest.json'), 'w') as f:
-        json.dump({'corpus': CODES, 'labels': manifest}, f, indent=1)
+        json.dump({'corpus': CODES + CORPUS_EXTRA, 'labels': manifest}, f, indent=1)
     print(f'generated {idx} labels in {OUT}')
 
 
