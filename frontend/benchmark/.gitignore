@@ -1,0 +1,4 @@
+tmp/pipeline.mjs
+tmp/work/
+tmp/tessdata/
+eng.traineddata

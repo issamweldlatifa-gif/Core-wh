@@ -1,0 +1,176 @@
+{
+ "corpus": [
+  "ABO-123456",
+  "TUN-88912",
+  "SKU-100200300",
+  "CTN-000123",
+  "1Z999AA10123456784",
+  "ORD-2026-00891",
+  "AYROVI-99213",
+  "SO-88231-K"
+ ],
+ "labels": [
+  {
+   "id": 1,
+   "category": "clear",
+   "gt": "SO-88231-K",
+   "file": "01-clear.png"
+  },
+  {
+   "id": 2,
+   "category": "clear",
+   "gt": "SKU-100200300",
+   "file": "02-clear.png"
+  },
+  {
+   "id": 3,
+   "category": "clear",
+   "gt": "TUN-88912",
+   "file": "03-clear.png"
+  },
+  {
+   "id": 4,
+   "category": "small_text",
+   "gt": "CTN-000123",
+   "file": "04-small_text.png"
+  },
+  {
+   "id": 5,
+   "category": "small_text",
+   "gt": "SO-88231-K",
+   "file": "05-small_text.png"
+  },
+  {
+   "id": 6,
+   "category": "small_text",
+   "gt": "SKU-100200300",
+   "file": "06-small_text.png"
+  },
+  {
+   "id": 7,
+   "category": "low_light",
+   "gt": "CTN-000123",
+   "file": "07-low_light.png"
+  },
+  {
+   "id": 8,
+   "category": "low_light",
+   "gt": "SO-88231-K",
+   "file": "08-low_light.png"
+  },
+  {
+   "id": 9,
+   "category": "low_light",
+   "gt": "SKU-100200300",
+   "file": "09-low_light.png"
+  },
+  {
+   "id": 10,
+   "category": "glare",
+   "gt": "SKU-100200300",
+   "file": "10-glare.png"
+  },
+  {
+   "id": 11,
+   "category": "glare",
+   "gt": "1Z999AA10123456784",
+   "file": "11-glare.png"
+  },
+  {
+   "id": 12,
+   "category": "glare",
+   "gt": "ORD-2026-00891",
+   "file": "12-glare.png"
+  },
+  {
+   "id": 13,
+   "category": "tilted",
+   "gt": "1Z999AA10123456784",
+   "file": "13-tilted.png"
+  },
+  {
+   "id": 14,
+   "category": "tilted",
+   "gt": "CTN-000123",
+   "file": "14-tilted.png"
+  },
+  {
+   "id": 15,
+   "category": "tilted",
+   "gt": "SKU-100200300",
+   "file": "15-tilted.png"
+  },
+  {
+   "id": 16,
+   "category": "damaged",
+   "gt": "SKU-100200300",
+   "file": "16-damaged.png"
+  },
+  {
+   "id": 17,
+   "category": "damaged",
+   "gt": "TUN-88912",
+   "file": "17-damaged.png"
+  },
+  {
+   "id": 18,
+   "category": "damaged",
+   "gt": "SO-88231-K",
+   "file": "18-damaged.png"
+  },
+  {
+   "id": 19,
+   "category": "font_sans-bold",
+   "gt": "ORD-2026-00891",
+   "file": "19-font_sans-bold.png"
+  },
+  {
+   "id": 20,
+   "category": "font_mono",
+   "gt": "SO-88231-K",
+   "file": "20-font_mono.png"
+  },
+  {
+   "id": 21,
+   "category": "font_serif",
+   "gt": "TUN-88912",
+   "file": "21-font_serif.png"
+  },
+  {
+   "id": 22,
+   "category": "printer_lowdpi",
+   "gt": "ABO-123456",
+   "file": "22-printer_lowdpi.png"
+  },
+  {
+   "id": 23,
+   "category": "printer_lowdpi",
+   "gt": "TUN-88912",
+   "file": "23-printer_lowdpi.png"
+  },
+  {
+   "id": 24,
+   "category": "printer_lowdpi",
+   "gt": "SKU-100200300",
+   "file": "24-printer_lowdpi.png"
+  },
+  {
+   "id": 25,
+   "category": "label_size",
+   "gt": "CTN-000123",
+   "file": "25-label_size.png"
+  },
+  {
+   "id": 26,
+   "category": "label_size",
+   "gt": "SKU-100200300",
+   "file": "26-label_size.png"
+  },
+  {
+   "id": 27,
+   "category": "label_size",
+   "gt": "ABO-123456",
+   "file": "27-label_size.png"
+  }
+ ]
+}

@@ -7,23 +7,52 @@ import {
   RGBLuminanceSource,
 } from '@zxing/library';
 import type { ScanSource } from './scan-source';
-import { computeRoi, preprocessForOcr } from './roi';
-import { CandidateStabiliser, extractCandidates } from './candidates';
+import { detectCapabilities, type DeviceCapabilities } from './scan-source';
+import { canvasFromGray, computeRoi, roiOverlayStyle } from './roi';
+import {
+  DEFAULT_SCAN_CONFIG,
+  mergeConfig,
+  type DeepPartial,
+  type RoiRatio,
+  type ScanConfig,
+} from './scan-config';
+import { assessQuality, quickGuidance, type GuidanceId } from './image-quality';
+import { applyProfile, selectProfile, type ProfileId } from './preprocess';
+import { extractFieldTokens, formatScoreForToken, type FieldToken } from './fields';
+import { normaliseToken } from './normalize';
+import { matchAgainstCorpus, type CorpusMatch } from './validate';
+import { computeConfidence, type ConfidenceResult, type DetectionType } from './confidence';
+import { createConsensus, type ConsensusAggregator } from './multiframe';
+import { createTelemetry, exposeDebugHandle, type ScanAttempt, type TelemetrySink } from './telemetry';
 import { ocrBusy, recogniseRoi, terminateOcr } from './ocr-client';
-import './scanner.css';
 import { isBusy, next, stateLabel, type ScannerEvent, type ScannerState } from './scanner-state';
+import './scanner.css';
 
 /**
- * Continuous Receiving Scanner (spec §16–§31).
+ * Continuous Receiving Scanner — guided scan + OCR (P0).
  *
- * Behaviour contract:
- *   - The camera opens once and STAYS OPEN across cartons (§16/§26).
- *   - Detection cascades: barcode/QR first, OCR only as a fallback (§17).
- *   - Both engines read the SAME ROI the worker aligns to (§18).
- *   - OCR runs on-device via Tesseract.js; frames never leave the device (§19).
- *   - A candidate is submitted automatically (§24) but is only ever marked
- *     RECEIVED after the BACKEND accepts it (§25).
- *   - EXIT releases camera, decode loop and the OCR worker (§30).
+ * The single decode loop runs the order's full pipeline:
+ *
+ *   Camera Frame → Scan Region / ROI → Image Quality Check → Preprocessing →
+ *   Barcode/QR detection → (fallback) OCR → Normalization → Validation vs
+ *   AYROVI corpus → Confidence → Result
+ *
+ * Rules enforced here:
+ *   - Camera opens once and stays open across cartons.
+ *   - Barcode/QR first and always wins; a VALID barcode stops OCR (§12).
+ *   - The Image Quality gate runs before OCR; a bad frame never reaches
+ *     Tesseract (§6). Worker gets «Hold steady / Improve lighting / …».
+ *   - OCR is validated against the session corpus: EXACT→HIGH may
+ *     auto-confirm; CANDIDATE / no-corpus→MEDIUM requires worker
+ *     confirmation («Possible match: …»); LOW only retries (§10/§11).
+ *   - Multi-frame consensus: a token must be seen across frames (§13).
+ *   - Duplicate physical codes are suppressed in a debounce window (§15).
+ *   - Telemetry records every meaningful attempt (§16); no images kept.
+ *   - The backend verdict (outcome) is the ONLY path to SUCCESS (§25).
+ *
+ * Consumer contract unchanged: onDetected(value, source). Receiving passes
+ * the session corpus; terminals that pass none degrade safely — with no
+ * corpus an OCR read can never silently auto-submit.
  */
 
 const ZXING_FORMATS: BarcodeFormat[] = [
@@ -44,19 +73,47 @@ const NATIVE_FORMATS = [
   'code_128', 'itf', 'codabar', 'qr_code', 'data_matrix',
 ];
 
-/** Same code in view is not resubmitted inside this window (§29). */
-const REPEAT_WINDOW_MS = 2500;
-/** Pause after an accepted read before decoding resumes. */
-const RESUME_DELAY_MS = 900;
-/** Frames between OCR attempts — OCR is the expensive fallback path. */
-const OCR_EVERY_N_FRAMES = 8;
-/** Frames of pure-barcode failure before OCR is allowed to start (§17). */
-const OCR_AFTER_FRAMES = 18;
-
 export interface ScanOutcome {
   kind: 'ok' | 'bad' | 'info';
   text: string;
   token: number;
+}
+
+/** Guidance phases shown to the worker (order §3). */
+export type GuidePhase =
+  | 'SEARCHING'
+  | 'BARCODE_DETECTED'
+  | 'OCR_DETECTED'
+  | 'LOW_CONFIDENCE'
+  | 'CONFIRM_NEEDED'
+  | 'CONFIRMED';
+
+export interface PendingConfirm {
+  /** the code that would be submitted (canonical corpus value when candidate) */
+  value: string;
+  /** the value exactly as OCR read it */
+  readValue: string;
+  match: CorpusMatch;
+  confidence: ConfidenceResult;
+  detectedAt: number;
+}
+
+interface Props {
+  title: string;
+  hint?: string;
+  /** Station capability gate: OCR only when the station offers it. */
+  enableOcr?: boolean;
+  /** Result of the last submission, owned by the parent (backend truth). */
+  outcome?: ScanOutcome | null;
+  /** What the scanner is submitting: cartons or product units. */
+  mode?: 'CARTON' | 'PRODUCT';
+  onModeChange?: (m: 'CARTON' | 'PRODUCT') => void;
+  onDetected: (value: string, source: ScanSource) => void;
+  onClose: () => void;
+  /** Known AYROVI codes to validate OCR against (order §10). */
+  corpus?: string[];
+  /** Per-instance config overrides (threshold tuning / benchmarks). */
+  scanConfig?: DeepPartial<ScanConfig>;
 }
 
 export default function ContinuousScanner({
@@ -68,33 +125,14 @@ export default function ContinuousScanner({
   onModeChange,
   onDetected,
   onClose,
-}: {
-  title: string;
-  hint?: string;
-  /** Station capability gate: OCR only when the station offers it (§10/§11). */
-  enableOcr?: boolean;
-  /** Result of the last submission, owned by the parent (backend truth). */
-  outcome?: ScanOutcome | null;
-  /** What the scanner is submitting: cartons or product units. */
-  mode?: 'CARTON' | 'PRODUCT';
-  onModeChange?: (m: 'CARTON' | 'PRODUCT') => void;
-  onDetected: (value: string, source: ScanSource) => void;
-  onClose: () => void;
-}) {
+  corpus,
+  scanConfig,
+}: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const teardownRef = useRef<() => void>(() => {});
 
-  /**
-   * Live reference to the parent's detection callback. The camera loop is a
-   * long-lived closure; if it captured `onDetected` directly, every identity
-   * change (e.g. switching CARTON→PRODUCT mode in the parent) would re-run
-   * the whole camera effect and leave TWO decode loops running — the stale
-   * one still routing scans to the previous mode. Reading through a ref keeps
-   * ONE loop that always dispatches to the CURRENT handler.
-   */
   const onDetectedRef = useRef(onDetected);
   onDetectedRef.current = onDetected;
-  /** Which camera to open — a ref so FLIP can restart without re-mounting. */
   const facingRef = useRef<'environment' | 'user'>('environment');
 
   const [state, setState] = useState<ScannerState>('IDLE');
@@ -105,28 +143,70 @@ export default function ContinuousScanner({
   const [torch, setTorch] = useState(false);
   const [hasTorch, setHasTorch] = useState(false);
   const [scanCount, setScanCount] = useState(0);
+  const [fps, setFps] = useState(0);
+  const [pending, setPending] = useState<PendingConfirm | null>(null);
+  const [guide, setGuide] = useState<{ phase: GuidePhase; advice: string[] }>({ phase: 'SEARCHING', advice: [] });
 
-  // The state machine is read inside the rAF loop, which must not re-subscribe
-  // on every render — keep a ref in lockstep with the rendered state.
   const stateRef = useRef<ScannerState>('IDLE');
+  const cfgRef = useRef<ScanConfig>(DEFAULT_SCAN_CONFIG);
+  const corpusRef = useRef<string[]>([]);
+  const pendingRef = useRef<PendingConfirm | null>(null);
+  const telemetryRef = useRef<TelemetrySink | null>(null);
+  const capsRef = useRef<DeviceCapabilities | null>(null);
+  const modeRef = useRef<'CARTON' | 'PRODUCT'>('CARTON');
+  modeRef.current = mode ?? 'CARTON';
+
+  // Live guide mirror — the loop writes here without a re-render per frame.
+  const guideRef = useRef<{ phase: GuidePhase; advice: string[] }>({ phase: 'SEARCHING', advice: [] });
+  const setGuideSafe = useCallback((g: { phase: GuidePhase; advice?: string[] }) => {
+    const prev = guideRef.current;
+    const advice = g.advice ?? prev.advice;
+    if (g.phase === prev.phase && advice === prev.advice) return;
+    guideRef.current = { phase: g.phase, advice };
+    setGuide({ phase: g.phase, advice });
+  }, []);
+
+  const setPendingSafe = useCallback((p: PendingConfirm | null) => {
+    pendingRef.current = p;
+    setPending(p);
+  }, []);
+
   const send = useCallback((event: ScannerEvent): ScannerState | null => {
     const target = next(stateRef.current, event);
-    if (!target) return null; // illegal transition: ignored by design (§31)
+    if (!target) return null;
     stateRef.current = target;
     setState(target);
     return target;
   }, []);
 
-  /** Parent tells us the backend verdict; move SUBMITTING -> SUCCESS/ERROR. */
+  // Effective config & corpus (kept fresh for the loop).
+  useEffect(() => {
+    cfgRef.current = mergeConfig(DEFAULT_SCAN_CONFIG, scanConfig ?? {});
+    modeRef.current = mode ?? 'CARTON';
+  }, [scanConfig, mode]);
+  useEffect(() => {
+    corpusRef.current = (corpus ?? []).map((c) => (c || '').trim().toUpperCase()).filter(Boolean);
+  }, [corpus]);
+
+  /** Backend verdict → SUBMITTING → SUCCESS/ERROR, then back to scanning. */
   useEffect(() => {
     if (!outcome) return;
-    if (outcome.kind === 'ok') send('ACCEPTED');
-    else if (outcome.kind === 'bad') send('REJECTED');
-    // Return to scanning shortly after, keeping the camera open (§26/§27).
-    const t = window.setTimeout(() => send('RESUME'), RESUME_DELAY_MS);
+    if (outcome.kind === 'ok') {
+      send('ACCEPTED');
+      setGuideSafe({ phase: 'CONFIRMED' });
+      telemetryRef.current?.markBackendVerdict(true);
+    } else if (outcome.kind === 'bad') {
+      send('REJECTED');
+      setGuideSafe({ phase: 'SEARCHING' });
+      telemetryRef.current?.markBackendVerdict(false);
+    }
+    const t = window.setTimeout(() => send('RESUME'), cfgRef.current.duplicate.resumeDelayMs);
     return () => window.clearTimeout(t);
-  }, [outcome, send]);
+  }, [outcome, send, setGuideSafe]);
 
+  // -------------------------------------------------------------------------
+  // the decode loop
+  // -------------------------------------------------------------------------
   const start = useCallback(() => {
     teardownRef.current();
     setError(null);
@@ -134,6 +214,9 @@ export default function ContinuousScanner({
     setHasTorch(false);
     stateRef.current = 'IDLE';
     setState('IDLE');
+    setPendingSafe(null);
+    guideRef.current = { phase: 'SEARCHING', advice: [] };
+    setGuide({ phase: 'SEARCHING', advice: [] });
     send('OPEN');
 
     const el = videoRef.current;
@@ -148,6 +231,8 @@ export default function ContinuousScanner({
     let framesSinceBarcode = 0;
     let lastValue = '';
     let lastAt = 0;
+    let fpsFrames = 0;
+    let fpsSince = performance.now();
 
     const full = document.createElement('canvas');
     const fullCtx = full.getContext('2d', { willReadFrequently: true });
@@ -160,25 +245,57 @@ export default function ContinuousScanner({
     hints.set(DecodeHintType.POSSIBLE_FORMATS, ZXING_FORMATS);
     zxing.setHints(hints);
 
-    const stabiliser = new CandidateStabiliser(3, 12);
+    const consensus: ConsensusAggregator = createConsensus(cfgRef.current.consensus);
+    const telemetry: TelemetrySink = createTelemetry(cfgRef.current.telemetry.maxAttempts);
+    telemetryRef.current = telemetry;
+    exposeDebugHandle(telemetry);
 
     const teardown = () => {
-      // Full release (§30): loop, timers, tracks, video element and OCR.
       running = false;
       cancelAnimationFrame(raf);
       window.clearTimeout(timer);
       stream?.getTracks().forEach((t) => t.stop());
       stream = null;
       if (el) el.srcObject = null;
-      stabiliser.reset();
+      consensus.reset();
+      telemetryRef.current = null;
       void terminateOcr();
     };
     teardownRef.current = teardown;
 
-    /** Hand a value to the parent exactly once per physical code (§29). */
-    const submit = (value: string, source: ScanSource) => {
+    const roiRatioNow = (): RoiRatio =>
+      cfgRef.current.camera.roi[modeRef.current === 'PRODUCT' ? 'PRODUCT' : 'CARTON'];
+
+    /** Record one attempt (startedAt → now) with sensible defaults. */
+    const record = (
+      detection: DetectionType,
+      startedAt: number,
+      patch: Partial<Omit<ScanAttempt, 'ts' | 'scanSessionId'>>,
+    ) => {
+      const processingMs = Math.max(0, performance.now() - startedAt);
+      void telemetry.record({
+        ts: Date.now(),
+        mode: modeRef.current,
+        scannerType: detection === 'OCR' ? 'tesseract' : nativeDetector ? 'native' : 'zxing',
+        detectionType: detection,
+        processingMs,
+        validationResult: 'na',
+        finalResult: 'no_candidate',
+        deviceType: capsRef.current?.deviceType ?? 'UNKNOWN',
+        ...patch,
+      } as ScanAttempt);
+    };
+
+    /** Hand a value to the parent exactly once per physical code (§15). */
+    const submit = (
+      value: string,
+      source: ScanSource,
+      detection: DetectionType,
+      startedAt?: number,
+      extra?: Partial<Omit<ScanAttempt, 'ts' | 'scanSessionId'>>,
+    ): boolean => {
       const now = Date.now();
-      if (value === lastValue && now - lastAt < REPEAT_WINDOW_MS) {
+      if (value === lastValue && now - lastAt < cfgRef.current.duplicate.repeatWindowMs) {
         lastAt = now;
         return false;
       }
@@ -186,21 +303,27 @@ export default function ContinuousScanner({
       lastAt = now;
       setLastCode(value);
       setScanCount((n) => n + 1);
-      stabiliser.reset();
+      consensus.reset();
 
-      // CANDIDATE -> VALIDATE -> SUBMIT. The parent then calls the backend;
-      // only its answer can produce SUCCESS (§25).
       send('CANDIDATE');
       send('VALIDATE');
       send('SUBMIT');
       onDetectedRef.current(value, source);
+      if (startedAt) {
+        record(detection, startedAt, {
+          finalResult: 'auto_submitted',
+          ...extra,
+        });
+      }
       return true;
     };
 
+    // ------------------------------------------------------------------
+    // decode helpers
+    // ------------------------------------------------------------------
     async function readBarcode(vw: number, vh: number): Promise<string | null> {
-      if (!fullCtx) return null;
-      const roi = computeRoi(vw, vh);
-      // Decode the ROI only — same region the worker aligns to (§18).
+      if (!fullCtx || !roiCtx) return null;
+      const roi = computeRoi(vw, vh, roiRatioNow());
       if (nativeDetector) {
         try {
           const res = await nativeDetector.detect(roiCanvas);
@@ -209,7 +332,7 @@ export default function ContinuousScanner({
         return null;
       }
       try {
-        const img = roiCtx!.getImageData(0, 0, roi.width, roi.height);
+        const img = roiCtx.getImageData(0, 0, roi.width, roi.height);
         const lum = new Uint8ClampedArray(roi.width * roi.height);
         for (let i = 0; i < lum.length; i += 1) {
           const p = i * 4;
@@ -223,15 +346,191 @@ export default function ContinuousScanner({
       }
     }
 
+    /** One OCR attempt: quality gate → profile → OCR → fields → consensus →
+     *  corpus validation → confidence → submit / confirm / drop. */
+    async function runOcr(vw: number, vh: number): Promise<boolean> {
+      if (!roiCtx) return false;
+      const c = cfgRef.current;
+      const roi = computeRoi(vw, vh, roiRatioNow());
+      const started = performance.now();
+
+      // Image quality gate first (§6): refuse OCR on a bad frame.
+      const { img, gray } = readRoiGray();
+      const q = assessQuality(gray, roi.width, roi.height);
+      setOcrActive(true);
+      try {
+        if (c.ocr.qualityGateEnabled && !q.pass) {
+          setGuideSafe({ phase: 'LOW_CONFIDENCE', advice: q.advice });
+          record('OCR', started, {
+            finalResult: 'quality_gate_blocked',
+            failureReason: q.reasons.join(','),
+            imageQuality: q.score,
+          });
+          return true;
+        }
+
+        // Preprocessing profile selected from the measured quality (§7).
+        const profile: ProfileId = selectProfile(q);
+        const prepped = applyProfile(img, profile, {
+          smallTextUpscale: c.ocr.smallTextUpscale,
+          maxWidth: c.ocr.ocrMaxWidth,
+        });
+        const ocrCanvas = canvasFromGray(prepped.gray, prepped.width, prepped.height);
+
+        const res = await recogniseRoi(ocrCanvas, { psm: profile === 'C_SMALL_TEXT' ? '7' : '6' });
+        const conf01 = res ? Math.max(0, Math.min(1, res.confidence / 100)) : 0;
+        if (!res || !res.text) {
+          setGuideSafe({ phase: 'OCR_DETECTED' });
+          record('OCR', started, {
+            ocrConfidence: conf01,
+            imageQuality: q.score,
+            finalResult: 'no_candidate',
+            failureReason: res ? 'empty_ocr' : 'ocr_error',
+          });
+          return true;
+        }
+
+        // Field-aware extraction (§8), then weighted multi-frame votes (§13).
+        const tokens: FieldToken[] = extractFieldTokens(res.text);
+        const weight = Math.max(0.3, Math.min(1, q.score));
+        const stableTokens: string[] = tokens.length
+          ? consensus.pushFrame(tokens.map((t) => ({ token: t.token, weight })))
+          : [];
+
+        if (stableTokens.length === 0) {
+          setGuideSafe({ phase: 'OCR_DETECTED' });
+          record('OCR', started, {
+            ocrConfidence: conf01,
+            imageQuality: q.score,
+            finalResult: 'no_candidate',
+            failureReason: tokens.length === 0 ? 'no_fields' : 'awaiting_consensus',
+          });
+          return true;
+        }
+
+        // Rank stable tokens by composite confidence; corpus-exact first.
+        const ranked = rankStable(stableTokens, conf01, q.score);
+        const best = ranked[0];
+        if (!best) {
+          record('OCR', started, {
+            ocrConfidence: conf01,
+            imageQuality: q.score,
+            finalResult: 'no_candidate',
+            failureReason: 'unrankable',
+          });
+          return true;
+        }
+        const { value, readValue, match, confidence } = best;
+
+        if (confidence.level === 'HIGH') {
+          // EXACT + strong engine/quality → auto-confirm (§11).
+          setGuideSafe({ phase: 'CONFIRMED' });
+          submit(value, 'CAMERA', 'OCR', started, {
+            ocrConfidence: conf01,
+            imageQuality: q.score,
+            validationResult: match.kind,
+            frames: cfgRef.current.consensus.votesRequired,
+          });
+          return true;
+        }
+        if (confidence.level === 'MEDIUM') {
+          // Worker confirmation required — hold scanning and ask (§10/§11).
+          record('OCR', started, {
+            ocrConfidence: conf01,
+            imageQuality: q.score,
+            validationResult: match.kind,
+            finalResult: 'worker_confirmed',
+            frames: cfgRef.current.consensus.votesRequired,
+          });
+          send('CANDIDATE');
+          send('VALIDATE');
+          setGuideSafe({ phase: 'CONFIRM_NEEDED' });
+          setPendingSafe({ value, readValue, match, confidence, detectedAt: Date.now() });
+          return true;
+        }
+        // LOW → retry scan with guidance; never submit.
+        record('OCR', started, {
+          ocrConfidence: conf01,
+          imageQuality: q.score,
+          validationResult: match.kind,
+          finalResult: 'dropped_low_confidence',
+          failureReason: match.kind === 'none' ? 'no_corpus_match' : 'low_composite',
+          frames: cfgRef.current.consensus.votesRequired,
+        });
+        setGuideSafe({
+          phase: 'LOW_CONFIDENCE',
+          advice: match.kind === 'none'
+            ? ['No matching Article found — rescan or use manual entry']
+            : (q.advice.length ? q.advice : undefined),
+        });
+        return true;
+      } finally {
+        setOcrActive(false);
+        if (stateRef.current === 'OCR_PROCESSING') send('RESUME');
+      }
+
+      function readRoiGray(): { img: { data: Uint8ClampedArray; width: number; height: number }; gray: Uint8ClampedArray } {
+        const imageData = roiCtx!.getImageData(0, 0, roi.width, roi.height);
+        const gray = new Uint8ClampedArray(roi.width * roi.height);
+        const d = imageData.data;
+        for (let i = 0, p = 0; i < d.length; i += 4, p += 1) {
+          gray[p] = (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114) | 0;
+        }
+        return { img: { data: imageData.data, width: roi.width, height: roi.height }, gray };
+      }
+    }
+
+    /** Composite score for stable tokens → pick the best submission. */
+    function rankStable(
+      stableTokens: string[],
+      ocrConf01: number,
+      qScore: number,
+    ): Array<{ value: string; readValue: string; match: CorpusMatch; confidence: ConfidenceResult }> {
+      const known = corpusRef.current;
+      const c = cfgRef.current;
+      const results: Array<{ value: string; readValue: string; match: CorpusMatch; confidence: ConfidenceResult }> = [];
+      for (const token of stableTokens) {
+        const clean = normaliseToken(token);
+        const match = matchAgainstCorpus(clean, known, c.validation);
+        const fmt = formatScoreForToken(clean, modeRef.current === 'PRODUCT' ? 'PRODUCT' : 'CARTON');
+        const confidence = computeConfidence(
+          {
+            detection: 'OCR',
+            ocrConfidence: ocrConf01,
+            qualityScore: qScore,
+            formatScore: fmt,
+            dbScore: match.dbScore,
+            corpusPresent: known.length > 0,
+            matchKind: match.kind,
+            votes: c.consensus.votesRequired,
+          },
+          c,
+        );
+        const value = match.kind === 'candidate' && match.matched ? match.matched : clean;
+        results.push({ value, readValue: clean, match, confidence });
+      }
+      return results.sort((a, b) => {
+        const aExact = a.match.kind === 'exact' ? 1 : 0;
+        const bExact = b.match.kind === 'exact' ? 1 : 0;
+        if (aExact !== bExact) return bExact - aExact;
+        return b.confidence.score - a.confidence.score;
+      });
+    }
+
     async function tick() {
       if (!running) return;
       const s = stateRef.current;
-
-      // Never decode while a submission is in flight or after a verdict is
-      // being displayed — that is what previously caused double submits.
       if (isBusy(s) || s === 'SUCCESS' || s === 'ERROR') {
         raf = requestAnimationFrame(tick);
         return;
+      }
+
+      fpsFrames += 1;
+      const nowMs = performance.now();
+      if (nowMs - fpsSince >= 1000) {
+        setFps(Math.round((fpsFrames * 1000) / (nowMs - fpsSince)));
+        fpsFrames = 0;
+        fpsSince = nowMs;
       }
 
       const vw = el!.videoWidth;
@@ -242,21 +541,21 @@ export default function ContinuousScanner({
         full.height = vh;
         fullCtx.drawImage(el!, 0, 0, vw, vh);
 
-        const roi = computeRoi(vw, vh);
+        const roi = computeRoi(vw, vh, roiRatioNow());
         roiCanvas.width = roi.width;
         roiCanvas.height = roi.height;
         roiCtx.drawImage(full, roi.x, roi.y, roi.width, roi.height, 0, 0, roi.width, roi.height);
 
-        // ---- PRIORITY 1: barcode / QR (§17) ----
+        // ---- PRIORITY 1: barcode / QR (§12) — unchanged priority ----
         send('BARCODE_SCAN');
+        const barcodeStart = performance.now();
         const code = await readBarcode(vw, vh);
-
         if (code) {
           framesSinceBarcode = 0;
-          if (submit(code, 'CAMERA')) {
-            // Continuous scanning (§16): the loop must survive every success.
-            // Without this rAF the scanner would show the verdict chip and
-            // silently stop decoding until it was fully reopened.
+          setGuideSafe({ phase: 'BARCODE_DETECTED' });
+          const detection: DetectionType = 'BARCODE';
+          const submitted = submit(code, 'CAMERA', detection, barcodeStart);
+          if (submitted) {
             raf = requestAnimationFrame(tick);
             return;
           }
@@ -264,39 +563,51 @@ export default function ContinuousScanner({
         } else {
           framesSinceBarcode += 1;
           send('RESUME');
+          setGuideSafe({ phase: 'SEARCHING' });
 
-          // ---- PRIORITY 2: OCR fallback, only after barcode keeps failing ----
+          // Cheap always-on guidance (light / glare) while searching.
+          if (framesSinceBarcode % 6 === 0 && stateRef.current === 'SCANNING' && !pendingRef.current) {
+            const qg = readRoiQuick();
+            if (qg) {
+              const quick = quickGuidance(qg.gray, qg.w, qg.h);
+              if (quick.hint.length) {
+                guideRef.current = { phase: 'SEARCHING', advice: quick.hint.map(guidanceWord) };
+                setGuide({ phase: 'SEARCHING', advice: guideRef.current.advice });
+              }
+            }
+          }
+
+          // ---- PRIORITY 2: OCR fallback — only after barcode keeps failing ----
+          const c = cfgRef.current;
           const shouldOcr =
             enableOcr &&
-            framesSinceBarcode >= OCR_AFTER_FRAMES &&
-            frame % OCR_EVERY_N_FRAMES === 0 &&
-            !ocrBusy();
+            framesSinceBarcode >= c.ocr.framesBeforeOcr &&
+            frame % c.ocr.ocrCadence === 0 &&
+            !ocrBusy() &&
+            !pendingRef.current;
 
           if (shouldOcr) {
             send('OCR_SCAN');
-            setOcrActive(true);
-            try {
-              const prepared = preprocessForOcr(roiCtx.getImageData(0, 0, roi.width, roi.height));
-              roiCtx.putImageData(prepared, 0, 0);
-              const res = await recogniseRoi(roiCanvas);
-              if (res && res.confidence > 45) {
-                // Multi-frame stabilisation: a single weak read is never
-                // trusted (§23).
-                const stable = stabiliser.push(extractCandidates(res.text));
-                if (stable && submit(stable, 'CAMERA')) {
-                  // Same §16 rule as the barcode path: keep the loop alive.
-                  raf = requestAnimationFrame(tick);
-                  return;
-                }
-              }
-            } finally {
-              setOcrActive(false);
-              if (stateRef.current === 'OCR_PROCESSING') send('RESUME');
-            }
+            await runOcr(vw, vh);
           }
         }
       }
       raf = requestAnimationFrame(tick);
+    }
+
+    function readRoiQuick(): { gray: Uint8ClampedArray; w: number; h: number } | null {
+      if (!roiCtx) return null;
+      const roi = computeRoi(el!.videoWidth, el!.videoHeight, roiRatioNow());
+      try {
+        const d = roiCtx.getImageData(0, 0, roi.width, roi.height).data;
+        const gray = new Uint8ClampedArray(roi.width * roi.height);
+        for (let i = 0, p = 0; i < d.length; i += 4, p += 1) {
+          gray[p] = (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114) | 0;
+        }
+        return { gray, w: roi.width, h: roi.height };
+      } catch {
+        return null;
+      }
     }
 
     async function begin() {
@@ -305,21 +616,30 @@ export default function ContinuousScanner({
         send('CAMERA_FAILED');
         return;
       }
+      const caps = capsRef.current ?? detectCapabilities();
+      capsRef.current = caps;
+      const res = cfgRef.current.camera.resolution[caps.deviceType] ?? cfgRef.current.camera.resolution.UNKNOWN;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           audio: false,
-          video: { facingMode: { ideal: facingRef.current }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+          video: {
+            facingMode: { ideal: facingRef.current },
+            width: { ideal: res.width },
+            height: { ideal: res.height },
+          },
         });
         const track = stream.getVideoTracks()[0];
-        const caps: any = track?.getCapabilities ? track.getCapabilities() : {};
-        if (caps?.torch === true) setHasTorch(true);
+        const caps2: any = track?.getCapabilities ? track.getCapabilities() : {};
+        if (caps2?.torch === true) setHasTorch(true);
+
+        // Order §4: continuous autofocus/exposure where supported; never push
+        // a constraint the platform does not advertise.
+        tuneCamera(track, cfgRef.current.camera);
+
         el!.srcObject = stream;
         try {
           await el!.play();
         } catch (playErr: any) {
-          // Chrome aborts play() when the srcObject assignment races the play
-          // pipeline (canvas streams, some Android devices). The element
-          // usually still plays — verify instead of failing the whole camera.
           const soft = /abort|interrupt/i.test(String(playErr?.name ?? '') + String(playErr?.message ?? ''));
           if (!soft) throw playErr;
           await new Promise<void>((resolve) => {
@@ -341,6 +661,7 @@ export default function ContinuousScanner({
         }
         setDetector(nativeDetector ? 'native' : 'zxing');
         send('CAMERA_READY');
+        setGuideSafe({ phase: 'SEARCHING', advice: [] });
         raf = requestAnimationFrame(tick);
       } catch (e: any) {
         const msg = String(e?.message ?? e);
@@ -356,12 +677,20 @@ export default function ContinuousScanner({
     }
 
     void begin();
-  }, [enableOcr, send]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [send, setGuideSafe, setPendingSafe]);
 
+  // -------------------------------------------------------------------------
+  // lifecycle
+  // -------------------------------------------------------------------------
   useEffect(() => {
+    capsRef.current = detectCapabilities();
     start();
     return () => {
       teardownRef.current();
+      try {
+        if (typeof window !== 'undefined') (window as any).__ayroviScanTelemetry = undefined;
+      } catch { /* noop */ }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -384,9 +713,6 @@ export default function ContinuousScanner({
     } catch { /* unsupported at runtime */ }
   }, [hasTorch, torch]);
 
-  /** FLIP (§12): restart the stream on the other camera without leaving the
-   *  scanner work mode. The teardown/bring-up pair is the same one the mount
-   *  effect uses, so camera state stays consistent. */
   const flipCamera = useCallback(() => {
     facingRef.current = facingRef.current === 'environment' ? 'user' : 'environment';
     setTorch(false);
@@ -395,8 +721,31 @@ export default function ContinuousScanner({
     start();
   }, [start]);
 
-  const banner =
-    state === 'SUCCESS' ? 'ok' : state === 'ERROR' ? 'bad' : null;
+  const confirmPending = useCallback(() => {
+    const p = pendingRef.current;
+    if (!p) return;
+    if (!send('CONFIRM')) return; // illegal from current state — ignore
+    setPendingSafe(null);
+    setGuideSafe({ phase: 'CONFIRMED' });
+    setLastCode(p.value);
+    setScanCount((n) => n + 1);
+    onDetectedRef.current(p.value, 'CAMERA');
+  }, [send, setPendingSafe, setGuideSafe]);
+
+  const rescanPending = useCallback(() => {
+    setPendingSafe(null);
+    send('RESUME');
+    setGuideSafe({ phase: 'SEARCHING' });
+  }, [send, setPendingSafe, setGuideSafe]);
+
+  const banner = state === 'SUCCESS' ? 'ok' : state === 'ERROR' ? 'bad' : null;
+  const roiStyle = roiOverlayStyle(
+    (mode ?? 'CARTON') === 'PRODUCT'
+      ? cfgRef.current.camera.roi.PRODUCT
+      : cfgRef.current.camera.roi.CARTON,
+  );
+  const isProductMode = (mode ?? 'CARTON') === 'PRODUCT';
+  const stageLabel = isProductMode ? 'ALIGN SKU / PRODUCT LABEL' : 'ALIGN CARTON LABEL';
 
   return (
     <div className="cs-overlay" role="dialog" aria-modal="true" aria-label={title}>
@@ -433,29 +782,31 @@ export default function ContinuousScanner({
         <div className="cs-stage">
           <video ref={videoRef} className="cs-video" muted playsInline />
 
-          {/* ROI the worker aligns the label into (§18) */}
-          <div className="cs-roi" aria-hidden="true">
+          {/* ROI the worker aligns the label into — matches the analysed region */}
+          <div className="cs-roi" style={roiStyle} aria-hidden="true">
             <span className="cs-corner tl" />
             <span className="cs-corner tr" />
             <span className="cs-corner bl" />
             <span className="cs-corner br" />
-            <div className="cs-roi-hint">
-              {mode === 'PRODUCT' ? 'ALIGN SKU / PRODUCT LABEL' : 'ALIGN CARTON LABEL'}
-            </div>
+            <div className="cs-roi-hint">{stageLabel}</div>
           </div>
 
-          {/* Live operational state (§5/§31) */}
           <div className="cs-status" data-state={state}>
             {stateLabel(state)}
             {ocrActive && <span className="cs-sub"> · OCR</span>}
             {detector && !ocrActive && <span className="cs-sub"> · {detector === 'native' ? 'FAST' : 'ZXING'}</span>}
+            {fps > 0 && <span className="cs-sub"> · {fps}fps</span>}
           </div>
 
-          {lastCode && (
-            <div className="cs-lastcode os-mono">{lastCode}</div>
+          {/* Guided feedback (§3/§6) */}
+          {!pending && !error && (guide.phase === 'LOW_CONFIDENCE' || guide.advice.length > 0) && (
+            <div className={`cs-guide${guide.phase === 'LOW_CONFIDENCE' ? ' cs-guide--warn' : ''}`}>
+              {guide.advice.length ? guide.advice.join(' · ') : 'Keep the label still…'}
+            </div>
           )}
 
-          {/* Backend verdict, shown without closing the scanner (§26/§27) */}
+          {lastCode && <div className="cs-lastcode os-mono">{lastCode}</div>}
+
           {outcome && banner && (
             <div key={outcome.token} className={`cs-result cs-result--${outcome.kind}`}>
               <strong>{outcome.kind === 'ok' ? '✓ RECEIVED' : '✕ NOT ACCEPTED'}</strong>
@@ -470,6 +821,67 @@ export default function ContinuousScanner({
               <button type="button" className="os-btn" onClick={start}>RETRY</button>
             </div>
           )}
+
+          {/* Confirmation gate — MEDIUM-confidence OCR result (§10/§11) */}
+          {pending && !error && (
+            <div className="cs-confirm" role="alertdialog" aria-label="Confirm scan">
+              <div className="cs-confirm-title">
+                {pending.match.kind === 'none'
+                  ? 'NO MATCHING ARTICLE'
+                  : pending.match.kind === 'candidate'
+                    ? 'POSSIBLE MATCH'
+                    : 'CONFIRM SCAN'}
+              </div>
+              <div className="cs-confirm-code os-mono">{pending.value}</div>
+              {pending.readValue !== pending.value && (
+                <div className="os-muted">
+                  OCR read: <span className="os-mono">{pending.readValue}</span>
+                </div>
+              )}
+              {pending.match.kind === 'candidate' && pending.match.candidates.length > 1 && (
+                <div className="cs-confirm-opts">
+                  {pending.match.candidates.map((cd) => (
+                    <button
+                      key={cd.value}
+                      type="button"
+                      className={`os-btn${cd.value === pending.value ? ' is-active' : ''}`}
+                      onClick={() => {
+                        const cur = pendingRef.current;
+                        if (!cur) return;
+                        const upd = { ...cur, value: cd.value };
+                        pendingRef.current = upd;
+                        setPending(upd);
+                      }}
+                    >
+                      {cd.value}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {pending.match.kind === 'none' && (
+                <div className="cs-confirm-none">
+                  No Article in the expected data matches this read. Re-scan the
+                  label or use manual entry.
+                </div>
+              )}
+              <div className="cs-confirm-row">
+                <button type="button" className="os-btn" onClick={rescanPending}>RESCAN</button>
+                <button
+                  type="button"
+                  className="os-btn os-btn--primary"
+                  disabled={pending.match.kind === 'none'}
+                  onClick={confirmPending}
+                >
+                  CONFIRM
+                </button>
+              </div>
+              {pending.match.kind === 'none' && (
+                <button type="button" className="os-btn" onClick={exit}>
+                  EXIT TO MANUAL ENTRY
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         <footer className="cs-foot">
@@ -477,12 +889,7 @@ export default function ContinuousScanner({
             {hint ?? 'Scanner stays open — keep passing cartons. Barcode/QR first, text (OCR) as fallback.'}
           </div>
           <div className="os-row">
-            <button
-              type="button"
-              className="os-btn"
-              disabled={!hasTorch || !!error}
-              onClick={toggleTorch}
-            >
+            <button type="button" className="os-btn" disabled={!hasTorch || !!error} onClick={toggleTorch}>
               {torch ? 'TORCH ON' : 'TORCH'}
             </button>
             <button type="button" className="os-btn" disabled={!!error} onClick={flipCamera}>
@@ -493,4 +900,44 @@ export default function ContinuousScanner({
       </div>
     </div>
   );
+}
+
+/** Short worker copy for guidance ids (§6). */
+function guidanceWord(id: GuidanceId): string {
+  switch (id) {
+    case 'low_light': return 'Improve lighting';
+    case 'glare': return 'Tilt away from glare';
+    case 'no_label':
+    case 'label_cropped': return 'Align label in the frame';
+    case 'blurred':
+    case 'motion_blur': return 'Hold steady';
+    case 'small_text': return 'Move closer';
+    default: return '';
+  }
+}
+
+/** Capability-safe camera tuning (order §4): only advertise-supported
+ *  constraints are applied; errors are ignored (progressive enhancement). */
+function tuneCamera(track: MediaStreamTrack, cameraCfg: ScanConfig['camera']): void {
+  if (!track || typeof track.getCapabilities !== 'function') return;
+  try {
+    const caps: any = track.getCapabilities();
+    const advanced: any[] = [];
+    if (Array.isArray(caps?.focusMode) && caps.focusMode.includes(cameraCfg.focusMode)) {
+      advanced.push({ focusMode: cameraCfg.focusMode });
+    }
+    if (Array.isArray(caps?.exposureMode) && caps.exposureMode.includes(cameraCfg.exposureMode)) {
+      advanced.push({ exposureMode: cameraCfg.exposureMode });
+    }
+    if (Array.isArray(caps?.whiteBalanceMode) && caps.whiteBalanceMode.includes(cameraCfg.whiteBalanceMode)) {
+      advanced.push({ whiteBalanceMode: cameraCfg.whiteBalanceMode });
+    }
+    if (caps?.frameRate?.max) {
+      const ideal = cameraCfg.desiredFrameRate.ideal;
+      const max = Math.min(cameraCfg.desiredFrameRate.max, caps.frameRate.max);
+      const min = Math.max(1, caps.frameRate.min ?? 1);
+      advanced.push({ frameRate: { ideal: Math.min(max, Math.max(min, ideal)), max } });
+    }
+    if (advanced.length) void track.applyConstraints({ advanced });
+  } catch { /* best-effort */ }
 }

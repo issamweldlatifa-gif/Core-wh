@@ -29,6 +29,7 @@ export type ScannerEvent =
   | 'CANDIDATE'
   | 'VALIDATE'
   | 'SUBMIT'
+  | 'CONFIRM'
   | 'ACCEPTED'
   | 'REJECTED'
   | 'RESUME'
@@ -80,6 +81,10 @@ const TRANSITIONS: Record<ScannerState, Partial<Record<ScannerEvent, ScannerStat
   },
   VALIDATING: {
     SUBMIT: 'SUBMITTING',
+    // P0: a MEDIUM-confidence candidate is held here until the worker
+    // confirms (→ SUBMITTING) or scans again (RESUME → SCANNING). LOW ones
+    // never reach VALIDATING at all.
+    CONFIRM: 'SUBMITTING',
     REJECTED: 'ERROR',
     RESUME: 'SCANNING',
     EXIT: 'EXITING',

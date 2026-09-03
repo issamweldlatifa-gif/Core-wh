@@ -10,7 +10,9 @@
     "build:typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json && vite build",
     "preview": "vite preview",
     "lint": "eslint src --ext ts,tsx",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@zxing/browser": "^0.1.5",
@@ -26,7 +28,10 @@
     "@types/react": "^18.3.10",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^5.2.0",
+    "esbuild": "^0.21.5",
+    "pngjs": "^7.0.0",
     "typescript": "^5.6.2",
-    "vite": "^7.3.6"
+    "vite": "^7.3.6",
+    "vitest": "^3.2.7"
   }
 }

@@ -1,11 +1,16 @@
 /**
- * Region Of Interest helpers (spec §18).
+ * Region Of Interest helpers (codebase spec §18 + P0 order §5).
  *
  * Both engines — barcode/QR detection and OCR — must prioritise the SAME
- * region the worker is told to align the label into. Cropping before OCR is
- * also the single biggest performance win on a phone (§42): Tesseract cost
- * scales with pixel count, and the ROI is roughly a tenth of the frame.
+ * region the worker is told to align the label into, and the ROI must be the
+ * same rectangle in code, overlay, quality crop and OCR crop.
+ *
+ * The ROI is adjustable per label type (order §5): carton labels use a wide
+ * band, product/SKU labels a taller one. Ratios come from `scan-config`.
  */
+
+import { legacyPreprocess } from './preprocess';
+import { grayToPixels, toGray } from './pixels';
 
 export interface Roi {
   x: number;
@@ -14,13 +19,18 @@ export interface Roi {
   height: number;
 }
 
-/** ROI as a fraction of the frame: a wide, central band. */
+export interface RoiRatio {
+  w: number;
+  h: number;
+}
+
+/** Legacy default ROI (wide central band). */
 export const ROI_RATIO = { w: 0.82, h: 0.30 } as const;
 
-/** Compute the pixel ROI for a frame of the given size. */
-export function computeRoi(frameWidth: number, frameHeight: number): Roi {
-  const width = Math.round(frameWidth * ROI_RATIO.w);
-  const height = Math.round(frameHeight * ROI_RATIO.h);
+/** Pixel ROI for a frame of the given size and ratio. */
+export function computeRoi(frameWidth: number, frameHeight: number, ratio: RoiRatio = ROI_RATIO): Roi {
+  const width = Math.max(16, Math.round(frameWidth * ratio.w));
+  const height = Math.max(8, Math.round(frameHeight * ratio.h));
   return {
     x: Math.round((frameWidth - width) / 2),
     y: Math.round((frameHeight - height) / 2),
@@ -29,45 +39,38 @@ export function computeRoi(frameWidth: number, frameHeight: number): Roi {
   };
 }
 
+/** CSS overlay box (percent of the video stage) for the same ratio — used so
+ *  the on-screen frame always matches the analysed ROI for the current mode. */
+export function roiOverlayStyle(ratio: RoiRatio): { left: string; top: string; width: string; height: string } {
+  const wPct = ratio.w * 100;
+  const hPct = ratio.h * 100;
+  return {
+    left: `${(100 - wPct) / 2}%`,
+    top: `${(100 - hPct) / 2}%`,
+    width: `${wPct}%`,
+    height: `${hPct}%`,
+  };
+}
+
 /**
- * Preprocess the ROI for OCR (§20): greyscale, contrast stretch, then a
- * light adaptive threshold. Printed labels are high-contrast black-on-white,
- * so binarising sharply improves Tesseract accuracy and speed versus feeding
- * it a raw colour photo.
+ * Legacy OCR preprocessing — kept byte-for-byte equivalent for backward
+ * compatibility and as the measurable “before” baseline in the §17 benchmark.
+ * New pipeline code should use `preprocess.applyProfile`.
  */
 export function preprocessForOcr(source: ImageData): ImageData {
-  const { data, width, height } = source;
-  const gray = new Uint8ClampedArray(width * height);
+  const gray = legacyPreprocess(toGray(source));
+  const px = grayToPixels(gray, source.width, source.height);
+  return new ImageData(px.data as Uint8ClampedArray<ArrayBuffer>, px.width, px.height);
+}
 
-  let min = 255;
-  let max = 0;
-  for (let i = 0, p = 0; i < data.length; i += 4, p += 1) {
-    const g = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114) | 0;
-    gray[p] = g;
-    if (g < min) min = g;
-    if (g > max) max = g;
-  }
-
-  // Contrast stretch; guard against a flat frame (min === max).
-  const span = Math.max(1, max - min);
-  let sum = 0;
-  for (let p = 0; p < gray.length; p += 1) {
-    const v = ((gray[p] - min) * 255) / span;
-    gray[p] = v;
-    sum += v;
-  }
-
-  // Global mean threshold with a small bias keeps thin glyph strokes intact.
-  const mean = sum / gray.length;
-  const cut = mean * 0.92;
-
-  const out = new ImageData(width, height);
-  for (let p = 0, i = 0; p < gray.length; p += 1, i += 4) {
-    const v = gray[p] > cut ? 255 : 0;
-    out.data[i] = v;
-    out.data[i + 1] = v;
-    out.data[i + 2] = v;
-    out.data[i + 3] = 255;
-  }
-  return out;
+/** Browser-only: build an HTMLCanvasElement from a (binarised) luma buffer. */
+export function canvasFromGray(gray: Uint8ClampedArray, width: number, height: number): HTMLCanvasElement {
+  const cv = document.createElement('canvas');
+  cv.width = width;
+  cv.height = height;
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return cv;
+  const px = grayToPixels(gray, width, height);
+  ctx.putImageData(new ImageData(px.data as Uint8ClampedArray<ArrayBuffer>, px.width, px.height), 0, 0);
+  return cv;
 }

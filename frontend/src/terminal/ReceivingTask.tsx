@@ -7,6 +7,7 @@ import {
   type ScanSource,
 } from '../modules/receiving-terminal/scan-source';
 import { beepSuccess, beepError, beepInfo, beepDone } from '../modules/receiving-terminal/feedback';
+import { cleanCode } from '../modules/receiving-terminal/validate';
 import { stationHas } from './api';
 import { useTerminalUi } from './WorkerShell';
 import { fulfillmentApi, type OpContainer } from './fulfillment-api';
@@ -74,6 +75,36 @@ export default function ReceivingTask() {
     setLog((l) => [{ t: new Date().toLocaleTimeString(), text, kind }, ...l].slice(0, 40));
     setLastAction(text);
   }, [setLastAction]);
+
+  /**
+   * Validation corpora for the guided scanner (order §10): known codes of the
+   * current session. Carton mode validates against carton identity fields;
+   * product mode against expected product SKUs/references. The backend stays
+   * the final authority — this only decides EXACT/CANDIDATE/NONE and whether
+   * an OCR read may auto-confirm.
+   */
+  const corpus = useMemo(() => {
+    const modeCartons = scanMode === 'CARTON';
+    const out = new Set<string>();
+    const add = (v?: string | null) => {
+      const c = cleanCode(v ?? '');
+      if (c.length >= 2) out.add(c);
+    };
+    if (modeCartons) {
+      for (const c of session?.cartons ?? []) {
+        add(c.externalCartonId);
+        add(c.qrCodeValue);
+        add(c.barcodeValue);
+        add(c.reference);
+      }
+    } else {
+      for (const p of session?.products ?? []) {
+        add(p.sku);
+        add(p.reference);
+      }
+    }
+    return [...out];
+  }, [session, scanMode]);
 
   /** Single place where an outcome is surfaced: banner + sound (§26/§27). */
   const report = useCallback((kind: 'ok' | 'bad' | 'info', text: string) => {
@@ -614,6 +645,7 @@ export default function ReceivingTask() {
           mode={scanMode}
           onModeChange={setScanMode}
           outcome={outcome}
+          corpus={corpus}
           onDetected={onScannerDetected}
           onClose={() => {
             setScannerOpen(false);

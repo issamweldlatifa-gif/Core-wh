@@ -36,9 +36,10 @@
 .cs-stage { position: relative; flex: 1; overflow: hidden; background: #000; }
 .cs-video { width: 100%; height: 100%; object-fit: cover; display: block; }
 
-/* ROI window — 82% x 30%, centred, matching computeRoi() (§18). */
+/* ROI window — geometry is set per mode via inline style (matching the ROI
+   both engines analyse). This block only styles it (§5). */
 .cs-roi {
-  position: absolute; left: 9%; top: 35%; width: 82%; height: 30%;
+  position: absolute;
   border: 2px solid rgba(57, 255, 20, 0.55);
   border-radius: 10px;
   box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.45);
@@ -99,11 +100,95 @@
 }
 .cs-foot-hint { color: #9a9a9a; font-size: 0.75rem; }
 
-/* Landscape phones: shorten the ROI so controls stay reachable (§43). */
+/* Landscape phones: keep controls reachable (§43). The ROI geometry itself
+   comes from inline style (per scan mode), so only non-geometric tweaks. */
 @media (max-height: 480px) {
-  .cs-roi { top: 28%; height: 40%; }
   .cs-lastcode { bottom: 72px; }
   .cs-foot-hint { display: none; }
+}
+
+/* Guided-scan feedback chip (§3/§6) — short, targeted worker guidance. */
+.cs-guide {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 150px;
+  max-width: 88%;
+  text-align: center;
+  padding: 7px 16px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.78);
+  border: 1px solid rgba(56, 189, 248, 0.5);
+  color: #bfe7ff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  animation: cs-pop 180ms ease-out;
+}
+.cs-guide--warn {
+  border-color: rgba(255, 176, 32, 0.8);
+  color: #ffd28a;
+  background: rgba(40, 26, 4, 0.88);
+}
+
+/* Confirmation gate (§10/§11) — MEDIUM-confidence OCR result. */
+.cs-confirm {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(88%, 420px);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  padding: 18px 20px;
+  border-radius: 14px;
+  background: rgba(10, 16, 12, 0.96);
+  border: 1px solid rgba(255, 176, 32, 0.7);
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.55), 0 0 30px rgba(0,0,0,0.6);
+  text-align: center;
+  z-index: 5;
+}
+.cs-confirm-title {
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  font-size: 0.85rem;
+  color: #ffd28a;
+}
+.cs-confirm-code {
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #ffffff;
+  word-break: break-all;
+}
+.cs-confirm-opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+.cs-confirm-opts .os-btn.is-active {
+  background: var(--primary, #00ff66);
+  color: #000;
+  border-color: var(--primary, #00ff66);
+}
+.cs-confirm-none {
+  color: #ffb0a8;
+  font-size: 0.85rem;
+  padding: 8px;
+  border: 1px dashed rgba(255, 59, 48, 0.5);
+  border-radius: 8px;
+}
+.cs-confirm-row {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 4px;
+}
+.cs-confirm-row .os-btn {
+  min-width: 120px;
 }
 
 /* Shown while the camera scanner chunk downloads (first open only). */

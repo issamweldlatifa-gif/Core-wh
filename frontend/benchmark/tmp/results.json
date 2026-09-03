@@ -1,0 +1,694 @@
+{
+ "summary": {
+  "total": 27,
+  "old_exact": 18,
+  "old_wrong_match": 0,
+  "old_unknown": 9,
+  "old_no_read": 0,
+  "new_auto_exact": 18,
+  "new_confirm_correct": 7,
+  "new_auto_wrong": 0,
+  "new_drop": 2,
+  "quality_blocked": 0,
+  "old_success_rate": 0.6666666666666666,
+  "new_success_rate": 0.9259259259259259,
+  "elapsedMs": 3042,
+  "latency": {
+   "oldOcrAvgMs": 41.2,
+   "newOcrAvgMs": 36.3,
+   "qualityAvgMs": 4.6,
+   "preprocessAvgMs": 3,
+   "newEndToEndAvgMs": 43.9
+  }
+ },
+ "table": [
+  {
+   "category": "clear",
+   "n": 3,
+   "old read exact": "66.66666666666666%",
+   "old wrong/unknown submit": "33.33333333333333%",
+   "new auto exact": "66.66666666666666%",
+   "new confirm ok": "33.33333333333333%",
+   "new drop": "0%"
+  },
+  {
+   "category": "small_text",
+   "n": 3,
+   "old read exact": "33.33333333333333%",
+   "old wrong/unknown submit": "66.66666666666666%",
+   "new auto exact": "66.66666666666666%",
+   "new confirm ok": "33.33333333333333%",
+   "new drop": "0%"
+  },
+  {
+   "category": "low_light",
+   "n": 3,
+   "old read exact": "66.66666666666666%",
+   "old wrong/unknown submit": "33.33333333333333%",
+   "new auto exact": "66.66666666666666%",
+   "new confirm ok": "33.33333333333333%",
+   "new drop": "0%"
+  },
+  {
+   "category": "glare",
+   "n": 3,
+   "old read exact": "66.66666666666666%",
+   "old wrong/unknown submit": "33.33333333333333%",
+   "new auto exact": "66.66666666666666%",
+   "new confirm ok": "0%",
+   "new drop": "33.33333333333333%"
+  },
+  {
+   "category": "tilted",
+   "n": 3,
+   "old read exact": "33.33333333333333%",
+   "old wrong/unknown submit": "66.66666666666666%",
+   "new auto exact": "33.33333333333333%",
+   "new confirm ok": "33.33333333333333%",
+   "new drop": "33.33333333333333%"
+  },
+  {
+   "category": "damaged",
+   "n": 3,
+   "old read exact": "66.66666666666666%",
+   "old wrong/unknown submit": "33.33333333333333%",
+   "new auto exact": "33.33333333333333%",
+   "new confirm ok": "66.66666666666666%",
+   "new drop": "0%"
+  },
+  {
+   "category": "font_sans-bold",
+   "n": 1,
+   "old read exact": "100%",
+   "old wrong/unknown submit": "0%",
+   "new auto exact": "100%",
+   "new confirm ok": "0%",
+   "new drop": "0%"
+  },
+  {
+   "category": "font_mono",
+   "n": 1,
+   "old read exact": "0%",
+   "old wrong/unknown submit": "100%",
+   "new auto exact": "0%",
+   "new confirm ok": "100%",
+   "new drop": "0%"
+  },
+  {
+   "category": "font_serif",
+   "n": 1,
+   "old read exact": "100%",
+   "old wrong/unknown submit": "0%",
+   "new auto exact": "100%",
+   "new confirm ok": "0%",
+   "new drop": "0%"
+  },
+  {
+   "category": "printer_lowdpi",
+   "n": 3,
+   "old read exact": "100%",
+   "old wrong/unknown submit": "0%",
+   "new auto exact": "100%",
+   "new confirm ok": "0%",
+   "new drop": "0%"
+  },
+  {
+   "category": "label_size",
+   "n": 3,
+   "old read exact": "100%",
+   "old wrong/unknown submit": "0%",
+   "new auto exact": "100%",
+   "new confirm ok": "0%",
+   "new drop": "0%"
+  }
+ ],
+ "rows": [
+  {
+   "id": 1,
+   "category": "clear",
+   "gt": "SO-88231-K",
+   "oldKind": "old_unknown",
+   "oldGuess": "S0-88231",
+   "newKind": "new_confirm_correct",
+   "qualityLevel": "GOOD",
+   "qualityPass": true,
+   "qualityReasons": "-",
+   "profile": "A_NORMAL",
+   "ocrConf": 0.52,
+   "ms": {
+    "oldOcrMs": 168,
+    "newOcrMs": 32.2,
+    "qualityMs": 18,
+    "preprocessMs": 16.2,
+    "newTotalMs": 66.4
+   },
+   "newReadText": "S0-88231-K"
+  },
+  {
+   "id": 2,
+   "category": "clear",
+   "gt": "SKU-100200300",
+   "oldKind": "old_exact",
+   "oldGuess": "SKU-100200300",
+   "newKind": "new_auto_exact",
+   "qualityLevel": "GOOD",
+   "qualityPass": true,
+   "qualityReasons": "-",
+   "profile": "A_NORMAL",
+   "ocrConf": 0.92,
+   "ms": {
+    "oldOcrMs": 32.9,
+    "newOcrMs": 35,
+    "qualityMs": 2.6,
+    "preprocessMs": 1.9,
+    "newTotalMs": 39.5
+   },
+   "newReadText": "SKU-100200300"
+  },
+  {
+   "id": 3,
+   "category": "clear",
+   "gt": "TUN-88912",
+   "oldKind": "old_exact",
+   "oldGuess": "TUN-88912",
+   "newKind": "new_auto_exact",
+   "qualityLevel": "GOOD",
+   "qualityPass": true,
+   "qualityReasons": "-",
+   "profile": "A_NORMAL",
+   "ocrConf": 0.88,
+   "ms": {
+    "oldOcrMs": 33.5,
+    "newOcrMs": 29.7,
+    "qualityMs": 2.5,
+    "preprocessMs": 8.1,
+    "newTotalMs": 40.2
+   },
+   "newReadText": "TUN-88912"
+  },
+  {
+   "id": 4,
+   "category": "small_text",
+   "gt": "CTN-000123",
+   "oldKind": "old_unknown",
+   "oldGuess": "HAZ3-BOX1712",
+   "newKind": "new_auto_exact",
+   "qualityLevel": "GOOD",
+   "qualityPass": true,
+   "qualityReasons": "-",
+   "profile": "A_NORMAL",
+   "ocrConf": 0.45,
+   "ms": {
+    "oldOcrMs": 54.7,
+    "newOcrMs": 60.3,
+    "qualityMs": 1.6,
+    "preprocessMs": 1.2,
+    "newTotalMs": 63.1
+   },
+   "newReadText": "MADEINTUNISIA-HAZ3-BOX112 CTN-000123"
+  },
+  {
+   "id": 5,
+   "category": "small_text",
+   "gt": "SO-88231-K",
+   "oldKind": "old_unknown",
+   "oldGuess": "HAZ3-BOX1712",
+   "newKind": "new_confirm_correct",
+   "qualityLevel": "GOOD",
+   "qualityPass": true,
+   "qualityReasons": "-",
+   "profile": "A_NORMAL",
+   "ocrConf": 0.45,
+   "ms": {
+    "oldOcrMs": 54.9,
+    "newOcrMs": 53.1,
+    "qualityMs": 2,
+    "preprocessMs": 1.4,
+    "newTotalMs": 56.6
+   },
+   "newReadText": "MADEINTUNISIA-HAZ3-BOX112 50-88231-K"
+  },
+  {
+   "id": 6,
+   "category": "small_text",
+   "gt": "SKU-100200300",
+   "oldKind": "old_exact",
+   "oldGuess": "SKU-100200300",
+   "newKind": "new_auto_exact",
+   "qualityLevel": "GOOD",
+   "qualityPass": true,
+   "qualityReasons": "-",
+   "profile": "A_NORMAL",
+   "ocrConf": 0.37,
+   "ms": {
+    "oldOcrMs": 58.7,
+    "newOcrMs": 58,
+    "qualityMs": 1.7,
+    "preprocessMs": 1.3,
+    "newTotalMs": 61
+   },
+   "newReadText": "MADEINTUNISIA-HAZ3-BOX112 SKU-100200300"
+  },
+  {
+   "id": 7,
+   "category": "low_light",
+   "gt": "CTN-000123",
+   "oldKind": "old_exact",
+   "oldGuess": "CTN-000123",
+   "newKind": "new_auto_exact",
+   "qualityLevel": "MARGINAL",
+   "qualityPass": true,
+   "qualityReasons": "low_light",
+   "profile": "B_LOW_LIGHT",
+   "ocrConf": 0.89,
+   "ms": {
+    "oldOcrMs": 41.6,
+    "newOcrMs": 29.3,
+    "qualityMs": 2.3,
+    "preprocessMs": 3.9,
+    "newTotalMs": 35.5
+   },
+   "newReadText": "CTN-000123"
+  },
+  {
+   "id": 8,
+   "category": "low_light",
+   "gt": "SO-88231-K",
+   "oldKind": "old_unknown",
+   "oldGuess": "S0-88231",
+   "newKind": "new_confirm_correct",
+   "qualityLevel": "MARGINAL",
+   "qualityPass": true,
+   "qualityReasons": "low_light",
+   "profile": "B_LOW_LIGHT",
+   "ocrConf": 0.68,
+   "ms": {
+    "oldOcrMs": 30.2,
+    "newOcrMs": 42.2,
+    "qualityMs": 2.2,
+    "preprocessMs": 2,
+    "newTotalMs": 46.4
+   },
+   "newReadText": "S0-88231-K"
+  },
+  {
+   "id": 9,
+   "category": "low_light",
+   "gt": "SKU-100200300",
+   "oldKind": "old_exact",
+   "oldGuess": "SKU-100200300",
+   "newKind": "new_auto_exact",
+   "qualityLevel": "MARGINAL",
+   "qualityPass": true,
+   "qualityReasons": "low_light",
+   "profile": "B_LOW_LIGHT",
+   "ocrConf": 0.92,
+   "ms": {
+    "oldOcrMs": 37.3,
+    "newOcrMs": 34.4,
+    "qualityMs": 16,
+    "preprocessMs": 2.2,
+    "newTotalMs": 52.6
+   },
+   "newReadText": "SKU-100200300"
+  },
+  {
+   "id": 10,
+   "category": "glare",
+   "gt": "SKU-100200300",
+   "oldKind": "old_exact",
+   "oldGuess": "SKU-100200300",
+   "newKind": "new_auto_exact",
+   "qualityLevel": "MARGINAL",
+   "qualityPass": true,
+   "qualityReasons": "glare",
+   "profile": "E_GLARE",
+   "ocrConf": 0.92,
+   "ms": {
+    "oldOcrMs": 37.8,
+    "newOcrMs": 31.7,
+    "qualityMs": 11.5,
+    "preprocessMs": 7.5,
+    "newTotalMs": 50.8
+   },
+   "newReadText": "SKU-100200300"
+  },
+  {
+   "id": 11,
+   "category": "glare",
+   "gt": "1Z999AA10123456784",
+   "oldKind": "old_unknown",
+   "oldGuess": "17999A10123456784",
+   "newKind": "new_drop",
+   "qualityLevel": "MARGINAL",
+   "qualityPass": true,
+   "qualityReasons": "glare",
+   "profile": "E_GLARE",
+   "ocrConf": 0,
+   "ms": {
+    "oldOcrMs": 50.5,
+    "newOcrMs": 57.8,
+    "qualityMs": 9.4,
+    "preprocessMs": 2.3,
+    "newTotalMs": 69.4
+   },
+   "newReadText": "1799912123456784"
+  },
+  {
+   "id": 12,
+   "category": "glare",
+   "gt": "ORD-2026-00891",
+   "oldKind": "old_exact",
+   "oldGuess": "ORD-2026-00891",
+   "newKind": "new_auto_exact",
+   "qualityLevel": "MARGINAL",
+   "qualityPass": true,
+   "qualityReasons": "glare",
+   "profile": "E_GLARE",
+   "ocrConf": 0.89,
+   "ms": {
+    "oldOcrMs": 34.4,
+    "newOcrMs": 35,
+    "qualityMs": 9.7,
+    "preprocessMs": 2.2,
+    "newTotalMs": 46.8
+   },
+   "newReadText": "ORD-2026-00891"
+  },
+  {
+   "id": 13,
+   "category": "tilted",
+   "gt": "1Z999AA10123456784",
+   "oldKind": "old_unknown",
+   "oldGuess": "12999AA1012345674",
+   "newKind": "new_drop",
+   "qualityLevel": "GOOD",
+   "qualityPass": true,
+   "qualityReasons": "-",
+   "profile": "A_NORMAL",
+   "ocrConf": 0,
+   "ms": {
+    "oldOcrMs": 37.5,
+    "newOcrMs": 34.9,
+    "qualityMs": 4.5,
+    "preprocessMs": 3.9,
+    "newTotalMs": 43.3
+   },
+   "newReadText": "1499944101234567"
+  },
+  {
+   "id": 14,
+   "category": "tilted",
+   "gt": "CTN-000123",
+   "oldKind": "old_unknown",
+   "oldGuess": "CTN-0007153",
+   "newKind": "new_confirm_correct",
+   "qualityLevel": "GOOD",
+   "qualityPass": true,
+   "qualityReasons": "-",
+   "profile": "A_NORMAL",
+   "ocrConf": 0,
+   "ms": {
+    "oldOcrMs": 32.8,
+    "newOcrMs": 36.8,
+    "qualityMs": 3.3,
+    "preprocessMs": 2.6,
+    "newTotalMs": 42.7
+   },
+   "newReadText": "CTN-000123"
+  },
+  {
+   "id": 15,
+   "category": "tilted",
+   "gt": "SKU-100200300",
+   "oldKind": "old_exact",
+   "oldGuess": "SKU-100200300",
+   "newKind": "new_auto_exact",
+   "qualityLevel": "GOOD",
+   "qualityPass": true,
+   "qualityReasons": "-",
+   "profile": "A_NORMAL",
+   "ocrConf": 0.64,
+   "ms": {
+    "oldOcrMs": 34.3,
+    "newOcrMs": 32.2,
+    "qualityMs": 3.5,
+    "preprocessMs": 3.6,
+    "newTotalMs": 39.3
+   },
+   "newReadText": "SKU-100200300"
+  },
+  {
+   "id": 16,
+   "category": "damaged",
+   "gt": "SKU-100200300",
+   "oldKind": "old_exact",
+   "oldGuess": "SKU-100200300",
+   "newKind": "new_confirm_correct",
+   "qualityLevel": "MARGINAL",
+   "qualityPass": true,
+   "qualityReasons": "label_cropped",
+   "profile": "A_NORMAL",
+   "ocrConf": 0,
+   "ms": {
+    "oldOcrMs": 41,
+    "newOcrMs": 37.7,
+    "qualityMs": 1.9,
+    "preprocessMs": 1.7,
+    "newTotalMs": 41.3
+   },
+   "newReadText": "SKU-100200300"
+  },
+  {
+   "id": 17,
+   "category": "damaged",
+   "gt": "TUN-88912",
+   "oldKind": "old_exact",
+   "oldGuess": "TUN-88912",
+   "newKind": "new_auto_exact",
+   "qualityLevel": "GOOD",
+   "qualityPass": true,
+   "qualityReasons": "-",
+   "profile": "A_NORMAL",
+   "ocrConf": 0.88,
+   "ms": {
+    "oldOcrMs": 23.9,
+    "newOcrMs": 26.2,
+    "qualityMs": 9.8,
+    "preprocessMs": 1.8,
+    "newTotalMs": 37.7
+   },
+   "newReadText": "TUN-88912"
+  },
+  {
+   "id": 18,
+   "category": "damaged",
+   "gt": "SO-88231-K",
+   "oldKind": "old_unknown",
+   "oldGuess": "50-88231",
+   "newKind": "new_confirm_correct",
+   "qualityLevel": "GOOD",
+   "qualityPass": true,
+   "qualityReasons": "-",
+   "profile": "A_NORMAL",
+   "ocrConf": 0,
+   "ms": {
+    "oldOcrMs": 32.3,
+    "newOcrMs": 31.6,
+    "qualityMs": 1.7,
+    "preprocessMs": 1.6,
+    "newTotalMs": 35
+   },
+   "newReadText": "50-88231-K-"
+  },
+  {
+   "id": 19,
+   "category": "font_sans-bold",
+   "gt": "ORD-2026-00891",
+   "oldKind": "old_exact",
+   "oldGuess": "ORD-2026-00891",
+   "newKind": "new_auto_exact",
+   "qualityLevel": "GOOD",
+   "qualityPass": true,
+   "qualityReasons": "-",
+   "profile": "A_NORMAL",
+   "ocrConf": 0.87,
+   "ms": {
+    "oldOcrMs": 37.9,
+    "newOcrMs": 37.9,
+    "qualityMs": 1.8,
+    "preprocessMs": 1.6,
+    "newTotalMs": 41.3
+   },
+   "newReadText": "ORD-2026-00891"
+  },
+  {
+   "id": 20,
+   "category": "font_mono",
+   "gt": "SO-88231-K",
+   "oldKind": "old_unknown",
+   "oldGuess": "50-88231",
+   "newKind": "new_confirm_correct",
+   "qualityLevel": "GOOD",
+   "qualityPass": true,
+   "qualityReasons": "-",
+   "profile": "A_NORMAL",
+   "ocrConf": 0.71,
+   "ms": {
+    "oldOcrMs": 27.4,
+    "newOcrMs": 27,
+    "qualityMs": 1.7,
+    "preprocessMs": 1.6,
+    "newTotalMs": 30.4
+   },
+   "newReadText": "50-88231-K"
+  },
+  {
+   "id": 21,
+   "category": "font_serif",
+   "gt": "TUN-88912",
+   "oldKind": "old_exact",
+   "oldGuess": "TUN-88912",
+   "newKind": "new_auto_exact",
+   "qualityLevel": "GOOD",
+   "qualityPass": true,
+   "qualityReasons": "-",
+   "profile": "A_NORMAL",
+   "ocrConf": 0.87,
+   "ms": {
+    "oldOcrMs": 26.7,
+    "newOcrMs": 26.1,
+    "qualityMs": 1.8,
+    "preprocessMs": 1.8,
+    "newTotalMs": 29.6
+   },
+   "newReadText": "TUN-88912"
+  },
+  {
+   "id": 22,
+   "category": "printer_lowdpi",
+   "gt": "ABO-123456",
+   "oldKind": "old_exact",
+   "oldGuess": "ABO-123456",
+   "newKind": "new_auto_exact",
+   "qualityLevel": "GOOD",
+   "qualityPass": true,
+   "qualityReasons": "-",
+   "profile": "A_NORMAL",
+   "ocrConf": 0.89,
+   "ms": {
+    "oldOcrMs": 28.1,
+    "newOcrMs": 26.9,
+    "qualityMs": 1.7,
+    "preprocessMs": 1.8,
+    "newTotalMs": 30.4
+   },
+   "newReadText": "ABO-123456"
+  },
+  {
+   "id": 23,
+   "category": "printer_lowdpi",
+   "gt": "TUN-88912",
+   "oldKind": "old_exact",
+   "oldGuess": "TUN-88912",
+   "newKind": "new_auto_exact",
+   "qualityLevel": "GOOD",
+   "qualityPass": true,
+   "qualityReasons": "-",
+   "profile": "A_NORMAL",
+   "ocrConf": 0.91,
+   "ms": {
+    "oldOcrMs": 24.3,
+    "newOcrMs": 24.5,
+    "qualityMs": 1.7,
+    "preprocessMs": 1.6,
+    "newTotalMs": 27.8
+   },
+   "newReadText": "TUN-88912"
+  },
+  {
+   "id": 24,
+   "category": "printer_lowdpi",
+   "gt": "SKU-100200300",
+   "oldKind": "old_exact",
+   "oldGuess": "SKU-100200300",
+   "newKind": "new_auto_exact",
+   "qualityLevel": "GOOD",
+   "qualityPass": true,
+   "qualityReasons": "-",
+   "profile": "A_NORMAL",
+   "ocrConf": 0.89,
+   "ms": {
+    "oldOcrMs": 37.3,
+    "newOcrMs": 49.6,
+    "qualityMs": 1.7,
+    "preprocessMs": 1.7,
+    "newTotalMs": 53.1
+   },
+   "newReadText": "SKU-100200300"
+  },
+  {
+   "id": 25,
+   "category": "label_size",
+   "gt": "CTN-000123",
+   "oldKind": "old_exact",
+   "oldGuess": "CTN-000123",
+   "newKind": "new_auto_exact",
+   "qualityLevel": "GOOD",
+   "qualityPass": true,
+   "qualityReasons": "-",
+   "profile": "A_NORMAL",
+   "ocrConf": 0.9,
+   "ms": {
+    "oldOcrMs": 32.3,
+    "newOcrMs": 26.9,
+    "qualityMs": 4.4,
+    "preprocessMs": 1.8,
+    "newTotalMs": 33.1
+   },
+   "newReadText": "CTN-000123"
+  },
+  {
+   "id": 26,
+   "category": "label_size",
+   "gt": "SKU-100200300",
+   "oldKind": "old_exact",
+   "oldGuess": "SKU-100200300",
+   "newKind": "new_auto_exact",
+   "qualityLevel": "GOOD",
+   "qualityPass": true,
+   "qualityReasons": "-",
+   "profile": "A_NORMAL",
+   "ocrConf": 0.88,
+   "ms": {
+    "oldOcrMs": 32.7,
+    "newOcrMs": 33.7,
+    "qualityMs": 2.2,
+    "preprocessMs": 1.9,
+    "newTotalMs": 37.7
+   },
+   "newReadText": "SKU-100200300"
+  },
+  {
+   "id": 27,
+   "category": "label_size",
+   "gt": "ABO-123456",
+   "oldKind": "old_exact",
+   "oldGuess": "ABO-123456",
+   "newKind": "new_auto_exact",
+   "qualityLevel": "GOOD",
+   "qualityPass": true,
+   "qualityReasons": "-",
+   "profile": "A_NORMAL",
+   "ocrConf": 0.88,
+   "ms": {
+    "oldOcrMs": 28.4,
+    "newOcrMs": 30.6,
+    "qualityMs": 2.1,
+    "preprocessMs": 1.9,
+    "newTotalMs": 34.7
+   },
+   "newReadText": "ABO-123456"
+  }
+ ]
+}
