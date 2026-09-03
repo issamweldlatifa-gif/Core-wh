@@ -39,6 +39,7 @@ const PROBE_SQL = `
     (SELECT COUNT(*) FROM information_schema.tables  WHERE table_schema = 'public' AND table_name = 'putaway_sessions')   AS putaway_sessions,
     (SELECT COUNT(*) FROM information_schema.tables  WHERE table_schema = 'public' AND table_name = 'carton_placements')  AS carton_placements,
     (SELECT COUNT(*) FROM information_schema.tables  WHERE table_schema = 'public' AND table_name = 'stations')           AS stations,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'stations' AND column_name = 'warehouseId') AS station_wh,
     (SELECT COUNT(*) FROM information_schema.tables  WHERE table_schema = 'public' AND table_name = 'operation_corrections') AS operation_corrections,
     (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'warehouse_cartons'  AND column_name = 'currentLocationId') AS carton_loc,
     (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'warehouse_cartons'  AND column_name = 'storedAt')          AS carton_stored,
@@ -118,6 +119,7 @@ const REPAIR_STATEMENTS: string[] = [
     CONSTRAINT "stations_pkey" PRIMARY KEY ("id")
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "stations_code_key" ON "stations"("code")`,
+  `ALTER TABLE "stations" ADD COLUMN IF NOT EXISTS "warehouseId" TEXT`,
   `CREATE INDEX IF NOT EXISTS "stations_department_idx" ON "stations"("department")`,
   `CREATE INDEX IF NOT EXISTS "stations_status_idx" ON "stations"("status")`,
   `CREATE INDEX IF NOT EXISTS "stations_assignedWorkerId_idx" ON "stations"("assignedWorkerId")`,
