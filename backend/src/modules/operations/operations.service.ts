@@ -135,17 +135,18 @@ export class OperationsService {
       // --- Control Center V1 additions -------------------------------
       warehouse,
       arrivalsNotStarted,
+      arrivalsInProgress,
+      arrivalsReceived,
       sessionsCompletedToday,
       toteContainersActive,
-      needsReviewAwaiting,
       piecesStoredToday,
       articlesAwaitingOrder,
       articlesInCustomerBins,
       customerBinsActive,
       customerBinsDoneToday,
       outboundPackedToday,
-      activeCategoryCount,
-      destinationCount,
+      shippedTotal,
+      closedBinsTotal,
     ] = await Promise.all([
       this.prisma.station.findMany({
         orderBy: [{ department: 'asc' }, { code: 'asc' }],
@@ -196,6 +197,10 @@ export class OperationsService {
         select: { id: true, code: true, name: true, status: true },
       }),
       this.prisma.expectedArrival.count({ where: { status: 'EXPECTED' } }),
+      this.prisma.expectedArrival.count({ where: { status: { in: ['RECEIVING', 'PAUSED'] } } }),
+      this.prisma.expectedArrival.count({
+        where: { status: { in: ['RECEIVED', 'RECEIVED_WITH_DISCREPANCY'] } },
+      }),
       this.prisma.receivingSession.count({
         where: {
           status: { in: ['COMPLETED', 'COMPLETED_WITH_DISCREPANCY'] },
@@ -203,9 +208,6 @@ export class OperationsService {
         },
       }),
       this.prisma.operationalContainer.count({ where: { type: 'RECEIVING', status: 'ACTIVE' } }),
-      this.prisma.articleUnit.count({
-        where: { status: 'IN_CONTAINER', categoryStatus: 'NEEDS_REVIEW' },
-      }),
       this.prisma.articleUnit.count({ where: { status: 'STORED', storedAt: { gte: since } } }),
       this.prisma.articleUnit.count({
         where: {
@@ -219,8 +221,8 @@ export class OperationsService {
         where: { type: 'CUSTOMER', status: { in: ['PACKED', 'CLOSED'] }, updatedAt: { gte: since } },
       }),
       this.prisma.outboundShipment.count({ where: { packedAt: { gte: since } } }),
-      this.prisma.categoryMaster.count({ where: { status: 'ACTIVE' } }),
-      this.prisma.categoryZoneMapping.count(),
+      this.prisma.outboundShipment.count({ where: { status: 'SHIPPED' } }),
+      this.prisma.operationalContainer.count({ where: { type: 'CUSTOMER', status: 'CLOSED' } }),
     ]);
 
     // ---- resolve identity + presence in few extra queries -------------
@@ -375,16 +377,12 @@ export class OperationsService {
       pipeline: this.buildPipeline({
         activeSessions: activeSessions.length,
         arrivalsNotStarted,
+        arrivalsInProgress,
+        arrivalsReceived,
         sessionsCompletedToday,
         openDiscrepancies,
         toteContainersActive,
-        articlesAwaitingSorting,
-        needsReviewAwaiting,
-        piecesStoredToday,
-        activePutaway: activePutaway.length,
-        awaitingPutaway,
-        cartonsStoredToday,
-        articlesStored,
+        articlesInTotes: articlesAwaitingSorting,
         openOrders,
         articlesAwaitingOrder,
         articlesInCustomerBins,
@@ -394,8 +392,8 @@ export class OperationsService {
         outboundPackedToday,
         shipmentsReadyToShip,
         shippedToday,
-        activeCategoryCount,
-        destinationCount,
+        shippedTotal,
+        closedBinsTotal,
       }),
       operations: this.buildOperations({
         activeSessions: activeSessions.length,
@@ -444,7 +442,16 @@ export class OperationsService {
     };
   }
 
-  /** §4B — the 8-step operational pipeline with real per-stage metrics. */
+  /** §4B — the operational pipeline (FLOW MODEL PATCH).
+   *
+   *  ARRIVAL → RECEIVING → RECEIVING CONTAINER / TOTE → CUSTOMER SORTING →
+   *  CUSTOMER BIN → PACKING → SHIPPING → ARCHIVE / TRACE.
+   *
+   *  Category is OPTIONAL product information — never a stage and never a
+   *  gate. The Storage path (putaway → storage location) stays a real worker
+   *  module but is deliberately NOT in the pipeline: it is not required for
+   *  an article to reach its customer bin. Every number is a real count.
+   */
   private buildPipeline(d: Record<string, number>): Array<{
     id: string;
     title: string;
@@ -456,45 +463,34 @@ export class OperationsService {
       cells: Array<[string, number | null, string]>;
     }> = [
       {
+        id: 'arrival',
+        title: 'ARRIVAL',
+        cells: [
+          ['waiting', d.arrivalsNotStarted, 'arrivals'],
+          ['active', d.arrivalsInProgress, 'arrivals'],
+          ['done', d.arrivalsReceived, 'arrivals'],
+        ],
+      },
+      {
         id: 'receiving',
         title: 'RECEIVING',
         cells: [
           ['active', d.activeSessions, 'sessions'],
-          ['waiting', d.arrivalsNotStarted, 'arrivals'],
           ['done', d.sessionsCompletedToday, 'sessions'],
           ['exceptions', d.openDiscrepancies, 'open'],
         ],
       },
       {
-        id: 'receiving-totes',
-        title: 'RECEIVING TOTES',
+        id: 'receiving-container',
+        title: 'RECEIVING CONTAINER / TOTE',
         cells: [
           ['active', d.toteContainersActive, 'totes'],
-          ['waiting', d.articlesAwaitingSorting, 'articles'],
+          ['waiting', d.articlesInTotes, 'articles'],
         ],
       },
       {
-        id: 'category-sorting',
-        title: 'CATEGORY SORTING',
-        cells: [
-          ['waiting', d.articlesAwaitingSorting, 'articles'],
-          ['attention', d.needsReviewAwaiting, 'articles'],
-          ['done', d.piecesStoredToday, 'pieces'],
-        ],
-      },
-      {
-        id: 'storage',
-        title: 'STORAGE',
-        cells: [
-          ['active', d.activePutaway, 'putaway'],
-          ['waiting', d.awaitingPutaway, 'cartons'],
-          ['done', d.cartonsStoredToday, 'cartons'],
-          ['info', d.articlesStored, 'on shelf'],
-        ],
-      },
-      {
-        id: 'order-sorting',
-        title: 'CUSTOMER ORDER SORTING',
+        id: 'customer-sorting',
+        title: 'CUSTOMER SORTING',
         cells: [
           ['active', d.openOrders, 'orders'],
           ['waiting', d.articlesAwaitingOrder, 'articles'],
@@ -502,8 +498,8 @@ export class OperationsService {
         ],
       },
       {
-        id: 'customer-bins',
-        title: 'CUSTOMER BINS',
+        id: 'customer-bin',
+        title: 'CUSTOMER BIN',
         cells: [
           ['active', d.customerBinsActive, 'bins'],
           ['ready', d.binsReadyForPacking, 'bins'],
@@ -524,6 +520,14 @@ export class OperationsService {
         cells: [
           ['waiting', d.shipmentsReadyToShip, 'shipments'],
           ['done', d.shippedToday, 'shipments'],
+        ],
+      },
+      {
+        id: 'archive-trace',
+        title: 'ARCHIVE / TRACE',
+        cells: [
+          ['done', d.shippedTotal, 'shipments'],
+          ['info', d.closedBinsTotal, 'closed bins'],
         ],
       },
     ];
@@ -569,7 +573,7 @@ export class OperationsService {
       },
       {
         id: 'sorting',
-        title: 'SORTING',
+        title: 'SORTING · OPTIONAL PATH',
         status:
           n(d.articlesAwaitingSorting) > 0
             ? { label: 'WORK IN QUEUE', tone: 'warn' }
@@ -577,11 +581,11 @@ export class OperationsService {
         current: n(d.articlesAwaitingSorting),
         attention: 0,
         cells: [{ key: 'info', value: n(d.articlesAwaitingSorting), unit: 'in totes' }],
-        open: '/admin/traceability',
+        open: '/admin/containers',
       },
       {
         id: 'storage',
-        title: 'STORAGE',
+        title: 'STORAGE · OPTIONAL PATH',
         status:
           n(d.awaitingPutaway) > 0
             ? { label: 'WORK IN QUEUE', tone: 'warn' }
@@ -589,11 +593,11 @@ export class OperationsService {
         current: n(d.awaitingPutaway),
         attention: 0,
         cells: [{ key: 'info', value: n(d.articlesStored), unit: 'articles on shelf' }],
-        open: '/admin/traceability',
+        open: null,
       },
       {
         id: 'order-sorting',
-        title: 'ORDER SORTING',
+        title: 'CUSTOMER ORDER SORTING',
         status:
           n(d.openOrders) > 0
             ? { label: 'ORDERS OPEN', tone: 'ok' }

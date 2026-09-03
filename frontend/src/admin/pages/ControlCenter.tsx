@@ -51,7 +51,7 @@ export function Pipeline({ stages }: { stages: OpsOverview['pipeline'] }) {
     <div className="os-card">
       <div className="cc-head">
         <h2 className="cc-title">Operation Pipeline</h2>
-        <span className="os-muted" style={{ fontSize: 12 }}>receiving → … → shipping · real counts only</span>
+        <span className="os-muted" style={{ fontSize: 12 }}>arrival → … → archive / trace · real counts only · no category gate</span>
       </div>
       <div className="ac-pipe">
         {stages.map((s, i) => (

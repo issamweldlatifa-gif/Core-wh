@@ -40,7 +40,10 @@ export default function Containers() {
       <header className="ac-head os-spread">
         <div>
           <h1 className="ac-title">Containers</h1>
-          <p className="ac-sub">Operational containers — RECEIVING totes (RCN-…) and CUSTOMER bins (BIN-…).</p>
+          <p className="ac-sub">
+            Operational containers — RECEIVING totes (RCN-…) and CUSTOMER bins (BIN-…).
+            Real statuses only: capacity / FULL is not modelled yet, article counts are live.
+          </p>
         </div>
         <div className="os-row">
           {['ALL', 'RECEIVING', 'CUSTOMER'].map((t) => (
@@ -64,7 +67,7 @@ export default function Containers() {
           <div className="ac-scroll">
             <table className="os-table">
               <thead>
-                <tr><th>Code</th><th>Type</th><th>Status</th><th>Label</th><th>Order / Customer</th><th>Articles</th><th>Updated</th></tr>
+                <tr><th>Code</th><th>Type</th><th>Status</th><th>Label</th><th>Order / Customer</th><th>Articles</th><th>Created</th><th>Updated</th></tr>
               </thead>
               <tbody>
                 {rows.map((c) => (
@@ -79,6 +82,7 @@ export default function Containers() {
                         : <span className="os-muted">—</span>}
                     </td>
                     <td>{c._count.articles}</td>
+                    <td className="os-muted">{new Date(c.createdAt).toLocaleString()}</td>
                     <td className="os-muted">{new Date(c.updatedAt).toLocaleString()}</td>
                   </tr>
                 ))}

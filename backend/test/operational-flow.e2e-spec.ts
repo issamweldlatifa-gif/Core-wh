@@ -412,6 +412,37 @@ describe('OPERATIONAL FLOW — receiving tote -> sorting -> bin -> pack -> ship'
     expect(c.shippedToday).toBeGreaterThanOrEqual(1);
   });
 
+  // 16c ---- Admin Control Center FLOW MODEL PATCH -------------------
+  it('control-center overview pipeline follows the flow model patch (no category gate)', async () => {
+    const operations = new OperationsService(prisma as any);
+    const overview = await operations.overview();
+    const ids = overview.pipeline.map((s) => s.id);
+    // Category / Storage are optional paths — they must not appear as stages.
+    expect(ids).toEqual([
+      'arrival',
+      'receiving',
+      'receiving-container',
+      'customer-sorting',
+      'customer-bin',
+      'packing',
+      'shipping',
+      'archive-trace',
+    ]);
+    for (const s of overview.pipeline) {
+      expect(s.title).not.toContain('CATEGORY');
+      for (const cell of s.cells) {
+        expect(typeof cell.value).toBe('number');
+        expect(cell.value).toBeGreaterThanOrEqual(0);
+      }
+    }
+    // tote stage carries live article counts; customer-sorting is the
+    // Article -> Customer -> Order -> Bin stage (not category routing).
+    const tote = overview.pipeline.find((s) => s.id === 'receiving-container');
+    const customer = overview.pipeline.find((s) => s.id === 'customer-sorting');
+    expect(tote?.cells.some((c) => c.key === 'waiting')).toBe(true);
+    expect(customer?.cells.some((c) => c.key === 'active' || c.key === 'waiting')).toBe(true);
+  });
+
   // 17 --------------------------------------------------------------
   it('articleTrace returns the full chain up to SHIPPED', async () => {
     const t = await fulfillment.articleTrace(articleCode);
