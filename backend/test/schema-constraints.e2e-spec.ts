@@ -27,11 +27,20 @@ describe('Phase 2 — schema & constraints', () => {
 
   afterAll(async () => {
     // Cleanup in reverse dependency order (Restrict protects parents — D-35).
+    // SCOPED to this suite's own P2SC fixtures — an unscoped deleteMany({})
+    // here used to wipe ALL orders/products and was blocked by Restrict FKs
+    // from unrelated live data (shipments/containers) on shared dev DBs.
     await prisma.auditLog.deleteMany({ where: { action: 'PHYSICAL_ITEM_CREATED' } });
-    await prisma.physicalItem.deleteMany({});
-    await prisma.orderItem.deleteMany({});
-    await prisma.warehouseOrder.deleteMany({});
-    await prisma.product.deleteMany({});
+    await prisma.physicalItem.deleteMany({ where: { itemCode: { startsWith: 'PI-P2SC' } } });
+    await prisma.orderItem.deleteMany({
+      where: { order: { externalOrderReference: { startsWith: 'P2SC-' } } },
+    });
+    await prisma.warehouseOrder.deleteMany({
+      where: { externalOrderReference: { startsWith: 'P2SC-' } },
+    });
+    await prisma.product.deleteMany({
+      where: { externalProductCode: 'ABC123', store: { in: ['NIKE', 'TEMU'] } },
+    });
     await prisma.location.deleteMany({ where: { locationCode: { startsWith: 'P2SC-' } } });
     await prisma.level.deleteMany({ where: { code: 'P2SC-L1' } });
     await prisma.rack.deleteMany({ where: { code: 'P2SC-R1' } });

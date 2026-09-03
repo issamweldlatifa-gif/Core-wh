@@ -37,6 +37,11 @@ const AdminCorrections = lazy(() => import('./admin/pages/Corrections'));
 const AdminTraceability = lazy(() => import('./admin/pages/Traceability'));
 const AdminOrders = lazy(() => import('./admin/pages/Orders'));
 const AdminOutboundShipments = lazy(() => import('./admin/pages/OutboundShipments'));
+// Admin Control Center V1 pages.
+const AdminOperations = lazy(() => import('./admin/pages/Operations'));
+const AdminLiveActivity = lazy(() => import('./admin/pages/LiveActivity'));
+const AdminContainers = lazy(() => import('./admin/pages/Containers'));
+const AdminTasks = lazy(() => import('./admin/pages/Tasks'));
 const Categories = lazy(() => import('./modules/categories/Categories'));
 
 /** Guards a route by the required back-end permission; redirects otherwise. */
@@ -130,6 +135,10 @@ export default function App() {
             element={<PermissionGate perm="operations.view"><AdminShell /></PermissionGate>}
           >
             <Route index element={<ControlCenter />} />
+            <Route path="operations" element={<AdminOperations />} />
+            <Route path="activity" element={<AdminLiveActivity />} />
+            <Route path="containers" element={<AdminContainers />} />
+            <Route path="tasks" element={<AdminTasks />} />
             <Route path="workers" element={<AdminWorkers />} />
             <Route path="workers/:id" element={<AdminWorkers />} />
             <Route path="sessions/:id" element={<AdminSessionDetail />} />
@@ -143,6 +152,7 @@ export default function App() {
             <Route path="arrivals" element={<Navigate to="/expected-arrivals" replace />} />
             <Route path="receiving" element={<Navigate to="/terminal/receiving" replace />} />
             <Route path="structure" element={<Navigate to="/warehouse/structure" replace />} />
+            <Route path="categories" element={<Navigate to="/categories" replace />} />
             <Route path="users" element={<Navigate to="/users" replace />} />
             <Route path="roles" element={<Navigate to="/roles" replace />} />
             <Route path="audit" element={<Navigate to="/audit" replace />} />

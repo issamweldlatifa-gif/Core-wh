@@ -16,6 +16,13 @@ export interface OpsOverview {
     activePutawaySessions: number;
     cartonsStoredToday: number;
     awaitingPutaway: number;
+    // Fulfillment pipeline (backend aggregates — operational flow §1–§7).
+    openOrders: number;
+    articlesAwaitingSorting: number;
+    articlesStored: number;
+    binsReadyForPacking: number;
+    shipmentsReadyToShip: number;
+    shippedToday: number;
   };
   stations: Array<{
     id: string; code: string; name: string; department: string; status: string;
@@ -103,6 +110,29 @@ export interface CorrectionRow {
   originalSnapshot: unknown; newSnapshot: unknown;
 }
 
+/** One audit-log entry — the Live Activity stream (§9 Admin CC V1). */
+export interface ActivityRow {
+  id: string;
+  action: string;
+  entityType: string | null;
+  entityId: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+  actor: { id: string; name: string; employeeCode: string } | null;
+}
+
+/** Operational container (RECEIVING tote or CUSTOMER bin). */
+export interface ContainerRow {
+  id: string;
+  code: string;
+  type: 'RECEIVING' | 'CUSTOMER';
+  status: string;
+  label: string | null;
+  createdAt: string;
+  order: { externalOrderReference: string; externalCustomerReference: string } | null;
+  _count: { articles: number };
+}
+
 export interface StationRow {
   id: string; code: string; name: string; department: string; status: string;
   capabilities: string[]; deviceId: string | null;
@@ -118,6 +148,14 @@ export const adminApi = {
     client.get<ExceptionRow[]>('/v1/operations/exceptions', { params: { status } }).then((r) => r.data),
   corrections: (sessionId?: string) =>
     client.get<CorrectionRow[]>('/v1/operations/corrections', { params: { sessionId } }).then((r) => r.data),
+
+  /** Latest audit events — Live Activity polls this (no realtime infra in V1). */
+  activity: (take = 50) =>
+    client.get<ActivityRow[]>('/v1/audit', { params: { take } }).then((r) => r.data),
+
+  /** Operational containers (totes + customer bins) — existing fulfillment API. */
+  containers: (params?: { type?: string; status?: string }) =>
+    client.get<ContainerRow[]>('/v1/fulfillment/containers', { params }).then((r) => r.data),
 
   stations: () => client.get<StationRow[]>('/v1/stations').then((r) => r.data),
   createStation: (d: { code: string; name: string; department: string; capabilities?: string[] }) =>
