@@ -223,7 +223,7 @@ developer deliverable — nothing here claims device speed.
 `ContinuousScanner.tsx` (scanContext + engine acquire/release + targetType, no
 per-teardown OCR kill) · `ReceivingScanner.tsx` (pass-through) · `ReceivingTask.tsx`
 (prefetch build) · `scan-logic.test.ts` (latency assertion).
-**Delivery commit:** recorded by the follow-up doc commit on master.
+**Delivery commit:** `fddd9a3` (this reference: follow-up record commit).
 
 **Still on the developer (unchanged):** real Android-device runs, filling the
 ANNEX table, p50/p95/p99 + CPU/RAM/FPS on those devices, screen recording,
