@@ -252,6 +252,16 @@
 .ac-na { color: var(--muted); font-size: 0.78rem; }
 
 /* ==========================================================================
+   RECEIVING CONTAINERS / CUSTOMER BINS (COMMAND #1 FINAL §08/§12).
+   ========================================================================== */
+.cc-cap { min-width: 150px; }
+.cc-cap-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 0.8rem; margin-bottom: 3px; }
+.cc-bar { height: 5px; width: 100%; background: #0c0c0c; border: 1px solid var(--border); }
+.cc-bar > div { height: 100%; background: var(--primary); }
+.cc-bar--warn > div { background: var(--warning); }
+.cc-bar--err > div { background: var(--error); }
+
+/* ==========================================================================
    RESPONSIVE (§12) — desktop first, tablet, mobile fallback.
    ========================================================================== */
 @media (max-width: 1180px) {

@@ -40,7 +40,9 @@ const AdminOrders = lazy(() => import('./admin/pages/Orders'));
 const AdminOutboundShipments = lazy(() => import('./admin/pages/OutboundShipments'));
 const AdminTasks = lazy(() => import('./admin/pages/Tasks'));
 const AdminActivity = lazy(() => import('./admin/pages/Activity'));
-const AdminContainers = lazy(() => import('./admin/pages/Containers'));
+const AdminReceivingContainers = lazy(() => import('./admin/pages/ReceivingContainers'));
+const AdminCustomerBins = lazy(() => import('./admin/pages/CustomerBins'));
+const AdminContainerDetail = lazy(() => import('./admin/pages/ContainerDetail'));
 const Categories = lazy(() => import('./modules/categories/Categories'));
 
 /** Guards a route by the required back-end permission; redirects otherwise. */
@@ -170,7 +172,13 @@ export default function App() {
             <Route path="shipments" element={<AdminOutboundShipments />} />
             <Route path="tasks" element={<AdminTasks />} />
             <Route path="activity" element={<AdminActivity />} />
-            <Route path="containers" element={<AdminContainers />} />
+            {/* Operational containers (COMMAND #1 FINAL §08/§09/§12). */}
+            <Route path="receiving-containers" element={<AdminReceivingContainers />} />
+            <Route path="customer-bins" element={<AdminCustomerBins />} />
+            <Route path="containers/:code" element={<AdminContainerDetail />} />
+            {/* Legacy alias — old generic containers board now covered by the
+                Receiving Containers board. */}
+            <Route path="containers" element={<Navigate to="/admin/receiving-containers" replace />} />
             {/* Legacy aliases to generic modules. */}
             <Route path="arrivals" element={<Navigate to="/expected-arrivals" replace />} />
             <Route path="receiving" element={<Navigate to="/terminal/receiving" replace />} />

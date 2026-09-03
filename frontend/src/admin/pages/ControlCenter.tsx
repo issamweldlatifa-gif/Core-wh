@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { useControlData } from '../controlData';
-import type { ActivityEvent, ExceptionRowLight, MetricCell, OpsOverview } from '../api';
+import type { ActivityEvent, ContainerBoardRow, ExceptionRowLight, MetricCell, OpsOverview } from '../api';
 
 /** Metric cell colour semantics (§10) — no green-for-everything. */
 const CELL_TONE: Record<string, string> = {
@@ -198,6 +198,104 @@ export function StationsPanel({ o }: { o: OpsOverview }) {
   );
 }
 
+/** Container status chip — semantic, derived (FULL is server-derived). */
+function containerTag(c: ContainerBoardRow) {
+  if (c.type === 'RECEIVING') {
+    if (c.status === 'FULL') return <span className="os-tag os-tag--err">FULL</span>;
+    if (c.status === 'CLOSED') return <span className="os-tag os-tag--muted">CLOSED</span>;
+    return <span className="os-tag os-tag--ok">ACTIVE</span>;
+  }
+  switch (c.status) {
+    case 'READY_FOR_PACKING': return <span className="os-tag os-tag--warn">READY FOR PACKING</span>;
+    case 'PACKED': return <span className="os-tag os-tag--ok">PACKED</span>;
+    case 'CLOSED': return <span className="os-tag os-tag--muted">CLOSED</span>;
+    default: return <span className="os-tag os-tag--ok">OPEN</span>;
+  }
+}
+
+/** Fill bar (count / capacity) — real numbers only. */
+function capacityBar(c: ContainerBoardRow) {
+  const pct = c.fill ?? 0;
+  const tone = pct >= 100 ? 'cc-bar--err' : pct >= 80 ? 'cc-bar--warn' : 'cc-bar--ok';
+  return (
+    <div className="cc-cap">
+      <div className="cc-cap-top">
+        <span className="mono">{c.count} / {c.capacity}</span>
+        {c.expected != null && <span className="os-muted" style={{ fontSize: 11 }}>expected {c.expected}</span>}
+      </div>
+      <div className={`cc-bar ${tone}`}><div style={{ width: `${Math.min(100, pct)}%` }} /></div>
+    </div>
+  );
+}
+
+/** RECEIVING CONTAINERS / TOTES (COMMAND #1 FINAL §08) and CUSTOMER BINS
+ *  (§12) — operational containers at the heart of the control room. */
+export function ContainersPanel({
+  o,
+  kind,
+}: {
+  o: OpsOverview;
+  kind: 'receiving' | 'customer';
+}) {
+  const navigate = useNavigate();
+  const rows = kind === 'receiving' ? o.receivingContainers : o.customerBins;
+  const viewAll = kind === 'receiving' ? '/admin/receiving-containers' : '/admin/customer-bins';
+  const title = kind === 'receiving' ? 'Receiving Containers / Totes' : 'Customer Bins';
+  const subtitle =
+    kind === 'receiving'
+      ? 'operational buffers · capacity configurable · count / capacity live'
+      : 'per-order bins · article → customer → order → bin';
+  return (
+    <div className="os-card">
+      <div className="cc-head">
+        <h2 className="cc-title">{title}</h2>
+        <div className="os-row">
+          <span className="os-muted" style={{ fontSize: 12 }}>{subtitle}</span>
+          <button className="os-btn" onClick={() => navigate(viewAll)}>VIEW ALL</button>
+        </div>
+      </div>
+      {rows.length === 0 ? (
+        <div className="os-empty">No {kind === 'receiving' ? 'receiving containers' : 'customer bins'}.</div>
+      ) : (
+        <div className="ac-scroll">
+          <table className="os-table">
+            <thead>
+              <tr>
+                <th>Container</th><th>Status</th><th>Capacity</th>
+                <th>Worker</th><th>Station</th><th>Last activity</th><th />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((c) => (
+                <tr key={c.id}>
+                  <td className="mono">
+                    {c.code}
+                    {c.order && (
+                      <div className="os-muted" style={{ fontSize: 11 }}>
+                        {c.order.reference} · {c.order.customer}
+                      </div>
+                    )}
+                  </td>
+                  <td>{containerTag(c)}</td>
+                  <td>{capacityBar(c)}</td>
+                  <td>{c.worker?.name ?? <span className="os-muted">—</span>}</td>
+                  <td className="mono">{c.station?.code ?? <span className="os-muted">—</span>}</td>
+                  <td className="os-muted">{fmtAgo(c.lastActivity)}</td>
+                  <td>
+                    <button className="ac-linkbtn mono" onClick={() => navigate(`/admin/containers/${c.code}`)}>
+                      details
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** §8 — open exceptions summary. */
 export function ExceptionsPanel({ o }: { o: OpsOverview }) {
   const navigate = useNavigate();
@@ -257,7 +355,7 @@ function ExcRow({ x }: { x: ExceptionRowLight }) {
   );
 }
 
-/** §9 — live activity stream. */
+/** Live activity stream (§9). */
 export function ActivityPanel({ events }: { events: ActivityEvent[] }) {
   const navigate = useNavigate();
   return (
@@ -324,6 +422,14 @@ export function WarehouseStatus({ o }: { o: OpsOverview }) {
           <div className="ac-kpi-label">Active stations</div>
         </div>
         <div className="ac-status-cell">
+          <div className="ac-kpi-value tone-info">{o.counters.activeReceivingContainers}</div>
+          <div className="ac-kpi-label">Active receiving containers</div>
+        </div>
+        <div className="ac-status-cell">
+          <div className="ac-kpi-value tone-info">{o.counters.articlesInOperation}</div>
+          <div className="ac-kpi-label">Articles in operation</div>
+        </div>
+        <div className="ac-status-cell">
           <div className={`ac-kpi-value ${o.exceptions.open > 0 ? 'tone-err' : 'tone-ok'}`}>{o.exceptions.open}</div>
           <div className="ac-kpi-label">Open exceptions</div>
         </div>
@@ -363,6 +469,11 @@ export default function ControlCenter() {
       <section className="cc-section">
         <Pipeline stages={o.pipeline} />
       </section>
+
+      <div className="ac-2col">
+        <ContainersPanel o={o} kind="receiving" />
+        <ContainersPanel o={o} kind="customer" />
+      </div>
 
       <section className="cc-section">
         <OperationsPanel operations={o.operations} />

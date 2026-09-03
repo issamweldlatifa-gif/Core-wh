@@ -26,7 +26,7 @@ export class FulfillmentController {
   @RequirePermissions('receiving.execute')
   @ApiOperation({ summary: 'Create an operational container (RECEIVING tote or CUSTOMER bin).' })
   createContainer(
-    @Body() body: { type: 'RECEIVING' | 'CUSTOMER'; label?: string; orderReference?: string },
+    @Body() body: { type: 'RECEIVING' | 'CUSTOMER'; label?: string; orderReference?: string; capacity?: number },
     @Req() req: any,
   ) {
     return this.fulfillment.createContainer(body, this.actor(req));

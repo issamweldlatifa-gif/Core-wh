@@ -83,10 +83,16 @@ export interface OpsOverview {
     piecesStoredToday: number;
     articlesInCustomerBins: number;
     articlesAwaitingOrder: number;
+    activeReceivingContainers: number;
+    articlesInOperation: number;
   };
   pipeline: PipelineStage[];
   operations: OperationRow[];
   workers: WorkerLiveRow[];
+  /** Receiving Containers/Totes board (top rows, real data). */
+  receivingContainers: ContainerBoardRow[];
+  /** Customer Bins board (top rows, real data). */
+  customerBins: ContainerBoardRow[];
   exceptions: {
     open: number;
     bySeverity: Record<'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW', number>;
@@ -205,6 +211,58 @@ export interface ContainerRow {
   createdAt: string; updatedAt: string;
 }
 
+/** Receiving Container / Tote or Customer Bin as a first-class operational
+ *  object (COMMAND #1 FINAL §08/§12). FULL is derived server-side from the
+ *  configurable capacity. Worker/station derive from real provenance. */
+export interface ContainerBoardRow {
+  id: string;
+  code: string;
+  type: 'RECEIVING' | 'CUSTOMER';
+  /** Display status (FULL when a tote reached capacity, else dbStatus). */
+  status: string;
+  dbStatus: string;
+  capacity: number;
+  count: number;
+  fill: number | null;
+  label: string | null;
+  order: { id: string; reference: string; customer: string } | null;
+  /** Customer bins only: units requested on the linked order. */
+  expected: number | null;
+  worker: { id: string; name: string; employeeCode: string } | null;
+  station: { id: string; code: string; name: string } | null;
+  createdAt: string;
+  lastActivity: string | null;
+}
+
+export interface ContainerDetail {
+  container: {
+    id: string; code: string; type: 'RECEIVING' | 'CUSTOMER';
+    status: string; dbStatus: string;
+    capacity: number; count: number; fill: number | null;
+    label: string | null;
+    order: { reference: string; customer: string; status: string; note: string | null } | null;
+    worker: { id: string; name: string; employeeCode: string } | null;
+    sortingWorker: { id: string; name: string; employeeCode: string } | null;
+    station: { id: string; code: string; name: string } | null;
+    createdAt: string;
+    closedAt: string | null;
+    lastActivity: string;
+  };
+  articles: Array<{
+    id: string; code: string; sku: string; productName: string | null;
+    category: string | null; subcategory: string | null; categoryStatus: string;
+    status: string;
+    sourceCarton: { code: string; qr: string | null } | null;
+    receivingSession: {
+      id: string; code: string; status: string; startedAt: string; completedAt: string | null;
+    } | null;
+    order: { id: string; reference: string; customer: string } | null;
+    currentLocation: { locationCode: string } | null;
+    outboundShipment: { code: string; status: string } | null;
+    createdAt: string;
+  }>;
+}
+
 export const adminApi = {
   overview: () => client.get<OpsOverview>('/v1/operations/overview').then((r) => r.data),
   activity: (limit = 60) =>
@@ -226,6 +284,13 @@ export const adminApi = {
   assignStation: (id: string, workerId: string | null) =>
     client.post<StationRow>(`/v1/stations/${id}/assign`, { workerId }).then((r) => r.data),
 
+  // Operational containers (COMMAND #1 FINAL §08/§12).
+  receivingContainers: () =>
+    client.get<ContainerBoardRow[]>('/v1/operations/receiving-containers').then((r) => r.data),
+  customerBins: () =>
+    client.get<ContainerBoardRow[]>('/v1/operations/customer-bins').then((r) => r.data),
+  container: (code: string) =>
+    client.get<ContainerDetail>(`/v1/operations/containers/${encodeURIComponent(code)}`).then((r) => r.data),
   containers: (params?: { type?: string; status?: string }) =>
     client.get<ContainerRow[]>('/v1/fulfillment/containers', { params }).then((r) => r.data),
 

@@ -49,6 +49,7 @@ const PROBE_SQL = `
     (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'receiving_products' AND column_name = 'category')          AS rp_category,
     (SELECT COUNT(*) FROM information_schema.tables  WHERE table_schema = 'public' AND table_name = 'category_master')       AS category_master,
     (SELECT COUNT(*) FROM information_schema.tables  WHERE table_schema = 'public' AND table_name = 'category_zone_mappings') AS category_zone_mappings,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'operational_containers' AND column_name = 'capacity')   AS container_capacity,
     (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'expected_arrival_items' AND column_name = 'categoryStatus') AS eai_category_status
 `;
 
@@ -243,6 +244,7 @@ const REPAIR_STATEMENTS: string[] = [
     "code" TEXT NOT NULL,
     "type" "ContainerType" NOT NULL,
     "status" "ContainerStatus" NOT NULL DEFAULT 'ACTIVE',
+    "capacity" INTEGER NOT NULL DEFAULT 50,
     "label" TEXT,
     "orderId" TEXT,
     "createdBy" TEXT,
@@ -250,6 +252,7 @@ const REPAIR_STATEMENTS: string[] = [
     "updatedAt" TIMESTAMP(3) NOT NULL,
     CONSTRAINT "operational_containers_pkey" PRIMARY KEY ("id")
   )`,
+  `ALTER TABLE "operational_containers" ADD COLUMN IF NOT EXISTS "capacity" INTEGER NOT NULL DEFAULT 50`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "operational_containers_code_key" ON "operational_containers"("code")`,
   `CREATE INDEX IF NOT EXISTS "operational_containers_type_status_idx" ON "operational_containers"("type", "status")`,
   `CREATE INDEX IF NOT EXISTS "operational_containers_orderId_idx" ON "operational_containers"("orderId")`,
@@ -356,6 +359,7 @@ export async function repairSchemaDriftIfNeeded(): Promise<void> {
       '20260902210000_product_category_from_crm',
       '20260903090000_category_master_and_validation',
       '20260903120000_operational_flow_containers_articles_outbound',
+      '20260903130000_container_capacity',
     ]) {
       try {
         await prisma.$executeRawUnsafe(`

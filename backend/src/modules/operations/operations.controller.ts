@@ -146,6 +146,27 @@ export class OperationsController {
     return this.ops.taskBoard();
   }
 
+  @Get('receiving-containers')
+  @RequirePermissions('operations.view')
+  @ApiOperation({ summary: 'Receiving Containers/Totes board with capacity, count, worker, station.' })
+  receivingContainers() {
+    return this.ops.containersBoard({ type: 'RECEIVING', take: 100 });
+  }
+
+  @Get('customer-bins')
+  @RequirePermissions('operations.view')
+  @ApiOperation({ summary: 'Customer Bins board with expected/count, customer, order.' })
+  customerBins() {
+    return this.ops.containersBoard({ type: 'CUSTOMER', take: 100 });
+  }
+
+  @Get('containers/:code')
+  @RequirePermissions('operations.view')
+  @ApiOperation({ summary: 'Container detail: contents + provenance links (container → article → carton → session → order → bin → shipment).' })
+  container(@Param('code') code: string) {
+    return this.ops.containerDetail(code);
+  }
+
   @Get('workers/:id')
   @RequirePermissions('operations.view')
   @ApiOperation({ summary: 'One worker and their recent sessions.' })

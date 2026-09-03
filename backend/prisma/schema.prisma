@@ -991,6 +991,9 @@ model OperationalContainer {
   code   String          @unique
   type   ContainerType
   status ContainerStatus @default(ACTIVE)
+  /// Configurable container capacity (master data, default 50 — never
+  /// hardcoded in the UI/API). FULL is derived: articles.count >= capacity.
+  capacity Int            @default(50)
   /// Big human label, e.g. the customer reference on a bin ("AHMED").
   label  String?
 

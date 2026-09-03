@@ -29,24 +29,31 @@ interface NavEntry {
 const NAV_GROUPS = ['CONTROL', 'WORKFORCE', 'WAREHOUSE', 'FULFILLMENT', 'MONITORING', 'SYSTEM'] as const;
 
 const NAV: NavEntry[] = [
+  // CONTROL
   { to: '/admin', label: 'Overview', group: 'CONTROL', permission: 'operations.view' },
   { to: '/admin/operations', label: 'Operations', group: 'CONTROL', permission: 'operations.view' },
 
+  // WORKFORCE
   { to: '/admin/workers', label: 'Workers', group: 'WORKFORCE', permission: 'operations.view' },
   { to: '/admin/stations', label: 'Stations', group: 'WORKFORCE', permission: 'stations.view' },
   { to: '/admin/tasks', label: 'Tasks', group: 'WORKFORCE', permission: 'operations.view' },
 
+  // WAREHOUSE
   { to: '/warehouse/structure', label: 'Warehouse Tree', group: 'WAREHOUSE', permission: 'warehouses.view', external: true },
-  { to: '/admin/containers', label: 'Containers', group: 'WAREHOUSE', permission: 'receiving.view' },
+  { to: '/admin/receiving-containers', label: 'Receiving Containers', group: 'WAREHOUSE', permission: 'operations.view' },
   { to: '/categories', label: 'Categories', group: 'WAREHOUSE', permission: 'inventory.view', external: true },
 
+  // FULFILLMENT
   { to: '/admin/orders', label: 'Orders', group: 'FULFILLMENT', permission: 'operations.view' },
+  { to: '/admin/customer-bins', label: 'Customer Bins', group: 'FULFILLMENT', permission: 'operations.view' },
   { to: '/admin/shipments', label: 'Shipments', group: 'FULFILLMENT', permission: 'operations.view' },
 
+  // MONITORING
   { to: '/admin/exceptions', label: 'Exceptions', group: 'MONITORING', permission: 'operations.view' },
   { to: '/admin/activity', label: 'Live Activity', group: 'MONITORING', permission: 'operations.view' },
   { to: '/admin/traceability', label: 'Audit / Trace', group: 'MONITORING', permission: 'operations.view' },
 
+  // SYSTEM
   { to: '/system', label: 'Settings', group: 'SYSTEM', permission: 'system.view', external: true },
 ];
 

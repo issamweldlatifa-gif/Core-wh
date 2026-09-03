@@ -342,7 +342,7 @@ export class OperationsService {
         : null,
     }));
 
-    const counters = {
+    const counters: Record<string, number> = {
       activeSessions: activeSessions.length,
       todaySessions,
       openExceptions: openDiscrepancies,
@@ -367,6 +367,21 @@ export class OperationsService {
       articlesAwaitingOrder,
     };
 
+    // COMMAND #1 FINAL — Receiving Containers/Totes and Customer Bins as
+    // first-class operational objects on the control room + live article
+    // footprint. Container boards derive worker/station/last-activity from
+    // real provenance rows — never guessed values.
+    const [recvRows, custRows, articlesInOperation, receivingContainersActive] = await Promise.all([
+      this.containersBoard({ type: 'RECEIVING', take: 10 }),
+      this.containersBoard({ type: 'CUSTOMER', take: 10 }),
+      this.prisma.articleUnit.count({
+        where: { status: { in: ['RECEIVED', 'IN_CONTAINER', 'STORED', 'IN_CUSTOMER_BIN'] } },
+      }),
+      this.prisma.operationalContainer.count({ where: { type: 'RECEIVING', status: 'ACTIVE' } }),
+    ]);
+    counters.activeReceivingContainers = receivingContainersActive;
+    counters.articlesInOperation = articlesInOperation;
+
     return {
       generatedAt: new Date().toISOString(),
       warehouse: warehouse
@@ -374,6 +389,8 @@ export class OperationsService {
         : null,
       system: { status: 'ONLINE' as const },
       counters,
+      receivingContainers: recvRows,
+      customerBins: custRows,
       pipeline: this.buildPipeline({
         activeSessions: activeSessions.length,
         arrivalsNotStarted,
@@ -581,7 +598,7 @@ export class OperationsService {
         current: n(d.articlesAwaitingSorting),
         attention: 0,
         cells: [{ key: 'info', value: n(d.articlesAwaitingSorting), unit: 'in totes' }],
-        open: '/admin/containers',
+        open: '/admin/receiving-containers',
       },
       {
         id: 'storage',
@@ -605,7 +622,7 @@ export class OperationsService {
         current: n(d.openOrders),
         attention: 0,
         cells: [{ key: 'info', value: n(d.articlesInCustomerBins), unit: 'articles in bins' }],
-        open: '/admin/orders',
+        open: '/admin/customer-bins',
       },
       {
         id: 'packing',
@@ -617,7 +634,7 @@ export class OperationsService {
         current: n(d.binsReadyForPacking),
         attention: 0,
         cells: [],
-        open: '/admin/orders',
+        open: '/admin/customer-bins',
       },
       {
         id: 'shipping',
@@ -632,6 +649,342 @@ export class OperationsService {
         open: '/admin/shipments',
       },
     ];
+  }
+
+  /** Container board row (COMMAND #1 FINAL): a Receiving Tote or a Customer
+   *  Bin as a first-class operational object. Worker/station/last activity
+   *  are DERIVED from real provenance (the newest receiving session that
+   *  scanned articles into a tote; the newest ITEM_PICKED audit on a bin),
+   *  never fabricated. FULL is derived: count >= capacity. */
+  async containersBoard(input: {
+    type: 'RECEIVING' | 'CUSTOMER';
+    take?: number;
+  }): Promise<
+    Array<{
+      id: string;
+      code: string;
+      type: 'RECEIVING' | 'CUSTOMER';
+      /** Display status — FULL when a RECEIVING tote reached its capacity. */
+      status: string;
+      /** Raw DB status, kept so the UI can label honestly. */
+      dbStatus: string;
+      capacity: number;
+      count: number;
+      fill: number | null;
+      label: string | null;
+      order: { id: string; reference: string; customer: string } | null;
+      /** Customer bins only: requested units on the linked order. */
+      expected: number | null;
+      worker: { id: string; name: string; employeeCode: string } | null;
+      station: { id: string; code: string; name: string } | null;
+      createdAt: string;
+      lastActivity: string | null;
+    }>
+  > {
+    const { type, take = 50 } = input;
+    const containers = await this.prisma.operationalContainer.findMany({
+      where: { type },
+      orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }],
+      take,
+      include: {
+        order: { select: { id: true, externalOrderReference: true, externalCustomerReference: true } },
+        _count: { select: { articles: true } },
+      },
+    });
+    const ids = containers.map((c) => c.id);
+
+    // Newest activity per container from its articles (real provenance).
+    const articleRows = ids.length
+      ? await this.prisma.articleUnit.findMany({
+          where: { containerId: { in: ids } },
+          orderBy: { updatedAt: 'desc' },
+          take: 2000,
+          select: { containerId: true, receivingSessionId: true, updatedAt: true },
+        })
+      : [];
+    const latestByContainer = new Map<string, { sessionId: string | null; at: Date }>();
+    for (const a of articleRows) {
+      const cur = latestByContainer.get(a.containerId ?? '');
+      if (!cur || a.updatedAt > cur.at) {
+        latestByContainer.set(a.containerId ?? '', { sessionId: a.receivingSessionId, at: a.updatedAt });
+      }
+    }
+    const sessionIds = Array.from(new Set(
+      [...latestByContainer.values()].map((v) => v.sessionId).filter((s): s is string => !!s),
+    ));
+    const sessions = sessionIds.length
+      ? await this.prisma.receivingSession.findMany({
+          where: { id: { in: sessionIds } },
+          select: {
+            id: true,
+            code: true,
+            startedBy: true,
+            startedAt: true,
+            station: { select: { id: true, code: true, name: true } },
+          },
+        })
+      : [];
+    const sessionById = new Map(sessions.map((s) => [s.id, s]));
+    const userIds = Array.from(new Set(
+      sessions.map((s) => s.startedBy).filter((x): x is string => !!x),
+    ));
+    const users = userIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, name: true, employeeCode: true },
+        })
+      : [];
+    const userById = new Map(users.map((u) => [u.id, u]));
+
+    // Customer bins: expected count = live demand on the order.
+    let expectedByOrder = new Map<string, number>();
+    // Customer bins: newest sorting worker from the ITEM_PICKED audit trail.
+    let pickedByBin = new Map<string, { worker: { id: string; name: string; employeeCode: string }; at: Date }>();
+    if (type === 'CUSTOMER') {
+      const orderIds = Array.from(new Set(
+        containers.map((c) => c.orderId).filter((x): x is string => !!x),
+      ));
+      if (orderIds.length) {
+        const g = await this.prisma.orderItem.groupBy({
+          by: ['orderId'],
+          where: { orderId: { in: orderIds } },
+          _sum: { requestedQuantity: true },
+        });
+        expectedByOrder = new Map(g.map((r) => [r.orderId, r._sum.requestedQuantity ?? 0]));
+      }
+      const codes = new Set(containers.map((c) => c.code));
+      const audits = codes.size
+        ? await this.prisma.auditLog.findMany({
+            where: { action: 'ITEM_PICKED' },
+            orderBy: { createdAt: 'desc' },
+            take: 1000,
+            select: {
+              createdAt: true,
+              actorUserId: true,
+              metadata: true,
+              actor: { select: { id: true, name: true, employeeCode: true } },
+            },
+          })
+        : [];
+      for (const row of audits) {
+        const meta = (row.metadata ?? {}) as Record<string, unknown>;
+        const binCode = typeof meta.bin === 'string' ? meta.bin : null;
+        if (binCode && codes.has(binCode) && !pickedByBin.has(binCode)) {
+          pickedByBin.set(binCode, {
+            worker: row.actorUserId && row.actor
+              ? { id: row.actor.id, name: row.actor.name, employeeCode: row.actor.employeeCode }
+              : { id: row.actorUserId ?? 'unknown', name: 'Unknown', employeeCode: '' },
+            at: row.createdAt,
+          });
+        }
+      }
+    }
+
+    return containers.map((c) => {
+      const count = c._count.articles;
+      const capacity = c.capacity ?? 50;
+      const fill = capacity > 0 ? Math.round((count / capacity) * 100) : null;
+      const latest = latestByContainer.get(c.id);
+      const session = latest?.sessionId ? sessionById.get(latest.sessionId) : undefined;
+
+      let worker: { id: string; name: string; employeeCode: string } | null = null;
+      let station: { id: string; code: string; name: string } | null = null;
+      let lastActivity: string | null = null;
+      if (type === 'RECEIVING') {
+        if (session?.startedBy) worker = userById.get(session.startedBy) ?? null;
+        station = session?.station ?? null;
+        lastActivity = latest?.at.toISOString() ?? null;
+      } else {
+        const picked = c.code ? pickedByBin.get(c.code) : undefined;
+        if (picked) {
+          worker = picked.worker;
+          lastActivity = picked.at.toISOString();
+        }
+        // Bins are not tied to a station by design; leave honest null.
+      }
+      const isFull = type === 'RECEIVING' && c.status === 'ACTIVE' && fill !== null && fill >= 100;
+      return {
+        id: c.id,
+        code: c.code,
+        type: c.type,
+        status: isFull ? 'FULL' : c.status,
+        dbStatus: c.status,
+        capacity,
+        count,
+        fill,
+        label: c.label,
+        order: c.order
+          ? { id: c.order.id, reference: c.order.externalOrderReference, customer: c.order.externalCustomerReference }
+          : null,
+        expected: type === 'CUSTOMER' && c.orderId ? (expectedByOrder.get(c.orderId) ?? null) : null,
+        worker,
+        station,
+        createdAt: c.createdAt.toISOString(),
+        lastActivity,
+      };
+    });
+  }
+
+  /** Container detail drill-down — contents with full provenance so the
+   *  admin can jump Container → Article → Source Carton → Receiving Session
+   *  → Customer Order → Bin → Shipment (§ COMMAND #1 FINAL §09). */
+  async containerDetail(idOrCode: string) {
+    const container = await this.prisma.operationalContainer.findFirst({
+      where: { OR: [{ id: idOrCode }, { code: idOrCode.trim().toUpperCase() }] },
+      include: {
+        order: {
+          select: {
+            id: true,
+            externalOrderReference: true,
+            externalCustomerReference: true,
+            status: true,
+            note: true,
+          },
+        },
+        _count: { select: { articles: true } },
+      },
+    });
+    if (!container) throw new NotFoundException('Container not found.');
+    const articles = await this.prisma.articleUnit.findMany({
+      where: { containerId: container.id },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        sourceCarton: {
+          select: { externalCartonId: true, cartonReference: true, qrCodeValue: true, barcodeValue: true },
+        },
+        receivingSession: {
+          select: { id: true, code: true, status: true, startedAt: true, completedAt: true },
+        },
+        order: {
+          select: { id: true, externalOrderReference: true, externalCustomerReference: true },
+        },
+        currentLocation: { select: { id: true, locationCode: true } },
+        outboundShipment: { select: { id: true, code: true, status: true } },
+      },
+    });
+
+    // Same derivation as the boards: newest activity/session/worker.
+    const latestAt = articles.length
+      ? articles.reduce((a, b) => (b.updatedAt > a.updatedAt ? b : a)).updatedAt
+      : null;
+    const sessions = articles
+      .map((a) => a.receivingSessionId)
+      .filter((s): s is string => !!s);
+    const sessionIds = Array.from(new Set(sessions));
+    const sessionRows = sessionIds.length
+      ? await this.prisma.receivingSession.findMany({
+          where: { id: { in: sessionIds } },
+          select: {
+            id: true,
+            code: true,
+            startedBy: true,
+            startedAt: true,
+            station: { select: { id: true, code: true, name: true } },
+          },
+        })
+      : [];
+    const sessionById = new Map(sessionRows.map((s) => [s.id, s]));
+    // newest session by article updatedAt
+    let newestSessionId: string | null = null;
+    let newestAt: Date | null = null;
+    for (const a of articles) {
+      if (a.receivingSessionId && (!newestAt || a.updatedAt > newestAt)) {
+        newestSessionId = a.receivingSessionId;
+        newestAt = a.updatedAt;
+      }
+    }
+    const session = newestSessionId ? sessionById.get(newestSessionId) : undefined;
+    let worker: { id: string; name: string; employeeCode: string } | null = null;
+    if (session?.startedBy) {
+      const u = await this.prisma.user.findUnique({
+        where: { id: session.startedBy },
+        select: { id: true, name: true, employeeCode: true },
+      });
+      worker = u;
+    }
+    // Customer bin: sorting worker comes from the ITEM_PICKED trail.
+    let sortingWorker: { id: string; name: string; employeeCode: string } | null = null;
+    if (container.type === 'CUSTOMER') {
+      const audit = await this.prisma.auditLog.findFirst({
+        where: { action: 'ITEM_PICKED', metadata: { path: ['bin'], equals: container.code } },
+        orderBy: { createdAt: 'desc' },
+        select: { actor: { select: { id: true, name: true, employeeCode: true } } },
+      });
+      sortingWorker = audit?.actor ?? null;
+    }
+
+    const count = container._count.articles;
+    const capacity = container.capacity ?? 50;
+    const isFull = container.type === 'RECEIVING' && container.status === 'ACTIVE' && capacity > 0 && count >= capacity;
+
+    return {
+      container: {
+        id: container.id,
+        code: container.code,
+        type: container.type,
+        status: isFull ? 'FULL' : container.status,
+        dbStatus: container.status,
+        capacity,
+        count,
+        fill: capacity > 0 ? Math.round((count / capacity) * 100) : null,
+        label: container.label,
+        order: container.order
+          ? {
+              reference: container.order.externalOrderReference,
+              customer: container.order.externalCustomerReference,
+              status: container.order.status,
+              note: container.order.note,
+            }
+          : null,
+        worker,
+        sortingWorker,
+        station: session?.station ?? null,
+        createdAt: container.createdAt.toISOString(),
+        // Closed bins carry no closedAt column yet — CLOSED status + updatedAt
+        // are shown instead (honest; not fabricated).
+        closedAt: null,
+        lastActivity: latestAt ? latestAt.toISOString() : container.updatedAt.toISOString(),
+      },
+      articles: articles.map((a) => ({
+        id: a.id,
+        code: a.code,
+        sku: a.sku,
+        productName: a.productName,
+        category: a.category,
+        subcategory: a.subcategory,
+        categoryStatus: a.categoryStatus,
+        status: a.status,
+        sourceCarton: a.sourceCarton
+          ? {
+              code: a.sourceCarton.externalCartonId,
+              qr: a.sourceCarton.qrCodeValue ?? a.sourceCarton.barcodeValue ?? null,
+            }
+          : null,
+        receivingSession: a.receivingSession
+          ? {
+              id: a.receivingSession.id,
+              code: a.receivingSession.code,
+              status: a.receivingSession.status,
+              startedAt: a.receivingSession.startedAt.toISOString(),
+              completedAt: a.receivingSession.completedAt?.toISOString() ?? null,
+            }
+          : null,
+        order: a.order
+          ? {
+              id: a.order.id,
+              reference: a.order.externalOrderReference,
+              customer: a.order.externalCustomerReference,
+            }
+          : null,
+        currentLocation: a.currentLocation
+          ? { locationCode: a.currentLocation.locationCode }
+          : null,
+        outboundShipment: a.outboundShipment
+          ? { code: a.outboundShipment.code, status: a.outboundShipment.status }
+          : null,
+        createdAt: a.createdAt.toISOString(),
+      })),
+    };
   }
 
   /** §9 — Live Activity feed (longer stream for the dedicated board). */

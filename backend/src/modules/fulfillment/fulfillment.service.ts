@@ -107,11 +107,15 @@ export class FulfillmentService {
   // ------------------------------------------------------------------
 
   async createContainer(
-    input: { type: 'RECEIVING' | 'CUSTOMER'; label?: string | null; orderReference?: string | null },
+    input: { type: 'RECEIVING' | 'CUSTOMER'; label?: string | null; orderReference?: string | null; capacity?: number | null },
     actor: FulfillmentActor,
   ) {
     let orderId: string | null = null;
     let label = input.label?.trim() || null;
+    const capacity = input.capacity ?? 50;
+    if (!Number.isInteger(capacity) || capacity < 1 || capacity > 100000) {
+      throw new BadRequestException('capacity must be an integer between 1 and 100000.');
+    }
 
     if (input.type === 'CUSTOMER') {
       const ref = input.orderReference?.trim().toUpperCase();
@@ -135,7 +139,7 @@ export class FulfillmentService {
     return this.prisma.$transaction(async (tx) => {
       const code = await this.genContainerCode(tx, input.type);
       const row = await tx.operationalContainer.create({
-        data: { code, type: input.type, label, orderId, createdBy: actor.id },
+        data: { code, type: input.type, label, orderId, capacity, createdBy: actor.id },
         include: { order: { select: { externalOrderReference: true, externalCustomerReference: true } } },
       });
       await this.audit.log(
