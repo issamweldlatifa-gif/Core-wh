@@ -5,6 +5,7 @@ interface Setting { key: string; value: Record<string, unknown>; description: st
 export default function System() {
   const { data: settings, loading, error } = useFetch<Setting[]>('/v1/system/settings');
   const { data: health } = useFetch<any>('/v1/system/health');
+  const { data: buildInfo } = useFetch<any>('/build-info.json');
   const { data: apiClients, loading: cLoading, error: cError } = useFetch<any[]>('/v1/system/api-clients');
 
   return (
@@ -20,9 +21,9 @@ export default function System() {
               <li>Status: <strong style={{ color: 'var(--success)' }}>{health.status}</strong></li>
               <li>Version: {health.version} · Phase: {health.phase}</li>
               <li>Database: {health.database}</li>
-              <li>Build commit: <strong className="mono">{health.build?.commitShort ?? '—'}</strong></li>
-              <li>SPA asset: <span className="mono">{health.build?.spaAsset ?? '—'}</span></li>
-              <li>Built at: {health.build?.builtAt ? new Date(health.build.builtAt).toLocaleString() : '—'}</li>
+              <li>Build commit: <strong className="mono">{buildInfo?.commitShort ?? '—'}</strong></li>
+              <li>SPA asset: <span className="mono">{buildInfo?.spaAsset ?? '—'}</span></li>
+              <li>Built at: {buildInfo?.builtAt ? new Date(buildInfo.builtAt).toLocaleString() : '—'}</li>
             </ul>
           ) : <p className="empty">Loading…</p>}
         </div>
