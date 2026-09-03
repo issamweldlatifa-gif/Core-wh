@@ -37,11 +37,17 @@ export interface ReceivingScannerProps {
   corpus?: string[];
   /** Prefetched expected-value context (final order §5–§7). */
   scanContext?: ScanContext | null;
+  /** OCR runtime for software text fallback ('tesseract' default, 'ppocr' opt-in). */
+  ocrEngine?: 'tesseract' | 'ppocr';
   demoMode?: boolean;
   demoCodes?: string[];
 }
 
 const METHOD_KEY = 'ayrovi.scanMethod';
+/** Dev/benchmark-only: localStorage switch to the level-2 OCR engine. Never
+ *  set by the UI; the product default stays 'tesseract' until on-device data
+ *  (see scan-profile/level2 docs). */
+const OCR_ENGINE_KEY = 'ayrovi.ocrEngine';
 
 function storedMethod(available: ScanMethod[], fallback: ScanMethod): ScanMethod {
   if (typeof localStorage === 'undefined') return fallback;
@@ -52,11 +58,21 @@ function storedMethod(available: ScanMethod[], fallback: ScanMethod): ScanMethod
   return fallback;
 }
 
+function storedOcrEngine(): 'tesseract' | 'ppocr' {
+  if (typeof localStorage === 'undefined') return 'tesseract';
+  try {
+    const v = localStorage.getItem(OCR_ENGINE_KEY);
+    if (v === 'ppocr') return 'ppocr';
+  } catch { /* ignore */ }
+  return 'tesseract';
+}
+
 export default function ReceivingScanner(props: ReceivingScannerProps) {
   const caps = useMemo(() => detectCapabilities(), []);
   const choice = useMemo(() => chooseScanMethods(caps), [caps]);
   const cls = deviceClassOf(caps);
   const [method, setMethod] = useState<ScanMethod>(() => storedMethod(choice.available, choice.default));
+  const ocrEngine = props.ocrEngine ?? storedOcrEngine();
 
   // Keep selection in sync when capabilities change (e.g. permission state).
   useEffect(() => {
@@ -117,6 +133,7 @@ export default function ReceivingScanner(props: ReceivingScannerProps) {
           onDetected={props.onDetected}
           onClose={props.onClose}
           corpus={props.corpus}
+          ocrEngine={ocrEngine}
           demoMode={props.demoMode}
           demoCodes={props.demoCodes}
           headerExtra={methodTabs}

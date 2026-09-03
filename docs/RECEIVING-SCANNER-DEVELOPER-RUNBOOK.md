@@ -98,3 +98,42 @@ Record the whole flow as the screen recording (§38-29). Screenshots: software m
 
 ## Honesty rules (from the order)
 No made-up numbers. A row you could not measure stays blank with a reason. `snapshotCsv()` never fabricates fps/CPU/RAM — those come only from DevTools or real probes.
+
+## 7. Level-2 OCR engine (PP-OCRv3) — opt-in measurement (post-P1 spike)
+
+What shipped (feature-flagged, product default UNCHANGED = tesseract):
+
+- `frontend/src/.../pp-ocr/*` — PP-OCRv3 engine (det+angle-cls+rec) in TS,
+  offline-validated ALL PASS against real label photos
+  (`frontend/benchmark/level2/validate-pp.mjs`, onnxruntime-node).
+- Models are static assets: `frontend/public/ocr-models/*.onnx` (~13.7 MB) +
+  `ppocr_keys.json`. Loaded once and kept warm across sessions.
+- Runtime seam: `ocr.engine: 'tesseract' | 'ppocr'` (`scan-config`). The level-2
+  path (own detection, line ranking with the card-derived prefix filter +
+  expected/corpus match → same HIGH/MEDIUM/LOW gates) only runs when the engine
+  is `ppocr`.
+
+To measure it on a real device:
+
+1. Serve the onnxruntime WASM same-origin (the browser chunk needs it):
+   ```bash
+   mkdir -p frontend/public/ocr-wasm
+   cp frontend/node_modules/onnxruntime-web/dist/ort-wasm*.wasm frontend/public/ocr-wasm/
+   ```
+   (Only needed when ppocr is enabled; the default path is `/ocr-wasm/`.)
+2. Opt in WITHOUT code change (dev/benchmark hook, stored locally on that phone):
+   ```js
+   localStorage.setItem('ayrovi.ocrEngine', 'ppocr')
+   ```
+   Then open a Receiving card and press SCAN. Reset with `'tesseract'`.
+3. Warm-up is automatic while the session loads (model fetch ~13.7 MB once,
+   then cached). First OCR frames while still warming report
+   `failureReason=level2_engine_warming` and simply retry on the next cadence.
+4. Measure with the same harness as §3: run a real batch of SKU/Reference
+   labels, then
+   `copy(window.__ayroviScanTelemetry.snapshotCsv())` — rows now carry
+   `scannerType=ppocr` so level-2 and tesseract attempts are separable.
+5. Report the device row in the ANNEX with the engine note (ppocr). Decision to
+   flip the product default to `ppocr` happens ONLY with those measured numbers
+   (target to confirm, not a claim: warm p95 ≤ ~1.5 s per attempt on the target
+   device, zero false accepts), and lands as a v1.2 review.

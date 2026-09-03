@@ -29,6 +29,9 @@ import { createConsensus, type ConsensusAggregator } from './multiframe';
 import { createTelemetry, exposeDebugHandle, type ScanAttempt, type TelemetrySink } from './telemetry';
 import { exposeBenchmarkSnapshot } from './device-benchmark';
 import { ocrBusy, recogniseRoi } from './ocr-client';
+import { getLevel2OcrRuntime } from './pp-ocr/level2-runtime';
+import { rankLevel2Lines } from './pp-ocr/select';
+import { deriveScanProfile } from './scan-profile';
 import { isBusy, next, stateLabel, type ScannerEvent, type ScannerState } from './scanner-state';
 import { findDominantLine, lineCropBox, profileForLineSkew, type LineRegion } from './textlines';
 import { EMPTY_DEDUPE, isDuplicate, noteSubmission, type DedupeState } from './dedupe';
@@ -153,6 +156,9 @@ interface Props {
   scanConfig?: DeepPartial<ScanConfig>;
   /** Named scanner operating envelope (§27). Defaults to BALANCED. */
   scannerProfile?: ScannerProfileKey;
+  /** OCR runtime for the text fallback. 'tesseract' is the product default;
+   *  'ppocr' opts into the level-2 engine (experimental until on-device data). */
+  ocrEngine?: 'tesseract' | 'ppocr';
   /** DEMO: simulate a moving label (no camera) through the same pipeline. */
   demoMode?: boolean;
   /** DEMO: codes the simulated labels cycle through. */
@@ -176,6 +182,7 @@ export default function ContinuousScanner({
   scanContext = null,
   scanConfig,
   scannerProfile = 'BALANCED',
+  ocrEngine = 'tesseract',
   demoMode = false,
   demoCodes,
   headerExtra,
@@ -215,6 +222,8 @@ export default function ContinuousScanner({
   const enableOcrRef = useRef<boolean>(enableOcr);
   enableOcrRef.current = enableOcr;
   demoModeRef.current = demoMode;
+  const ocrEngineRef = useRef<'tesseract' | 'ppocr'>(ocrEngine);
+  ocrEngineRef.current = ocrEngine;
 
   // Live guide mirror — the loop writes here without a re-render per frame.
   const guideRef = useRef<GuideState>(GUIDE_START);
@@ -250,9 +259,11 @@ export default function ContinuousScanner({
   // Effective config & corpus (kept fresh for the loop).
   useEffect(() => {
     const profiled = applyScannerProfile(DEFAULT_SCAN_CONFIG, scannerProfile);
-    cfgRef.current = mergeConfig(profiled, scanConfig ?? {});
+    const withOverrides = mergeConfig(profiled, scanConfig ?? {});
+    // The explicit ocrEngine prop wins over scanConfig (opt-in level-2 engine).
+    cfgRef.current = mergeConfig(withOverrides, { ocr: { engine: ocrEngine } });
     modeRef.current = mode ?? 'CARTON';
-  }, [scanConfig, mode, scannerProfile]);
+  }, [scanConfig, mode, scannerProfile, ocrEngine]);
   useEffect(() => {
     scanContextRef.current = scanContext ?? null;
     // Expected-value matching (§11/§30): when a prefetched ScanContext exists we
@@ -367,7 +378,7 @@ export default function ContinuousScanner({
           : 'CARTON',
         scanMethod: 'software',
         provider: isDemo ? 'demo-camera' : 'software-camera',
-        scannerType: detection === 'OCR' ? 'tesseract' : nativeDetector ? 'native' : 'zxing',
+        scannerType: detection === 'OCR' ? ocrEngineRef.current : nativeDetector ? 'native' : 'zxing',
         detectionType: detection,
         processingMs,
         validationResult: 'na',
@@ -709,6 +720,135 @@ export default function ContinuousScanner({
       });
     }
 
+    /**
+     * Level-2 OCR attempt (P2 — opt-in via ocrEngine='ppocr').
+     *
+     * PP-OCR detects and reads the text lines itself, so the tesseract-era
+     * single-line targeting + quality gate are skipped: the whole ROI is handed
+     * to the engine and its lines are filtered/ranked by the scan-profile
+     * prefix filter (derived from the card) + corpus/expected matching. All
+     * downstream rules stay identical: HIGH auto-submit / MEDIUM confirm /
+     * LOW retry, dedupe, identity + telemetry.
+     */
+    async function runOcrLevel2(vw: number, vh: number): Promise<boolean> {
+      if (!roiCtx) return false;
+      const c = cfgRef.current;
+      const roi = computeRoi(vw, vh, roiRatioNow());
+      const started = performance.now();
+      const stg: NonNullable<ScanAttempt['stages']> = { totalMs: 0 };
+      setOcrActive(true);
+      try {
+        const rt = getLevel2OcrRuntime();
+        if (!rt.isWarm()) {
+          // Models still downloading/initialising — keep the camera live and
+          // let the next OCR cadence retry; never block the loop.
+          setGuideSafe({ phase: 'SEARCHING' });
+          record('OCR', started, {
+            finalResult: 'no_candidate',
+            failureReason: 'level2_engine_warming',
+            stages: { ...stg, totalMs: performance.now() - started },
+          });
+          return true;
+        }
+        const { img, gray } = readRoiGray(roi.width, roi.height);
+        // Quality still feeds the composite score (never a hard gate here).
+        const q = assessQuality(gray, roi.width, roi.height);
+        const res = await rt.recognise({
+          data: img.data,
+          width: roi.width,
+          height: roi.height,
+          order: 'rgba',
+        });
+        const lines = res?.lines ?? [];
+        const ocrMs = res ? res.timings.totalMs : 0;
+        if (lines.length === 0) {
+          setGuideSafe({ phase: 'SEARCHING' });
+          record('OCR', started, {
+            ocrConfidence: 0,
+            imageQuality: q.score,
+            finalResult: 'no_candidate',
+            failureReason: 'no_text_lines',
+            stages: { ...stg, ocrMs, totalMs: performance.now() - started },
+          });
+          return true;
+        }
+        setGuideSafe({ phase: 'VALIDATING' });
+        const ctx = scanContextRef.current;
+        const ranked = rankLevel2Lines(lines, {
+          mode: modeRef.current === 'PRODUCT' ? 'PRODUCT' : 'CARTON',
+          cfg: c,
+          known: corpusRef.current,
+          qualityScore: q.score,
+          profile: ctx ? deriveScanProfile(ctx) : undefined,
+        });
+        const best = ranked[0];
+        if (!best) {
+          setGuideSafe({ phase: 'SEARCHING' });
+          record('OCR', started, {
+            ocrConfidence: 0,
+            imageQuality: q.score,
+            finalResult: 'no_candidate',
+            failureReason: 'no_plausible_line',
+            stages: { ...stg, ocrMs, totalMs: performance.now() - started },
+          });
+          return true;
+        }
+        const doneStages = { ...stg, ocrMs, totalMs: performance.now() - started };
+
+        if (best.confidence.level === 'HIGH') {
+          setGuideSafe({ phase: 'MATCHED', line: guideRef.current.line });
+          submit(best.value, 'CAMERA', 'OCR', started, {
+            ocrConfidence: best.lineConfidence,
+            imageQuality: q.score,
+            validationResult: best.match.kind,
+            frames: 1,
+            stages: doneStages,
+          });
+          return true;
+        }
+        if (best.confidence.level === 'MEDIUM') {
+          record('OCR', started, {
+            ocrConfidence: best.lineConfidence,
+            imageQuality: q.score,
+            validationResult: best.match.kind,
+            finalResult: 'worker_confirmed',
+            frames: 1,
+            stages: doneStages,
+          });
+          send('CANDIDATE');
+          send('VALIDATE');
+          setGuideSafe({ phase: 'CONFIRM_NEEDED' });
+          setPendingSafe({
+            value: best.value,
+            readValue: best.readValue,
+            match: best.match,
+            confidence: best.confidence,
+            detectedAt: Date.now(),
+          });
+          return true;
+        }
+        record('OCR', started, {
+          ocrConfidence: best.lineConfidence,
+          imageQuality: q.score,
+          validationResult: best.match.kind,
+          finalResult: 'dropped_low_confidence',
+          failureReason: best.match.kind === 'none' ? 'no_corpus_match' : 'low_composite',
+          frames: 1,
+          stages: doneStages,
+        });
+        setGuideSafe({
+          phase: 'LOW_CONFIDENCE',
+          advice: best.match.kind === 'none'
+            ? ['No matching Article found — rescan or use manual entry']
+            : ['Hold steady — rescan'],
+        });
+        return true;
+      } finally {
+        setOcrActive(false);
+        if (stateRef.current === 'OCR_PROCESSING') send('RESUME');
+      }
+    }
+
     async function tick() {
       if (!running) return;
       const s = stateRef.current;
@@ -792,7 +932,11 @@ export default function ContinuousScanner({
 
           if (shouldOcr) {
             send('OCR_SCAN');
-            await runOcr(vw, vh);
+            if (cfgRef.current.ocr.engine === 'ppocr') {
+              await runOcrLevel2(vw, vh);
+            } else {
+              await runOcr(vw, vh);
+            }
           }
         }
       }
@@ -904,13 +1048,22 @@ export default function ContinuousScanner({
     // engine is NOT shut down on unmount — it idles warm for the next session.
     const engine = receivingEngine();
     const wantsOcr = enableOcrRef.current;
-    if (wantsOcr) engine.acquire({ warm: true });
+    const usePp = ocrEngineRef.current === 'ppocr';
+    if (wantsOcr) {
+      if (usePp) {
+        // Level-2 runtime: load models once in the background (idempotent).
+        // Kept warm across sessions by design; nothing to release per session.
+        void getLevel2OcrRuntime().warm().catch(() => { /* transient: retried on demand */ });
+      } else {
+        engine.acquire({ warm: true });
+      }
+    }
     start();
     return () => {
       teardownRef.current();
       // §19 “clean, don't shut down”: release leaves the engine warm (idle
       // grace), so the next Receiving session reuses OCR/decoder instantly.
-      if (wantsOcr) engine.release();
+      if (wantsOcr && !usePp) engine.release();
       try {
         if (typeof window !== 'undefined') (window as any).__ayroviScanTelemetry = undefined;
       } catch { /* noop */ }
@@ -966,7 +1119,16 @@ export default function ContinuousScanner({
       : cfgRef.current.camera.roi.CARTON,
   );
   const isProductMode = (mode ?? 'CARTON') === 'PRODUCT';
-  const stageLabel = isProductMode ? 'ALIGN SKU / REFERENCE' : 'ALIGN CARTON LABEL';
+  // P3: when a card context is prefetched, its scan profile tells the operator
+  // exactly what to aim at (e.g. 'SKU · starts with SB') — derived, not typed.
+  const cardProfile = scanContext ? deriveScanProfile(scanContext) : null;
+  const profileLabel =
+    cardProfile && (cardProfile.mode === 'SKU' || cardProfile.mode === 'REFERENCE') && isProductMode
+      ? cardProfile.prefix
+        ? `ALIGN ${cardProfile.mode} · ${cardProfile.prefix}`
+        : `ALIGN ${cardProfile.mode}`
+      : null;
+  const stageLabel = profileLabel ?? (isProductMode ? 'ALIGN SKU / REFERENCE' : 'ALIGN CARTON LABEL');
   const linePct = `${Math.max(0, Math.min(1, guide.line)) * 100}%`;
 
   return (
@@ -1010,7 +1172,7 @@ export default function ContinuousScanner({
           )}
 
           {/* ROI the worker aligns the label into — matches the analysed region */}
-          <div className="cs-roi" style={roiStyle} aria-hidden="true">
+          <div className="cs-roi" style={roiStyle} aria-hidden="true" data-frame={cardProfile?.frame ?? 'band'}>
             <span className="cs-corner tl" />
             <span className="cs-corner tr" />
             <span className="cs-corner bl" />

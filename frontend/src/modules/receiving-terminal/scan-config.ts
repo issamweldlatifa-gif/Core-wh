@@ -34,7 +34,14 @@ export interface CameraConfig {
   };
 }
 
+export type OcrEngineKind = 'tesseract' | 'ppocr';
+
 export interface OcrConfig {
+  /** Which OCR runtime runs the text-recognition fallback.
+   *  'tesseract' = current in-browser Tesseract (product default).
+   *  'ppocr'     = level-2 PP-OCRv3 onnxruntime-web engine (opt-in, experimental
+   *                until validated on real devices). Never chosen implicitly. */
+  engine: OcrEngineKind;
   /** Frames of pure-barcode failure before OCR is allowed to start (§17). */
   framesBeforeOcr: number;
   /** Only 1 of N frames may trigger OCR while barcode keeps failing. */
@@ -168,6 +175,7 @@ export const DEFAULT_SCAN_CONFIG: ScanConfig = {
     },
   },
   ocr: {
+    engine: 'tesseract',
     framesBeforeOcr: 18,
     ocrCadence: 8,
     ocrMaxWidth: 960, // tune after real-device latency benchmark

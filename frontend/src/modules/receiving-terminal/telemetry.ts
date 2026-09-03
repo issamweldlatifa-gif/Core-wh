@@ -28,7 +28,7 @@ export interface ScanAttempt {
   ts: number;
   scanSessionId?: string;
   mode?: 'CARTON' | 'PRODUCT';
-  scannerType: 'native' | 'zxing' | 'tesseract' | 'manual' | 'external';
+  scannerType: 'native' | 'zxing' | 'tesseract' | 'ppocr' | 'manual' | 'external';
   detectionType: DetectionType;
   /** Dual-scanner order §12 — which scanner method produced this attempt. */
   scanMethod?: 'software' | 'hardware';
