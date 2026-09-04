@@ -68,7 +68,7 @@ jobs:
         run: |
           set -e
           APK=mobile/app/build/outputs/apk/release/app-release.apk
-          DEST=mobile/ayrovi-worker-v0.2.0-release.apk
+          DEST=mobile/ayrovi-worker-v0.2.1-release.apk
           cp "$APK" "$DEST"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

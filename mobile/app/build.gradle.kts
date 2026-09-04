@@ -8,12 +8,22 @@ android {
     namespace = "com.ayrovi.worker"
     compileSdk = 35
 
+    signingConfigs {
+        // Enable v1 (JAR) signing alongside v2 so the APK installs cleanly on
+        // every Android version >= minSdk, including sideloading paths that
+        // still verify the v1 signature block (fixes "problem parsing package").
+        getByName("debug") {
+            enableV1Signing = true
+            enableV2Signing = true
+        }
+    }
+
     defaultConfig {
         applicationId = "com.ayrovi.worker"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
-        versionName = "0.2.0"
+        versionName = "0.2.1"
         buildConfigField("String", "API_BASE_URL", "\"https://core-wh.onrender.com/api\"")
     }
 
