@@ -147,8 +147,8 @@ private fun WorkerShell(context: WorkerContext, api: WorkerApi, onRefresh: () ->
             WorkerPage.RECEIVING -> ReceivingPage(api, onBack = { page = WorkerPage.DASHBOARD })
             WorkerPage.EXPECTED -> ExpectedPage(api, onBack = { page = WorkerPage.DASHBOARD })
             WorkerPage.PUTAWAY -> PutawayPage(api, onBack = { page = WorkerPage.DASHBOARD })
-            WorkerPage.SORTING -> NativeWorkPage("Sorting", "Scan article and confirm its destination", listOf("SCAN ARTICLE", "CONFIRM DESTINATION"), onBack = { page = WorkerPage.DASHBOARD })
-            WorkerPage.PACKING -> NativeWorkPage("Packing", "Verify order contents and confirm packing", listOf("SCAN ORDER", "SCAN ARTICLES", "PACK"), onBack = { page = WorkerPage.DASHBOARD })
+            WorkerPage.SORTING -> SortingPage(api, onBack = { page = WorkerPage.DASHBOARD })
+            WorkerPage.PACKING -> PackingPage(api, onBack = { page = WorkerPage.DASHBOARD })
         }
     }
 }
@@ -398,5 +398,88 @@ private fun PutawayPage(api: WorkerApi, onBack: () -> Unit) {
         OutlinedTextField(input, { input = it }, label = { Text(if (carton == null) "Carton code" else "Location code") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         OutlinedButton(onClick = { camera = true }, enabled = !busy, modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) { Text("OPEN CAMERA SCANNER") }
         Button(onClick = { submit(input, "MANUAL") }, enabled = !busy && input.isNotBlank(), modifier = Modifier.fillMaxWidth().padding(top = 8.dp), colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Color.Black)) { Text(if (busy) "PROCESSING…" else "CONFIRM", fontWeight = FontWeight.Bold) }
+    }
+}
+
+@Composable
+private fun SortingPage(api: WorkerApi, onBack: () -> Unit) {
+    var article by remember { mutableStateOf<String?>(null) }
+    var input by remember { mutableStateOf("") }
+    var destination by remember { mutableStateOf("") }
+    var camera by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    fun submit(value: String) {
+        if (value.isBlank() || busy) return
+        busy = true
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    if (article == null) {
+                        val result = api.sortingScan(value)
+                        val kind = result["kind"]?.toString()?.trim('"')
+                        if (kind != "DESTINATION") error(kind ?: "ARTICLE_REJECTED")
+                        article = result["article"]?.jsonObject?.get("code")?.toString()?.trim('"') ?: value
+                        destination = result["zone"]?.jsonObject?.get("code")?.toString()?.trim('"').orEmpty()
+                        message = "$article → zone $destination — scan location"
+                    } else {
+                        val result = api.sortingStore(article!!, value)
+                        val flash = result["flash"]?.jsonObject
+                        message = "${flash?.get("article")?.toString()?.trim('"') ?: article} stored at ${flash?.get("location")?.toString()?.trim('"') ?: value}"
+                        article = null; destination = ""
+                    }
+                }
+                input = ""
+            } catch (e: Exception) { message = e.message ?: "Sorting failed" }
+            finally { busy = false }
+        }
+    }
+    if (camera) { NativeBarcodeScanner(onDetected = { camera = false; submit(it) }, onClose = { camera = false }); return }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(22.dp)) {
+        PageTitle("Sorting", onBack)
+        Text("Article → configured destination → storage location.", color = Muted, modifier = Modifier.padding(vertical = 8.dp))
+        Text(if (article == null) "STEP 1 · SCAN ARTICLE" else "STEP 2 · SCAN LOCATION", color = Green, letterSpacing = 2.sp, modifier = Modifier.padding(top = 18.dp))
+        Text(article ?: "No article staged", color = Color.White, fontSize = 22.sp, modifier = Modifier.padding(vertical = 12.dp))
+        if (destination.isNotBlank()) Text("DESTINATION ZONE: $destination", color = Color(0xFFFFC247))
+        message?.let { Text(it, color = Green, modifier = Modifier.padding(vertical = 10.dp)) }
+        OutlinedTextField(input, { input = it }, label = { Text(if (article == null) "Article code" else "Location code") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedButton(onClick = { camera = true }, enabled = !busy, modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) { Text("OPEN CAMERA SCANNER") }
+        Button(onClick = { submit(input) }, enabled = !busy && input.isNotBlank(), modifier = Modifier.fillMaxWidth().padding(top = 8.dp), colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Color.Black)) { Text(if (busy) "PROCESSING…" else "CONFIRM", fontWeight = FontWeight.Bold) }
+    }
+}
+
+@Composable
+private fun PackingPage(api: WorkerApi, onBack: () -> Unit) {
+    var bin by remember { mutableStateOf("") }
+    var view by remember { mutableStateOf<kotlinx.serialization.json.JsonObject?>(null) }
+    var camera by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    fun scan(value: String) {
+        if (value.isBlank() || busy) return
+        busy = true
+        scope.launch { try { view = withContext(Dispatchers.IO) { api.packingScan(value) }; message = "Bin loaded — verify contents" } catch (e: Exception) { message = e.message ?: "Packing scan failed" } finally { busy = false } }
+    }
+    fun pack() {
+        val code = view?.get("bin")?.jsonObject?.get("code")?.toString()?.trim('"') ?: bin
+        if (code.isBlank() || busy) return
+        busy = true
+        scope.launch { try { withContext(Dispatchers.IO) { api.packingPack(code) }; message = "PACKED $code"; view = null; bin = "" } catch (e: Exception) { message = e.message ?: "Pack failed" } finally { busy = false } }
+    }
+    if (camera) { NativeBarcodeScanner(onDetected = { camera = false; bin = it; scan(it) }, onClose = { camera = false }); return }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(22.dp)) {
+        PageTitle("Packing", onBack)
+        Text("Scan a customer bin → verify contents → pack into a shipping carton.", color = Muted, modifier = Modifier.padding(vertical = 8.dp))
+        message?.let { Text(it, color = if (it.startsWith("PACKED")) Green else Color(0xFFFFC247), modifier = Modifier.padding(vertical = 10.dp)) }
+        OutlinedTextField(bin, { bin = it }, label = { Text("Customer bin QR") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedButton(onClick = { camera = true }, enabled = !busy, modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) { Text("OPEN CAMERA SCANNER") }
+        Button(onClick = { scan(bin) }, enabled = !busy && bin.isNotBlank() && view == null, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), colors = ButtonDefaults.buttonColors(containerColor = Panel, contentColor = Color.White)) { Text("LOAD BIN") }
+        view?.let { data ->
+            Text("BIN CONTENTS", color = Green, letterSpacing = 2.sp, modifier = Modifier.padding(top = 24.dp))
+            Text(data.toString(), color = Muted, fontSize = 12.sp, modifier = Modifier.padding(vertical = 8.dp))
+            Button(onClick = ::pack, enabled = !busy, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Color.Black)) { Text(if (busy) "PACKING…" else "PACK BIN", fontWeight = FontWeight.Bold) }
+        }
     }
 }

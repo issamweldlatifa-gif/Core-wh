@@ -114,6 +114,23 @@ class WorkerApi(private val baseUrl: String, private val store: WorkerSessionSto
         "{\"cartonCode\":${quote(cartonCode)},\"locationCode\":${quote(locationCode)},\"cartonSource\":\"CAMERA\",\"locationSource\":\"CAMERA\"}",
     ).jsonObject
 
+    fun sortingScan(articleCode: String): kotlinx.serialization.json.JsonObject = requestJson(
+        "/v1/fulfillment/sorting/articles/${encode(articleCode)}",
+    ).jsonObject
+
+    fun sortingStore(articleCode: String, locationCode: String): kotlinx.serialization.json.JsonObject = requestJson(
+        "/v1/fulfillment/sorting/store", "POST",
+        "{\"articleCode\":${quote(articleCode)},\"locationCode\":${quote(locationCode)}}",
+    ).jsonObject
+
+    fun packingScan(containerCode: String): kotlinx.serialization.json.JsonObject = requestJson(
+        "/v1/fulfillment/packing/containers/${encode(containerCode)}",
+    ).jsonObject
+
+    fun packingPack(containerCode: String): kotlinx.serialization.json.JsonObject = requestJson(
+        "/v1/fulfillment/packing/containers/${encode(containerCode)}/pack", "POST", "{}",
+    ).jsonObject
+
     fun logout() = store.clear()
 
     private fun requestJson(path: String, method: String = "GET", body: String? = null): kotlinx.serialization.json.JsonElement {
