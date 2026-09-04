@@ -77,47 +77,27 @@ jobs:
           test -s "$APK"
           TAG="worker-canary"
           REPO="${{ github.repository }}"
-          API="https://api.github.com/repos/$REPO"
-          AUTH="Authorization: Bearer $GH_TOKEN"
-          ACCEPT="Accept: application/vnd.github+json"
+          BODY="AYROVI Worker (native Android) — internal canary build from commit ${GITHUB_SHA::7}.
 
-          # Drop the previous canary release + tag so the tag always points at
-          # the exact commit that produced this APK.
-          EXISTING_ID="$(curl -s -H "$AUTH" -H "$ACCEPT" "$API/releases/tags/$TAG" \
-            | python3 -c 'import sys,json;print(json.load(sys.stdin).get("id",""))' 2>/dev/null || true)"
+          Debug-signed APK for internal warehouse distribution only (never Google Play).
+          On your phone: open this release page, download the .apk below, and allow
+          “Install unknown apps” for your browser when Android asks."
+
+          # Drop any previous canary release + tag so the tag always points at the
+          # exact commit that produced this APK.
+          EXISTING_ID="$(gh release view "$TAG" --repo "$REPO" --json id --jq .id 2>/dev/null || true)"
           if [ -n "$EXISTING_ID" ]; then
-            curl -s -X DELETE -H "$AUTH" "$API/releases/$EXISTING_ID" >/dev/null || true
-            curl -s -X DELETE -H "$AUTH" -H "$ACCEPT" "$API/git/refs/tags/$TAG" >/dev/null || true
+            gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag
           fi
 
-          export TAG REPO BODY="AYROVI Worker (native Android) - internal canary build from commit ${GITHUB_SHA::7}.
-
-          This is a debug-signed APK for internal warehouse distribution only (never Google Play).
-          Install on your phone: open this release page on the phone, download the .apk asset below, then allow 'Install unknown apps' for your browser when Android asks."
-          python3 -c 'import json,os;print(json.dumps({
-            "tag_name": os.environ["TAG"],
-            "target_commitish": os.environ["GITHUB_SHA"],
-            "name": "AYROVI Worker - internal canary",
-            "body": os.environ["BODY"],
-            "draft": False,
-            "prerelease": True}))' > /tmp/rel.json
-
-          RELEASE_ID="$(curl -s -X POST -H "$AUTH" -H "$ACCEPT" \
-            -H "Content-Type: application/json" --data @/tmp/rel.json "$API/releases" \
-            | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')"
-
-          # Upload the ~42MB APK. Large uploads over HTTP/2 can flake with
-          # curl exit 92 (stream error) — force HTTP/1.1 and retry.
-          for attempt in 1 2 3; do
-            if curl -s --http1.1 -X POST -H "$AUTH" \
-              -H "Content-Type: application/octet-stream" \
-              --data-binary @"$APK" \
-              "$API/releases/$RELEASE_ID/assets?name=ayrovi-worker-debug.apk" >/tmp/upload.json; then
-              break
-            fi
-            echo "asset upload attempt $attempt failed, retrying..."
-            sleep 5
-          done
-          python3 -c 'import json;d=json.load(open("/tmp/upload.json"));assert "id" in d, d'
+          # `gh release create` uploads the asset through the official flow
+          # (uploads.github.com with built-in retries) — far more reliable than
+          # raw curl for the ~42MB APK.
+          gh release create "$TAG" "$APK" \
+            --repo "$REPO" \
+            --target "${GITHUB_SHA}" \
+            --title "AYROVI Worker - internal canary" \
+            --notes "$BODY" \
+            --prerelease
 
           echo "::notice::Canary release ready: https://github.com/$REPO/releases/tag/$TAG"
