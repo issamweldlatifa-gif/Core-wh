@@ -425,7 +425,7 @@ private fun ReceivingFlow(
         }
 
         if (view == RcvView.List && !busy) {
-            ArrivalList(arrivals) { openSessionFor(it) }
+            ArrivalList(arrivals) { scope.launch { openSessionFor(it) } }
         }
         if (view == RcvView.Session) {
             sessionId?.let { sid ->
