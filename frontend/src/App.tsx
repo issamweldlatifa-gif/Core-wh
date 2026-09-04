@@ -33,6 +33,7 @@ const AdminOperations = lazy(() => import('./admin/pages/Operations'));
 const AdminWorkers = lazy(() => import('./admin/pages/Workers'));
 const AdminSessionDetail = lazy(() => import('./admin/pages/SessionDetail'));
 const AdminStations = lazy(() => import('./admin/pages/Stations'));
+const AdminDevices = lazy(() => import('./admin/pages/Devices'));
 const AdminExceptions = lazy(() => import('./admin/pages/Exceptions'));
 const AdminCorrections = lazy(() => import('./admin/pages/Corrections'));
 const AdminTraceability = lazy(() => import('./admin/pages/Traceability'));
@@ -166,6 +167,7 @@ export default function App() {
             <Route path="workers/:id" element={<AdminWorkers />} />
             <Route path="sessions/:id" element={<AdminSessionDetail />} />
             <Route path="stations" element={<AdminStations />} />
+            <Route path="devices" element={<AdminDevices />} />
             <Route path="exceptions" element={<AdminExceptions />} />
             <Route path="corrections" element={<AdminCorrections />} />
             <Route path="traceability" element={<AdminTraceability />} />

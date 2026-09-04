@@ -36,6 +36,7 @@ const NAV: NavEntry[] = [
   // WORKFORCE
   { to: '/admin/workers', label: 'Workers', group: 'WORKFORCE', permission: 'operations.view' },
   { to: '/admin/stations', label: 'Stations', group: 'WORKFORCE', permission: 'stations.view' },
+  { to: '/admin/devices', label: 'Devices', group: 'WORKFORCE', permission: 'stations.view' },
   { to: '/admin/tasks', label: 'Tasks', group: 'WORKFORCE', permission: 'operations.view' },
 
   // WAREHOUSE
