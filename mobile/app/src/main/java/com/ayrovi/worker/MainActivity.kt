@@ -83,7 +83,7 @@ private fun WorkerApp(api: WorkerApi, store: WorkerSessionStore) {
                 WorkerHome(context!!, onRefresh = ::loadContext, onLogout = {
                     api.logout()
                     context = null
-                })
+                }, api = api)
             }
         }
     }
@@ -121,7 +121,12 @@ private fun LoginScreen(
 }
 
 @Composable
-private fun WorkerHome(context: WorkerContext, onRefresh: () -> Unit, onLogout: () -> Unit) {
+private fun WorkerHome(context: WorkerContext, onRefresh: () -> Unit, onLogout: () -> Unit, api: WorkerApi) {
+    var receiving by remember { mutableStateOf(false) }
+    if (receiving) {
+        ReceivingScreen(api, onBack = { receiving = false })
+        return
+    }
     Column(Modifier.fillMaxSize().padding(20.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Column {
@@ -134,12 +139,71 @@ private fun WorkerHome(context: WorkerContext, onRefresh: () -> Unit, onLogout: 
         Text("Allowed workflows", style = MaterialTheme.typography.titleMedium)
         LazyColumn(Modifier.padding(top = 8.dp)) {
             items(context.tasks) { task ->
-                Text(
-                    "${task.label.ifBlank { task.key }}${if (task.ready) " · READY" else ""}",
-                    modifier = Modifier.padding(vertical = 12.dp),
-                )
+                Button(onClick = { if (task.key.contains("receiv", true)) receiving = true }) {
+                    Text("${task.label.ifBlank { task.key }}${if (task.ready) " · READY" else ""}")
+                }
             }
         }
         Button(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) { Text("Refresh assignment") }
+    }
+}
+
+@Composable
+private fun ReceivingScreen(api: WorkerApi, onBack: () -> Unit) {
+    var arrivals by remember { mutableStateOf<List<ReceivingArrival>>(emptyList()) }
+    var session by remember { mutableStateOf<ReceivingSession?>(null) }
+    var code by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+
+    fun run(block: () -> Unit) {
+        busy = true
+        scope.launch {
+            try { withContext(Dispatchers.IO) { block() } }
+            catch (e: Exception) { message = e.message ?: "Receiving request failed" }
+            finally { busy = false }
+        }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        run { arrivals = api.arrivals() }
+    }
+
+    Column(Modifier.fillMaxSize().padding(20.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("RECEIVING", style = MaterialTheme.typography.headlineMedium)
+            Button(onClick = onBack) { Text("Back") }
+        }
+        message?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp)) }
+        if (session == null) {
+            Text("Select expected arrival", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(vertical = 16.dp))
+            LazyColumn {
+                items(arrivals) { arrival ->
+                    Button(
+                        onClick = { run { session = api.startReceiving(arrival.code) } },
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    ) { Text("${arrival.code} · ${arrival.customerName}") }
+                }
+            }
+        } else {
+            val active = session!!
+            Text("Session ${active.code} · ${active.receivedCartons}/${active.expectedCartons} cartons")
+            Spacer(Modifier.height(20.dp))
+            OutlinedTextField(
+                code, { code = it }, label = { Text("Carton barcode / QR") },
+                singleLine = true, modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(12.dp))
+            Button(
+                onClick = {
+                    val value = code.trim()
+                    if (value.isNotEmpty()) run { session = api.scanCarton(active.id, value); code = "" }
+                },
+                enabled = !busy && code.isNotBlank(), modifier = Modifier.fillMaxWidth(),
+            ) { Text(if (busy) "Sending…" else "Scan carton") }
+            active.flashMessage?.let { Text(it, modifier = Modifier.padding(top = 16.dp)) }
+        }
     }
 }
