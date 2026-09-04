@@ -83,21 +83,21 @@
 .cs-phase--LOW_CONFIDENCE { color: #ff6b5e; }
 .cs-phase--CONFIRM_NEEDED { color: #ffc247; }
 
-/* ---- Red scan line = the target area the engine reads (unified P0 §7) --- */
-.cs-roi { border-color: rgba(255, 64, 64, 0.6); box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.5); }
-.cs-corner { border-color: #ff4d4d; }
+/* ---- Neutral scan guide — keeps the camera view clear for the operator. --- */
+.cs-roi { border-color: rgba(203, 213, 225, 0.62); box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.5); }
+.cs-corner { border-color: #cbd5e1; }
 .cs-scanline {
   position: absolute;
   left: 1%; right: 1%;
   height: 3px;
   margin-top: -1px;
   border-radius: 999px;
-  background: linear-gradient(90deg, transparent, #ff2d2d 18%, #ff5757 50%, #ff2d2d 82%, transparent);
-  box-shadow: 0 0 14px 2px rgba(255, 40, 40, 0.85);
+  background: linear-gradient(90deg, transparent, rgba(226, 232, 240, 0.62) 18%, rgba(248, 250, 252, 0.82) 50%, rgba(226, 232, 240, 0.62) 82%, transparent);
+  box-shadow: 0 0 8px 1px rgba(226, 232, 240, 0.28);
   transition: top 0.12s ease-out;
   pointer-events: none;
 }
-.cs-roi-hint { color: #ffb3ae; }
+.cs-roi-hint { color: #cbd5e1; }
 
 /* Aim-frame affordance by derived scan profile (P3): the ROI geometry always
    matches the analysed region — these only tint/annotate so the operator can
@@ -110,7 +110,7 @@
   background: linear-gradient(90deg, transparent, #ffd24d 18%, #ffe08a 50%, #ffd24d 82%, transparent);
   box-shadow: 0 0 14px 2px rgba(255, 200, 60, 0.8);
 }
-.cs-roi[data-frame='band'] .cs-roi-hint { color: #ffb3ae; }
+.cs-roi[data-frame='band'] .cs-roi-hint { color: #cbd5e1; }
 
 .cs-lastcode {
   position: absolute; left: 50%; transform: translateX(-50%); bottom: 96px;
