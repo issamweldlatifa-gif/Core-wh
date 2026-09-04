@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.jsonObject
 
 private val Green = Color(0xFF00FF66)
 private val Screen = Color(0xFF0B0D0C)
@@ -63,6 +64,9 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class WorkerPage { DASHBOARD, RECEIVING, EXPECTED, PUTAWAY, SORTING, PACKING }
+
+private fun WorkerContext.allowed(permission: String): Boolean =
+    tasks.any { it.permission == permission && it.ready }
 
 @Composable
 private fun WorkerApp(api: WorkerApi, store: WorkerSessionStore) {
@@ -137,12 +141,12 @@ private fun WorkerShell(context: WorkerContext, api: WorkerApi, onRefresh: () ->
     var page by remember { mutableStateOf(WorkerPage.DASHBOARD) }
     Column(Modifier.fillMaxSize().background(Screen)) {
         WorkerHeader(context, onLogout)
-        WorkerNav(page) { page = it }
+        WorkerNav(context, page) { page = it }
         when (page) {
             WorkerPage.DASHBOARD -> DashboardPage(context, api, onOpenReceiving = { page = WorkerPage.RECEIVING })
             WorkerPage.RECEIVING -> ReceivingPage(api, onBack = { page = WorkerPage.DASHBOARD })
             WorkerPage.EXPECTED -> ExpectedPage(api, onBack = { page = WorkerPage.DASHBOARD })
-            WorkerPage.PUTAWAY -> NativeWorkPage("Putaway", "Move received cartons to warehouse locations", listOf("SCAN CARTON", "SCAN LOCATION"), onBack = { page = WorkerPage.DASHBOARD })
+            WorkerPage.PUTAWAY -> PutawayPage(api, onBack = { page = WorkerPage.DASHBOARD })
             WorkerPage.SORTING -> NativeWorkPage("Sorting", "Scan article and confirm its destination", listOf("SCAN ARTICLE", "CONFIRM DESTINATION"), onBack = { page = WorkerPage.DASHBOARD })
             WorkerPage.PACKING -> NativeWorkPage("Packing", "Verify order contents and confirm packing", listOf("SCAN ORDER", "SCAN ARTICLES", "PACK"), onBack = { page = WorkerPage.DASHBOARD })
         }
@@ -161,14 +165,16 @@ private fun WorkerHeader(context: WorkerContext, onLogout: () -> Unit) {
 }
 
 @Composable
-private fun WorkerNav(page: WorkerPage, onPage: (WorkerPage) -> Unit) {
+private fun WorkerNav(context: WorkerContext, page: WorkerPage, onPage: (WorkerPage) -> Unit) {
     Row(Modifier.fillMaxWidth().background(Color.Black).padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
         NavItem("DASHBOARD", page == WorkerPage.DASHBOARD) { onPage(WorkerPage.DASHBOARD) }
-        NavItem("RECEIVING", page == WorkerPage.RECEIVING) { onPage(WorkerPage.RECEIVING) }
-        NavItem("EXPECTED", page == WorkerPage.EXPECTED) { onPage(WorkerPage.EXPECTED) }
-        NavItem("PUTAWAY", page == WorkerPage.PUTAWAY) { onPage(WorkerPage.PUTAWAY) }
-        NavItem("SORTING", page == WorkerPage.SORTING) { onPage(WorkerPage.SORTING) }
-        NavItem("PACKING", page == WorkerPage.PACKING) { onPage(WorkerPage.PACKING) }
+        if (context.allowed("receiving.execute")) NavItem("RECEIVING", page == WorkerPage.RECEIVING) { onPage(WorkerPage.RECEIVING) }
+        if (context.allowed("expected_arrivals.view")) NavItem("EXPECTED", page == WorkerPage.EXPECTED) { onPage(WorkerPage.EXPECTED) }
+        if (context.allowed("stowing.execute")) {
+            NavItem("PUTAWAY", page == WorkerPage.PUTAWAY) { onPage(WorkerPage.PUTAWAY) }
+            NavItem("SORTING", page == WorkerPage.SORTING) { onPage(WorkerPage.SORTING) }
+        }
+        if (context.allowed("packing.execute")) NavItem("PACKING", page == WorkerPage.PACKING) { onPage(WorkerPage.PACKING) }
     }
 }
 
@@ -272,9 +278,17 @@ private fun ReceivingPage(api: WorkerApi, onBack: () -> Unit) {
     var code by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var scannerOpen by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     fun request(block: () -> Unit) { busy = true; error = null; scope.launch { try { withContext(Dispatchers.IO) { block() } } catch (e: Exception) { error = e.message ?: "Request failed" } finally { busy = false } } }
     LaunchedEffect(Unit) { request { arrivals = api.arrivals() } }
+    if (scannerOpen) {
+        NativeBarcodeScanner(
+            onDetected = { value -> scannerOpen = false; request { session?.let { session = api.scanCarton(it.id, value) } } },
+            onClose = { scannerOpen = false },
+        )
+        return
+    }
     Column(Modifier.fillMaxSize().padding(22.dp)) {
         PageTitle("Receiving", onBack)
         Text("Physical receiving workspace · scan cartons, count products and raise exceptions.", color = Muted, fontSize = 14.sp, modifier = Modifier.padding(vertical = 8.dp))
@@ -293,6 +307,8 @@ private fun ReceivingPage(api: WorkerApi, onBack: () -> Unit) {
             Text("${active.receivedCartons} / ${active.expectedCartons} cartons received", color = Color.White, fontSize = 20.sp, modifier = Modifier.padding(vertical = 12.dp))
             OutlinedTextField(code, { code = it }, label = { Text("Carton barcode / QR") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(12.dp))
+            OutlinedButton(onClick = { scannerOpen = true }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("OPEN CAMERA SCANNER") }
+            Spacer(Modifier.height(8.dp))
             Button(onClick = { val value = code.trim(); if (value.isNotEmpty()) request { session = api.scanCarton(active.id, value); code = "" } }, enabled = !busy && code.isNotBlank(), modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Color.Black)) { Text(if (busy) "SENDING…" else "SCAN CARTON", fontWeight = FontWeight.Bold) }
             active.flashMessage?.let { Text(it, color = if (active.flashKind == "CARTON_IDENTIFIED") Green else Color(0xFFFFC247), modifier = Modifier.padding(top = 16.dp)) }
             OutlinedButton(onClick = { session = null }, modifier = Modifier.fillMaxWidth().padding(top = 18.dp)) { Text("BACK TO ARRIVALS") }
@@ -326,5 +342,61 @@ private fun NativeWorkPage(title: String, subtitle: String, steps: List<String>,
         Button(onClick = { scanner = true }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Color.Black)) { Text("OPEN CAMERA SCANNER") }
         Button(onClick = { if (step < steps.lastIndex) { step++; value = "" } }, enabled = value.isNotBlank(), modifier = Modifier.fillMaxWidth().padding(top = 8.dp), colors = ButtonDefaults.buttonColors(containerColor = Panel, contentColor = Color.White)) { Text(if (step == steps.lastIndex) "CONFIRM" else "CONTINUE") }
         if (value.isNotBlank()) Text("Captured: $value", color = Green, modifier = Modifier.padding(top = 18.dp))
+    }
+}
+
+@Composable
+private fun PutawayPage(api: WorkerApi, onBack: () -> Unit) {
+    var sessionId by remember { mutableStateOf<String?>(null) }
+    var carton by remember { mutableStateOf<String?>(null) }
+    var input by remember { mutableStateOf("") }
+    var camera by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    fun submit(value: String, mode: String) {
+        if (value.isBlank() || busy) return
+        busy = true
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    if (sessionId == null) {
+                        val result = api.putawayStart()
+                        sessionId = result["id"]?.toString()?.trim('"')
+                    }
+                    if (carton == null) {
+                        val result = api.putawayScanCarton(value)
+                        val flash = result["flash"]?.jsonObject
+                        val kind = flash?.get("kind")?.toString()?.trim('"')
+                        if (kind != "CARTON_READY") error(kind ?: "CARTON_NOT_ACCEPTED")
+                        carton = flash["carton"]?.jsonObject?.get("externalCartonId")?.toString()?.trim('"') ?: value
+                        message = "$carton ready — scan location"
+                    } else {
+                        val result = api.putawayPlace(sessionId!!, carton!!, value)
+                        val flash = result["flash"]?.jsonObject
+                        val kind = flash?.get("kind")?.toString()?.trim('"')
+                        if (kind != "STORED") error(kind ?: "LOCATION_NOT_ACCEPTED")
+                        message = "$carton stored at $value"
+                        carton = null
+                    }
+                }
+                input = ""
+            } catch (e: Exception) { message = e.message ?: "Putaway failed" }
+            finally { busy = false }
+        }
+    }
+    if (camera) {
+        NativeBarcodeScanner(onDetected = { camera = false; submit(it, "CAMERA") }, onClose = { camera = false })
+        return
+    }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(22.dp)) {
+        PageTitle("Putaway", onBack)
+        Text("Move received cartons to their assigned warehouse locations.", color = Muted, modifier = Modifier.padding(vertical = 8.dp))
+        Text(if (carton == null) "STEP 1 · SCAN CARTON" else "STEP 2 · SCAN LOCATION", color = Green, fontSize = 14.sp, letterSpacing = 2.sp, modifier = Modifier.padding(top = 18.dp))
+        Text(carton ?: "No carton staged", color = Color.White, fontSize = 22.sp, modifier = Modifier.padding(vertical = 12.dp))
+        message?.let { Text(it, color = if (it.contains("stored")) Green else Color(0xFFFFC247), modifier = Modifier.padding(bottom = 10.dp)) }
+        OutlinedTextField(input, { input = it }, label = { Text(if (carton == null) "Carton code" else "Location code") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedButton(onClick = { camera = true }, enabled = !busy, modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) { Text("OPEN CAMERA SCANNER") }
+        Button(onClick = { submit(input, "MANUAL") }, enabled = !busy && input.isNotBlank(), modifier = Modifier.fillMaxWidth().padding(top = 8.dp), colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Color.Black)) { Text(if (busy) "PROCESSING…" else "CONFIRM", fontWeight = FontWeight.Bold) }
     }
 }

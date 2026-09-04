@@ -100,6 +100,20 @@ class WorkerApi(private val baseUrl: String, private val store: WorkerSessionSto
         return sessionFrom(root)
     }
 
+    fun putawayStart(): kotlinx.serialization.json.JsonObject = requestJson(
+        "/v1/putaway/sessions/start", "POST",
+        "{\"deviceType\":\"ANDROID_NATIVE\",\"deviceName\":\"AYROVI Worker\"}",
+    ).jsonObject
+
+    fun putawayScanCarton(code: String): kotlinx.serialization.json.JsonObject = requestJson(
+        "/v1/putaway/scan-carton", "POST", "{\"code\":${quote(code)}}",
+    ).jsonObject
+
+    fun putawayPlace(sessionId: String, cartonCode: String, locationCode: String): kotlinx.serialization.json.JsonObject = requestJson(
+        "/v1/putaway/sessions/${encode(sessionId)}/place", "POST",
+        "{\"cartonCode\":${quote(cartonCode)},\"locationCode\":${quote(locationCode)},\"cartonSource\":\"CAMERA\",\"locationSource\":\"CAMERA\"}",
+    ).jsonObject
+
     fun logout() = store.clear()
 
     private fun requestJson(path: String, method: String = "GET", body: String? = null): kotlinx.serialization.json.JsonElement {
