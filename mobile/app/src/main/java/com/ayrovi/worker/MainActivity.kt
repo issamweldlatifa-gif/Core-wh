@@ -49,6 +49,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.jsonObject
+import com.ayrovi.worker.scanner.OcrNormalizer
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
@@ -302,6 +303,7 @@ private fun ReceivingPage(api: WorkerApi, onBack: () -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var scannerOpen by remember { mutableStateOf(false) }
+    var ocrOpen by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     fun request(block: suspend () -> Unit) {
         busy = true
@@ -317,6 +319,17 @@ private fun ReceivingPage(api: WorkerApi, onBack: () -> Unit) {
         NativeBarcodeScanner(
             onDetected = { value -> scannerOpen = false; request { val activeSession = session; if (activeSession != null) session = withContext(Dispatchers.IO) { api.scanCarton(activeSession.id, value, "CAMERA") } } },
             onClose = { scannerOpen = false },
+        )
+        return
+    }
+    if (ocrOpen) {
+        NativeOcrScanner(
+            onDetected = { text ->
+                ocrOpen = false
+                val value = OcrNormalizer.candidates(text).firstOrNull().orEmpty()
+                if (value.isNotBlank()) request { val activeSession = session; if (activeSession != null) session = withContext(Dispatchers.IO) { api.scanCarton(activeSession.id, value, "OCR") } }
+            },
+            onClose = { ocrOpen = false },
         )
         return
     }
@@ -339,6 +352,8 @@ private fun ReceivingPage(api: WorkerApi, onBack: () -> Unit) {
             OutlinedTextField(code, { code = it }, label = { Text("Carton barcode / QR") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(12.dp))
             OutlinedButton(onClick = { scannerOpen = true }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("OPEN CAMERA SCANNER") }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = { ocrOpen = true }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("READ RECEIVING LABEL (OCR)") }
             Spacer(Modifier.height(8.dp))
             Button(onClick = { val value = code.trim(); if (value.isNotEmpty()) request { session = withContext(Dispatchers.IO) { api.scanCarton(active.id, value) }; code = "" } }, enabled = !busy && code.isNotBlank(), modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Color.Black)) { Text(if (busy) "SENDING…" else "SCAN CARTON", fontWeight = FontWeight.Bold) }
             active.flashMessage?.let { Text(it, color = if (active.flashKind == "CARTON_IDENTIFIED") Green else Color(0xFFFFC247), modifier = Modifier.padding(top = 16.dp)) }
