@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.JsonElement
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -69,7 +70,17 @@ class WorkerApi(private val baseUrl: String, private val store: WorkerSessionSto
 
     fun arrivals(): List<ReceivingArrival> {
         val root = requestJson("/v1/receiving/arrivals")
-        return root.jsonArray.mapNotNull { item ->
+        val array = when {
+            root is kotlinx.serialization.json.JsonArray -> root
+            root is JsonObject -> listOf("data", "items", "arrivals")
+                .asSequence()
+                .mapNotNull { root[it] }
+                .firstOrNull { it is kotlinx.serialization.json.JsonArray }
+                ?.jsonArray
+            else -> null
+        } ?: return emptyList()
+        return array.mapNotNull { item ->
+            if (item !is JsonObject) return@mapNotNull null
             val value = item.jsonObject
             val code = value["code"]?.toString()?.trim('"') ?: return@mapNotNull null
             ReceivingArrival(
