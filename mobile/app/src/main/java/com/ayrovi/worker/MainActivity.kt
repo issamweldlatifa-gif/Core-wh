@@ -290,11 +290,19 @@ private fun ReceivingPage(api: WorkerApi, onBack: () -> Unit) {
     var busy by remember { mutableStateOf(false) }
     var scannerOpen by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    fun request(block: () -> Unit) { busy = true; error = null; scope.launch { try { withContext(Dispatchers.IO) { block() } } catch (e: Exception) { error = e.message ?: "Request failed" } finally { busy = false } } }
-    LaunchedEffect(Unit) { request { arrivals = api.arrivals() } }
+    fun request(block: suspend () -> Unit) {
+        busy = true
+        error = null
+        scope.launch {
+            try { block() }
+            catch (e: Exception) { error = e.message ?: "Request failed" }
+            finally { busy = false }
+        }
+    }
+    LaunchedEffect(Unit) { request { arrivals = withContext(Dispatchers.IO) { api.arrivals() } } }
     if (scannerOpen) {
         NativeBarcodeScanner(
-            onDetected = { value -> scannerOpen = false; request { session?.let { session = api.scanCarton(it.id, value, "CAMERA") } } },
+            onDetected = { value -> scannerOpen = false; request { val activeSession = session; if (activeSession != null) session = withContext(Dispatchers.IO) { api.scanCarton(activeSession.id, value, "CAMERA") } } },
             onClose = { scannerOpen = false },
         )
         return
@@ -307,7 +315,7 @@ private fun ReceivingPage(api: WorkerApi, onBack: () -> Unit) {
             Text("EXPECTED ARRIVALS", color = Green, fontSize = 13.sp, letterSpacing = 2.sp, modifier = Modifier.padding(vertical = 12.dp))
             if (arrivals.isEmpty() && !busy) Text("No expected arrivals available.", color = Muted)
             LazyColumn { items(arrivals) { arrival ->
-                Button(onClick = { request { session = api.startReceiving(arrival.code) } }, enabled = !busy, modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp), colors = ButtonDefaults.buttonColors(containerColor = Panel, contentColor = Color.White)) {
+                Button(onClick = { request { session = withContext(Dispatchers.IO) { api.startReceiving(arrival.code) } } }, enabled = !busy, modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp), colors = ButtonDefaults.buttonColors(containerColor = Panel, contentColor = Color.White)) {
                     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) { Text(arrival.code, fontWeight = FontWeight.Bold); Text("${arrival.customerName} · ${arrival.cartons} cartons", color = Muted, fontSize = 12.sp) }
                 }
             } }
@@ -319,7 +327,7 @@ private fun ReceivingPage(api: WorkerApi, onBack: () -> Unit) {
             Spacer(Modifier.height(12.dp))
             OutlinedButton(onClick = { scannerOpen = true }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("OPEN CAMERA SCANNER") }
             Spacer(Modifier.height(8.dp))
-            Button(onClick = { val value = code.trim(); if (value.isNotEmpty()) request { session = api.scanCarton(active.id, value); code = "" } }, enabled = !busy && code.isNotBlank(), modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Color.Black)) { Text(if (busy) "SENDING…" else "SCAN CARTON", fontWeight = FontWeight.Bold) }
+            Button(onClick = { val value = code.trim(); if (value.isNotEmpty()) request { session = withContext(Dispatchers.IO) { api.scanCarton(active.id, value) }; code = "" } }, enabled = !busy && code.isNotBlank(), modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Color.Black)) { Text(if (busy) "SENDING…" else "SCAN CARTON", fontWeight = FontWeight.Bold) }
             active.flashMessage?.let { Text(it, color = if (active.flashKind == "CARTON_IDENTIFIED") Green else Color(0xFFFFC247), modifier = Modifier.padding(top = 16.dp)) }
             OutlinedButton(onClick = { session = null }, modifier = Modifier.fillMaxWidth().padding(top = 18.dp)) { Text("BACK TO ARRIVALS") }
         }
