@@ -106,9 +106,18 @@ jobs:
             -H "Content-Type: application/json" --data @/tmp/rel.json "$API/releases" \
             | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')"
 
-          curl -s -X POST -H "$AUTH" \
-            -H "Content-Type: application/octet-stream" \
-            --data-binary @"$APK" \
-            "$API/releases/$RELEASE_ID/assets?name=ayrovi-worker-debug.apk" >/dev/null
+          # Upload the ~42MB APK. Large uploads over HTTP/2 can flake with
+          # curl exit 92 (stream error) — force HTTP/1.1 and retry.
+          for attempt in 1 2 3; do
+            if curl -s --http1.1 -X POST -H "$AUTH" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary @"$APK" \
+              "$API/releases/$RELEASE_ID/assets?name=ayrovi-worker-debug.apk" >/tmp/upload.json; then
+              break
+            fi
+            echo "asset upload attempt $attempt failed, retrying..."
+            sleep 5
+          done
+          python3 -c 'import json;d=json.load(open("/tmp/upload.json"));assert "id" in d, d'
 
           echo "::notice::Canary release ready: https://github.com/$REPO/releases/tag/$TAG"
