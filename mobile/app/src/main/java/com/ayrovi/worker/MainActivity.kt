@@ -328,6 +328,7 @@ private fun ReceivingPage(api: WorkerApi, onBack: () -> Unit) {
                 ocrOpen = false
                 val value = OcrNormalizer.candidates(text).firstOrNull().orEmpty()
                 if (value.isNotBlank()) request { val activeSession = session; if (activeSession != null) session = withContext(Dispatchers.IO) { api.scanCarton(activeSession.id, value, "OCR") } }
+                else error = "OCR could not find a usable carton code. Try again or enter it manually."
             },
             onClose = { ocrOpen = false },
         )

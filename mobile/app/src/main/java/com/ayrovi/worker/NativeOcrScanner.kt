@@ -34,6 +34,7 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 @SuppressLint("UnsafeOptInUsageError")
 @Composable
@@ -43,7 +44,7 @@ fun NativeOcrScanner(onDetected: (String) -> Unit, onClose: () -> Unit) {
     var granted by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
     val requestPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
     val executor = remember { Executors.newSingleThreadExecutor() }
-    var delivered by remember { mutableStateOf(false) }
+    val delivered = remember { AtomicBoolean(false) }
     LaunchedEffect(Unit) { if (!granted) requestPermission.launch(Manifest.permission.CAMERA) }
     DisposableEffect(Unit) { onDispose { executor.shutdown() } }
     if (!granted) {
@@ -66,9 +67,9 @@ fun NativeOcrScanner(onDetected: (String) -> Unit, onClose: () -> Unit) {
                 val image = proxy.image
                 if (image == null) { proxy.close(); return@setAnalyzer }
                 recognizer.process(InputImage.fromMediaImage(image, proxy.imageInfo.rotationDegrees))
-                    .addOnSuccessListener { result ->
+                    .addOnSuccessListener(ContextCompat.getMainExecutor(viewContext)) { result ->
                         val text = result.text.trim()
-                        if (!delivered && text.length >= 3) { delivered = true; onDetected(text) }
+                        if (text.length >= 3 && delivered.compareAndSet(false, true)) onDetected(text)
                     }
                     .addOnCompleteListener { proxy.close() }
             }
