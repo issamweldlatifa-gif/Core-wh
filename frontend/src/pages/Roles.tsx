@@ -5,15 +5,24 @@ import client, { apiErrorMessage } from '../api/client';
 
 interface RoleRow {
   id: string; name: string; description: string | null; isSystem: boolean;
+  applicationClass?: string;
   permissions: { permission: { key: string } }[];
 }
+
+const CLASS_OPTIONS = ['ADMIN', 'OPERATIONAL', 'VIEWER', 'UNKNOWN'] as const;
+const CLASS_LABEL: Record<string, string> = {
+  ADMIN: 'Admin Web',
+  OPERATIONAL: 'Worker Native',
+  VIEWER: 'Admin Web (read-only)',
+  UNKNOWN: 'None (locked)',
+};
 
 export default function Roles() {
   const { hasPermission } = useAuth();
   const { data: roles, loading, error, reload } = useFetch<RoleRow[]>('/v1/roles');
   const canManage = hasPermission('roles.manage');
 
-  const [form, setForm] = useState({ name: '', description: '', permissions: '' });
+  const [form, setForm] = useState({ name: '', description: '', applicationClass: 'UNKNOWN', permissions: '' });
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -24,9 +33,14 @@ export default function Roles() {
     setSaving(true); setErr(null); setMsg(null);
     try {
       const perms = form.permissions ? form.permissions.split(',').map((p) => p.trim()).filter(Boolean) : [];
-      await client.post('/v1/roles', { name: form.name, description: form.description, permissions: perms });
+      await client.post('/v1/roles', {
+        name: form.name,
+        description: form.description,
+        applicationClass: form.applicationClass,
+        permissions: perms,
+      });
       setMsg('Role created.');
-      setForm({ name: '', description: '', permissions: '' });
+      setForm({ name: '', description: '', applicationClass: 'UNKNOWN', permissions: '' });
       reload();
     } catch (ex) {
       setErr(apiErrorMessage(ex));
@@ -54,6 +68,14 @@ export default function Roles() {
               <label>Description</label>
               <input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
             </div>
+            <div>
+              <label>Application surface (opens which app)</label>
+              <select value={form.applicationClass} onChange={(e) => setForm({ ...form, applicationClass: e.target.value })}>
+                {CLASS_OPTIONS.map((c) => (
+                  <option key={c} value={c}>{c} — {CLASS_LABEL[c]}</option>
+                ))}
+              </select>
+            </div>
             <div style={{ gridColumn: '1 / -1' }}>
               <label>Permissions (comma-separated keys, e.g. warehouse.view, inventory.manage)</label>
               <input value={form.permissions} onChange={(e) => setForm({ ...form, permissions: e.target.value })} placeholder="warehouse.view, inventory.manage" />
@@ -73,12 +95,15 @@ export default function Roles() {
         {!loading && (roles ?? []).length > 0 && (
           <table>
             <thead>
-              <tr><th>Role</th><th>Description</th><th>Permissions</th></tr>
+              <tr><th>Role</th><th>Surface</th><th>Description</th><th>Permissions</th></tr>
             </thead>
             <tbody>
               {(roles ?? []).map((r) => (
                 <tr key={r.id}>
                   <td><strong>{r.name}</strong> {r.isSystem && <span className="tag yellow">system</span>}</td>
+                  <td>
+                    <span className="tag" style={{ margin: 2 }}>{CLASS_LABEL[r.applicationClass ?? 'UNKNOWN'] ?? r.applicationClass}</span>
+                  </td>
                   <td style={{ maxWidth: 260 }}>{r.description ?? '—'}</td>
                   <td>
                     {r.permissions.map((p) => (

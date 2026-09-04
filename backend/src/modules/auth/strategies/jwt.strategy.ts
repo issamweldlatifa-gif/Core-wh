@@ -5,7 +5,8 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { AccessTokenPayload } from '../token.service';
 import {
-  applicationsAllowedByRoles,
+  applicationsAllowedByRoleClasses,
+  roleClassOf,
   type ApplicationKind,
 } from '../../access/application-access';
 
@@ -71,7 +72,10 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       include: { role: { include: { permissions: { include: { permission: true } } } } },
     });
     const roles = roleRows.map((r) => r.role.name);
-    const allowedApplications = applicationsAllowedByRoles(roles);
+    // Server truth: the DB applicationClass column on each role (data-driven).
+    const allowedApplications = applicationsAllowedByRoleClasses(
+      roleRows.map((r) => roleClassOf(r.role)),
+    );
     if (!allowedApplications.has(application)) {
       await this.revoke(session.id);
       throw new UnauthorizedException(

@@ -53,6 +53,17 @@ enum ApplicationKind {
   ADMIN_WEB
   WORKER_NATIVE
 }
+
+// Server truth for which application surface(s) a ROLE may open. Stored on the
+// role row so new roles are added from the Admin Web without code changes
+// (data-driven, not hard-coded name classification). UNKNOWN = not assigned:
+// such a role opens no surface unless a legacy seed-name fallback applies.
+enum ApplicationClass {
+  ADMIN // opens ADMIN_WEB (management)
+  OPERATIONAL // opens WORKER_NATIVE (floor work)
+  VIEWER // read-only ADMIN_WEB
+  UNKNOWN
+}
 enum DeviceStatus {
   ACTIVE
   DISABLED
@@ -281,12 +292,15 @@ model User {
 }
 
 model Role {
-  id          String   @id @default(uuid())
-  name        String   @unique // e.g. SUPER_ADMIN, PICKER
-  description String?
-  isSystem    Boolean  @default(false) // system roles are protected from deletion
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id               String           @id @default(uuid())
+  name             String           @unique // e.g. SUPER_ADMIN, PICKER
+  description      String?
+  isSystem         Boolean          @default(false) // system roles are protected from deletion
+  // Which application surface(s) this role may open. Data-driven (Doc1 §15,
+  // Doc2 §6): the server reads this column; it never classifies by role name.
+  applicationClass ApplicationClass @default(UNKNOWN)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
 
   users       UserRole[]
   permissions RolePermission[]

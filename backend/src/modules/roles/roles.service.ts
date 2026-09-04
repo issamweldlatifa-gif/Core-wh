@@ -21,7 +21,12 @@ export class RolesService {
     if (exists) throw new ConflictException('Role already exists.');
 
     const created = await this.prisma.role.create({
-      data: { name: dto.name, description: dto.description ?? null, isSystem: false },
+      data: {
+        name: dto.name,
+        description: dto.description ?? null,
+        isSystem: false,
+        applicationClass: dto.applicationClass ?? 'UNKNOWN',
+      },
     });
 
     if (dto.permissions?.length) {
@@ -62,6 +67,7 @@ export class RolesService {
     const data: any = {};
     if (dto.name) data.name = dto.name;
     if (dto.description !== undefined) data.description = dto.description ?? null;
+    if (dto.applicationClass !== undefined) data.applicationClass = dto.applicationClass;
 
     const updated = await this.prisma.role.update({ where: { id }, data });
     if (dto.permissions) await this.grantPermissions(id, dto.permissions, actorUserId, ip, false);

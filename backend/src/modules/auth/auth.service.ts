@@ -8,9 +8,10 @@ import { AuditService } from '../audit/audit.service';
 import { TokenService, RefreshTokenPayload } from './token.service';
 import * as bcrypt from 'bcrypt';
 import {
-  applicationsAllowedByRoles,
+  applicationsAllowedByRoleClasses,
   classifyRole,
   evaluateAccess,
+  roleClassOf,
   type ApplicationKind,
 } from '../access/application-access';
 
@@ -119,8 +120,17 @@ export class AuthService {
       include: { role: true },
     });
     const roles = roleRows.map((r) => r.role.name);
+    // Data-driven classification: the DB `applicationClass` column decides
+    // which surfaces these roles may open (Doc1 §15, Doc2 §6). The client
+    // never supplies a class.
+    const roleClasses = roleRows.map((r) => roleClassOf(r.role));
     const application: ApplicationKind = ctx?.app ?? 'ADMIN_WEB';
-    const decision = evaluateAccess({ application, roles, accountActive: true });
+    const decision = evaluateAccess({
+      application,
+      roles,
+      roleClasses,
+      accountActive: true,
+    });
     if (!decision.allowed) {
       await this.audit.log({
         actorUserId: user.id,
@@ -132,7 +142,8 @@ export class AuthService {
           reason: `application_${decision.reason}`,
           application,
           roles,
-          allowed: [...applicationsAllowedByRoles(roles)],
+          roleClasses,
+          allowed: [...applicationsAllowedByRoleClasses(roleClasses)],
         },
       });
       throw new ForbiddenException(applicationDenyMessage(application, roles));
