@@ -14,6 +14,7 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { IsArray, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { CategoriesService } from './categories.service';
+import { RequireApplication } from '../../common/decorators/require-application.decorator';
 
 class CreateCategoryDto {
   @IsString() @MinLength(2) @MaxLength(40)
@@ -51,6 +52,7 @@ class SetMappingDto {
  */
 @ApiTags('categories')
 @Controller('categories')
+@RequireApplication('ADMIN_WEB')
 export class CategoriesController {
   constructor(private readonly categories: CategoriesService) {}
 

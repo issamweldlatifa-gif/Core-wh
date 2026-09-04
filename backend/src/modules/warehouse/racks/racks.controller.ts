@@ -7,10 +7,12 @@ import { RequirePermissions } from '../../../common/decorators/require-permissio
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { RequestWithUser } from '../../../common/interfaces/request-with-user.interface';
+import { RequireApplication } from '../../../common/decorators/require-application.decorator';
 
 @ApiTags('Racks')
 @ApiBearerAuth()
 @Controller('racks')
+@RequireApplication('ADMIN_WEB')
 export class RacksController {
   constructor(private readonly racks: RacksService) {}
 

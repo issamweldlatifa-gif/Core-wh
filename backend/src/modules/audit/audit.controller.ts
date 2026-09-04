@@ -4,11 +4,13 @@ import { AuditService } from './audit.service';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { ListAuditDto } from './dto/list-audit.dto';
 import { AuditAction } from '@prisma/client';
+import { RequireApplication } from '../../common/decorators/require-application.decorator';
 
 @ApiTags('audit')
 @ApiBearerAuth()
 @Controller('audit')
 @RequirePermissions('audit.view')
+@RequireApplication('ADMIN_WEB')
 export class AuditController {
   constructor(private readonly audit: AuditService) {}
 

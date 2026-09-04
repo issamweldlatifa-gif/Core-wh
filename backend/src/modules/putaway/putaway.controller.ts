@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { PutawayService } from './putaway.service';
 import { PlaceCartonDto, ScanCodeDto, StartPutawayDto } from './dto/putaway.dto';
+import { RequireApplication } from '../../common/decorators/require-application.decorator';
 
 /**
  * Putaway (stowing) Terminal API.
@@ -13,6 +14,7 @@ import { PlaceCartonDto, ScanCodeDto, StartPutawayDto } from './dto/putaway.dto'
 @ApiTags('Putaway')
 @ApiBearerAuth()
 @Controller('putaway')
+@RequireApplication('WORKER_NATIVE')
 export class PutawayController {
   constructor(private readonly putaway: PutawayService) {}
 

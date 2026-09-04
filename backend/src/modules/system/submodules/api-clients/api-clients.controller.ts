@@ -4,6 +4,7 @@ import { ApiClientsService } from './api-clients.service';
 import { RequirePermissions } from '../../../../common/decorators/require-permissions.decorator';
 import { IsIn, IsString, MinLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { RequireApplication } from '../../../../common/decorators/require-application.decorator';
 
 class CreateApiClientDto {
   @ApiProperty() @IsString() @MinLength(2) name!: string;
@@ -15,6 +16,7 @@ class SetStatusDto {
 @ApiTags('api-clients')
 @ApiBearerAuth()
 @Controller('system/api-clients')
+@RequireApplication('ADMIN_WEB')
 export class ApiClientsController {
   constructor(private readonly service: ApiClientsService) {}
 
