@@ -138,7 +138,7 @@ class WorkerRepository(private val store: SessionStore) {
     private fun authGet(path: String): Pair<okhttp3.Response, String> {
         var resp = rawGet("${base()}$path", store.accessToken())
         if (resp.first.code == 401 && refreshOnce()) {
-            resp = rawGet("$base()$path", store.accessToken())
+            resp = rawGet("${base()}$path", store.accessToken())
         }
         return Pair(resp.first, resp.second)
     }
