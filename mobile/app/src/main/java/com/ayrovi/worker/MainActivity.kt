@@ -291,7 +291,7 @@ private fun ExpectedPage(api: WorkerApi, onBack: () -> Unit) {
             MetricCard("${arrivals.sumOf { it.cartons }}", "EXPECTED CARTONS", Modifier.weight(1f))
         }
         error?.let { Text(it, color = Color(0xFFFF7167), modifier = Modifier.padding(vertical = 10.dp)) }
-        LazyColumn(Modifier.padding(top = 16.dp)) { items(arrivals) { ArrivalRow(it) } }
+        Column(Modifier.padding(top = 16.dp)) { arrivals.forEach { ArrivalRow(it) } }
     }
 }
 
@@ -340,7 +340,7 @@ private fun ReceivingPage(api: WorkerApi, onBack: () -> Unit) {
         if (session == null) {
             Text("EXPECTED ARRIVALS", color = Green, fontSize = 13.sp, letterSpacing = 2.sp, modifier = Modifier.padding(vertical = 12.dp))
             if (arrivals.isEmpty() && !busy) Text("No expected arrivals available.", color = Muted)
-            LazyColumn { items(arrivals) { arrival ->
+            Column { arrivals.forEach { arrival ->
                 Button(onClick = { request { session = withContext(Dispatchers.IO) { api.startReceiving(arrival.code) } } }, enabled = !busy, modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp), colors = ButtonDefaults.buttonColors(containerColor = Panel, contentColor = Color.White)) {
                     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) { Text(arrival.code, fontWeight = FontWeight.Bold); Text("${arrival.customerName} · ${arrival.cartons} cartons", color = Muted, fontSize = 12.sp) }
                 }
