@@ -1,6 +1,8 @@
 package com.ayrovi.worker
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import okhttp3.MediaType.Companion.toMediaType
@@ -38,14 +40,20 @@ class WorkerApi(private val baseUrl: String, private val store: WorkerSessionSto
         val response = client.newCall(request).execute()
         if (!response.isSuccessful) error("Worker context failed (${response.code})")
         val root = json.parseToJsonElement(response.body?.string().orEmpty()).jsonObject
-        val station = root["station"]?.jsonObject?.let {
+        val station = root["station"]
+            ?.takeUnless { it is JsonNull }
+            ?.let { it as? JsonObject }
+            ?.let {
             WorkerStation(
                 it["code"]?.toString()?.trim('"').orEmpty(),
                 it["name"]?.toString()?.trim('"').orEmpty(),
                 it["department"]?.toString()?.trim('"').orEmpty(),
             )
         }
-        val tasks = root["tasks"]?.jsonArray?.mapNotNull { item ->
+        val tasks = root["tasks"]
+            ?.takeUnless { it is JsonNull }
+            ?.let { runCatching { it.jsonArray }.getOrNull() }
+            ?.mapNotNull { item ->
             val task = item.jsonObject
             val key = task["key"]?.toString()?.trim('"') ?: return@mapNotNull null
             WorkerTask(
