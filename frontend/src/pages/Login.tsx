@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { apiErrorMessage } from '../api/client';
 import { useFetch } from '../hooks/useFetch';
+import type { LoginApplication } from '../api/auth';
 
 /**
  * Internal employee login screen.
@@ -11,6 +12,9 @@ import { useFetch } from '../hooks/useFetch';
 export default function Login() {
   const { loginFn } = useAuth();
   const navigate = useNavigate();
+  const application: LoginApplication = new URLSearchParams(window.location.search).get('app') === 'worker'
+    ? 'WORKER_NATIVE'
+    : 'ADMIN_WEB';
   // The build manifest is served statically by express (robust across hosts);
   // it exposes which commit + SPA asset this deployment is running.
   const { data: buildInfo } = useFetch<any>('/build-info.json');
@@ -25,8 +29,8 @@ export default function Login() {
     setError(null);
     setLoading(true);
     try {
-      await loginFn(identifier.trim(), secret);
-      navigate('/', { replace: true });
+      await loginFn(identifier.trim(), secret, application);
+      navigate(application === 'WORKER_NATIVE' ? '/terminal' : '/', { replace: true });
       setLoading(false);
     } catch (err: unknown) {
       setError(apiErrorMessage(err) || 'Login failed.');
@@ -41,7 +45,9 @@ export default function Login() {
           <div className="b1">AYROVI</div>
           <div className="b2">Warehouse</div>
         </div>
-        <div className="login-sub">Sign in to Warehouse Core</div>
+        <div className="login-sub">
+          {application === 'WORKER_NATIVE' ? 'Worker Terminal sign in' : 'Sign in to Warehouse Core'}
+        </div>
 
         {error && <div className="error-box">{error}</div>}
 

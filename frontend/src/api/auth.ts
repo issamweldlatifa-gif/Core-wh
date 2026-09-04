@@ -1,8 +1,14 @@
 import client, { clearTokens, storeTokens } from './client';
 import type { AuthMe, AuthTokens } from '../types/auth';
 
-export async function login(identifier: string, secret: string): Promise<AuthTokens> {
-  const res = await client.post<AuthTokens>('/v1/auth/login', { identifier, secret });
+export type LoginApplication = 'ADMIN_WEB' | 'WORKER_NATIVE';
+
+export async function login(
+  identifier: string,
+  secret: string,
+  app: LoginApplication = 'ADMIN_WEB',
+): Promise<AuthTokens> {
+  const res = await client.post<AuthTokens>('/v1/auth/login', { identifier, secret, app });
   storeTokens(res.data.accessToken, res.data.refreshToken);
   return res.data;
 }

@@ -8,6 +8,7 @@ import {
   useState,
 } from 'react';
 import * as authApi from '../api/auth';
+import type { LoginApplication } from '../api/auth';
 import { getAccessToken, clearTokens } from '../api/client';
 import type { AuthMe } from '../types/auth';
 
@@ -15,7 +16,7 @@ interface AuthContextValue {
   me: AuthMe | null;
   loading: boolean;
   error: string | null;
-  loginFn: (identifier: string, secret: string) => Promise<void>;
+  loginFn: (identifier: string, secret: string, app?: LoginApplication) => Promise<void>;
   logoutFn: () => Promise<void>;
   hasPermission: (perm: string) => boolean;
 }
@@ -49,10 +50,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loadSession();
   }, [loadSession]);
 
-  const loginFn = useCallback(async (identifier: string, secret: string) => {
+  const loginFn = useCallback(async (
+    identifier: string,
+    secret: string,
+    app: LoginApplication = 'ADMIN_WEB',
+  ) => {
     setError(null);
     try {
-      await authApi.login(identifier, secret);
+      await authApi.login(identifier, secret, app);
       const data = await authApi.getMe();
       setMe(data);
     } catch (e: any) {
