@@ -7,8 +7,8 @@ Dynamic Worker & Station Architecture, Native Worker App Architecture).
 Progress:
 - Batch 1 (HTTP surface enforcement) — DONE, CI green.
 - Batch 2 (devices + session binding + revocation + security events) — DONE.
-- Batch 3 (data-driven role classification) — DONE.
-- Batch 4 (native Android app, scanner-core, workflows) — next.
+- Batch 3 (data-driven role classification) — DONE, CI green.
+- Batch 4 (native Android app, scanner-core, workflows) — DONE, CI green (scanner-core unit tests + app assembleDebug on GitHub Actions, APK artifact uploaded).
 
 This document is the short implementation plan requested BEFORE touching
 source files. It records what already exists (never re-do), what is missing
