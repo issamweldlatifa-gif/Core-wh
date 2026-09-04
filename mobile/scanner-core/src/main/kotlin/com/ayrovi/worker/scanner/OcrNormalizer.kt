@@ -37,7 +37,7 @@ class OcrNormalizer {
         return tokenPattern.findAll(normalised).map { m ->
             val token = m.value
             OcrCandidate(token, confidenceFor(token, normalised))
-        }.sortedByDescending { it.confidence }
+        }.sortedByDescending { it.confidence }.toList()
     }
 
     /** Score a candidate token inside its sentence context. */
