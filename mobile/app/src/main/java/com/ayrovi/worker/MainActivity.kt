@@ -63,7 +63,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class WorkerPage { DASHBOARD, RECEIVING, EXPECTED, PUTAWAY, SORTING, PACKING }
+private enum class WorkerPage { DASHBOARD, RECEIVING, EXPECTED, PUTAWAY, SORTING, PACKING, ORDER_SORTING, SHIPPING }
 
 private fun WorkerContext.allowed(permission: String): Boolean =
     tasks.any { it.permission == permission && it.ready }
@@ -149,6 +149,8 @@ private fun WorkerShell(context: WorkerContext, api: WorkerApi, onRefresh: () ->
             WorkerPage.PUTAWAY -> PutawayPage(api, onBack = { page = WorkerPage.DASHBOARD })
             WorkerPage.SORTING -> SortingPage(api, onBack = { page = WorkerPage.DASHBOARD })
             WorkerPage.PACKING -> PackingPage(api, onBack = { page = WorkerPage.DASHBOARD })
+            WorkerPage.ORDER_SORTING -> OrderSortingPage(api, onBack = { page = WorkerPage.DASHBOARD })
+            WorkerPage.SHIPPING -> ShippingPage(api, onBack = { page = WorkerPage.DASHBOARD })
         }
     }
 }
@@ -175,6 +177,8 @@ private fun WorkerNav(context: WorkerContext, page: WorkerPage, onPage: (WorkerP
             NavItem("SORTING", page == WorkerPage.SORTING) { onPage(WorkerPage.SORTING) }
         }
         if (context.allowed("packing.execute")) NavItem("PACKING", page == WorkerPage.PACKING) { onPage(WorkerPage.PACKING) }
+        if (context.allowed("picking.execute")) NavItem("ORDER SORT", page == WorkerPage.ORDER_SORTING) { onPage(WorkerPage.ORDER_SORTING) }
+        if (context.allowed("shipping.execute")) NavItem("SHIPPING", page == WorkerPage.SHIPPING) { onPage(WorkerPage.SHIPPING) }
     }
 }
 
@@ -481,5 +485,54 @@ private fun PackingPage(api: WorkerApi, onBack: () -> Unit) {
             Text(data.toString(), color = Muted, fontSize = 12.sp, modifier = Modifier.padding(vertical = 8.dp))
             Button(onClick = ::pack, enabled = !busy, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Color.Black)) { Text(if (busy) "PACKING…" else "PACK BIN", fontWeight = FontWeight.Bold) }
         }
+    }
+}
+
+@Composable
+private fun OrderSortingPage(api: WorkerApi, onBack: () -> Unit) {
+    var article by remember { mutableStateOf("") }
+    var bin by remember { mutableStateOf("") }
+    var decision by remember { mutableStateOf<kotlinx.serialization.json.JsonObject?>(null) }
+    var camera by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    fun submit(value: String) {
+        if (value.isBlank() || busy) return
+        busy = true
+        scope.launch { try { withContext(Dispatchers.IO) { if (decision == null) { decision = api.orderSortingScan(value); article = value; message = "Article resolved — scan customer bin" } else { api.orderSortingAssign(article, value); decision = null; article = ""; message = "Article assigned to $value" } } } catch (e: Exception) { message = e.message ?: "Order sorting failed" } finally { busy = false } }
+    }
+    if (camera) { NativeBarcodeScanner(onDetected = { camera = false; if (decision == null) article = it else bin = it; submit(it) }, onClose = { camera = false }); return }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(22.dp)) {
+        PageTitle("Order Sorting", onBack)
+        Text("Scan an article, then assign it to the customer order bin.", color = Muted, modifier = Modifier.padding(vertical = 8.dp))
+        Text(if (decision == null) "STEP 1 · SCAN ARTICLE" else "STEP 2 · SCAN BIN", color = Green, letterSpacing = 2.sp, modifier = Modifier.padding(top = 18.dp))
+        message?.let { Text(it, color = Green, modifier = Modifier.padding(vertical = 10.dp)) }
+        OutlinedTextField(if (decision == null) article else bin, { if (decision == null) article = it else bin = it }, label = { Text(if (decision == null) "Article code" else "Customer bin") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedButton(onClick = { camera = true }, enabled = !busy, modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) { Text("OPEN CAMERA SCANNER") }
+        Button(onClick = { submit(if (decision == null) article else bin) }, enabled = !busy && (if (decision == null) article else bin).isNotBlank(), modifier = Modifier.fillMaxWidth().padding(top = 8.dp), colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Color.Black)) { Text("CONFIRM", fontWeight = FontWeight.Bold) }
+    }
+}
+
+@Composable
+private fun ShippingPage(api: WorkerApi, onBack: () -> Unit) {
+    var code by remember { mutableStateOf("") }
+    var shipment by remember { mutableStateOf<kotlinx.serialization.json.JsonObject?>(null) }
+    var camera by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    fun load(value: String) { if (value.isBlank() || busy) return; busy = true; scope.launch { try { shipment = withContext(Dispatchers.IO) { api.shippingScan(value) }; message = "Shipment loaded — verify and ship" } catch (e: Exception) { message = e.message ?: "Shipping scan failed" } finally { busy = false } } }
+    fun ship() { if (code.isBlank() || busy) return; busy = true; scope.launch { try { withContext(Dispatchers.IO) { api.shippingShip(code) }; message = "SHIPPED $code"; shipment = null; code = "" } catch (e: Exception) { message = e.message ?: "Shipping failed" } finally { busy = false } } }
+    if (camera) { NativeBarcodeScanner(onDetected = { camera = false; code = it; load(it) }, onClose = { camera = false }); return }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(22.dp)) {
+        PageTitle("Shipping", onBack)
+        Text("Scan a shipment, verify its details, then confirm dispatch.", color = Muted, modifier = Modifier.padding(vertical = 8.dp))
+        message?.let { Text(it, color = if (it.startsWith("SHIPPED")) Green else Color(0xFFFFC247), modifier = Modifier.padding(vertical = 10.dp)) }
+        OutlinedTextField(code, { code = it }, label = { Text("Shipment code") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedButton(onClick = { camera = true }, enabled = !busy, modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) { Text("OPEN CAMERA SCANNER") }
+        Button(onClick = { load(code) }, enabled = !busy && code.isNotBlank() && shipment == null, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), colors = ButtonDefaults.buttonColors(containerColor = Panel, contentColor = Color.White)) { Text("LOAD SHIPMENT") }
+        shipment?.let { Text(it.toString(), color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 18.dp)) }
+        if (shipment != null) Button(onClick = ::ship, enabled = !busy, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Color.Black)) { Text("CONFIRM SHIPMENT", fontWeight = FontWeight.Bold) }
     }
 }
