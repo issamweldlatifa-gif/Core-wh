@@ -26,6 +26,13 @@ function prismaMock() {
       update: jest.fn().mockResolvedValue({}),
       findUnique: jest.fn(),
     },
+    // Worker-native login resolves the device (when presented) and the
+    // worker's assigned station before creating the session.
+    device: {
+      findUnique: jest.fn(),
+      update: jest.fn().mockResolvedValue({}),
+    },
+    station: { findMany: jest.fn().mockResolvedValue([]) },
   };
 }
 

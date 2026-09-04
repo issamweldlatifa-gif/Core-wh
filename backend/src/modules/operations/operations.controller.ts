@@ -6,6 +6,7 @@ import { OperationsService } from './operations.service';
 import { StationsService } from './stations.service';
 import { CorrectionsService } from './corrections.service';
 import { TerminalService } from './terminal.service';
+import { RequireApplication } from '../../common/decorators/require-application.decorator';
 
 /**
  * WAREHOUSE OS operational API.
@@ -31,6 +32,7 @@ function actorOf(req: any) {
 @ApiTags('Worker Terminal')
 @ApiBearerAuth()
 @Controller('terminal')
+@RequireApplication('WORKER_NATIVE')
 export class TerminalController {
   constructor(private readonly terminal: TerminalService) {}
 
@@ -58,6 +60,7 @@ export class TerminalController {
 @ApiTags('Stations')
 @ApiBearerAuth()
 @Controller('stations')
+@RequireApplication('ADMIN_WEB')
 export class StationsController {
   constructor(private readonly stations: StationsService) {}
 
@@ -124,6 +127,7 @@ export class StationsController {
 @ApiTags('Operations (Admin Control Center)')
 @ApiBearerAuth()
 @Controller('operations')
+@RequireApplication('ADMIN_WEB')
 export class OperationsController {
   constructor(
     private readonly ops: OperationsService,

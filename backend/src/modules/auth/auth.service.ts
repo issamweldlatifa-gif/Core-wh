@@ -8,9 +8,10 @@ import { AuditService } from '../audit/audit.service';
 import { TokenService, RefreshTokenPayload } from './token.service';
 import * as bcrypt from 'bcrypt';
 import {
-  applicationsAllowedByRoles,
+  applicationsAllowedByRoleClasses,
   classifyRole,
   evaluateAccess,
+  roleClassOf,
   type ApplicationKind,
 } from '../access/application-access';
 
@@ -48,7 +49,7 @@ export class AuthService {
     identifier: string,
     secret: string,
     mode?: 'password' | 'pin',
-    ctx?: { ip?: string; ua?: string; app?: ApplicationKind },
+    ctx?: { ip?: string; ua?: string; app?: ApplicationKind; deviceId?: string },
   ): Promise<AuthTokens> {
     const user = await this.prisma.user.findUnique({
       where: { employeeCode: identifier },
@@ -119,8 +120,17 @@ export class AuthService {
       include: { role: true },
     });
     const roles = roleRows.map((r) => r.role.name);
+    // Data-driven classification: the DB `applicationClass` column decides
+    // which surfaces these roles may open (Doc1 §15, Doc2 §6). The client
+    // never supplies a class.
+    const roleClasses = roleRows.map((r) => roleClassOf(r.role));
     const application: ApplicationKind = ctx?.app ?? 'ADMIN_WEB';
-    const decision = evaluateAccess({ application, roles, accountActive: true });
+    const decision = evaluateAccess({
+      application,
+      roles,
+      roleClasses,
+      accountActive: true,
+    });
     if (!decision.allowed) {
       await this.audit.log({
         actorUserId: user.id,
@@ -132,13 +142,45 @@ export class AuthService {
           reason: `application_${decision.reason}`,
           application,
           roles,
-          allowed: [...applicationsAllowedByRoles(roles)],
+          roleClasses,
+          allowed: [...applicationsAllowedByRoleClasses(roleClasses)],
         },
       });
       throw new ForbiddenException(applicationDenyMessage(application, roles));
     }
 
-    const tokens = await this.createSession(user.id, ctx?.ip, ctx?.ua, application);
+    // Strict device + station binding (native worker app): when a WORKER_NATIVE
+    // login presents a device code, the server verifies the device is real,
+    // ACTIVE and not assigned to someone else (first use binds it to this
+    // worker). The worker's currently assigned station is captured on the
+    // session so later reassignment/disable can be enforced server-side.
+    // ADMIN_WEB logins never bind a device (deviceId is ignored there).
+    let deviceId: string | undefined;
+    let stationId: string | undefined;
+    if (application === 'WORKER_NATIVE') {
+      if (ctx?.deviceId) {
+        const bound = await this.authorizeDeviceForWorker(
+          ctx.deviceId,
+          user.id,
+          ctx.ip,
+          application,
+        );
+        if (!bound) {
+          throw new ForbiddenException('This device is not authorized for the Worker app.');
+        }
+        deviceId = bound;
+      }
+      stationId = await this.resolveAssignedStationId(user.id);
+    }
+
+    const tokens = await this.createSession(
+      user.id,
+      ctx?.ip,
+      ctx?.ua,
+      application,
+      deviceId,
+      stationId,
+    );
     await this.prisma.user.update({
       where: { id: user.id },
       data: { lastLoginAt: new Date() },
@@ -149,7 +191,7 @@ export class AuthService {
       entityType: 'user',
       entityId: user.id,
       ipAddress: ctx?.ip,
-      metadata: { mode: resolveMode },
+      metadata: { mode: resolveMode, application },
     });
 
     return tokens;
@@ -171,12 +213,15 @@ export class AuthService {
     });
 
     // A refresh keeps the SAME application surface the session was opened for
-    // (server truth is the DB row; the token claim is only echoed).
+    // (server truth is the DB row; the token claim is only echoed). Device and
+    // station binding are preserved across the rotation.
     return this.createSession(
       session.userId,
       session.ipAddress ?? undefined,
       session.userAgent ?? undefined,
       session.application as ApplicationKind,
+      session.deviceId ?? undefined,
+      session.stationId ?? undefined,
     );
   }
 
@@ -195,17 +240,35 @@ export class AuthService {
   }
 
   async revokeSession(userId: string, sessionId: string) {
-    await this.prisma.session.updateMany({
+    const revoked = await this.prisma.session.updateMany({
       where: { id: sessionId, userId },
       data: { status: 'REVOKED', revokedAt: new Date() },
     });
+    if (revoked.count > 0) {
+      await this.audit.log({
+        actorUserId: userId,
+        action: 'SESSION_REVOKED' as any,
+        entityType: 'session',
+        entityId: sessionId,
+        metadata: { reason: 'admin_revoked_session' },
+      });
+    }
   }
 
-  async revokeAllSessions(userId: string) {
-    await this.prisma.session.updateMany({
+  async revokeAllSessions(userId: string, actorUserId?: string) {
+    const revoked = await this.prisma.session.updateMany({
       where: { userId, status: 'ACTIVE' },
       data: { status: 'REVOKED', revokedAt: new Date() },
     });
+    if (revoked.count > 0) {
+      await this.audit.log({
+        actorUserId: actorUserId ?? userId,
+        action: 'SESSION_REVOKED' as any,
+        entityType: 'user',
+        entityId: userId,
+        metadata: { reason: 'revoke_all_sessions', count: revoked.count },
+      });
+    }
   }
 
   /**
@@ -218,6 +281,8 @@ export class AuthService {
     ip?: string,
     ua?: string,
     application: ApplicationKind = 'ADMIN_WEB',
+    deviceId?: string,
+    stationId?: string,
   ): Promise<AuthTokens> {
     // First create the session with a temporary hashed token so we can get an id.
     const hashed = this.tokens.hashToken('placeholder');
@@ -229,6 +294,8 @@ export class AuthService {
         userAgent: ua,
         status: 'ACTIVE',
         application,
+        deviceId: deviceId ?? null,
+        stationId: stationId ?? null,
         expiresAt: new Date(Date.now() + this.refreshTtlMs()),
         lastSeenAt: new Date(),
       },
@@ -244,6 +311,70 @@ export class AuthService {
     });
 
     return { accessToken, refreshToken };
+  }
+
+  /**
+   * Server-side device authorization (Doc1 §7, Doc2 §11, Doc3 §11).
+   * The device code comes from the native app; the decision uses the DB
+   * record only — a device the admin never registered, a disabled device or
+   * a device assigned to another worker is rejected with DEVICE_REJECTED and
+   * no session is created.
+   *
+   * @returns the device row id when authorized, else null (caller denies).
+   */
+  private async authorizeDeviceForWorker(
+    deviceCodeRaw: string,
+    workerId: string,
+    ip?: string,
+    application?: ApplicationKind,
+  ): Promise<string | null> {
+    const code = deviceCodeRaw.trim().toUpperCase();
+    const device = await this.prisma.device.findUnique({ where: { code } });
+
+    const deny = async (reason: string, deviceId?: string) => {
+      await this.audit.log({
+        actorUserId: workerId,
+        action: 'DEVICE_REJECTED' as any,
+        entityType: 'device',
+        entityId: deviceId ?? null,
+        ipAddress: ip,
+        metadata: { deviceCode: code, reason, application: application ?? 'WORKER_NATIVE' },
+      });
+      return null;
+    };
+
+    if (!device) return deny('unknown_device');
+    if (device.status !== 'ACTIVE') return deny(`device_${device.status.toLowerCase()}`, device.id);
+    if (device.assignedWorkerId && device.assignedWorkerId !== workerId) {
+      return deny('assigned_to_another_worker', device.id);
+    }
+
+    // First use binds the device to this worker (admin can re-assign later).
+    const bound = await this.prisma.device.update({
+      where: { id: device.id },
+      data: {
+        assignedWorkerId: device.assignedWorkerId ?? workerId,
+        lastSeenAt: new Date(),
+        lastSeenIp: ip ?? null,
+      },
+    });
+    return bound.id;
+  }
+
+  /**
+   * Resolve the station a worker is currently assigned to (ACTIVE only).
+   * When a worker is assigned to exactly one station that id is captured on
+   * the session; zero or several stations leave it null (the terminal home
+   * already handles "no station" and "several stations" flows).
+   */
+  private async resolveAssignedStationId(workerId: string): Promise<string | undefined> {
+    const stations = await this.prisma.station.findMany({
+      where: { assignedWorkerId: workerId, status: 'ACTIVE' },
+      select: { id: true },
+      take: 2,
+    });
+    if (stations.length === 1) return stations[0].id;
+    return undefined;
   }
 
   private refreshTtlMs(): number {

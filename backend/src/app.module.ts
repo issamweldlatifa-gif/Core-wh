@@ -19,8 +19,10 @@ import { PutawayModule } from './modules/putaway/putaway.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { FulfillmentModule } from './modules/fulfillment/fulfillment.module';
+import { DevicesModule } from './modules/devices/devices.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
+import { ApplicationGuard } from './common/guards/application.guard';
 
 /**
  * AYROVI Warehouse Core — Modular Monolith root module.
@@ -57,12 +59,17 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     CategoriesModule,
     OrdersModule,
     FulfillmentModule,
+    DevicesModule,
   ],
   providers: [
     // Global guards: every route is authenticated and permission-checked
-    // unless explicitly marked @Public() / @RequirePermissions().
+    // unless explicitly marked @Public() / @RequirePermissions(). The
+    // ApplicationGuard enforces the coarse Admin/Worker surface boundary
+    // declared via @RequireApplication(...) on controllers; routes without
+    // that decorator stay surface-neutral (opt-in, e.g. /auth/me).
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
+    { provide: APP_GUARD, useClass: ApplicationGuard },
   ],
 })
 export class AppModule {}

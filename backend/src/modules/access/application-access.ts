@@ -27,9 +27,11 @@ export const APPLICATIONS: ApplicationKind[] = ['ADMIN_WEB', 'WORKER_NATIVE'];
 export type RoleClass = 'ADMIN' | 'OPERATIONAL' | 'VIEWER' | 'UNKNOWN';
 
 /**
- * Seeded system roles (backend/prisma/seed.ts). Classification is intentional:
- * an ADMIN-class role grants the Admin Web; an OPERATIONAL-class role grants the
- * Worker Native app. Multi-role users get the union — explicit, never implicit.
+ * Seeded system roles (backend/prisma/seed.ts) classify via the role NAME for
+ * legacy rows whose DB `applicationClass` is still UNKNOWN (pre-migration
+ * safety). New roles carry their class in the DB — the server prefers the
+ * column; the name map below is only a fallback so an un-migrated database
+ * never accidentally widens access.
  */
 const ADMIN_CLASS_ROLES = new Set(['SUPER_ADMIN', 'WAREHOUSE_ADMIN', 'WAREHOUSE_MANAGER']);
 const OPERATIONAL_CLASS_ROLES = new Set(['INBOUND_WORKER', 'PICKER', 'PACKER']);
@@ -40,6 +42,41 @@ export function classifyRole(role: string): RoleClass {
   if (OPERATIONAL_CLASS_ROLES.has(role)) return 'OPERATIONAL';
   if (VIEWER_CLASS_ROLES.has(role)) return 'VIEWER';
   return 'UNKNOWN';
+}
+
+/**
+ * Resolve the effective application class of a role row. Server truth is the
+ * DB `applicationClass` column (data-driven, future-proof for new roles).
+ * A row still carrying UNKNOWN falls back to the legacy seed-name map so a
+ * not-yet-migrated database keeps its current behaviour — never wider.
+ */
+export function roleClassOf(row: { name: string; applicationClass?: string }): RoleClass {
+  const c = row.applicationClass as RoleClass | undefined;
+  if (c && c !== 'UNKNOWN') return c;
+  return classifyRole(row.name);
+}
+
+/** The application surfaces a single role class may open. */
+export function classAllowsApplications(roleClass: RoleClass): ApplicationKind[] {
+  switch (roleClass) {
+    case 'ADMIN':
+    case 'VIEWER':
+      return ['ADMIN_WEB'];
+    case 'OPERATIONAL':
+      return ['WORKER_NATIVE'];
+    case 'UNKNOWN':
+    default:
+      return [];
+  }
+}
+
+/** The set of applications a set of role classes may open (explicit union). */
+export function applicationsAllowedByRoleClasses(classes: RoleClass[]): Set<ApplicationKind> {
+  const allowed = new Set<ApplicationKind>();
+  for (const cls of classes) {
+    for (const app of classAllowsApplications(cls)) allowed.add(app);
+  }
+  return allowed;
 }
 
 export type AccessReason =
@@ -62,6 +99,12 @@ export interface EvaluateAccessInput {
   application: ApplicationKind;
   /** Server-derived role names (from the DB, never from the client). */
   roles: string[];
+  /**
+   * Server-derived role CLASSES read from the DB `applicationClass` column
+   * (data-driven). When supplied they drive the surface decision; otherwise
+   * `roles` are classified by the legacy seed-name fallback.
+   */
+  roleClasses?: RoleClass[];
   /** Server-derived account state (from the DB). */
   accountActive: boolean;
   /** Permission required by the operation (e.g. 'receiving.execute'). */
@@ -77,13 +120,7 @@ export interface EvaluateAccessInput {
 
 /** The set of applications a role set is allowed to open a session for. */
 export function applicationsAllowedByRoles(roles: string[]): Set<ApplicationKind> {
-  const allowed = new Set<ApplicationKind>();
-  for (const role of roles) {
-    const cls = classifyRole(role);
-    if (cls === 'ADMIN' || cls === 'VIEWER') allowed.add('ADMIN_WEB');
-    if (cls === 'OPERATIONAL') allowed.add('WORKER_NATIVE');
-  }
-  return allowed;
+  return applicationsAllowedByRoleClasses(roles.map((r) => classifyRole(r)));
 }
 
 /**
@@ -99,7 +136,11 @@ export function evaluateAccess(input: EvaluateAccessInput): AccessDecision {
   if (input.roles.length === 0) {
     return { allowed: false, application, reason: 'NO_ROLES' };
   }
-  if (!applicationsAllowedByRoles(input.roles).has(application)) {
+  const allowed =
+    input.roleClasses && input.roleClasses.length > 0
+      ? applicationsAllowedByRoleClasses(input.roleClasses)
+      : applicationsAllowedByRoles(input.roles);
+  if (!allowed.has(application)) {
     return { allowed: false, application, reason: 'APPLICATION_NOT_ALLOWED_BY_ROLES' };
   }
   if (input.requiredPermission) {

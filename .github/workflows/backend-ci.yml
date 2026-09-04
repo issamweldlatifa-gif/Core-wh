@@ -1,0 +1,135 @@
+name: Backend CI
+
+on:
+  push:
+    branches:
+      - 'arena/**'
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  test-and-build:
+    name: Unit tests + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Unit tests (surface isolation kernel + guards)
+        shell: bash
+        run: |
+          set +e
+          npm test -- --silent > /tmp/unit.log 2>&1
+          code=$?
+          echo "UNIT_EXIT=$code"
+          python3 -c 'import sys; lines=open("/tmp/unit.log",errors="replace").read().splitlines()[-140:]; m="\n".join(lines); esc=m.replace("%","%25").replace("\r","").replace("\n","%0A"); print(("::error::"+esc) if int(sys.argv[1])!=0 else "")' "$code"
+          exit $code
+
+      - name: Type-check / build
+        shell: bash
+        run: |
+          set +e
+          npm run build > /tmp/build.log 2>&1
+          code=$?
+          echo "BUILD_EXIT=$code"
+          python3 -c 'import sys; lines=open("/tmp/build.log",errors="replace").read().splitlines()[-140:]; m="\n".join(lines); esc=m.replace("%","%25").replace("\r","").replace("\n","%0A"); print(("::error::"+esc) if int(sys.argv[1])!=0 else "")' "$code"
+          exit $code
+
+  isolation-e2e:
+    name: Isolation e2e (Postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ayrovi
+          POSTGRES_PASSWORD: ayrovi_dev
+          POSTGRES_DB: ayrovi_warehouse
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ayrovi -d ayrovi_warehouse"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://ayrovi:ayrovi_dev@localhost:5432/ayrovi_warehouse?schema=public
+      JWT_ACCESS_SECRET: ci_access_secret_do_not_use_in_prod_change_me_1234567890
+      JWT_REFRESH_SECRET: ci_refresh_secret_do_not_use_in_prod_change_me_1234567890
+      INITIAL_ADMIN_CODE: ADMIN001
+      INITIAL_ADMIN_PASSWORD: ChangeMe!2024
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Migrate database
+        shell: bash
+        run: |
+          set +e
+          npx prisma migrate deploy > /tmp/migrate.log 2>&1
+          code=$?
+          if [ "$code" -ne 0 ]; then
+            tail -n 60 /tmp/migrate.log | sed 's/%/%25/g; s/\r//g' | while IFS= read -r l; do
+              echo "::error file=prisma migrate::${l}"
+            done
+          fi
+          exit $code
+
+      - name: Seed database (roles, permissions, initial admin)
+        shell: bash
+        run: |
+          set +e
+          npx ts-node prisma/seed.ts > /tmp/seed.log 2>&1
+          code=$?
+          if [ "$code" -ne 0 ]; then
+            tail -n 60 /tmp/seed.log | sed 's/%/%25/g; s/\r//g' | while IFS= read -r l; do
+              echo "::error file=prisma seed::${l}"
+            done
+          fi
+          exit $code
+
+      - name: Isolation e2e (strict Admin/Worker surface matrix)
+        shell: bash
+        run: |
+          set +e
+          npx jest --config ./test/jest-e2e.json test/isolation.e2e-spec.ts --runInBand > /tmp/e2e.log 2>&1
+          code=$?
+          echo "E2E_EXIT=$code"
+          if [ "$code" -ne 0 ]; then
+            python3 -c 'import sys; ls=open("/tmp/e2e.log",errors="replace").read().splitlines(); start=next((i for i,l in enumerate(ls) if l.startswith("  ● ")), None); sel=ls[start:start+110] if start is not None else ls[-90:]; print("::error::"+"\n".join(sel).replace("%","%25").replace("\r","").replace("\n","%0A"))'
+          fi
+          exit $code

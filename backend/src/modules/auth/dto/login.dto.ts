@@ -1,3 +1,4 @@
+import { Transform } from 'class-transformer';
 import { IsString, MinLength, MaxLength, IsIn, IsOptional } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -16,6 +17,9 @@ export class LoginDto {
 
   @ApiPropertyOptional({ enum: ['password', 'pin'], description: 'Override the credential mode.' })
   @IsOptional()
+  // Normalise any casing the client sends ('PIN'/'PASSWORD' from native app
+  // v1, 'pin'/'password') down to the canonical lowercase enum.
+  @Transform(({ value }) => (typeof value === 'string' ? value.toLowerCase() : value))
   @IsIn(['password', 'pin'])
   mode?: 'password' | 'pin';
 
@@ -29,4 +33,16 @@ export class LoginDto {
   @IsOptional()
   @IsIn(['ADMIN_WEB', 'WORKER_NATIVE'])
   app?: 'ADMIN_WEB' | 'WORKER_NATIVE';
+
+  @ApiPropertyOptional({
+    description:
+      'Device code presented by the Native Worker App (WORKER_NATIVE only). ' +
+      'Validated server-side: the device must be registered, ACTIVE and ' +
+      'assigned to this worker (or unassigned — first use binds it). ' +
+      'Ignored for ADMIN_WEB sessions.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  deviceId?: string;
 }

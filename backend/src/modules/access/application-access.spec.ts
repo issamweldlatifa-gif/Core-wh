@@ -7,9 +7,11 @@
  * inputs belong to later phases (A3/B1).
  */
 import {
+  applicationsAllowedByRoleClasses,
   applicationsAllowedByRoles,
   classifyRole,
   evaluateAccess,
+  roleClassOf,
   type AccessDecision,
 } from './application-access';
 
@@ -134,5 +136,47 @@ describe('classifyRole / applicationsAllowedByRoles', () => {
     expect(applicationsAllowedByRoles(['WAREHOUSE_MANAGER', 'PACKER'])).toEqual(
       new Set(['ADMIN_WEB', 'WORKER_NATIVE']),
     );
+  });
+});
+
+describe('data-driven role classes (applicationClass column)', () => {
+  it('roleClassOf prefers the DB column and falls back to the seed-name map for UNKNOWN', () => {
+    expect(roleClassOf({ name: 'INBOUND_WORKER', applicationClass: 'OPERATIONAL' })).toBe('OPERATIONAL');
+    // A future custom operational role carries its class in the DB.
+    expect(roleClassOf({ name: 'SORTING_WORKER', applicationClass: 'OPERATIONAL' })).toBe('OPERATIONAL');
+    expect(roleClassOf({ name: 'SORTING_WORKER', applicationClass: 'UNKNOWN' })).toBe('UNKNOWN');
+    // Legacy row: column UNKNOWN falls back to the seeded name map.
+    expect(roleClassOf({ name: 'SUPER_ADMIN', applicationClass: 'UNKNOWN' })).toBe('ADMIN');
+    expect(roleClassOf({ name: 'VIEWER', applicationClass: undefined })).toBe('VIEWER');
+  });
+
+  it('applicationsAllowedByRoleClasses maps classes to surfaces (data-driven)', () => {
+    expect(applicationsAllowedByRoleClasses(['ADMIN'])).toEqual(new Set(['ADMIN_WEB']));
+    expect(applicationsAllowedByRoleClasses(['OPERATIONAL'])).toEqual(new Set(['WORKER_NATIVE']));
+    expect(applicationsAllowedByRoleClasses(['VIEWER'])).toEqual(new Set(['ADMIN_WEB']));
+    expect(applicationsAllowedByRoleClasses(['UNKNOWN'])).toEqual(new Set());
+    // Two classes (admin + operational) open both surfaces — explicit dual.
+    expect(
+      applicationsAllowedByRoleClasses(['OPERATIONAL', 'ADMIN']),
+    ).toEqual(new Set(['WORKER_NATIVE', 'ADMIN_WEB']));
+  });
+
+  it('evaluateAccess honours roleClasses over the name fallback (custom roles work)', () => {
+    const customOperational = evaluateAccess({
+      application: 'WORKER_NATIVE',
+      roles: ['SORTING_WORKER'],
+      roleClasses: ['OPERATIONAL'],
+      accountActive: true,
+    });
+    expect(customOperational.allowed).toBe(true);
+
+    const customAdmin = evaluateAccess({
+      application: 'ADMIN_WEB',
+      roles: ['SORTING_WORKER'],
+      roleClasses: ['OPERATIONAL'],
+      accountActive: true,
+    });
+    expect(customAdmin.allowed).toBe(false);
+    expect(customAdmin.reason).toBe('APPLICATION_NOT_ALLOWED_BY_ROLES');
   });
 });

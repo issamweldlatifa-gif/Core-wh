@@ -1,2 +1,10 @@
-# AYROVI Worker Native App
-# Add release-specific rules only when a dependency requires them.
+# Keep kotlinx-serialization generated serializers.
+-keepattributes *Annotation*, InnerClasses
+-dontnote kotlinx.serialization.AnnotationsKt
+-keep,includedescriptorclasses class com.ayrovi.worker.**$$serializer { *; }
+-keepclassmembers class com.ayrovi.worker.** {
+    *** Companion;
+}
+-keepclasseswithmembers class com.ayrovi.worker.** {
+    kotlinx.serialization.KSerializer serializer(...);
+}

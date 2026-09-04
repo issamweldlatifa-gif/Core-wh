@@ -1,37 +1,64 @@
 package com.ayrovi.worker.scanner
 
 /**
- * Pure, station-agnostic scan decision logic.
- * Camera and ML Kit adapters belong outside this module; the Warehouse API
- * remains the authority for accepting an operation.
+ * Pure scan-decision logic shared by every station (Receiving, Sorting,
+ * Packing, Shipping...). One engine for the whole warehouse — stations only
+ * supply the workflow that consumes a decision.
+ *
+ * Responsibilities:
+ *  - duplicate prevention (the same raw value cannot be accepted twice in a
+ *    `windowMs` — e.g. an operator holding a trigger or a re-focus),
+ *  - debounce (a result is only accepted after `debounceMs` from the previous
+ *    accepted scan),
+ *  - barcode/QR pass-through vs OCR text.
  */
-data class ScanCandidate(
-    val rawValue: String,
-    val source: ScanSource,
-    val detectedAtEpochMs: Long,
-)
+class ScanDecision(
+    private val windowMs: Long = 1500,
+    private val debounceMs: Long = 400,
+) {
+    private var lastAcceptedRaw: String? = null
+    private var lastAcceptedAt: Long = 0
 
-enum class ScanSource { QR, BARCODE, OCR, MANUAL }
+    /**
+     * Evaluate a raw scanner/OCR value arriving at `nowMs`.
+     *
+     * @return OK(accept) or a reject reason. The caller flashes the outcome
+     * to the operator; only OK results reach the warehouse API.
+     */
+    fun evaluate(raw: String, nowMs: Long = System.currentTimeMillis()): ScanOutcome {
+        val value = raw.trim()
+        if (value.isEmpty()) return ScanOutcome.Rejected(RejectReason.EMPTY)
 
-sealed interface ScanDecision {
-    data class Accepted(val value: String) : ScanDecision
-    data class Duplicate(val value: String) : ScanDecision
-    data class Empty(val reason: String = "EMPTY_SCAN") : ScanDecision
+        // The very first value is always accepted (nothing to compare yet).
+        val isFirst = lastAcceptedRaw == null
+        if (!isFirst) {
+            val sinceLast = nowMs - lastAcceptedAt
+            if (sinceLast < debounceMs) {
+                return ScanOutcome.Rejected(RejectReason.DEBOUNCED)
+            }
+            if (value == lastAcceptedRaw && sinceLast < windowMs) {
+                return ScanOutcome.Rejected(RejectReason.DUPLICATE)
+            }
+        }
+        lastAcceptedRaw = value
+        lastAcceptedAt = nowMs
+        return ScanOutcome.Accepted(value)
+    }
+
+    /** Reset the guard (e.g. when the operator switches workflows). */
+    fun reset() {
+        lastAcceptedRaw = null
+        lastAcceptedAt = 0
+    }
 }
 
-class ScanDeduplicator(private val debounceMs: Long = 900L) {
-    private var lastValue: String? = null
-    private var lastAt: Long = Long.MIN_VALUE
+sealed class ScanOutcome {
+    data class Accepted(val value: String) : ScanOutcome()
+    data class Rejected(val reason: RejectReason) : ScanOutcome()
+}
 
-    fun decide(candidate: ScanCandidate): ScanDecision {
-        val value = candidate.rawValue.trim()
-        if (value.isEmpty()) return ScanDecision.Empty()
-        val sameRead = value.equals(lastValue, ignoreCase = true)
-        if (sameRead && candidate.detectedAtEpochMs - lastAt < debounceMs) {
-            return ScanDecision.Duplicate(value)
-        }
-        lastValue = value
-        lastAt = candidate.detectedAtEpochMs
-        return ScanDecision.Accepted(value)
-    }
+enum class RejectReason {
+    EMPTY,
+    DEBOUNCED,
+    DUPLICATE,
 }

@@ -62,10 +62,10 @@ describe('PARTIE 2 — Workforce Operating Model', () => {
   const userIds = new Set<string>();
   const tokens: Record<string, string> = {};
 
-  const login = (code: string, secret = 'WorkerPass!1') =>
+  const login = (code: string, secret = 'WorkerPass!1', appName?: 'ADMIN_WEB' | 'WORKER_NATIVE') =>
     request(app.getHttpServer())
       .post('/api/v1/auth/login')
-      .send({ identifier: code, secret })
+      .send({ identifier: code, secret, ...(appName ? { app: appName } : {}) })
       .expect(201)
       .then((r) => r.body.accessToken as string);
 
@@ -94,7 +94,9 @@ describe('PARTIE 2 — Workforce Operating Model', () => {
         .send({ name: `P2 ${k}`, employeeCode: code, password: 'WorkerPass!1', roles: [roleByCode[k]] })
         .expect(201);
       userIds.add(res.body.id);
-      tokens[k] = await login(code);
+      // Floor roles open WORKER_NATIVE sessions (strict isolation): these
+      // tokens are used against /terminal/* worker routes below.
+      tokens[k] = await login(code, 'WorkerPass!1', 'WORKER_NATIVE');
     }
   });
 

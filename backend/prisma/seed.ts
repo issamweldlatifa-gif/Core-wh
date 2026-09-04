@@ -161,17 +161,25 @@ const ALL_STRUCT_VIEW = STRUCTURE_RESOURCES.flatMap((r) => STRUCT_VIEW(r));
 const ALL_STRUCT_WRITE = STRUCTURE_RESOURCES.flatMap((r) => STRUCT_WRITE(r));
 const ALL_STRUCT_FULL = STRUCTURE_RESOURCES.flatMap((r) => STRUCT_FULL(r));
 
-const ROLES: Array<{ name: string; description: string; isSystem: boolean; permissions: string[] }> = [
+const ROLES: Array<{
+  name: string;
+  description: string;
+  isSystem: boolean;
+  applicationClass: 'ADMIN' | 'OPERATIONAL' | 'VIEWER' | 'UNKNOWN';
+  permissions: string[];
+}> = [
   {
     name: 'SUPER_ADMIN',
     description: 'Full, unrestricted access to the whole system.',
     isSystem: true,
+    applicationClass: 'ADMIN',
     permissions: ALL,
   },
   {
     name: 'WAREHOUSE_ADMIN',
     description: 'Operational administration of the warehouse (full physical structure management).',
     isSystem: true,
+    applicationClass: 'ADMIN',
     permissions: [
       // Full physical-structure management (D-34: this role may create).
       ...ALL_STRUCT_FULL,
@@ -194,6 +202,7 @@ const ROLES: Array<{ name: string; description: string; isSystem: boolean; permi
     name: 'WAREHOUSE_MANAGER',
     description: 'Day-to-day warehouse management without full system admin.',
     isSystem: true,
+    applicationClass: 'ADMIN',
     permissions: [
       // D-34: view + update + activate + deactivate on all structure nodes.
       // NO create permission.
@@ -216,6 +225,7 @@ const ROLES: Array<{ name: string; description: string; isSystem: boolean; permi
     name: 'INBOUND_WORKER',
     description: 'Warehouse floor worker for inbound (receiving/stowing).',
     isSystem: true,
+    applicationClass: 'OPERATIONAL',
     permissions: [
       ...ALL_STRUCT_VIEW, // Phase 1: view locations only in the structure.
       ...VIEW_KEYS('inventory'),
@@ -233,6 +243,7 @@ const ROLES: Array<{ name: string; description: string; isSystem: boolean; permi
     name: 'PICKER',
     description: 'Warehouse picker.',
     isSystem: true,
+    applicationClass: 'OPERATIONAL',
     permissions: [
       ...ALL_STRUCT_VIEW, // Phase 1: view locations only.
       ...VIEW_KEYS('inventory'),
@@ -244,6 +255,7 @@ const ROLES: Array<{ name: string; description: string; isSystem: boolean; permi
     name: 'PACKER',
     description: 'Warehouse packer.',
     isSystem: true,
+    applicationClass: 'OPERATIONAL',
     permissions: [
       ...ALL_STRUCT_VIEW, // Phase 1: view locations only.
       ...VIEW_KEYS('inventory'),
@@ -255,6 +267,7 @@ const ROLES: Array<{ name: string; description: string; isSystem: boolean; permi
     name: 'VIEWER',
     description: 'Read-only access.',
     isSystem: true,
+    applicationClass: 'VIEWER',
     permissions: [
       ...ALL_STRUCT_VIEW, // Read-only on the whole physical structure.
       ...VIEW_KEYS('inventory'),
@@ -339,8 +352,13 @@ async function main() {
   for (const r of ROLES) {
     const role = await prisma.role.upsert({
       where: { name: r.name },
-      update: { description: r.description },
-      create: { name: r.name, description: r.description, isSystem: r.isSystem },
+      update: { description: r.description, applicationClass: r.applicationClass },
+      create: {
+        name: r.name,
+        description: r.description,
+        isSystem: r.isSystem,
+        applicationClass: r.applicationClass,
+      },
     });
     // Reconcile role permissions
     const existing = await prisma.rolePermission.findMany({ where: { roleId: role.id } });

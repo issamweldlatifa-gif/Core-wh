@@ -10,10 +10,12 @@ import { RequirePermissions } from '../../common/decorators/require-permissions.
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import { RequestWithUser } from '../../common/interfaces/request-with-user.interface';
+import { RequireApplication } from '../../common/decorators/require-application.decorator';
 
 @ApiTags('roles')
 @ApiBearerAuth()
 @Controller('roles')
+@RequireApplication('ADMIN_WEB')
 export class RolesController {
   constructor(private readonly roles: RolesService) {}
 

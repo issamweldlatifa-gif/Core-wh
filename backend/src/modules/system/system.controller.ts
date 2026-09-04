@@ -7,10 +7,12 @@ import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import { RequestWithUser } from '../../common/interfaces/request-with-user.interface';
+import { RequireApplication } from '../../common/decorators/require-application.decorator';
 
 @ApiTags('system')
 @ApiBearerAuth()
 @Controller('system')
+@RequireApplication('ADMIN_WEB')
 export class SystemController {
   constructor(private readonly system: SystemService) {}
 

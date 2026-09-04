@@ -2,26 +2,35 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 android {
     namespace = "com.ayrovi.worker"
     compileSdk = 35
 
+    signingConfigs {
+        // QA installable builds, signed with v1+v2 so sideloading works on
+        // every Android >= minSdk. Replace with a private keystore for any
+        // managed/internal distribution that must update in place.
+        getByName("debug") {
+            enableV1Signing = true
+            enableV2Signing = true
+        }
+    }
+
     defaultConfig {
         applicationId = "com.ayrovi.worker"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.2.0"
+        versionCode = 2
+        versionName = "1.1.0"
         buildConfigField("String", "API_BASE_URL", "\"https://core-wh.onrender.com/api\"")
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Installable QA release. Replace with the warehouse owner's private
-            // release keystore before public distribution.
             signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -35,7 +44,13 @@ android {
         buildConfig = true
     }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
 }
+
+kotlin { jvmToolchain(17) }
 
 dependencies {
     implementation(project(":scanner-core"))
@@ -55,5 +70,3 @@ dependencies {
     implementation("com.google.mlkit:text-recognition:16.0.1")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
-
-kotlin { jvmToolchain(17) }

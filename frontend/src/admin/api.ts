@@ -222,6 +222,22 @@ export interface StationRow {
   assignedWorker: { id: string; name: string; employeeCode: string } | null;
 }
 
+/** Registered hardware for the Native Worker App (strict device binding).
+ *  A device must exist, be ACTIVE and (optionally) bound to a worker before
+ *  it can open a WORKER_NATIVE session — see auth.service. */
+export interface DeviceRow {
+  id: string;
+  code: string;
+  name: string;
+  status: 'ACTIVE' | 'DISABLED';
+  model: string | null;
+  appVersion: string | null;
+  stationCode: string | null;
+  lastSeenAt: string | null;
+  createdAt: string;
+  assignedWorker: { id: string; name: string; employeeCode: string } | null;
+}
+
 export interface TaskRow {
   key: string; label: string; path: string; department: string;
   permission: string; ready: boolean;
@@ -334,6 +350,15 @@ export const adminApi = {
     client.post<StationRow>(`/v1/stations/${id}/status`, { status }).then((r) => r.data),
   assignStation: (id: string, workerId: string | null) =>
     client.post<StationRow>(`/v1/stations/${id}/assign`, { workerId }).then((r) => r.data),
+
+  // Devices — hardware registered for the Native Worker App (ADMIN_WEB only).
+  devices: () => client.get<DeviceRow[]>('/v1/devices').then((r) => r.data),
+  createDevice: (d: { code: string; name: string; model?: string; stationCode?: string; workerId?: string }) =>
+    client.post<DeviceRow>('/v1/devices', d).then((r) => r.data),
+  deviceStatus: (id: string, status: 'ACTIVE' | 'DISABLED') =>
+    client.post<DeviceRow>(`/v1/devices/${id}/status`, { status }).then((r) => r.data),
+  assignDevice: (id: string, workerId: string | null) =>
+    client.post<DeviceRow>(`/v1/devices/${id}/assign`, { workerId }).then((r) => r.data),
 
   // Operational containers (COMMAND #1 FINAL §08/§12).
   receivingContainers: () =>
