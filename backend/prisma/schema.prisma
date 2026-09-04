@@ -45,6 +45,15 @@ enum SessionStatus {
   REVOKED
 }
 
+// The application surface a session was opened for. Strict server-side
+// Admin / Worker isolation (Order #3): a session carries ONE application and
+// the API never lets an ADMIN_WEB session act as a worker context (and vice
+// versa). Seeded roles classify the allowed application(s); login enforces it.
+enum ApplicationKind {
+  ADMIN_WEB
+  WORKER_NATIVE
+}
+
 enum AuditAction {
   USER_LOGIN
   USER_LOGOUT
@@ -311,16 +320,17 @@ model RolePermission {
 
 // A session tracks refresh tokens and enables immediate revocation/logout.
 model Session {
-  id               String        @id @default(uuid())
+  id               String          @id @default(uuid())
   userId           String
-  refreshTokenHash String        @unique // hashed refresh token
+  refreshTokenHash String          @unique // hashed refresh token
   ipAddress        String?
   userAgent        String?
-  status           SessionStatus @default(ACTIVE)
+  status           SessionStatus   @default(ACTIVE)
+  application      ApplicationKind @default(ADMIN_WEB)
   expiresAt        DateTime
-  lastSeenAt       DateTime      @default(now())
+  lastSeenAt       DateTime        @default(now())
   revokedAt        DateTime?
-  createdAt        DateTime      @default(now())
+  createdAt        DateTime        @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

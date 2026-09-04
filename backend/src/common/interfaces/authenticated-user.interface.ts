@@ -11,4 +11,8 @@ export interface AuthenticatedUser {
   roles: string[];
   permissions: string[];
   sessionId: string;
+  /** Application surface this session was opened for (DB server truth). */
+  application: 'ADMIN_WEB' | 'WORKER_NATIVE';
+  /** Applications this user's server-derived roles may open. */
+  allowedApplications: Array<'ADMIN_WEB' | 'WORKER_NATIVE'>;
 }

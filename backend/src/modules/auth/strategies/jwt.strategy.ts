@@ -4,6 +4,10 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AuthenticatedUser } from '../../../common/interfaces/authenticated-user.interface';
 import { AccessTokenPayload } from '../token.service';
+import {
+  applicationsAllowedByRoles,
+  type ApplicationKind,
+} from '../../access/application-access';
 
 /**
  * Validates the access token and rebuilds the AuthenticatedUser from the
@@ -59,6 +63,14 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       ),
     ];
 
+    // Application is server truth from the DB session row (never from the
+    // client). Tokens minted before the application context landed carry no
+    // claim; a present-but-mismatched claim is rejected as mis-issued.
+    const application: ApplicationKind = session.application as ApplicationKind;
+    if (payload.app && payload.app !== application) {
+      throw new UnauthorizedException('Token application does not match the session.');
+    }
+
     return {
       id: user.id,
       employeeCode: user.employeeCode,
@@ -67,6 +79,8 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       roles,
       permissions,
       sessionId: session.id,
+      application,
+      allowedApplications: [...applicationsAllowedByRoles(roles)],
     };
   }
 }

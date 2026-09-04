@@ -1,11 +1,13 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as crypto from 'crypto';
+import type { ApplicationKind } from '../access/application-access';
 
 export interface AccessTokenPayload {
   sub: string; // user id
   sid: string; // session id
   type: 'access';
+  app?: ApplicationKind; // application this session was opened for
 }
 
 export interface RefreshTokenPayload {
@@ -13,28 +15,37 @@ export interface RefreshTokenPayload {
   sid: string; // session id
   type: 'refresh';
   jti: string; // unique token id (used to correlate with session)
+  app?: ApplicationKind; // application this session was opened for
 }
 
 @Injectable()
 export class TokenService {
   constructor(private readonly jwtService: JwtService) {}
 
-  signAccessToken(userId: string, sessionId: string): string {
-    const payload: AccessTokenPayload = { sub: userId, sid: sessionId, type: 'access' };
+  signAccessToken(
+    userId: string,
+    sessionId: string,
+    app: ApplicationKind = 'ADMIN_WEB',
+  ): string {
+    const payload: AccessTokenPayload = { sub: userId, sid: sessionId, type: 'access', app };
     return this.jwtService.sign(payload, {
       secret: process.env.JWT_ACCESS_SECRET,
       expiresIn: process.env.JWT_ACCESS_EXPIRES_IN ?? '15m',
     });
   }
 
-  signRefreshToken(userId: string, sessionId: string): {
+  signRefreshToken(
+    userId: string,
+    sessionId: string,
+    app: ApplicationKind = 'ADMIN_WEB',
+  ): {
     token: string;
     jti: string;
     hashed: string;
     expiresAt: Date;
   } {
     const jti = crypto.randomUUID();
-    const payload: RefreshTokenPayload = { sub: userId, sid: sessionId, type: 'refresh', jti };
+    const payload: RefreshTokenPayload = { sub: userId, sid: sessionId, type: 'refresh', jti, app };
     const token = this.jwtService.sign(payload, {
       secret: process.env.JWT_REFRESH_SECRET,
       expiresIn: process.env.JWT_REFRESH_EXPIRES_IN ?? '7d',

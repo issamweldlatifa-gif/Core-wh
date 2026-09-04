@@ -7,10 +7,33 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { TokenService, RefreshTokenPayload } from './token.service';
 import * as bcrypt from 'bcrypt';
+import {
+  applicationsAllowedByRoles,
+  classifyRole,
+  evaluateAccess,
+  type ApplicationKind,
+} from '../access/application-access';
 
 export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
+}
+
+/**
+ * A cross-app login attempt (admin role asking for WORKER_NATIVE, or a worker
+ * role asking for ADMIN_WEB) is rejected here at the session boundary — the
+ * single gate the Native Worker App and the Admin Web share. Nothing else in
+ * the API can mint a session for the wrong surface.
+ */
+function applicationDenyMessage(app: ApplicationKind, roles: string[]): string {
+  const classes = roles.map((r) => classifyRole(r));
+  if (app === 'WORKER_NATIVE' && classes.some((c) => c === 'ADMIN' || c === 'VIEWER')) {
+    return 'This account is an Admin/Viewer — it cannot open the Worker app.';
+  }
+  if (app === 'ADMIN_WEB' && classes.some((c) => c === 'OPERATIONAL')) {
+    return 'This is a warehouse worker account — it cannot open the Admin Web.';
+  }
+  return `This account is not permitted on ${app}.`;
 }
 
 @Injectable()
@@ -25,7 +48,7 @@ export class AuthService {
     identifier: string,
     secret: string,
     mode?: 'password' | 'pin',
-    ctx?: { ip?: string; ua?: string },
+    ctx?: { ip?: string; ua?: string; app?: ApplicationKind },
   ): Promise<AuthTokens> {
     const user = await this.prisma.user.findUnique({
       where: { employeeCode: identifier },
@@ -87,7 +110,35 @@ export class AuthService {
       throw invalid;
     }
 
-    const tokens = await this.createSession(user.id, ctx?.ip, ctx?.ua);
+    // Strict application gate (Order #3): resolve the user's DB roles and the
+    // requested application surface, then enforce the isolation rule BEFORE a
+    // session can be created. Roles come from the database — the client never
+    // supplies them, so a role can never be claimed.
+    const roleRows = await this.prisma.userRole.findMany({
+      where: { userId: user.id },
+      include: { role: true },
+    });
+    const roles = roleRows.map((r) => r.role.name);
+    const application: ApplicationKind = ctx?.app ?? 'ADMIN_WEB';
+    const decision = evaluateAccess({ application, roles, accountActive: true });
+    if (!decision.allowed) {
+      await this.audit.log({
+        actorUserId: user.id,
+        action: 'USER_LOGIN_FAILED',
+        entityType: 'user',
+        entityId: user.id,
+        ipAddress: ctx?.ip,
+        metadata: {
+          reason: `application_${decision.reason}`,
+          application,
+          roles,
+          allowed: [...applicationsAllowedByRoles(roles)],
+        },
+      });
+      throw new ForbiddenException(applicationDenyMessage(application, roles));
+    }
+
+    const tokens = await this.createSession(user.id, ctx?.ip, ctx?.ua, application);
     await this.prisma.user.update({
       where: { id: user.id },
       data: { lastLoginAt: new Date() },
@@ -119,7 +170,14 @@ export class AuthService {
       data: { status: 'REVOKED', revokedAt: new Date() },
     });
 
-    return this.createSession(session.userId, session.ipAddress ?? undefined, session.userAgent ?? undefined);
+    // A refresh keeps the SAME application surface the session was opened for
+    // (server truth is the DB row; the token claim is only echoed).
+    return this.createSession(
+      session.userId,
+      session.ipAddress ?? undefined,
+      session.userAgent ?? undefined,
+      session.application as ApplicationKind,
+    );
   }
 
   async logout(userId: string, sessionId: string, ip?: string) {
@@ -155,7 +213,12 @@ export class AuthService {
    * plain text) and returns a properly signed access + refresh pair bound to
    * that session id.
    */
-  private async createSession(userId: string, ip?: string, ua?: string): Promise<AuthTokens> {
+  private async createSession(
+    userId: string,
+    ip?: string,
+    ua?: string,
+    application: ApplicationKind = 'ADMIN_WEB',
+  ): Promise<AuthTokens> {
     // First create the session with a temporary hashed token so we can get an id.
     const hashed = this.tokens.hashToken('placeholder');
     const session = await this.prisma.session.create({
@@ -165,14 +228,15 @@ export class AuthService {
         ipAddress: ip,
         userAgent: ua,
         status: 'ACTIVE',
+        application,
         expiresAt: new Date(Date.now() + this.refreshTtlMs()),
         lastSeenAt: new Date(),
       },
     });
 
     // Now sign the real tokens bound to session.id.
-    const accessToken = this.tokens.signAccessToken(userId, session.id);
-    const { token: refreshToken } = this.tokens.signRefreshToken(userId, session.id);
+    const accessToken = this.tokens.signAccessToken(userId, session.id, application);
+    const { token: refreshToken } = this.tokens.signRefreshToken(userId, session.id, application);
     const finalHash = this.tokens.hashToken(refreshToken);
     await this.prisma.session.update({
       where: { id: session.id },

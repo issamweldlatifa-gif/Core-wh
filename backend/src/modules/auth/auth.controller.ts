@@ -26,6 +26,7 @@ export class AuthController {
     return this.auth.login(dto.identifier, dto.secret, dto.mode, {
       ip: req.ip,
       ua: req.headers['user-agent'],
+      app: dto.app,
     });
   }
 
@@ -60,6 +61,12 @@ export class AuthController {
         lastLoginAt: true,
       },
     });
-    return { user: dbUser, roles: user.roles, permissions: user.permissions };
+    return {
+      user: dbUser,
+      roles: user.roles,
+      permissions: user.permissions,
+      application: user.application,
+      allowedApplications: user.allowedApplications,
+    };
   }
 }

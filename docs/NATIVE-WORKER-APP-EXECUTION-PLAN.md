@@ -113,10 +113,17 @@ or CI) · all backend phases are 🟩.
 ### Track A — Backend authorization foundation (Order #3 first — it gates everything)
 - **A1 🟩 Application access domain** — pure types + role→application policy + decision
   function + Jest acceptance tests for Order#3 scenarios 1–8. *(this plan's first slice)*
-- **A2 🟩 Application context in tokens/session** — `app` claim in access+refresh JWTs and
-  in the DB `Session` (additive migration, default `ADMIN_WEB`); login/refresh carry it.
-- **A3 🟩 Server-side guards** — `ApplicationGuard`/policy check on worker/admin controllers;
-  security audit events (`ADMIN_WEB_ACCESS_DENIED`, `WORKER_NATIVE_ACCESS_DENIED`, …).
+- **A2 ✅ Application context in tokens/session** — `Session.application` column
+  (additive migration `20260904000000_session_application_context`, default `ADMIN_WEB`);
+  `app` claim in access+refresh JWTs; login evaluates the user's DB roles against the
+  requested application via `evaluateAccess()` and **denies cross-app sessions at the
+  session boundary** (audited `USER_LOGIN_FAILED`); refresh keeps the same surface;
+  `JwtStrategy` re-checks claim vs session row and exposes `application` +
+  `allowedApplications`; `/auth/me` returns both. (commit `…A2`, 59/59 backend tests)
+- **A3 🟩 Server-side guards** — `@RequireApplication(app)` decorator + `ApplicationGuard`
+  (opt-in, unit-tested) ready to attach to worker/admin controllers as those surfaces land
+  in Track B/C. Audit events for cross-app denials are already written at login
+  (`USER_LOGIN_FAILED · reason application_*`).
 - **A4 🟩 Worker context endpoint** — resolves current assignment (role+station+permissions
   from DB) → returns the single workflow the app may render.
 

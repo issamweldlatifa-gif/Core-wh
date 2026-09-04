@@ -25,6 +25,18 @@ describe('TokenService', () => {
     expect(payload.sub).toBe('user-1');
     expect(payload.sid).toBe('session-1');
     expect(payload.type).toBe('access');
+    // Default application surface is ADMIN_WEB (backwards compatible).
+    expect(payload.app).toBe('ADMIN_WEB');
+  });
+
+  it('carries the application surface in both token kinds', () => {
+    const access = service.signAccessToken('user-1', 'session-1', 'WORKER_NATIVE');
+    const aPayload = service.verifyAccessToken(access);
+    expect(aPayload.app).toBe('WORKER_NATIVE');
+
+    const refresh = service.signRefreshToken('user-1', 'session-1', 'WORKER_NATIVE');
+    const rPayload = service.verifyRefreshToken(refresh.token);
+    expect(rPayload.app).toBe('WORKER_NATIVE');
   });
 
   it('rejects an invalid access token', () => {

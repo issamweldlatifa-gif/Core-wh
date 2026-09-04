@@ -18,4 +18,15 @@ export class LoginDto {
   @IsOptional()
   @IsIn(['password', 'pin'])
   mode?: 'password' | 'pin';
+
+  @ApiPropertyOptional({
+    enum: ['ADMIN_WEB', 'WORKER_NATIVE'],
+    description:
+      'Application surface this session is opened for. Defaults to ADMIN_WEB. ' +
+      'The server evaluates the user roles against this application and denies ' +
+      'cross-app sessions (strict Admin/Worker isolation, Order #3).',
+  })
+  @IsOptional()
+  @IsIn(['ADMIN_WEB', 'WORKER_NATIVE'])
+  app?: 'ADMIN_WEB' | 'WORKER_NATIVE';
 }
