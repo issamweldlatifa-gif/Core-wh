@@ -46,6 +46,22 @@ jobs:
           python3 -c 'import sys; lines=open("/tmp/build.log",errors="replace").read().splitlines()[-120:]; m="\n".join(lines); esc=m.replace("%","%25").replace("\r","").replace("\n","%0A"); print(("::error::" if int(sys.argv[1])!=0 else "::notice::")+esc)' "$code"
           exit $code
 
+      - name: Persist build log to branch (debugging aid)
+        if: always()
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -s /tmp/build.log ]; then
+            mkdir -p ci-logs
+            cp /tmp/build.log ci-logs/backend-build.log
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add ci-logs/backend-build.log
+            git commit -m "ci: capture backend build log [skip ci]" >/dev/null 2>&1 || true
+            git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" "HEAD:${GITHUB_REF_NAME}" >/dev/null 2>&1 || true
+          fi
+
   isolation-e2e:
     name: Isolation e2e (Postgres)
     runs-on: ubuntu-latest
