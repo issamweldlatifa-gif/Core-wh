@@ -37,7 +37,18 @@ jobs:
         run: npm test -- --silent
 
       - name: Type-check / build
-        run: npm run build
+        shell: bash
+        run: |
+          set +e
+          npm run build > /tmp/build.log 2>&1
+          code=$?
+          echo "BUILD_EXIT=$code"
+          if [ "$code" -ne 0 ]; then
+            tail -n 80 /tmp/build.log | sed 's/%/%25/g; s/\r//g' | while IFS= read -r l; do
+              echo "::error file=backend build::${l}"
+            done
+          fi
+          exit $code
 
   isolation-e2e:
     name: Isolation e2e (Postgres)
@@ -83,10 +94,41 @@ jobs:
         run: npx prisma generate
 
       - name: Migrate database
-        run: npx prisma migrate deploy
+        shell: bash
+        run: |
+          set +e
+          npx prisma migrate deploy > /tmp/migrate.log 2>&1
+          code=$?
+          if [ "$code" -ne 0 ]; then
+            tail -n 60 /tmp/migrate.log | sed 's/%/%25/g; s/\r//g' | while IFS= read -r l; do
+              echo "::error file=prisma migrate::${l}"
+            done
+          fi
+          exit $code
 
       - name: Seed database (roles, permissions, initial admin)
-        run: npx ts-node prisma/seed.ts
+        shell: bash
+        run: |
+          set +e
+          npx ts-node prisma/seed.ts > /tmp/seed.log 2>&1
+          code=$?
+          if [ "$code" -ne 0 ]; then
+            tail -n 60 /tmp/seed.log | sed 's/%/%25/g; s/\r//g' | while IFS= read -r l; do
+              echo "::error file=prisma seed::${l}"
+            done
+          fi
+          exit $code
 
       - name: Isolation e2e (strict Admin/Worker surface matrix)
-        run: npx jest --config ./test/jest-e2e.json test/isolation.e2e-spec.ts --runInBand
+        shell: bash
+        run: |
+          set +e
+          npx jest --config ./test/jest-e2e.json test/isolation.e2e-spec.ts --runInBand > /tmp/e2e.log 2>&1
+          code=$?
+          echo "E2E_EXIT=$code"
+          if [ "$code" -ne 0 ]; then
+            tail -n 80 /tmp/e2e.log | sed 's/%/%25/g; s/\r//g' | while IFS= read -r l; do
+              echo "::error file=isolation e2e::${l}"
+            done
+          fi
+          exit $code
