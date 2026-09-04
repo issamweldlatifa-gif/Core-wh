@@ -29,12 +29,16 @@ class ScanDecision(
         val value = raw.trim()
         if (value.isEmpty()) return ScanOutcome.Rejected(RejectReason.EMPTY)
 
-        val sinceLast = nowMs - lastAcceptedAt
-        if (sinceLast < debounceMs) {
-            return ScanOutcome.Rejected(RejectReason.DEBOUNCED)
-        }
-        if (lastAcceptedRaw != null && value == lastAcceptedRaw && sinceLast < windowMs) {
-            return ScanOutcome.Rejected(RejectReason.DUPLICATE)
+        // The very first value is always accepted (nothing to compare yet).
+        val isFirst = lastAcceptedRaw == null
+        if (!isFirst) {
+            val sinceLast = nowMs - lastAcceptedAt
+            if (sinceLast < debounceMs) {
+                return ScanOutcome.Rejected(RejectReason.DEBOUNCED)
+            }
+            if (value == lastAcceptedRaw && sinceLast < windowMs) {
+                return ScanOutcome.Rejected(RejectReason.DUPLICATE)
+            }
         }
         lastAcceptedRaw = value
         lastAcceptedAt = nowMs

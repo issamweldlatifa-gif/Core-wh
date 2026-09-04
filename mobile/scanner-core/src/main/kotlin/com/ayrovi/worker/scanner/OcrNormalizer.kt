@@ -22,7 +22,9 @@ class OcrNormalizer {
     fun normalise(raw: String): String =
         raw
             .trim()
-            .replace(Regex("[|!Il1]"), "1") // common OCR glyph confusions
+            // Pipe/bang are common misreads of the digit one (1 | !); letters
+            // I/l are NOT mapped so real codes containing I stay intact.
+            .replace(Regex("[|!]"), "1")
             .uppercase()
             .replace(Regex("[\\s\\t\\r\\n]+"), " ")
             .trim()
