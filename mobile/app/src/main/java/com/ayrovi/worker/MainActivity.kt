@@ -62,7 +62,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class WorkerPage { DASHBOARD, RECEIVING, EXPECTED }
+private enum class WorkerPage { DASHBOARD, RECEIVING, EXPECTED, PUTAWAY, SORTING, PACKING }
 
 @Composable
 private fun WorkerApp(api: WorkerApi, store: WorkerSessionStore) {
@@ -142,6 +142,9 @@ private fun WorkerShell(context: WorkerContext, api: WorkerApi, onRefresh: () ->
             WorkerPage.DASHBOARD -> DashboardPage(context, api, onOpenReceiving = { page = WorkerPage.RECEIVING })
             WorkerPage.RECEIVING -> ReceivingPage(api, onBack = { page = WorkerPage.DASHBOARD })
             WorkerPage.EXPECTED -> ExpectedPage(api, onBack = { page = WorkerPage.DASHBOARD })
+            WorkerPage.PUTAWAY -> NativeWorkPage("Putaway", "Move received cartons to warehouse locations", listOf("SCAN CARTON", "SCAN LOCATION"), onBack = { page = WorkerPage.DASHBOARD })
+            WorkerPage.SORTING -> NativeWorkPage("Sorting", "Scan article and confirm its destination", listOf("SCAN ARTICLE", "CONFIRM DESTINATION"), onBack = { page = WorkerPage.DASHBOARD })
+            WorkerPage.PACKING -> NativeWorkPage("Packing", "Verify order contents and confirm packing", listOf("SCAN ORDER", "SCAN ARTICLES", "PACK"), onBack = { page = WorkerPage.DASHBOARD })
         }
     }
 }
@@ -163,6 +166,9 @@ private fun WorkerNav(page: WorkerPage, onPage: (WorkerPage) -> Unit) {
         NavItem("DASHBOARD", page == WorkerPage.DASHBOARD) { onPage(WorkerPage.DASHBOARD) }
         NavItem("RECEIVING", page == WorkerPage.RECEIVING) { onPage(WorkerPage.RECEIVING) }
         NavItem("EXPECTED", page == WorkerPage.EXPECTED) { onPage(WorkerPage.EXPECTED) }
+        NavItem("PUTAWAY", page == WorkerPage.PUTAWAY) { onPage(WorkerPage.PUTAWAY) }
+        NavItem("SORTING", page == WorkerPage.SORTING) { onPage(WorkerPage.SORTING) }
+        NavItem("PACKING", page == WorkerPage.PACKING) { onPage(WorkerPage.PACKING) }
     }
 }
 
@@ -299,5 +305,26 @@ private fun PageTitle(title: String, onBack: () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
         Text(title, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Light)
         TextButton(onClick = onBack) { Text("BACK", color = Green) }
+    }
+}
+
+@Composable
+private fun NativeWorkPage(title: String, subtitle: String, steps: List<String>, onBack: () -> Unit) {
+    var step by remember { mutableStateOf(0) }
+    var value by remember { mutableStateOf("") }
+    var scanner by remember { mutableStateOf(false) }
+    if (scanner) {
+        NativeBarcodeScanner(onDetected = { value = it; scanner = false }, onClose = { scanner = false })
+        return
+    }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(22.dp)) {
+        PageTitle(title, onBack)
+        Text(subtitle, color = Muted, fontSize = 14.sp, modifier = Modifier.padding(vertical = 8.dp))
+        Text("STEP ${step + 1} / ${steps.size}", color = Green, letterSpacing = 2.sp, modifier = Modifier.padding(top = 18.dp))
+        Text(steps[step], color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 12.dp))
+        OutlinedTextField(value, { value = it }, label = { Text("Scan or type code") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Button(onClick = { scanner = true }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Color.Black)) { Text("OPEN CAMERA SCANNER") }
+        Button(onClick = { if (step < steps.lastIndex) { step++; value = "" } }, enabled = value.isNotBlank(), modifier = Modifier.fillMaxWidth().padding(top = 8.dp), colors = ButtonDefaults.buttonColors(containerColor = Panel, contentColor = Color.White)) { Text(if (step == steps.lastIndex) "CONFIRM" else "CONTINUE") }
+        if (value.isNotBlank()) Text("Captured: $value", color = Green, modifier = Modifier.padding(top = 18.dp))
     }
 }
