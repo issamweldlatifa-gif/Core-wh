@@ -207,11 +207,12 @@ describe('Strict Admin/Worker isolation (HTTP)', () => {
       .expect(200);
 
     // Admin disables the device → bound sessions are revoked server-side.
+    // (POST routes answer 201 by default in Nest.)
     await request(app.getHttpServer())
       .post(`/api/v1/devices/${deviceId}/status`)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ status: 'DISABLED' })
-      .expect(200);
+      .expect(201);
 
     // The previously valid session is dead on the next request (401).
     await request(app.getHttpServer())
