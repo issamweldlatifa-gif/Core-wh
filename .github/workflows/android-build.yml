@@ -13,6 +13,8 @@ jobs:
   assemble:
     name: Compile app + scanner-core tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     defaults:
       run:
         working-directory: mobile
@@ -63,3 +65,50 @@ jobs:
           name: ayrovi-worker-debug-apk
           path: mobile/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+      - name: Publish rolling canary release (phone download link)
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          TAG="worker-canary"
+          REPO="${{ github.repository }}"
+          API="https://api.github.com/repos/$REPO"
+          AUTH="Authorization: Bearer $GH_TOKEN"
+          ACCEPT="Accept: application/vnd.github+json"
+
+          # Drop the previous canary release + tag so the tag always points at
+          # the exact commit that produced this APK.
+          EXISTING_ID="$(curl -s -H "$AUTH" -H "$ACCEPT" "$API/releases/tags/$TAG" \
+            | python3 -c 'import sys,json;print(json.load(sys.stdin).get("id",""))' 2>/dev/null || true)"
+          if [ -n "$EXISTING_ID" ]; then
+            curl -s -X DELETE -H "$AUTH" "$API/releases/$EXISTING_ID" >/dev/null || true
+            curl -s -X DELETE -H "$AUTH" -H "$ACCEPT" "$API/git/refs/tags/$TAG" >/dev/null || true
+          fi
+
+          export TAG REPO BODY="AYROVI Worker (native Android) - internal canary build from commit ${GITHUB_SHA::7}.
+
+          This is a debug-signed APK for internal warehouse distribution only (never Google Play).
+          Install on your phone: open this release page on the phone, download the .apk asset below, then allow 'Install unknown apps' for your browser when Android asks."
+          python3 -c 'import json,os;print(json.dumps({
+            "tag_name": os.environ["TAG"],
+            "target_commitish": os.environ["GITHUB_SHA"],
+            "name": "AYROVI Worker - internal canary",
+            "body": os.environ["BODY"],
+            "draft": False,
+            "prerelease": True}))' > /tmp/rel.json
+
+          RELEASE_ID="$(curl -s -X POST -H "$AUTH" -H "$ACCEPT" \
+            -H "Content-Type: application/json" --data @/tmp/rel.json "$API/releases" \
+            | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')"
+
+          curl -s -X POST -H "$AUTH" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary @"$APK" \
+            "$API/releases/$RELEASE_ID/assets?name=ayrovi-worker-debug.apk" >/dev/null
+
+          echo "::notice::Canary release ready: https://github.com/$REPO/releases/tag/$TAG"
