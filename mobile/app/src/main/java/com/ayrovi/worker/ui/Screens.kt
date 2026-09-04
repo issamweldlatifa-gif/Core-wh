@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.ayrovi.worker.data.ArrivalRow
+import com.ayrovi.worker.data.SessionHeader
 import com.ayrovi.worker.data.SessionStore
 import com.ayrovi.worker.data.TerminalContext
 import com.ayrovi.worker.data.TerminalTask
@@ -359,15 +360,16 @@ private fun ReceivingFlow(
         busy = true
         error = null
         try {
-            var hdr = try {
+            var hdr: SessionHeader? = try {
                 repo.startReceiving(arr.id ?: arr.code ?: "")
             } catch (ex: WorkerRepository.ApiException) {
                 if (ex.code == 409 || ex.code == 400) repo.activeSession(arr.code ?: arr.id ?: "")
                 else throw ex
             }
-            if (hdr.id == null) hdr = repo.activeSession(arr.code ?: arr.id ?: "")
-            sessionId = hdr.id
-            sessionCode = hdr.code
+            if (hdr?.id == null) hdr = repo.activeSession(arr.code ?: arr.id ?: "")
+            val session = requireNotNull(hdr) { "لا توجد جلسة استلام نشطة لهذه الشحنة" }
+            sessionId = session.id
+            sessionCode = session.code
             arrival = arr
             view = RcvView.Session
         } catch (ex: WorkerRepository.ApiException) {
