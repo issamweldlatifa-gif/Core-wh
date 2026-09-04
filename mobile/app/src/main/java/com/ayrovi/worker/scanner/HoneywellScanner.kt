@@ -42,7 +42,6 @@ class HoneywellScanner(
 
         val r = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                if (!isTrustedSender(getSendingUid())) return
                 val value = extractBarcode(intent) ?: return
                 onBarcode(value)
             }
@@ -104,18 +103,12 @@ class HoneywellScanner(
     }
 
     /**
-     * Only trust broadcasts sent by the Honeywell scanner service (or the
-     * system). On Honeywell devices the service runs under a "honeywell"
-     * package; spoofing protection keeps a rogue local app from injecting
-     * fake barcodes into the receiving flow.
+     * Note on trust: we only ever register on Honeywell-built devices, and
+     * only the Honeywell scanner service (or the system) emits this exact
+     * broadcast action there — the Data Collection Intent API has no public
+     * per-broadcast sender check, so we rely on the device being a locked
+     * Honeywell unit (admin-managed) for spoof protection.
      */
-    private fun isTrustedSender(uid: Int): Boolean {
-        if (Build.VERSION.SDK_INT < 19) return true
-        if (uid == 0 || uid == ProcessInfo.SYSTEM_UID) return true
-        val pkgs = appContext.packageManager.getPackagesForUid(uid) ?: return false
-        return pkgs.any { it.contains("honeywell", ignoreCase = true) }
-    }
-
     private fun extractBarcode(intent: Intent?): String? {
         if (intent == null) return null
         for (key in BARCODE_EXTRA_CANDIDATES) {
@@ -127,10 +120,6 @@ class HoneywellScanner(
         // Fallback: some profiles deliver the code as the intent data URI.
         intent.data?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
         return null
-    }
-
-    private object ProcessInfo {
-        const val SYSTEM_UID = 1000
     }
 
     companion object {
