@@ -33,6 +33,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +52,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.ayrovi.worker.data.ArrivalRow
 import com.ayrovi.worker.data.SessionHeader
 import com.ayrovi.worker.data.SessionStore
@@ -58,6 +62,7 @@ import com.ayrovi.worker.data.TerminalContext
 import com.ayrovi.worker.data.TerminalTask
 import com.ayrovi.worker.data.WorkerRepository
 import com.ayrovi.worker.scanner.CameraScanner
+import com.ayrovi.worker.scanner.HoneywellScanner
 import com.ayrovi.worker.scanner.ScanCoordinator
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -482,6 +487,9 @@ private fun SessionScanner(
     val scope = rememberCoroutineScope()
     var ocrEnabled by remember { mutableStateOf(false) }
     var manualCode by remember { mutableStateOf("") }
+    // On Honeywell rugged devices (CT40) the side-trigger imager is the
+    // primary scanner — camera view is off unless the operator enables it.
+    var cameraOn by remember { mutableStateOf(!HoneywellScanner.isHoneywellDevice()) }
     var cameraGranted by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
     var flash by remember { mutableStateOf<Pair<String, Color>?>(null) }
     var stats by remember { mutableStateOf(Triple(0, 0, 0)) } // ok / issue / total
@@ -490,11 +498,11 @@ private fun SessionScanner(
     val cameraPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         cameraGranted = granted
     }
-    LaunchedEffect(Unit) {
-        if (!cameraGranted) cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+    LaunchedEffect(cameraOn) {
+        if (cameraOn && !cameraGranted) cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
     }
 
-    val handleAccepted: suspend (String, Boolean) -> Unit = { value, fromOcr ->
+    val handleAccepted: suspend (String, Boolean, String) -> Unit = { value, fromOcr, source ->
         val scanType = if (fromOcr) "MANUAL" else "BARCODE"
         try {
             val identified = repo.scanCarton(
@@ -502,7 +510,7 @@ private fun SessionScanner(
                 code = value,
                 scanType = scanType,
                 operationId = UUID.randomUUID().toString(),
-                source = "CAMERA",
+                source = source,
             )
             val kind = identified.flash?.kind
             when (kind) {
@@ -546,13 +554,41 @@ private fun SessionScanner(
 
     val coordinator = remember {
         ScanCoordinator(
-            onAccepted = { value, fromOcr ->
-                scope.launch { handleAccepted(value, fromOcr) }
+            onAccepted = { value, fromOcr, source ->
+                scope.launch { handleAccepted(value, fromOcr, source) }
             },
             onRejected = { reason ->
                 flash = Pair(reason.lowercase().replace('_', ' '), Color(0xFFF0B429))
             },
         )
+    }
+
+    // Honeywell rugged devices (CT40...): the physical SIDE TRIGGER fires a
+    // dedicated imager (not the camera). Claim it while this station screen
+    // is active and feed its scans into the SAME coordinator — a scan is a
+    // scan, whichever hardware produced it. Released when the screen is left
+    // or the app goes to the background.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val honeywell = remember { HoneywellScanner.isHoneywellDevice() }
+    DisposableEffect(lifecycleOwner) {
+        val honeywellScanner = HoneywellScanner(context) { value ->
+            coordinator.onScanned(value, fromOcr = false, source = HoneywellScanner.SOURCE)
+        }
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> honeywellScanner.start()
+                Lifecycle.Event.ON_PAUSE -> honeywellScanner.stop()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+            honeywellScanner.start()
+        }
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            honeywellScanner.stop()
+        }
     }
 
     Column(Modifier.fillMaxSize().padding(bottom = 8.dp)) {
@@ -572,15 +608,36 @@ private fun SessionScanner(
             Text("✓${stats.first} ⚠${stats.second}", fontSize = 12.sp, color = Dark.onBackground.copy(alpha = 0.7f))
         }
 
-        if (cameraGranted) {
-            Box(Modifier.fillMaxWidth().height(320.dp).background(Color.Black)) {
+        if (honeywell) {
+            // CT40: the physical side-trigger imager is the primary scanner.
+            Card(colors = CardDefaults.cardColors(containerColor = Dark.surface), modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                Column(Modifier.padding(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("SIDE TRIGGER", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Dark.secondary, modifier = Modifier.weight(1f))
+                        Text("ACTIVE", fontSize = 11.sp, color = Color(0xFF4CAF8C))
+                    }
+                    Text(
+                        "Scan by pressing the side button over a barcode — the imager reads it instantly and it enters this session automatically.",
+                        fontSize = 12.sp,
+                        color = Dark.onBackground.copy(alpha = 0.7f),
+                    )
+                    Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Camera view", fontSize = 13.sp, modifier = Modifier.weight(1f))
+                        Switch(checked = cameraOn, onCheckedChange = { cameraOn = it })
+                    }
+                }
+            }
+        }
+
+        if (cameraOn && cameraGranted) {
+            Box(Modifier.fillMaxWidth().height(if (honeywell) 220.dp else 320.dp).background(Color.Black)) {
                 CameraScanner(ocrEnabled = ocrEnabled, coordinator = coordinator, modifier = Modifier.fillMaxSize())
             }
             Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("OCR fallback", fontSize = 13.sp, modifier = Modifier.weight(1f))
                 Switch(checked = ocrEnabled, onCheckedChange = { ocrEnabled = it })
             }
-        } else {
+        } else if (cameraOn && !cameraGranted) {
             OutlinedButton(onClick = { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) }, modifier = Modifier.fillMaxWidth()) {
                 Text("Grant camera access")
             }
@@ -600,7 +657,7 @@ private fun SessionScanner(
                 onClick = {
                     val code = manualCode.trim()
                     if (code.isNotEmpty()) {
-                        scope.launch { handleAccepted(code, false) }
+                        scope.launch { handleAccepted(code, false, "MANUAL") }
                         manualCode = ""
                     }
                 },
