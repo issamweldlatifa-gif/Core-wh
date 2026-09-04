@@ -20,6 +20,9 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            // Installable QA release. Replace with the warehouse owner's private
+            // release keystore before public distribution.
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
