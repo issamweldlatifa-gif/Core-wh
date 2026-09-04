@@ -54,9 +54,11 @@ class WorkerRepository(private val store: SessionStore) {
             tokens
         }
 
-    suspend fun me(): MeResponse = get("/v1/auth/me")
+    suspend fun me(): MeResponse =
+        json.decodeFromString(MeResponse.serializer(), get("/v1/auth/me"))
 
-    suspend fun terminalContext(): TerminalContext = get("/v1/terminal/context")
+    suspend fun terminalContext(): TerminalContext =
+        json.decodeFromString(TerminalContext.serializer(), get("/v1/terminal/context"))
 
     suspend fun arrivals(): List<ArrivalRow> =
         json.decodeFromString(
@@ -144,7 +146,7 @@ class WorkerRepository(private val store: SessionStore) {
     private fun refreshOnce(): Boolean {
         val refresh = store.refreshToken() ?: return false
         val req = Request.Builder()
-            .url("$base()/v1/auth/refresh")
+            .url("${base()}/v1/auth/refresh")
             .post("""{"refreshToken":${jsonString(refresh)}}""".toRequestBody(jsonMedia))
             .build()
         return try {
