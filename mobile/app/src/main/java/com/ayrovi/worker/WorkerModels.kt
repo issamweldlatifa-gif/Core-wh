@@ -16,7 +16,15 @@ data class WorkerStation(
 )
 
 data class WorkerContext(
+    val worker: WorkerIdentity? = null,
     val station: WorkerStation?,
     val tasks: List<WorkerTask>,
     val home: String,
+)
+
+data class WorkerIdentity(
+    val id: String,
+    val name: String,
+    val employeeCode: String,
+    val role: String,
 )

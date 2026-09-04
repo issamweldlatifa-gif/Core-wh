@@ -24,5 +24,7 @@ class WorkerSessionStore(context: Context) {
 
     fun accessToken(): String? = prefs.getString("access_token", null)
 
+    fun refreshToken(): String? = prefs.getString("refresh_token", null)
+
     fun clear() { prefs.edit().clear().apply() }
 }

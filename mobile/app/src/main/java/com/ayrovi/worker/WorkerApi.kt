@@ -65,7 +65,16 @@ class WorkerApi(private val baseUrl: String, private val store: WorkerSessionSto
                 ready = task["ready"]?.toString()?.toBoolean() == true,
             )
         }.orEmpty()
-        return WorkerContext(station, tasks, root["home"]?.toString()?.trim('"').orEmpty())
+        val workerObject = root["worker"]?.let { runCatching { it.jsonObject }.getOrNull() }
+        val worker = workerObject?.let {
+            WorkerIdentity(
+                id = it["id"]?.toString()?.trim('"').orEmpty(),
+                name = it["name"]?.toString()?.trim('"').orEmpty(),
+                employeeCode = it["employeeCode"]?.toString()?.trim('"').orEmpty(),
+                role = it["role"]?.toString()?.trim('"').orEmpty(),
+            )
+        }
+        return WorkerContext(worker, station, tasks, root["home"]?.toString()?.trim('"').orEmpty())
     }
 
     fun arrivals(): List<ReceivingArrival> {
@@ -163,11 +172,26 @@ class WorkerApi(private val baseUrl: String, private val store: WorkerSessionSto
 
     private fun requestJson(path: String, method: String = "GET", body: String? = null): kotlinx.serialization.json.JsonElement {
         val token = store.accessToken() ?: error("Not authenticated")
-        val builder = Request.Builder().url("$baseUrl$path").header("Authorization", "Bearer $token")
-        if (method == "POST") builder.post((body ?: "{}").toRequestBody(mediaType)) else builder.get()
-        val response = client.newCall(builder.build()).execute()
+        fun makeRequest(access: String) = Request.Builder().url("$baseUrl$path").header("Authorization", "Bearer $access").apply {
+            if (method == "POST") post((body ?: "{}").toRequestBody(mediaType)) else get()
+        }.build()
+        var response = client.newCall(makeRequest(token)).execute()
+        if (response.code == 401 && store.refreshToken() != null) {
+            response.close()
+            refreshTokens(store.refreshToken()!!)
+            response = client.newCall(makeRequest(store.accessToken() ?: error("Session expired"))).execute()
+        }
         if (!response.isSuccessful) error("Request failed (${response.code})")
         return json.parseToJsonElement(response.body?.string().orEmpty())
+    }
+
+    private fun refreshTokens(refreshToken: String) {
+        val request = Request.Builder().url("$baseUrl/v1/auth/refresh")
+            .post("{\"refreshToken\":${quote(refreshToken)}}".toRequestBody(mediaType)).build()
+        val response = client.newCall(request).execute()
+        if (!response.isSuccessful) { store.clear(); error("Session expired") }
+        val value = json.parseToJsonElement(response.body?.string().orEmpty()).jsonObject
+        store.save(AuthTokens(value["accessToken"]?.toString()?.trim('"') ?: error("Missing access token"), value["refreshToken"]?.toString()?.trim('"') ?: refreshToken))
     }
 
     private fun sessionFrom(root: kotlinx.serialization.json.JsonElement): ReceivingSession {

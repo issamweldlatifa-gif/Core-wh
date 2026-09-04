@@ -49,6 +49,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.jsonObject
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 
 private val Green = Color(0xFF00FF66)
 private val Screen = Color(0xFF0B0D0C)
@@ -163,10 +165,21 @@ private fun WorkerShell(context: WorkerContext, api: WorkerApi, onRefresh: () ->
 
 @Composable
 private fun WorkerHeader(context: WorkerContext, onLogout: () -> Unit) {
+    var clock by remember { mutableStateOf(LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"))) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            clock = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"))
+            kotlinx.coroutines.delay(30_000)
+        }
+    }
     Row(Modifier.fillMaxWidth().background(Color.Black).padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Text("AYROVI", color = Green, fontWeight = FontWeight.Bold, letterSpacing = 3.sp, fontSize = 18.sp)
         Spacer(Modifier.weight(1f))
-        Text(context.station?.code ?: "WORKER", color = Green, fontSize = 12.sp)
+        Text(clock, color = Color.White, fontSize = 14.sp)
+        Spacer(Modifier.width(10.dp))
+        Text(context.worker?.name?.ifBlank { context.worker.employeeCode } ?: "WORKER", color = Color.White, fontSize = 12.sp)
+        Spacer(Modifier.width(8.dp))
+        Text(context.worker?.role ?: context.station?.code ?: "WORKER", color = Green, fontSize = 11.sp)
         Spacer(Modifier.width(10.dp))
         TextButton(onClick = onLogout) { Text("LOGOUT", color = Muted, fontSize = 11.sp) }
     }
