@@ -18,10 +18,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -85,7 +87,11 @@ private fun WorkerApp(api: WorkerApi, store: WorkerSessionStore) {
         }
     }
 
-    MaterialTheme {
+    LaunchedEffect(Unit) {
+        if (store.accessToken() != null) loadContext()
+    }
+
+    MaterialTheme(colorScheme = darkColorScheme(primary = Green, secondary = Green, background = Screen, surface = Panel, onPrimary = Color.Black, onBackground = Color.White, onSurface = Color.White)) {
         Surface(modifier = Modifier.fillMaxSize(), color = Screen) {
             if (context == null) {
                 LoginScreen(loading, error) { identifier, secret ->
@@ -168,7 +174,7 @@ private fun WorkerHeader(context: WorkerContext, onLogout: () -> Unit) {
 
 @Composable
 private fun WorkerNav(context: WorkerContext, page: WorkerPage, onPage: (WorkerPage) -> Unit) {
-    Row(Modifier.fillMaxWidth().background(Color.Black).padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).background(Color.Black).padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
         NavItem("DASHBOARD", page == WorkerPage.DASHBOARD) { onPage(WorkerPage.DASHBOARD) }
         if (context.allowed("receiving.execute")) NavItem("RECEIVING", page == WorkerPage.RECEIVING) { onPage(WorkerPage.RECEIVING) }
         if (context.allowed("expected_arrivals.view")) NavItem("EXPECTED", page == WorkerPage.EXPECTED) { onPage(WorkerPage.EXPECTED) }
@@ -288,7 +294,7 @@ private fun ReceivingPage(api: WorkerApi, onBack: () -> Unit) {
     LaunchedEffect(Unit) { request { arrivals = api.arrivals() } }
     if (scannerOpen) {
         NativeBarcodeScanner(
-            onDetected = { value -> scannerOpen = false; request { session?.let { session = api.scanCarton(it.id, value) } } },
+            onDetected = { value -> scannerOpen = false; request { session?.let { session = api.scanCarton(it.id, value, "CAMERA") } } },
             onClose = { scannerOpen = false },
         )
         return

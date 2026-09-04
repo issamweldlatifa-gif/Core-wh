@@ -91,11 +91,11 @@ class WorkerApi(private val baseUrl: String, private val store: WorkerSessionSto
         return sessionFrom(root)
     }
 
-    fun scanCarton(sessionId: String, code: String): ReceivingSession {
+    fun scanCarton(sessionId: String, code: String, source: String = "MANUAL"): ReceivingSession {
         val root = requestJson(
             "/v1/receiving/sessions/${encode(sessionId)}/scan-carton",
             method = "POST",
-            body = "{\"code\":${quote(code)},\"scanType\":\"BARCODE\",\"operationId\":${quote(UUID.randomUUID().toString())},\"source\":\"MANUAL\"}",
+            body = "{\"code\":${quote(code)},\"scanType\":\"BARCODE\",\"operationId\":${quote(UUID.randomUUID().toString())},\"source\":${quote(source)}}",
         )
         return sessionFrom(root)
     }
