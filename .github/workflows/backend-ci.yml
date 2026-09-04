@@ -40,7 +40,7 @@ jobs:
           npm test -- --silent > /tmp/unit.log 2>&1
           code=$?
           echo "UNIT_EXIT=$code"
-          python3 -c 'import sys; lines=open("/tmp/unit.log",errors="replace").read().splitlines()[-140:]; m="\n".join(lines); esc=m.replace("%","%25").replace("\r","").replace("\n","%0A"); print(("::error::" if int(sys.argv[1])!=0 else "::notice::")+esc)' "$code"
+          python3 -c 'import sys; lines=open("/tmp/unit.log",errors="replace").read().splitlines()[-140:]; m="\n".join(lines); esc=m.replace("%","%25").replace("\r","").replace("\n","%0A"); print(("::error::"+esc) if int(sys.argv[1])!=0 else "")' "$code"
           exit $code
 
       - name: Type-check / build
@@ -50,7 +50,7 @@ jobs:
           npm run build > /tmp/build.log 2>&1
           code=$?
           echo "BUILD_EXIT=$code"
-          python3 -c 'import sys; lines=open("/tmp/build.log",errors="replace").read().splitlines()[-140:]; m="\n".join(lines); esc=m.replace("%","%25").replace("\r","").replace("\n","%0A"); print(("::error::" if int(sys.argv[1])!=0 else "::notice::")+esc)' "$code"
+          python3 -c 'import sys; lines=open("/tmp/build.log",errors="replace").read().splitlines()[-140:]; m="\n".join(lines); esc=m.replace("%","%25").replace("\r","").replace("\n","%0A"); print(("::error::"+esc) if int(sys.argv[1])!=0 else "")' "$code"
           exit $code
 
       - name: Persist CI logs to branch (debugging aid)
