@@ -13,7 +13,7 @@ import kotlinx.serialization.json.JsonElement
 data class LoginRequest(
     val identifier: String,
     val secret: String,
-    val mode: String? = null, // PASSWORD | PIN
+    val mode: String? = null, // 'pin' | 'password' (lowercase, matches backend LoginDto)
     val app: String = "WORKER_NATIVE",
     val deviceId: String? = null,
 )

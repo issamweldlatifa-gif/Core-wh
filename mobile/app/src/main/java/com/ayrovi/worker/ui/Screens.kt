@@ -137,7 +137,7 @@ private fun LoginScreen(
     var identifier by remember { mutableStateOf("") }
     var secret by remember { mutableStateOf("") }
     var deviceCode by remember { mutableStateOf(store.deviceCode) }
-    var usePin by remember { mutableStateOf(true) }
+    var usePin by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -200,7 +200,10 @@ private fun LoginScreen(
                                     repo.login(
                                         identifier = identifier,
                                         secret = secret,
-                                        mode = if (usePin) "PIN" else "PASSWORD",
+                                        // Backend LoginDto mode enum is lowercase
+                                        // ('pin' | 'password'); uppercase was
+                                        // rejected with HTTP 400.
+                                        mode = if (usePin) "pin" else "password",
                                         deviceCode = deviceCode.trim(),
                                     )
                                     onSuccess()

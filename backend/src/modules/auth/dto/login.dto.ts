@@ -1,3 +1,4 @@
+import { Transform } from 'class-transformer';
 import { IsString, MinLength, MaxLength, IsIn, IsOptional } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -16,6 +17,9 @@ export class LoginDto {
 
   @ApiPropertyOptional({ enum: ['password', 'pin'], description: 'Override the credential mode.' })
   @IsOptional()
+  // Normalise any casing the client sends ('PIN'/'PASSWORD' from native app
+  // v1, 'pin'/'password') down to the canonical lowercase enum.
+  @Transform(({ value }) => (typeof value === 'string' ? value.toLowerCase() : value))
   @IsIn(['password', 'pin'])
   mode?: 'password' | 'pin';
 
