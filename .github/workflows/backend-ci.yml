@@ -44,9 +44,7 @@ jobs:
           code=$?
           echo "BUILD_EXIT=$code"
           if [ "$code" -ne 0 ]; then
-            tail -n 80 /tmp/build.log | sed 's/%/%25/g; s/\r//g' | while IFS= read -r l; do
-              echo "::error file=backend build::${l}"
-            done
+            python3 -c 'import sys; lines=open("/tmp/build.log",errors="replace").read().splitlines()[-90:]; m="\n".join(lines); print("::error::"+m.replace("%","%25").replace("\r","").replace("\n","%0A"))'
           fi
           exit $code
 
@@ -127,8 +125,6 @@ jobs:
           code=$?
           echo "E2E_EXIT=$code"
           if [ "$code" -ne 0 ]; then
-            tail -n 80 /tmp/e2e.log | sed 's/%/%25/g; s/\r//g' | while IFS= read -r l; do
-              echo "::error file=isolation e2e::${l}"
-            done
+            python3 -c 'import sys; ls=open("/tmp/e2e.log",errors="replace").read().splitlines(); start=next((i for i,l in enumerate(ls) if l.startswith("  ● ")), None); sel=ls[start:start+110] if start is not None else ls[-90:]; print("::error::"+"\n".join(sel).replace("%","%25").replace("\r","").replace("\n","%0A"))'
           fi
           exit $code
