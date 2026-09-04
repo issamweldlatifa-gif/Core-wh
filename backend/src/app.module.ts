@@ -19,6 +19,7 @@ import { PutawayModule } from './modules/putaway/putaway.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { FulfillmentModule } from './modules/fulfillment/fulfillment.module';
+import { DevicesModule } from './modules/devices/devices.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { ApplicationGuard } from './common/guards/application.guard';
@@ -58,6 +59,7 @@ import { ApplicationGuard } from './common/guards/application.guard';
     CategoriesModule,
     OrdersModule,
     FulfillmentModule,
+    DevicesModule,
   ],
   providers: [
     // Global guards: every route is authenticated and permission-checked

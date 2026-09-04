@@ -15,6 +15,7 @@ function ctxWith(user?: Partial<AuthenticatedUser>, handlerMeta?: unknown) {
       getRequest: () => ({ user }),
     }),
   } as any;
+  // No AuditService in unit tests — denial logging is skipped.
   return { guard: new ApplicationGuard(reflector), context };
 }
 
@@ -40,28 +41,28 @@ const workerUser: AuthenticatedUser = {
   allowedApplications: ['WORKER_NATIVE'],
 };
 
-describe('ApplicationGuard (Order #3 surface boundary)', () => {
-  it('passes every session when no surface is declared (opt-in)', () => {
+describe('ApplicationGuard (strict Admin/Worker surface boundary)', () => {
+  it('passes every session when no surface is declared (opt-in)', async () => {
     const { guard, context } = ctxWith(adminUser, undefined);
-    expect(guard.canActivate(context)).toBe(true);
+    await expect(guard.canActivate(context)).resolves.toBe(true);
   });
 
-  it('rejects an ADMIN_WEB session calling a WORKER_NATIVE endpoint', () => {
+  it('rejects an ADMIN_WEB session calling a WORKER_NATIVE endpoint', async () => {
     const { guard, context } = ctxWith(adminUser, 'WORKER_NATIVE');
-    expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
+    await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
   });
 
-  it('rejects a WORKER_NATIVE session calling an ADMIN_WEB endpoint', () => {
+  it('rejects a WORKER_NATIVE session calling an ADMIN_WEB endpoint', async () => {
     const { guard, context } = ctxWith(workerUser, 'ADMIN_WEB');
-    expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
+    await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
   });
 
-  it('allows a worker session on its own WORKER_NATIVE endpoint', () => {
+  it('allows a worker session on its own WORKER_NATIVE endpoint', async () => {
     const { guard, context } = ctxWith(workerUser, 'WORKER_NATIVE');
-    expect(guard.canActivate(context)).toBe(true);
+    await expect(guard.canActivate(context)).resolves.toBe(true);
   });
 
-  it('rejects when the session surface matches but roles cannot open it', () => {
+  it('rejects when the session surface matches but roles cannot open it', async () => {
     // Session says WORKER_NATIVE but the DB-derived allowedApplications
     // disagree — the server never trusts the session alone.
     const weird: AuthenticatedUser = {
@@ -69,6 +70,6 @@ describe('ApplicationGuard (Order #3 surface boundary)', () => {
       allowedApplications: ['ADMIN_WEB'],
     };
     const { guard, context } = ctxWith(weird, 'WORKER_NATIVE');
-    expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
+    await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
   });
 });

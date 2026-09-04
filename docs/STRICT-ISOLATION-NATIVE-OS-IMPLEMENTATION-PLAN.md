@@ -4,6 +4,11 @@ Status: active — audit complete, phased execution in progress.
 Scope source: the three project commands (Admin/Worker strict isolation,
 Dynamic Worker & Station Architecture, Native Worker App Architecture).
 
+Progress:
+- Batch 1 (HTTP surface enforcement) — DONE, CI green.
+- Batch 2 (devices + session binding + revocation + security events) — DONE.
+- Batch 3 (native Android app, scanner-core, workflows) — next.
+
 This document is the short implementation plan requested BEFORE touching
 source files. It records what already exists (never re-do), what is missing
 (do it), and how each phase is proven.

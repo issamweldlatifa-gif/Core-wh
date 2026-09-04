@@ -38,3 +38,55 @@ jobs:
 
       - name: Type-check / build
         run: npm run build
+
+  isolation-e2e:
+    name: Isolation e2e (Postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ayrovi
+          POSTGRES_PASSWORD: ayrovi_dev
+          POSTGRES_DB: ayrovi_warehouse
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ayrovi -d ayrovi_warehouse"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://ayrovi:ayrovi_dev@localhost:5432/ayrovi_warehouse?schema=public
+      JWT_ACCESS_SECRET: ci_access_secret_do_not_use_in_prod_change_me_1234567890
+      JWT_REFRESH_SECRET: ci_refresh_secret_do_not_use_in_prod_change_me_1234567890
+      INITIAL_ADMIN_CODE: ADMIN001
+      INITIAL_ADMIN_PASSWORD: ChangeMe!2024
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Migrate database
+        run: npx prisma migrate deploy
+
+      - name: Seed database (roles, permissions, initial admin)
+        run: npx ts-node prisma/seed.ts
+
+      - name: Isolation e2e (strict Admin/Worker surface matrix)
+        run: npx jest --config ./test/jest-e2e.json test/isolation.e2e-spec.ts --runInBand

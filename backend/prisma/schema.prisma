@@ -53,6 +53,10 @@ enum ApplicationKind {
   ADMIN_WEB
   WORKER_NATIVE
 }
+enum DeviceStatus {
+  ACTIVE
+  DISABLED
+}
 
 enum AuditAction {
   USER_LOGIN
@@ -179,6 +183,18 @@ enum AuditAction {
   CONTAINER_READY_FOR_PACKING
   CONTAINER_CLOSED
   ARTICLE_SCANNED
+  // Strict Admin/Worker isolation — security events (Doc1 §13, Doc2 §10).
+  WORKER_APP_ACCESS_DENIED // an Admin/Viewer session tried a WORKER_NATIVE route
+  ADMIN_APP_ACCESS_DENIED // a Worker session tried an ADMIN_WEB route
+  UNAUTHORIZED_PERMISSION // an authenticated call missed a required permission
+  UNAUTHORIZED_STATION_ACCESS // a worker call referenced an unauthorized station
+  DEVICE_REJECTED // a device failed authorization at login / on a request
+  SESSION_REVOKED // a session was revoked (user disabled, device revoked, …)
+  // Device registry (native worker hardware).
+  DEVICE_REGISTERED
+  DEVICE_UPDATED
+  DEVICE_STATUS_CHANGED
+  DEVICE_ASSIGNED
 }
 
 enum ApiClientStatus {
@@ -246,6 +262,7 @@ model User {
   updatedAt      DateTime       @updatedAt
 
   sessions         Session[]
+  devices          Device[]            @relation("DeviceWorker")
   roles            UserRole[]
   createdAudit     AuditLog[]            @relation("Actor")
   // COMMAND #3 — Worker Control: task assignments.
@@ -319,6 +336,10 @@ model RolePermission {
 }
 
 // A session tracks refresh tokens and enables immediate revocation/logout.
+// Strict isolation (Doc1 §1/§7, Doc2 §9): every session may carry the
+// application surface it was opened for plus — for the native worker app —
+// the device and station it was bound to at login. Server truth lives here;
+// the client never supplies role/station/device claims on requests.
 model Session {
   id               String          @id @default(uuid())
   userId           String
@@ -332,11 +353,49 @@ model Session {
   revokedAt        DateTime?
   createdAt        DateTime        @default(now())
 
+  // Native worker binding: the authorized device + assigned station captured
+  // at login. Nullable on purpose — admin-web and legacy web-terminal
+  // sessions are not device-bound. When set, the JWT strategy re-checks the
+  // device/station on every request (revocation is immediate, server-side).
+  deviceId  String?
+  device    Device?  @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  stationId String?
+  station   Station? @relation("SessionStation", fields: [stationId], references: [id], onDelete: SetNull)
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([status])
+  @@index([deviceId])
+  @@index([stationId])
   @@map("sessions")
+}
+
+// ------------------------------------------------------------------
+// Device registry — the hardware the native worker app runs on.
+// ------------------------------------------------------------------
+
+model Device {
+  id         String       @id @default(uuid())
+  code       String       @unique // e.g. AYROVI-RCV-01
+  name       String
+  status     DeviceStatus @default(ACTIVE)
+  model      String? // hardware model / label
+  appVersion String? // last known native app version
+  stationCode String? // display-only snapshot of the station this device sits at
+  lastSeenAt DateTime?
+  lastSeenIp String?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  assignedWorkerId String?
+  assignedWorker   User?    @relation("DeviceWorker", fields: [assignedWorkerId], references: [id], onDelete: SetNull)
+
+  sessions Session[]
+
+  @@index([status])
+  @@index([assignedWorkerId])
+  @@map("devices")
 }
 
 // ------------------------------------------------------------------
@@ -1567,6 +1626,7 @@ model Station {
 
   corrections     OperationCorrection[]
   sessions        ReceivingSession[]   @relation("StationSessions")
+  workerSessions  Session[]            @relation("SessionStation")
   putawaySessions PutawaySession[]     @relation("StationPutawaySessions")
 
   @@index([department])

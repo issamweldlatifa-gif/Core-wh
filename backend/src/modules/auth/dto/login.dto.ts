@@ -29,4 +29,16 @@ export class LoginDto {
   @IsOptional()
   @IsIn(['ADMIN_WEB', 'WORKER_NATIVE'])
   app?: 'ADMIN_WEB' | 'WORKER_NATIVE';
+
+  @ApiPropertyOptional({
+    description:
+      'Device code presented by the Native Worker App (WORKER_NATIVE only). ' +
+      'Validated server-side: the device must be registered, ACTIVE and ' +
+      'assigned to this worker (or unassigned — first use binds it). ' +
+      'Ignored for ADMIN_WEB sessions.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  deviceId?: string;
 }

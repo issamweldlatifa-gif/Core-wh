@@ -112,6 +112,12 @@ export class UsersService {
         ipAddress: ip,
         metadata: { status: dto.isActive ? 'ACTIVE' : 'DISABLED' },
       });
+      // Disabling a worker must end their live sessions NOW (server-side):
+      // the next request with an old token fails and the worker is forced to
+      // re-authenticate (Doc1 §12 — Session Revocation).
+      if (!dto.isActive) {
+        await this.revokeActiveSessions(id, actorUserId, ip, 'user_disabled');
+      }
     }
 
     return this.toPublic(updated);
@@ -155,7 +161,30 @@ export class UsersService {
     // Soft disable rather than hard delete is safer; Phase 0 disables.
     await this.prisma.user.update({ where: { id }, data: { status: 'DISABLED' } });
     await this.audit.log({ actorUserId, action: 'USER_DELETED', entityType: 'user', entityId: id, ipAddress: ip });
+    await this.revokeActiveSessions(id, actorUserId, ip, 'user_disabled');
     return { success: true };
+  }
+
+  private async revokeActiveSessions(
+    userId: string,
+    actorUserId: string,
+    ip?: string,
+    reason?: string,
+  ) {
+    const revoked = await this.prisma.session.updateMany({
+      where: { userId, status: 'ACTIVE' },
+      data: { status: 'REVOKED', revokedAt: new Date() },
+    });
+    if (revoked.count > 0) {
+      await this.audit.log({
+        actorUserId,
+        action: 'SESSION_REVOKED' as any,
+        entityType: 'user',
+        entityId: userId,
+        ipAddress: ip,
+        metadata: { reason: reason ?? 'user_disabled', count: revoked.count },
+      });
+    }
   }
 
   private toPublic(user: any) {

@@ -27,6 +27,7 @@ export class AuthController {
       ip: req.ip,
       ua: req.headers['user-agent'],
       app: dto.app,
+      deviceId: dto.deviceId,
     });
   }
 
@@ -61,12 +62,27 @@ export class AuthController {
         lastLoginAt: true,
       },
     });
+    const session = await this.prisma.session.findUnique({
+      where: { id: user.sessionId },
+      select: {
+        id: true,
+        application: true,
+        deviceId: true,
+        stationId: true,
+        createdAt: true,
+        expiresAt: true,
+      },
+    });
     return {
       user: dbUser,
       roles: user.roles,
       permissions: user.permissions,
       application: user.application,
       allowedApplications: user.allowedApplications,
+      // Worker sessions expose their server-side device/station binding so the
+      // native app can render the correct station context without trusting any
+      // client-supplied value.
+      session,
     };
   }
 }
