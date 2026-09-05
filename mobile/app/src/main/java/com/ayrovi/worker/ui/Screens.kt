@@ -872,6 +872,9 @@ private fun ReceivingWorkspace(
             }
         }
         lifecycleOwner.lifecycle.addObserver(obs)
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
+            scanner.start()
+        }
         onDispose { lifecycleOwner.lifecycle.removeObserver(obs); scanner.stop() }
     }
 

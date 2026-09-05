@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
-"""Annotate Android build log for GitHub Actions."""
+"""Emit proper per-file ::error annotations for Kotlin compiler errors."""
+import os
+import re
 import sys
+
+KOTLIN_ERR_RE = re.compile(r"^e:\s*([^:]+):(\d+):(\d+):\s*(.*)$")
 
 
 def main() -> int:
@@ -13,37 +17,38 @@ def main() -> int:
     log_path = sys.argv[2]
     with open(log_path, errors="replace") as f:
         lines = f.read().splitlines()
+
     if exit_code == 0:
         print("::notice::Android build + scanner tests OK")
         return 0
-    errors = []
+
+    repo_root = os.getcwd()  # GITHUB_WORKSPACE/mobile when script runs; repo root is parent
+    emitted = 0
     for l in lines:
-        s = l.strip()
-        if (
-            s.startswith("e:")
-            or "unresolved reference" in s.lower()
-            or "type mismatch" in s.lower()
-            or "cannot access" in s.lower()
-            or "too many arguments" in s.lower()
-            or "no value passed" in s.lower()
-            or "none of the following functions" in s.lower()
-            or ("error:" in s.lower() and ".kt:" in s)
-        ):
-            errors.append(s)
-        if len(errors) >= 80:
-            break
-    if not errors:
-        # Look for failure footer
-        for i, l in enumerate(lines):
-            if l.startswith("* What went wrong"):
-                errors = lines[i:i+20]
+        m = KOTLIN_ERR_RE.match(l.strip())
+        if m:
+            fpath, lineno, col, msg = m.groups()
+            # Map absolute /gradle-cache style paths to repo-relative paths.
+            rel = fpath
+            if "/mobile/" in fpath:
+                rel = "mobile/" + fpath.split("/mobile/", 1)[1]
+            elif fpath.startswith("/") and not fpath.startswith(repo_root):
+                # absolute path outside workspace — fall back to file name only
+                rel = os.path.basename(fpath)
+            safe = msg.replace("%", "%25").replace("\r", "").replace("\n", " ")
+            print(f"::error file={rel},line={lineno},col={col}::{safe}")
+            print(f"KOTLIN-ERR {rel}:{lineno}:{col}: {safe}", file=sys.stderr)
+            emitted += 1
+            if emitted >= 80:
                 break
-    if not errors:
-        errors = lines[-60:]
-    msg = "\n".join(errors)
-    if len(msg) > 1400:
-        msg = msg[:1400] + "\n...truncated"
-    print("::error file=mobile/app/build.gradle.kts,line=1,title=Build errors::" + msg.replace("%", "%25").replace("\r", "").replace("\n", "%0A"))
+
+    if emitted == 0:
+        # Fallback: last 80 lines as a single annotation on build.gradle.kts
+        tail = "\n".join(lines[-80:])
+        if len(tail) > 1400:
+            tail = tail[:1400] + "\n...truncated"
+        print("::error file=mobile/app/build.gradle.kts,line=1::" + tail.replace("%", "%25").replace("\r", "").replace("\n", "%0A"))
+
     return 0
 
 
