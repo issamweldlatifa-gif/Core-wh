@@ -889,7 +889,8 @@ private fun StationRouter(
 }
 
 // ============================================================
-// STATION 1: RECEIVING (PRODUCT-CENTRIC, FAST & MOBILE-FIRST)
+// STATION 1: RECEIVING (optimised for article throughput)
+// Q: What am I receiving?  -> Big answer: SESSION + TALLY + SCAN
 // ============================================================
 @Composable
 private fun ReceivingStation(
@@ -905,13 +906,6 @@ private fun ReceivingStation(
     var error by remember { mutableStateOf<String?>(null) }
     var fb by remember { mutableStateOf<Feedback?>(null) }
     var tick by remember { mutableIntStateOf(0) }
-    
-    // Product flow states
-    var viewMode by remember { mutableStateOf("HOME") }
-    var scannedProduct by remember { mutableStateOf<ProductRow?>(null) }
-    var scannedCode by remember { mutableStateOf("") }
-    var manualCode by remember { mutableStateOf("") }
-    var quantity by remember { mutableIntStateOf(1) }
 
     LaunchedEffect(Unit) { while (true) { delay(1000); tick += 1 } }
 
@@ -928,63 +922,43 @@ private fun ReceivingStation(
     }
     LaunchedEffect(Unit) { loading = true; try { loadArrivals() } catch (e: Exception) { error = e.message }; loading = false }
 
-    val cleanCode = { c: String -> c.trim().uppercase(Locale.ROOT) }
-
-    val processProductScan: suspend (String) -> Unit = onScan@{ value ->
+    val onScan: suspend (String) -> Unit = onScan@{ value ->
         val s = session
-        if (s == null || busy) return@onScan
-        
-        val clean = cleanCode(value)
-        if (clean.isEmpty()) return@onScan
-
-        // Local evaluation first (speed priority)
-        val p = s.products.find { cleanCode(it.sku ?: "") == clean || cleanCode(it.reference ?: "") == clean }
-        
-        scannedCode = clean
-        scannedProduct = p
-        quantity = 1
-        viewMode = "PRODUCT_RESULT"
-        fb = null
-        onLastAction("scanned product $clean")
-    }
-    
-    val confirmReceiving = {
-        scope.launch {
-            if (session == null || scannedCode.isEmpty() || busy) return@launch
-            busy = true
-            onStatus("SUBMITTING", FeedbackKind.INFO)
-            try {
-                val updated = repo.receiveProduct(session!!.id, scannedCode, quantity, UUID.randomUUID().toString(), "CAMERA")
-                session = updated
-                val f = updated.flash
-                
-                if (f?.kind == "UNEXPECTED_PRODUCT") {
-                    fb = Feedback(FeedbackKind.BAD, "UNEXPECTED PRODUCT", "$scannedCode was not on the expected list.")
-                    onStatus("EXCEPTION", FeedbackKind.BAD)
-                } else {
-                    fb = Feedback(FeedbackKind.OK, "RECEIVED ✓", "$scannedCode x\$quantity")
-                    onStatus("ACCEPTED", FeedbackKind.OK)
+        if (s == null) return@onScan
+        busy = true; error = null
+        try {
+            val updated = repo.scanCarton(s.id, value, "BARCODE", UUID.randomUUID().toString(), "EXTERNAL_SCANNER")
+            session = updated
+            when (updated.flash?.kind) {
+                "CARTON_RECEIVED", "CARTON_IDENTIFIED", "CARTON_CONFIRMED" -> {
+                    val cid = jsonString(updated.flash!!.carton, "externalCartonId")
+                        ?: jsonString(updated.flash!!.carton, "code")
+                        ?: jsonString(updated.flash!!.carton, "qrCodeValue")
+                        ?: value
+                    fb = Feedback(FeedbackKind.OK, "CARTON RECEIVED",
+                        "$cid  ·  ${updated.tally.receivedCartons}/${updated.tally.expectedCartons} cartons")
+                    onStatus("ACCEPTED", FeedbackKind.OK); onLastAction("carton $cid received")
                 }
-                
-                onLastAction("received $scannedCode x\$quantity")
-                
-                // Return to home automatically to keep the process flowing fast!
-                viewMode = "HOME"
-                scannedCode = ""
-                scannedProduct = null
-            } catch (ex: WorkerRepository.ApiException) {
-                if (ex.code != 401) { error = ex.message; fb = Feedback(FeedbackKind.BAD, "ERROR", ex.message) } else onExpired()
-                onStatus("ERROR", FeedbackKind.BAD)
-            } catch (ex: Exception) {
-                error = ex.message; fb = Feedback(FeedbackKind.BAD, "ERROR", ex.message)
-                onStatus("ERROR", FeedbackKind.BAD)
-            } finally {
-                busy = false
+                "UNKNOWN_CARTON" -> { fb = Feedback(FeedbackKind.BAD, "UNKNOWN CARTON", value); onStatus("REJECTED", FeedbackKind.BAD) }
+                "WRONG_SHIPMENT" -> { fb = Feedback(FeedbackKind.BAD, "WRONG SHIPMENT", value); onStatus("REJECTED", FeedbackKind.BAD) }
+                "DUPLICATE_CARTON" -> { fb = Feedback(FeedbackKind.BAD, "ALREADY RECEIVED", value); onStatus("REJECTED", FeedbackKind.BAD) }
+                else -> {
+                    val t = updated.tally
+                    if (t.receivedCartons > s.tally.receivedCartons) {
+                        fb = Feedback(FeedbackKind.OK, "CARTON RECEIVED",
+                            "$value  ·  ${t.receivedCartons}/${t.expectedCartons} cartons")
+                        onStatus("ACCEPTED", FeedbackKind.OK); onLastAction("carton $value received")
+                    } else {
+                        fb = Feedback(FeedbackKind.BAD, "NOT ACCEPTED", value); onStatus("REJECTED", FeedbackKind.BAD)
+                    }
+                }
             }
-        }
+        } catch (ex: WorkerRepository.ApiException) {
+            if (ex.code != 401) { error = ex.message; fb = Feedback(FeedbackKind.BAD, "ERROR", ex.message) } else onExpired()
+        } catch (ex: Exception) { error = ex.message; fb = Feedback(FeedbackKind.BAD, "ERROR", ex.message) }
+        finally { busy = false }
     }
-
-    val (coord, camOn, setCam) = StationScanner(onScan = processProductScan, busy = busy, enabled = session != null && viewMode != "PRODUCT_RESULT")
+    val (coord, camOn, setCam) = StationScanner(onScan = onScan, busy = busy, enabled = session != null)
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp)) {
         if (session == null) {
@@ -1000,7 +974,7 @@ private fun ReceivingStation(
                             Column(Modifier.weight(1f)) {
                                 Text(a.code ?: "—", fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
                                 Text(a.customerName ?: a.storeName ?: "—", fontSize = 12.sp, color = Dim)
-                                Text("${a.products ?: 0} products · ${a.units ?: 0} units", fontSize = 11.sp, color = Dim)
+                                Text("${a.cartons ?: 0} cartons · ${a.units ?: 0} units", fontSize = 11.sp, color = Dim)
                             }
                             Button(onClick = { scope.launch { open(a) } }) {
                                 Text(if (a.status == "EXPECTED") "START" else "RESUME")
@@ -1013,127 +987,55 @@ private fun ReceivingStation(
         }
         val s = session!!
         val t = s.tally
-        
         BackBar("RECEIVING", onBack) {
             Text(elapsed(s.startedAt, tick), fontFamily = FontFamily.Monospace, color = Blue, fontWeight = FontWeight.Bold)
         }
-        
-        if (viewMode == "HOME") {
-            ContextCard("SESSION", s.code, s.arrival.customerName ?: s.arrival.storeName, Green)
-            Spacer(Modifier.height(10.dp))
-            FlashBar(fb, { fb = null }, onAccepted)
-            
-            // METRICS ROW
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Metric("EXPECTED", "${t.expectedProducts}", Theme.primary, Modifier.weight(1f))
-                Metric("RECEIVED", "${t.receivedProducts}", Green, Modifier.weight(1f))
-                Metric("EXCEPTIONS", "${t.openDiscrepancies}", if (t.openDiscrepancies > 0) Red else Dim, Modifier.weight(1f))
-            }
-            Spacer(Modifier.height(10.dp))
-            
-            // PRIMARY ACTION: SCAN
-            BigScanHero("SCAN PRODUCT", "Point the CT40 trigger or use the camera.",
-                statusLabel = if (camOn) "CAMERA ON" else "CT40 READY", statusColor = Green,
-                cameraOn = camOn)
-            CameraToggle(camOn, setCam, coord, enabled = !busy)
-            
-            Spacer(Modifier.height(10.dp))
-            Section("MANUAL ENTRY")
-            ManualEntry("PRODUCT CODE", manualCode, { manualCode = it }, { v -> scope.launch { processProductScan(v) } }, enabled = !busy)
-            
-            Spacer(Modifier.height(10.dp))
-            val openEx = s.discrepancies.filter { it.status == "OPEN" }
-            if (openEx.isNotEmpty()) {
-                Section("OPEN EXCEPTIONS")
-                for (d in openEx) Text("• ${d.type?.replace("_"," ")} · ${d.reason ?: d.sku ?: "—"}", color = Red, fontSize = 12.sp)
-                Spacer(Modifier.height(10.dp))
-            }
-            
-            val recent = s.products.filter { it.received > 0 }.take(3)
-            if (recent.isNotEmpty()) {
-                Section("RECENT PRODUCTS")
-                Card(colors = CardDefaults.cardColors(containerColor = Theme.surface), modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(10.dp)) {
-                        for (p in recent) {
-                            Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Box(Modifier.size(40.dp).background(Theme.surfaceVariant), contentAlignment = Alignment.Center) { Text("IMG", color = Dim, fontSize = 9.sp) }
-                                Spacer(Modifier.width(10.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text(p.productName ?: "Unknown", fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text("SKU: ${p.sku ?: p.reference}", color = Dim, fontSize = 11.sp)
-                                }
-                                Text("${p.received}/${p.expected}", color = Green, fontWeight = FontWeight.Bold)
-                            }
-                            HorizontalDivider(color = Theme.onBackground.copy(alpha = 0.06f))
-                        }
-                    }
-                }
-                Spacer(Modifier.height(10.dp))
-            }
-            
-            Section("SESSION CONTROLS")
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (s.status == "ACTIVE") {
-                    OutlinedButton(onClick = {
-                        scope.launch { busy = true; try { session = repo.pauseSession(s.id) } catch (e: Exception) { fb = Feedback(FeedbackKind.BAD, "ERROR", e.message) } finally { busy = false } }
-                    }, modifier = Modifier.weight(1f), enabled = !busy) { Text("PAUSE") }
-                } else if (s.status == "PAUSED") {
-                    OutlinedButton(onClick = {
-                        scope.launch { busy = true; try { session = repo.resumeSession(s.id); fb = Feedback(FeedbackKind.OK, "RESUMED", s.code) } catch (e: Exception) { fb = Feedback(FeedbackKind.BAD, "ERROR", e.message) } finally { busy = false } }
-                    }, modifier = Modifier.weight(1f), enabled = !busy) { Text("RESUME") }
-                }
+        ContextCard("TASK / BATCH", s.arrival.code, s.arrival.customerName ?: s.arrival.storeName, Green)
+        Spacer(Modifier.height(10.dp))
+        FlashBar(fb, { fb = null }, onAccepted)
+        BigScanHero("SCAN CARTON", "Point the CT40 trigger at the carton barcode.",
+            statusLabel = s.status.uppercase(), statusColor = if (s.status == "PAUSED") Amber else Green,
+            cameraOn = camOn)
+        CameraToggle(camOn, setCam, coord, enabled = !busy && s.status != "PAUSED")
+        Spacer(Modifier.height(10.dp))
+        Section("MANUAL ENTRY")
+        var mVal by remember { mutableStateOf("") }
+        ManualEntry("CARTON CODE", mVal, { mVal = it }, { v -> scope.launch { onScan(v) } }, enabled = !busy && s.status != "PAUSED")
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Metric("CARTONS", "${t.receivedCartons}/${t.expectedCartons}",
+                if (t.receivedCartons >= t.expectedCartons && t.expectedCartons > 0) Green else Theme.primary, Modifier.weight(1f))
+            Metric("UNITS", "${t.receivedUnits}/${t.expectedUnits}", Theme.primary, Modifier.weight(1f))
+            Metric("EXCEPTIONS", "${t.openDiscrepancies}", if (t.openDiscrepancies > 0) Red else Dim, Modifier.weight(1f))
+        }
+        val open = s.discrepancies.filter { it.status == "OPEN" }
+        if (open.isNotEmpty()) {
+            Section("OPEN EXCEPTIONS")
+            for (d in open) Text("• ${d.type?.replace("_"," ")} · ${d.reason ?: "—"}", color = Red, fontSize = 12.sp)
+        }
+        Spacer(Modifier.height(10.dp))
+        Section("SESSION")
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (s.status == "ACTIVE") {
                 OutlinedButton(onClick = {
-                    scope.launch {
-                        busy = true; try {
-                            val done = repo.completeSession(s.id); session = done
-                            fb = Feedback(FeedbackKind.OK, "SESSION COMPLETE", done.code)
-                            onStatus("DONE", FeedbackKind.OK); onLastAction("session ${done.code} complete")
-                        } catch (e: Exception) { fb = Feedback(FeedbackKind.BAD, "CANNOT COMPLETE", e.message) } finally { busy = false }
-                    }
-                }, modifier = Modifier.weight(1f), enabled = !busy) { Text("COMPLETE", color = Green) }
+                    scope.launch { busy = true; try { session = repo.pauseSession(s.id) } catch (e: Exception) { fb = Feedback(FeedbackKind.BAD, "ERROR", e.message) } finally { busy = false } }
+                }, modifier = Modifier.weight(1f), enabled = !busy) { Text("PAUSE") }
+            } else if (s.status == "PAUSED") {
+                OutlinedButton(onClick = {
+                    scope.launch { busy = true; try { session = repo.resumeSession(s.id); fb = Feedback(FeedbackKind.OK, "RESUMED", s.code) } catch (e: Exception) { fb = Feedback(FeedbackKind.BAD, "ERROR", e.message) } finally { busy = false } }
+                }, modifier = Modifier.weight(1f), enabled = !busy) { Text("RESUME") }
             }
-        } else if (viewMode == "PRODUCT_RESULT") {
-            // PRODUCT RESULT SCREEN
-            Text(if (scannedProduct != null) "✓ PRODUCT FOUND" else "✕ UNEXPECTED PRODUCT", 
-                color = if (scannedProduct != null) Green else Red, 
-                fontWeight = FontWeight.Black, fontSize = 18.sp, modifier = Modifier.padding(bottom = 12.dp))
-            
-            Card(colors = CardDefaults.cardColors(containerColor = Theme.surface), modifier = Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(80.dp).background(Theme.surfaceVariant), contentAlignment = Alignment.Center) { Text("IMAGE", color = Dim, fontSize = 12.sp) }
-                    Spacer(Modifier.width(14.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(scannedProduct?.productName ?: "Unknown Product", fontWeight = FontWeight.Bold, fontSize = 18.sp, maxLines = 2)
-                        Spacer(Modifier.height(4.dp))
-                        Text("SKU: $scannedCode", color = Dim, fontFamily = FontFamily.Monospace, fontSize = 14.sp)
-                    }
+            OutlinedButton(onClick = {
+                scope.launch {
+                    busy = true; try {
+                        val done = repo.completeSession(s.id); session = done
+                        fb = Feedback(FeedbackKind.OK, "SESSION COMPLETE", done.code)
+                        onStatus("DONE", FeedbackKind.OK); onLastAction("session ${done.code} complete")
+                    } catch (e: Exception) { fb = Feedback(FeedbackKind.BAD, "CANNOT COMPLETE", e.message) } finally { busy = false }
                 }
-                HorizontalDivider(color = Theme.onBackground.copy(alpha = 0.06f))
-                Row(Modifier.padding(14.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("EXPECTED", color = Dim, fontSize = 10.sp); Text("${scannedProduct?.expected ?: 0}", fontWeight = FontWeight.Bold, fontSize = 20.sp) }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("RECEIVED", color = Dim, fontSize = 10.sp); Text("${scannedProduct?.received ?: 0}", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = Green) }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("REMAINING", color = Dim, fontSize = 10.sp); Text("${scannedProduct?.remaining ?: 0}", fontWeight = FontWeight.Bold, fontSize = 20.sp) }
-                }
+            }, modifier = Modifier.weight(1f), enabled = !busy && (s.status == "ACTIVE" || s.status == "PAUSED")) {
+                Text("COMPLETE")
             }
-            
-            Spacer(Modifier.height(24.dp))
-            Section("QUANTITY")
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                Button(onClick = { quantity = max(1, quantity - 1) }, modifier = Modifier.size(64.dp), colors = ButtonDefaults.buttonColors(containerColor = Theme.surfaceVariant, contentColor = Theme.onSurface)) { Text("-", fontSize = 24.sp) }
-                Text("$quantity", fontSize = 48.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 32.dp))
-                Button(onClick = { quantity += 1 }, modifier = Modifier.size(64.dp), colors = ButtonDefaults.buttonColors(containerColor = Theme.surfaceVariant, contentColor = Theme.onSurface)) { Text("+", fontSize = 24.sp) }
-            }
-            
-            Spacer(Modifier.height(32.dp))
-            Button(
-                onClick = { confirmReceiving() },
-                enabled = !busy,
-                colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Theme.onPrimary),
-                modifier = Modifier.fillMaxWidth().height(60.dp)
-            ) { Text("CONFIRM RECEIVING", fontSize = 16.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp) }
-            
-            Spacer(Modifier.height(10.dp))
-            OutlinedButton(onClick = { viewMode = "HOME"; scannedCode = ""; fb = null }, modifier = Modifier.fillMaxWidth().height(50.dp), enabled = !busy) { Text("CANCEL", color = Dim) }
         }
     }
 }
