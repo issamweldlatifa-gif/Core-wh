@@ -687,14 +687,14 @@ private fun ReceivingFlow(
     var mode by remember { mutableStateOf(ScanMode.CARTON) }
     var manual by remember { mutableStateOf("") }
     var qty by remember { mutableStateOf("1") }
-    var activity by remember { mutableStateOf<List<ActivityLine>>(emptyList()) }
+    var activityLog by remember { mutableStateOf<List<ActivityLine>>(emptyList()) }
     var resetSignal by remember { mutableIntStateOf(0) }
     var nowTick by remember { mutableIntStateOf(0) }
     var banner by remember { mutableStateOf<Pair<String, Color>?>(null) }
     var cameraOn by remember { mutableStateOf(false) }
 
     fun log(text: String, kind: StatusKind) {
-        activity = listOf(ActivityLine(timeNow(), text, kind)) + activity
+        activityLog = listOf(ActivityLine(timeNow(), text, kind)) + activityLog
         onLastAction(text)
     }
 
@@ -768,6 +768,7 @@ private fun ReceivingFlow(
         nowTick = nowTick,
         cameraOn = cameraOn,
         onCameraChange = { cameraOn = it },
+        activityLog = activityLog,
         onBack = onBack,
         onExpired = onExpired,
         onSessionChange = { session = it },
@@ -821,6 +822,7 @@ private fun ReceivingWorkspace(
     nowTick: Int,
     cameraOn: Boolean,
     onCameraChange: (Boolean) -> Unit,
+    activityLog: List<ActivityLine>,
     onBack: () -> Unit,
     onExpired: () -> Unit,
     onSessionChange: (ReceivingSession) -> Unit,
@@ -1066,8 +1068,8 @@ private fun ReceivingWorkspace(
         // Activity log
         Spacer(Modifier.height(10.dp))
         SectionTitle("ACTIVITY")
-        if (activity.isEmpty() && s.receivedCartonEvents.isEmpty()) Text("No activity yet.", color = Dark.onBackground.copy(alpha = 0.6f), fontSize = 12.sp)
-        for (evt in activity.take(25)) {
+        if (activityLog.isEmpty() && s.receivedCartonEvents.isEmpty()) Text("No activity yet.", color = Dark.onBackground.copy(alpha = 0.6f), fontSize = 12.sp)
+        for (evt in activityLog.take(25)) {
             val color = when (evt.kind) {
                 StatusKind.OK -> Dark.onBackground
                 StatusKind.BAD -> Danger
