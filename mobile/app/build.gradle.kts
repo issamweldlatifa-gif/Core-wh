@@ -1,3 +1,5 @@
+import java.net.URI
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -8,7 +10,7 @@ plugins {
 val apiBaseUrl = providers.gradleProperty("ayroviApiBaseUrl")
     .orElse(providers.environmentVariable("AYROVI_API_BASE_URL"))
     .orElse("https://core-wh.onrender.com/api").get().trimEnd('/')
-val apiUri = java.net.URI(apiBaseUrl)
+val apiUri = URI(apiBaseUrl)
 require(apiUri.scheme == "https" && !apiUri.host.isNullOrBlank() && apiUri.rawUserInfo == null && apiUri.rawQuery == null && apiUri.rawFragment == null) {
     "AYROVI API root must be a trusted HTTPS URL without credentials/query/fragment."
 }

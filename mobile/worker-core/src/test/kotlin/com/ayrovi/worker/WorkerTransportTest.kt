@@ -105,7 +105,7 @@ class WorkerTransportTest {
                 MockResponse().setBody("""{"accessToken":"late-access","refreshToken":"late-refresh"}""")
             } else MockResponse().setResponseCode(401)
         }
-        val call = async(Dispatchers.Default) { runCatching { transport.request("POST", "/v1/receiving/sessions/s/articles", "{}") } }
+        val call = async(Dispatchers.Default) { runCatching { transport.request("POST", "/v1/fulfillment/receiving/sessions/s/scan-article", "{}") } }
         assertTrue(entered.await(5, TimeUnit.SECONDS))
         store.signIn("other-worker", "other-refresh"); release.countDown()
         assertIs<SessionChangedFailure>(call.await().exceptionOrNull())
@@ -119,7 +119,7 @@ class WorkerTransportTest {
                 entered.countDown(); check(release.await(5, TimeUnit.SECONDS)); return MockResponse().setBody("{}")
             }
         }
-        val call = async(Dispatchers.Default) { runCatching { transport.request("POST", "/v1/receiving/sessions/s/articles", "{}") } }
+        val call = async(Dispatchers.Default) { runCatching { transport.request("POST", "/v1/fulfillment/receiving/sessions/s/scan-article", "{}") } }
         assertTrue(entered.await(5, TimeUnit.SECONDS)); store.clear(); release.countDown()
         assertTrue(assertIs<SessionChangedFailure>(call.await().exceptionOrNull()).outcomeUnknown)
         assertEquals(1, server.requestCount)
@@ -131,7 +131,7 @@ class WorkerTransportTest {
                 entered.countDown(); check(release.await(5, TimeUnit.SECONDS)); return MockResponse().setBody("{}")
             }
         }
-        val call = async(Dispatchers.Default) { transport.request("POST", "/v1/receiving/sessions/s/articles", "{}") }
+        val call = async(Dispatchers.Default) { transport.request("POST", "/v1/fulfillment/receiving/sessions/s/scan-article", "{}") }
         assertTrue(entered.await(5, TimeUnit.SECONDS))
         store.replace(store.snapshot().version, AuthTokens("rotated", "rotated-refresh"))
         release.countDown()
@@ -147,20 +147,20 @@ class WorkerTransportTest {
     }
     @Test fun `lost POST response is never retried`() = runBlocking {
         server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
-        val failure = assertFailsWith<TransportFailure> { transport.request("POST", "/v1/receiving/sessions/s/articles", "{}") }
+        val failure = assertFailsWith<TransportFailure> { transport.request("POST", "/v1/fulfillment/receiving/sessions/s/scan-article", "{}") }
         assertTrue(failure.outcomeUnknown)
         assertEquals(1, server.requestCount)
         assertEquals(ConnectionState.SYNC_ERROR, transport.connection.value)
     }
     @Test fun `server 500 after write is ambiguous and not retried`() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(500).setBody("""{"message":"Internal server error"}"""))
-        val failure = assertFailsWith<WorkerRepository.ApiException> { transport.request("POST", "/v1/receiving/sessions/s/articles", "{}") }
+        val failure = assertFailsWith<WorkerRepository.ApiException> { transport.request("POST", "/v1/fulfillment/receiving/sessions/s/scan-article", "{}") }
         assertTrue(failure.outcomeUnknown)
         assertEquals(1, server.requestCount)
     }
     @Test fun `offline preflight proves nothing was dispatched`() = runBlocking {
         transport.networkAvailable(false)
-        val failure = assertFailsWith<TransportFailure> { transport.request("POST", "/v1/receiving/sessions/s/articles", "{}") }
+        val failure = assertFailsWith<TransportFailure> { transport.request("POST", "/v1/fulfillment/receiving/sessions/s/scan-article", "{}") }
         assertFalse(failure.outcomeUnknown)
         assertEquals(0, server.requestCount)
         assertEquals(ConnectionState.OFFLINE, transport.connection.value)

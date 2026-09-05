@@ -3,6 +3,8 @@
 import os
 import re
 import sys
+import glob
+import xml.etree.ElementTree as ET
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 LINE_RE = re.compile(r"(?:^|\n)(?:e:\s*|w:\s*)?([^\s:][^:]+):(?:\((\d+),\s*(\d+)\)|(\d+):(?:(\d+):)?)\s*:?\s*(error|warning):\s*(.*)")
@@ -22,6 +24,36 @@ def to_rel(fpath: str) -> str:
     return os.path.basename(fpath)
 
 
+def escape(value: str) -> str:
+    return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def summarize_reports() -> None:
+    # Accessible through the Checks API even if an artifact CDN is unavailable.
+    for module in ("scanner-core", "worker-core"):
+        files = glob.glob(f"{module}/build/test-results/test/TEST-*.xml")
+        total = failed = skipped = 0
+        for path in files:
+            root = ET.parse(path).getroot()
+            total += int(root.get("tests", 0))
+            failed += int(root.get("failures", 0)) + int(root.get("errors", 0))
+            skipped += int(root.get("skipped", 0))
+            for case in root.findall("testcase"):
+                for failure in list(case.findall("failure")) + list(case.findall("error")):
+                    message = f"{module}: {case.get('classname')}.{case.get('name')}: {failure.get('message', '')}\n{failure.text or ''}"
+                    print("::error::" + escape(message[:3500]))
+        if files:
+            print(f"::notice::{module}: {total} tests, {failed} failures, {skipped} skipped")
+    for path in glob.glob("app/build/reports/lint-results-*.xml"):
+        for issue in ET.parse(path).getroot().findall("issue"):
+            if issue.get("severity") not in ("Error", "Fatal"):
+                continue
+            message = f"Lint {issue.get('id')}: {issue.get('message')}"
+            location = issue.find("location")
+            where = "" if location is None else f" file={to_rel(location.get('file', 'mobile/app/build.gradle.kts'))},line={location.get('line', '1')}"
+            print(f"::error{where}::" + escape(message))
+
+
 def main() -> int:
     if len(sys.argv) < 3:
         return 2
@@ -35,6 +67,7 @@ def main() -> int:
     text = strip_ansi(raw)
     lines = text.splitlines()
 
+    summarize_reports()
     if exit_code == 0:
         print("::notice::Android core tests, compile and lint OK")
         return 0

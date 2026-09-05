@@ -91,7 +91,7 @@ class HttpWorkerTransport internal constructor(
                 if (authenticated && response.status == 401) store.clearIfVersion(session.version)
                 throw WorkerRepository.ApiException(
                     response.status, errorMessage(response.body),
-                    outcomeUnknown = method != "GET" && (response.status >= 500 || response.status == 408),
+                    outcomeUnknown = method != "GET" && (response.status >= 500 || response.status == 408 || response.status in 300..399),
                 )
             }
             mutableConnection.value = if (networkPresent) ConnectionState.ONLINE else ConnectionState.OFFLINE
