@@ -303,3 +303,25 @@ textarea.os-input { resize: vertical; }
 @media (max-width: 700px) {
   .os-grid2 { grid-template-columns: 1fr; }
 }
+
+/* ===== LIVE WALLBOARD ===== */
+.live-board { padding: 18px 22px; color: #e5e8ec; font-family: ui-sans-serif, system-ui, sans-serif; }
+.live-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.live-header h1 { font-size: 22px; letter-spacing: 2px; font-weight: 800; }
+.live-dot { font-family: ui-monospace, monospace; font-size: 13px; font-weight: 700; letter-spacing: 2px; padding: 6px 12px; border-radius: 6px; }
+.live-dot.live-ok { color: #00D084; background: rgba(0,208,132,0.12); border: 1px solid rgba(0,208,132,0.4); }
+.live-dot.live-err { color: #E74C3C; background: rgba(231,76,60,0.10); border: 1px solid rgba(231,76,60,0.4); }
+.live-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 14px; }
+.live-metric { background: #1a1f29; border: 1px solid #2a3140; border-left: 4px solid #00D084; border-radius: 10px; padding: 16px; }
+.live-metric-value { font-size: 36px; font-weight: 800; font-family: ui-monospace, monospace; line-height: 1; }
+.live-metric-label { margin-top: 6px; font-size: 11px; color: #90a0b0; letter-spacing: 2px; text-transform: uppercase; }
+.live-feed { margin-top: 12px; background: #0f131b; border: 1px solid #222a38; border-radius: 10px; max-height: 60vh; overflow: auto; font-family: ui-monospace, monospace; font-size: 13px; }
+.live-empty { padding: 24px; color: #6b7888; text-align: center; }
+.live-row { display: flex; gap: 12px; align-items: center; padding: 8px 14px; border-bottom: 1px solid #1a2230; }
+.live-row:last-child { border-bottom: 0; }
+.live-time { color: #6b7888; min-width: 74px; }
+.live-badge { padding: 2px 8px; border-radius: 4px; font-weight: 800; font-size: 11px; letter-spacing: 1px; }
+.live-badge.tone-ok { background: rgba(0,208,132,0.15); color: #00D084; }
+.live-badge.tone-err { background: rgba(231,76,60,0.15); color: #E74C3C; }
+.live-badge.tone-info { background: rgba(74,144,226,0.15); color: #4A90E2; }
+.live-payload { color: #c8d0db; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }

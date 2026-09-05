@@ -48,15 +48,38 @@ jobs:
           fi
 
       - name: Compile + unit tests
+        id: build
         shell: bash
         run: |
           set +e
           chmod +x gradlew
-          ./gradlew :scanner-core:test :app:assembleDebug --no-daemon --stacktrace > /tmp/android.log 2>&1
+          TERM=dumb ./gradlew :scanner-core:test :app:assembleDebug --no-daemon --stacktrace --console=plain > /tmp/android.log 2>&1
           code=$?
           echo "ANDROID_EXIT=$code"
-          python3 -c 'import sys; ls=open("/tmp/android.log",errors="replace").read().splitlines(); start=next((i for i,l in enumerate(ls) if l.startswith("* What went wrong") or l.startswith("> Task")), 0); sel=ls[start:start+160] if start>=0 else ls[-120:]; m="\n".join(sel); print(("::error::"+m.replace("%","%25").replace("\r","").replace("\n","%0A")) if int(sys.argv[1])!=0 else "::notice::Android build + scanner tests OK")' "$code"
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" != "0" ]; then
+            {
+              echo "## Build failed (exit=$code)"
+              echo "### Error lines"
+              echo '```'
+              grep -nE "^e:|^w:|FAILED|FAILURE:|error:|ERROR|unresolved reference|type mismatch|Exception|What went wrong|Execution failed|> Task|BUILD " /tmp/android.log | tail -n 300
+              echo '```'
+              echo "### Last 250 lines"
+              echo '```'
+              tail -n 250 /tmp/android.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          python3 $GITHUB_WORKSPACE/.github/workflows/annotate-android.py "$code" /tmp/android.log
           exit $code
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-build-log
+          path: /tmp/android.log
+          if-no-files-found: ignore
 
       - name: Upload debug APK (artifact)
         if: success()

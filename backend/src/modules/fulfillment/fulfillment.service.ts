@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -68,6 +69,7 @@ export class FulfillmentService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly categories: CategoriesService,
+    private readonly events: EventEmitter2,
   ) {}
 
   // ------------------------------------------------------------------
@@ -592,6 +594,9 @@ export class FulfillmentService {
         );
       }
 
+      this.events.emit(readiness.complete ? 'bin.ready' : 'scan.accepted', {
+        article: article.code, bin: bin.code, t: Date.now(),
+      });
       return {
         flash: {
           kind: readiness.complete ? 'BIN_READY_FOR_PACKING' : 'ARTICLE_ASSIGNED',
@@ -705,6 +710,7 @@ export class FulfillmentService {
         },
         tx,
       );
+      this.events.emit('packed', { shipment: code, order: bin.order!.externalOrderReference, actor: actor.id, t: Date.now() });
       return {
         flash: { kind: 'PACKED', shipment: code, order: bin.order!.externalOrderReference },
         shipment: {
@@ -791,6 +797,7 @@ export class FulfillmentService {
         },
         tx,
       );
+      this.events.emit('shipped', { shipment: shipment.code, actor: actor.id, t: Date.now() });
       return { flash: { kind: 'SHIPPED', shipment: shipment.code } };
     });
   }
