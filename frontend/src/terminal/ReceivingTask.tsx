@@ -1,11 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api, type ReceivingArrival, type ReceivingSessionDetail } from '../modules/receiving/api';
-import type { ScanOutcome } from '../modules/receiving-terminal/ContinuousScanner';
-import {
-  detectCapabilities,
-  freshOperationId,
-  type ScanSource,
-} from '../modules/receiving-terminal/scan-source';
+import { api, type ReceivingArrival, type ReceivingSessionDetail, type ReceivingProduct, type ReceivingDiscrepancy } from '../modules/receiving/api';
+import { detectCapabilities, freshOperationId, type ScanSource } from '../modules/receiving-terminal/scan-source';
 import { beepSuccess, beepError, beepInfo, beepDone } from '../modules/receiving-terminal/feedback';
 import { cleanCode } from '../modules/receiving-terminal/validate';
 import { buildScanContext, type ScanContext } from '../modules/receiving-terminal/scan-context';
@@ -13,150 +8,66 @@ import { stationHas } from './api';
 import { useTerminalUi } from './WorkerShell';
 import { fulfillmentApi, type OpContainer } from './fulfillment-api';
 import { printLabel } from './print-label';
+import { attachHidScanner } from '../modules/receiving-terminal/hardware-wedge';
 import './receiving-task.css';
 
-/**
- * RECEIVING — the ONE canonical receiving workspace (consolidation spec §1-§22).
- *
- * Everything the two legacy implementations could do lives HERE now:
- *   arrival selection + resume · carton scanning (camera/wedge/manual) ·
- *   product unit receiving with quantity · pause/resume · expected products ·
- *   discrepancies · activity · complete — flat hierarchy, no box-in-box.
- *
- * The backend stays the single source of truth: nothing counts as received
- * until the API says so, and every input path funnels through ONE submit
- * pipeline per entity (cartons / products).
- */
-
-// Dual-scanner host (this order): device-aware Software/Hardware selection.
-// Camera is never the implicit default on desktop — hardware (USB/BT wedge)
-// is. Both methods funnel into the same onDetected receiving pipeline.
 const ReceivingScanner = lazy(() => import('../modules/receiving-terminal/ReceivingScanner'));
 
-type Outcome = ScanOutcome;
-type ScanMode = 'CARTON' | 'PRODUCT';
-
-function scanTypeFor(source: ScanSource): 'QR' | 'BARCODE' | 'MANUAL' {
-  return source === 'CAMERA' ? 'QR' : source === 'EXTERNAL_SCANNER' ? 'BARCODE' : 'MANUAL';
-}
+type ViewState = 'ARRIVALS' | 'HOME' | 'SCANNER_CAMERA' | 'MANUAL_ENTRY' | 'PRODUCT_RESULT';
 
 export default function ReceivingTask() {
   const { ctx, setStatus, setLastAction } = useTerminalUi();
   const caps = useMemo(() => detectCapabilities(), []);
+  const ocrAllowed = stationHas(ctx?.station ?? null, 'OCR');
 
   const [arrivals, setArrivals] = useState<ReceivingArrival[]>([]);
   const [session, setSession] = useState<ReceivingSessionDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [scannerOpen, setScannerOpen] = useState(false);
-  const [scanMode, setScanMode] = useState<ScanMode>('CARTON');
-  const [outcome, setOutcome] = useState<Outcome | null>(null);
-  const [manual, setManual] = useState('');
-  const [productSku, setProductSku] = useState('');
-  const [productQty, setProductQty] = useState('1');
-  const [log, setLog] = useState<Array<{ t: string; text: string; kind: 'ok' | 'bad' | 'info' }>>([]);
-  /**
-   * OPERATIONAL CONTAINER (tote) — where every scanned article physically
-   * goes: products NEVER return to the source carton. When a tote is active
-   * each product scan also creates the traceable ArticleUnit in it.
-   */
+  const [view, setView] = useState<ViewState>('ARRIVALS');
+  
+  // Product Result State
+  const [scannedCode, setScannedCode] = useState<string>('');
+  const [matchedProduct, setMatchedProduct] = useState<ReceivingProduct | null>(null);
+  const [qty, setQty] = useState<number>(1);
+  const [flashMsg, setFlashMsg] = useState<{ kind: 'ok'|'bad'|'warn'; text: string } | null>(null);
+
+  // Manual Entry State
+  const [manualCode, setManualCode] = useState<string>('');
+
+  // Totes
   const [tote, setTote] = useState<OpContainer | null>(null);
   const [totes, setTotes] = useState<OpContainer[]>([]);
 
   const refreshTotes = useCallback(async () => {
-    try { setTotes(await fulfillmentApi.containers({ type: 'RECEIVING', status: 'ACTIVE' })); } catch { /* advisory */ }
+    try { setTotes(await fulfillmentApi.containers({ type: 'RECEIVING', status: 'ACTIVE' })); } catch { }
   }, []);
   useEffect(() => { void refreshTotes(); }, [refreshTotes]);
-
-  /** Keystroke timing buffers to classify wedge-scanner bursts (§11). */
-  const stamps = useRef<number[]>([]);
-  const productStamps = useRef<number[]>([]);
-
-  const ocrAllowed = stationHas(ctx?.station ?? null, 'OCR');
-
-  const push = useCallback((text: string, kind: 'ok' | 'bad' | 'info') => {
-    setLog((l) => [{ t: new Date().toLocaleTimeString(), text, kind }, ...l].slice(0, 40));
-    setLastAction(text);
-  }, [setLastAction]);
-
-  /**
-   * Validation corpora for the guided scanner (order §10): known codes of the
-   * current session. Carton mode validates against carton identity fields;
-   * product mode against expected product SKUs/references. The backend stays
-   * the final authority — this only decides EXACT/CANDIDATE/NONE and whether
-   * an OCR read may auto-confirm.
-   */
-  const corpus = useMemo(() => {
-    const modeCartons = scanMode === 'CARTON';
-    const out = new Set<string>();
-    const add = (v?: string | null) => {
-      const c = cleanCode(v ?? '');
-      if (c.length >= 2) out.add(c);
-    };
-    if (modeCartons) {
-      for (const c of session?.cartons ?? []) {
-        add(c.externalCartonId);
-        add(c.qrCodeValue);
-        add(c.barcodeValue);
-        add(c.reference);
-      }
-    } else {
-      for (const p of session?.products ?? []) {
-        add(p.sku);
-        add(p.reference);
-      }
-    }
-    return [...out];
-  }, [session, scanMode]);
-
-  /**
-   * §5–§7 PREFETCH: build the session's expected-value ScanContext the moment
-   * the card data is loaded (before the worker scans). Values are normalised
-   * ONCE, comparison-ready, and held in memory for local expected matching —
-   * no per-frame/database work inside the recognition loop (§11/§30).
-   */
-  const scanContext: ScanContext = useMemo(
-    () => buildScanContext({
-      mode: scanMode,
-      cartons: session?.cartons ?? [],
-      products: session?.products ?? [],
-    }),
-    [session, scanMode],
-  );
-
-  /** Single place where an outcome is surfaced: banner + sound (§26/§27). */
-  const report = useCallback((kind: 'ok' | 'bad' | 'info', text: string) => {
-    setOutcome({ kind, text, token: Date.now() });
-    setStatus({ text: kind === 'ok' ? 'ACCEPTED' : kind === 'bad' ? 'NOT ACCEPTED' : 'READY', kind });
-    if (kind === 'ok') beepSuccess();
-    else if (kind === 'bad') beepError();
-    else beepInfo();
-  }, [setStatus]);
 
   const loadArrivals = useCallback(async () => {
     setLoading(true);
     try {
       setArrivals(await api.arrivals());
-      setError(null);
-    } catch (e: any) {
-      setError(e?.response?.data?.message ?? 'Failed to load arrivals.');
+    } catch {
+      // handled
     } finally {
       setLoading(false);
     }
   }, []);
-
   useEffect(() => { void loadArrivals(); }, [loadArrivals]);
 
-  // Resume an in-flight session automatically so a refresh never loses work.
+  // Resume active session
   useEffect(() => {
     const active = ctx?.activeSession;
     if (!active || session) return;
-    api.session(active.id).then(setSession).catch(() => {});
+    api.session(active.id).then(s => {
+      setSession(s);
+      setView('HOME');
+    }).catch(() => {});
   }, [ctx, session]);
 
-  async function openArrival(a: ReceivingArrival) {
-    setBusy(true); setError(null);
+  const openArrival = async (a: ReceivingArrival) => {
+    setBusy(true);
     try {
       const existing = await api.active(a.code);
       const s = existing ?? await api.start(a.code, {
@@ -165,525 +76,311 @@ export default function ReceivingTask() {
         scanSource: caps.cameraScanningSupported ? 'CAMERA' : 'EXTERNAL_SCANNER',
       });
       setSession(s);
-      push(`session ${s.code} ${existing ? 'resumed' : 'started'}`, 'info');
+      setView('HOME');
       setStatus({ text: 'SESSION ACTIVE', kind: 'info' });
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? 'Could not open receiving.');
+      setFlashMsg({ kind: 'bad', text: e?.response?.data?.message ?? 'Could not start receiving.' });
     } finally {
       setBusy(false);
     }
-  }
+  };
 
-  /** THE carton submission path — camera, wedge scanner and manual all land here. */
-  const submitCarton = useCallback(async (raw: string, source: ScanSource) => {
-    const value = raw.trim();
-    if (!value || !session || busy) return;
+  const processScan = (rawCode: string, source: ScanSource) => {
+    if (!session || view === 'PRODUCT_RESULT') return;
+    const value = rawCode.trim();
+    if (!value) return;
+
+    beepInfo();
+    const clean = cleanCode(value);
+    const product = session.products.find(p => cleanCode(p.sku ?? '') === clean || cleanCode(p.reference ?? '') === clean);
+    
+    setScannedCode(value);
+    setMatchedProduct(product ?? null);
+    setQty(1);
+    setFlashMsg(null);
+    setView('PRODUCT_RESULT');
+  };
+
+  // Attach Hardware Wedge globally when session is active
+  useEffect(() => {
+    if (!session || view === 'PRODUCT_RESULT' || view === 'SCANNER_CAMERA') return;
+    const detach = attachHidScanner(
+      { onRead: (e) => processScan(e.value, 'EXTERNAL_SCANNER') },
+      { terminatorKeys: ['Enter'], maxLength: 64 }
+    );
+    return detach;
+  }, [session, view, processScan]);
+
+  const confirmReceiving = async () => {
+    if (!session || !scannedCode || busy) return;
     setBusy(true);
     setStatus({ text: 'SUBMITTING', kind: 'info' });
     try {
-      const scanned = await api.scanCarton(
-        session.id, value, scanTypeFor(source), freshOperationId(), source,
-      );
-      const f = scanned.flash;
-
-      if (f?.kind === 'CARTON_IDENTIFIED') {
-        // Identified -> commit. Auto-submit, no button press (§24).
-        const cartonId = f.carton?.externalCartonId ?? f.carton?.id;
-        const committed = await api.receiveCarton(session.id, cartonId, freshOperationId(), source);
-        setSession(committed);
-        const t = committed.tally;
-        // Category is operational data for the next stage (Sorting). Cartons
-        // carry no per-carton contents in the CRM contract, so we surface the
-        // ARRIVAL-level categories; UNKNOWN is shown explicitly, never guessed.
-        const cats = Array.from(new Set((committed.products ?? []).map((p) => {
-          if (p.categoryStatus === 'CONFIRMED' && p.category) {
-            return p.subcategory ? `${p.category}/${p.subcategory}` : p.category;
-          }
-          return 'NEEDS REVIEW';
-        })));
-        const catLine = cats.length > 0 ? ` · CAT: ${cats.join(', ')}` : '';
-        report('ok', `${cartonId} RECEIVED · cartons ${t?.receivedCartons ?? 0}/${t?.expectedCartons ?? 0}${catLine}`);
-        push(`carton ${cartonId} received${catLine}`, 'ok');
-        return;
-      }
-
-      setSession(scanned);
-      const why =
-        f?.kind === 'UNKNOWN_CARTON' ? 'UNKNOWN REFERENCE'
-        : f?.kind === 'DUPLICATE_CARTON' ? 'ALREADY RECEIVED'
-        : f?.kind === 'WRONG_SHIPMENT' ? 'WRONG SHIPMENT'
-        : 'NOT ACCEPTED';
-      report('bad', `${value} — ${why}`);
-      push(`${value} rejected: ${why}`, 'bad');
-    } catch (e: any) {
-      const m = e?.response?.data?.message ?? 'Server error';
-      report('bad', Array.isArray(m) ? m.join(', ') : String(m));
-      push(`error on ${value}`, 'bad');
-    } finally {
-      setBusy(false);
-    }
-  }, [session, busy, report, push, setStatus]);
-
-  /**
-   * THE product submission path (migrated from the legacy terminal).
-   * Each accepted SKU moves receivedUnits forward; unexpected SKUs are
-   * recorded by the backend as discrepancies — never silently dropped.
-   */
-  const submitProduct = useCallback(async (raw: string, qty: number, source: ScanSource) => {
-    const value = raw.trim();
-    const n = Math.max(1, Math.floor(Number(qty) || 1));
-    if (!value || !session || busy) return;
-    setBusy(true);
-    setStatus({ text: 'SUBMITTING', kind: 'info' });
-    try {
-      // With an active tote every unit becomes a traceable ArticleUnit that
-      // physically goes INTO the container (never back into the carton).
       if (tote) {
         let lastFlash: any = null;
-        for (let i = 0; i < n; i += 1) {
+        for (let i = 0; i < qty; i++) {
           const res = await fulfillmentApi.scanArticle(session.id, {
-            sku: value,
+            sku: scannedCode,
             containerCode: tote.code,
           });
           lastFlash = res.flash;
         }
         const s = await api.session(session.id);
         setSession(s);
-        if (lastFlash?.kind === 'UNEXPECTED_ARTICLE') {
-          report('bad', `${value} — NOT ON EXPECTED LIST → EXCEPTION (in ${tote.code})`);
-          push(`article ${value} unexpected — exception recorded, placed in ${tote.code}`, 'bad');
-        } else {
-          const t = s.tally;
-          report('ok', `${lastFlash?.article?.code ?? value} → ${tote.code} · units ${t?.receivedUnits ?? 0}/${t?.expectedUnits ?? 0}`);
-          push(`article ${value} ×${n} → ${tote.code}`, 'ok');
-        }
-        await refreshTotes();
-        return;
-      }
-      const s = await api.receiveProduct(session.id, value, n, source, freshOperationId());
-      setSession(s);
-      const f = s.flash;
-      if (f?.kind === 'UNEXPECTED_PRODUCT') {
-        report('bad', `${value} — NOT ON EXPECTED LIST`);
-        push(`product ${value} unexpected — discrepancy recorded`, 'bad');
+        beepSuccess();
+        setLastAction(`Received x${qty} of ${scannedCode} into ${tote.code}`);
       } else {
-        const t = s.tally;
-        report('ok', `${value} +${n} · units ${t?.receivedUnits ?? 0}/${t?.expectedUnits ?? 0}`);
-        push(`product ${value} +${n} received`, 'ok');
+        const s = await api.receiveProduct(session.id, scannedCode, qty, 'MANUAL', freshOperationId());
+        setSession(s);
+        beepSuccess();
+        setLastAction(`Received x${qty} of ${scannedCode}`);
       }
+      
+      // Auto-return to HOME for next scan (SPEED PRIORITY)
+      setView('HOME');
+      setStatus({ text: 'READY FOR NEXT SCAN', kind: 'ok' });
+      setFlashMsg(null);
     } catch (e: any) {
+      beepError();
       const m = e?.response?.data?.message ?? 'Server error';
-      report('bad', Array.isArray(m) ? m.join(', ') : String(m));
-      push(`error on ${value}`, 'bad');
+      setFlashMsg({ kind: 'bad', text: Array.isArray(m) ? m.join(', ') : String(m) });
+      setStatus({ text: 'ERROR', kind: 'bad' });
     } finally {
       setBusy(false);
     }
-  }, [session, busy, report, push, setStatus, tote, refreshTotes]);
+  };
 
-  /** One detection pipeline routed by the scanner's current work mode. */
-  const onScannerDetected = useCallback((value: string, source: ScanSource) => {
-    if (scanMode === 'PRODUCT') void submitProduct(value, 1, source);
-    else void submitCarton(value, source);
-  }, [scanMode, submitCarton, submitProduct]);
+  const scanContext: ScanContext = useMemo(
+    () => buildScanContext({ mode: 'PRODUCT', cartons: [], products: session?.products ?? [] }),
+    [session]
+  );
 
-  async function togglePause() {
-    if (!session) return;
-    setBusy(true);
-    try {
-      const s = session.status === 'PAUSED' ? await api.resume(session.id) : await api.pause(session.id);
-      setSession(s);
-      const paused = s.status === 'PAUSED';
-      report('info', paused ? 'SESSION PAUSED' : 'SESSION RESUMED');
-      push(paused ? 'session paused' : 'session resumed', 'info');
-    } catch (e: any) {
-      setError(e?.response?.data?.message ?? 'Could not change session state.');
-    } finally { setBusy(false); }
-  }
-
-  async function complete() {
-    if (!session) return;
-    setBusy(true);
-    try {
-      const r = await api.complete(session.id);
-      setSession(r);
-      if (r.status === 'COMPLETED') { beepDone(); report('ok', 'SESSION COMPLETE'); }
-      else { report('bad', 'CLOSED WITH DISCREPANCIES'); }
-      push('receiving completed', 'ok');
-    } catch (e: any) {
-      setError(e?.response?.data?.message ?? 'Could not complete.');
-    } finally { setBusy(false); }
-  }
-
-  /** Shared wedge-scanner classifier: fast burst = hardware gun, slow = human. */
-  function wedgeAware(
-    stampsBuf: React.MutableRefObject<number[]>,
-    e: React.KeyboardEvent<HTMLInputElement>,
-  ) {
-    if (e.key === 'Enter') return true;
-    if (e.key.length === 1) {
-      stampsBuf.current.push(Date.now());
-      if (stampsBuf.current.length > 64) stampsBuf.current.shift();
+  const corpus = useMemo(() => {
+    const out = new Set<string>();
+    for (const p of session?.products ?? []) {
+      const s = cleanCode(p.sku ?? ''); if(s.length>2) out.add(s);
+      const r = cleanCode(p.reference ?? ''); if(r.length>2) out.add(r);
     }
-    return false;
-  }
+    return [...out];
+  }, [session]);
 
-  function isBurst(stampsBuf: React.MutableRefObject<number[]>) {
-    const s = stampsBuf.current;
-    const fast = s.length > 4 && (s[s.length - 1] - s[0]) / s.length < 40;
-    stampsBuf.current = [];
-    return fast;
-  }
+  const goHome = () => setView('HOME');
 
-  function onCartonKey(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (!wedgeAware(stamps, e)) return;
-    e.preventDefault();
-    const fast = isBurst(stamps);
-    const value = manual;
-    setManual('');
-    void submitCarton(value, fast ? 'EXTERNAL_SCANNER' : 'MANUAL');
-  }
-
-  function onProductKey(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (!wedgeAware(productStamps, e)) return;
-    e.preventDefault();
-    const fast = isBurst(productStamps);
-    const value = productSku;
-    const qty = Number(productQty) || 1;
-    setProductSku('');
-    setProductQty('1');
-    void submitProduct(value, qty, fast ? 'EXTERNAL_SCANNER' : 'MANUAL');
-  }
-
-  const tally = session?.tally;
-  const paused = session?.status === 'PAUSED';
-  const done = session && ['COMPLETED', 'COMPLETED_WITH_DISCREPANCY'].includes(session.status);
-  const openDiscrepancies = session?.discrepancies?.filter((d) => d.status === 'OPEN') ?? [];
-
-  // ---------- ARRIVAL SELECTION ----------
-  if (!session) {
+  // Renders
+  if (!session || view === 'ARRIVALS') {
     return (
-      <div className="rt-pick">
-        <h1 className="rt-h1">RECEIVING</h1>
-        <p className="os-muted">Select an arrival to start or resume receiving.</p>
-        {error && (
-          <div className="rt-error">
-            {error}
-            <div style={{ marginTop: 12 }}>
-              <button
-                type="button"
-                className="os-btn"
-                disabled={loading}
-                onClick={() => { setError(null); void loadArrivals(); }}
-              >
-                ↻ RETRY
-              </button>
+      <div className="term-container">
+        <div className="term-header">
+          <div className="term-header-title">AYROVI RECEIVING</div>
+          <div className="term-status-online">ONLINE</div>
+        </div>
+        <div className="term-home-arrivals">
+          {flashMsg && <div className={`term-flash-msg ${flashMsg.kind}`}>{flashMsg.text}</div>}
+          <div className="term-section-title">SELECT ARRIVAL</div>
+          {arrivals.map(a => (
+            <div key={a.id} className="term-arrival-card" onClick={() => openArrival(a)}>
+              <div style={{fontWeight: 'bold', fontSize: '1.2rem'}}>{a.code}</div>
+              <div className="term-muted">{a.customerName} · {a.status}</div>
+              <div>{a.products} Products · {a.units} Units</div>
             </div>
-          </div>
-        )}
-        {loading ? (
-          <div className="os-empty">loading arrivals…</div>
-        ) : error ? null : arrivals.length === 0 ? (
-          <div className="os-empty">No arrivals awaiting receiving.</div>
-        ) : (
-          <div className="rt-arrivals">
-            {arrivals.map((a) => (
-              <button key={a.id} className="rt-arrival" disabled={busy} onClick={() => openArrival(a)}>
-                <span className="rt-arrival-code">{a.code}</span>
-                <span className="rt-arrival-cust">{a.customerName}</span>
-                <span className="os-muted">{a.cartons} cartons · {a.units} units</span>
-                <span className={`os-tag ${a.status === 'EXPECTED' ? 'os-tag--info' : 'os-tag--warn'}`}>
-                  {a.status === 'EXPECTED' ? 'START' : 'RESUME'}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
+          ))}
+          {!loading && arrivals.length === 0 && <div className="term-muted">No pending arrivals.</div>}
+        </div>
       </div>
     );
   }
 
-  // ---------- RECEIVING SESSION (the operational workspace) ----------
+  const tally = session.tally;
+  const recentProducts = session.products.filter(p => p.received > 0).slice(0, 3);
+  const openExceptions = session.discrepancies.filter(d => d.status === 'OPEN');
+
   return (
-    <div className="rt">
-      {/* Session identity — who/what am I receiving (§5). */}
-      <div className="rt-bar">
-        <div className="rt-id">
-          <span className="rt-session">{session.code}</span>
-          <span className="os-muted"> · {session.arrival.customerName}</span>
-          <span className="rt-id-sub os-muted os-mono">
-            {session.arrival.code}{session.arrival.storeName ? ` · ${session.arrival.storeName}` : ''}
-          </span>
-          {paused && <span className="os-tag os-tag--warn">PAUSED</span>}
-        </div>
-        <div className="os-row">
-          {!done && (
-            <button className="os-btn" disabled={busy} onClick={togglePause}>
-              {paused ? 'RESUME' : 'PAUSE'}
+    <div className="term-container">
+      <div className="term-header">
+        <div className="term-header-title">AYROVI RECEIVING</div>
+        <div className="term-status-online">ONLINE</div>
+      </div>
+
+      {view === 'HOME' && (
+        <>
+          <div className="term-session-info">
+            <div className="term-session-id">{session.code}</div>
+            <div className="term-customer">
+              <div>{session.arrival.customerName}</div>
+              {session.arrival.storeName && <div>{session.arrival.storeName}</div>}
+            </div>
+          </div>
+
+          <div className="term-metrics">
+            <div className="term-metric">
+              <span className="term-metric-label">EXPECTED</span>
+              <span className="term-metric-value">{tally.expectedProducts}</span>
+            </div>
+            <div className="term-metric success">
+              <span className="term-metric-label">RECEIVED</span>
+              <span className="term-metric-value">{tally.receivedProducts}</span>
+            </div>
+            <div className={`term-metric ${openExceptions.length > 0 ? 'danger' : ''}`}>
+              <span className="term-metric-label">EXCEPTIONS</span>
+              <span className="term-metric-value">{openExceptions.length}</span>
+            </div>
+          </div>
+
+          <div className="term-primary-action">
+            <button className="term-btn-scan" onClick={() => setView('SCANNER_CAMERA')}>
+              + SCAN PRODUCT
             </button>
+            <div className="term-hw-status ready">SCANNER CT40 SIDE TRIGGER READY</div>
+          </div>
+
+          <div style={{display: 'flex', gap: '8px', padding: '0 16px', marginBottom: '16px'}}>
+            <button className="term-btn-secondary" onClick={() => setView('MANUAL_ENTRY')}>ENTER CODE</button>
+          </div>
+
+          {openExceptions.length > 0 && (
+            <div className="term-section">
+              <div className="term-section-title">EXCEPTIONS</div>
+              {openExceptions.map(d => (
+                <div key={d.id} className="term-exception-row">
+                  <div className="term-exception-info">
+                    <div className="term-exception-title">{d.type.replace(/_/g, ' ')}</div>
+                    <div className="term-exception-sku">SKU: {d.reason ?? d.sku ?? d.cartonCode ?? 'UNKNOWN'}</div>
+                  </div>
+                  <button className="term-btn-review">REVIEW</button>
+                </div>
+              ))}
+            </div>
           )}
-          <button className="os-btn" onClick={() => { setSession(null); void loadArrivals(); }}>
-            CLOSE
+
+          {recentProducts.length > 0 && (
+            <div className="term-section">
+              <div className="term-section-title">RECENT PRODUCTS</div>
+              {recentProducts.map(p => (
+                <div key={p.id} className="term-product-row">
+                  <div className="term-product-image">IMAGE</div>
+                  <div className="term-product-details">
+                    <div className="term-product-name">{p.productName ?? 'Unknown'}</div>
+                    <div className="term-product-sku">{p.sku ?? p.reference}</div>
+                  </div>
+                  <div className="term-product-stats">
+                    <span className="term-muted">Exp: {p.expected}</span>
+                    <span style={{color: 'var(--term-green)', fontWeight: 'bold'}}>Rec: {p.received}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {view === 'MANUAL_ENTRY' && (
+        <div className="term-scanner-view">
+          <div className="term-scanner-header">MANUAL PRODUCT ENTRY</div>
+          <div className="term-manual-entry">
+            <input 
+              className="term-input" 
+              placeholder="ENTER PRODUCT CODE" 
+              value={manualCode}
+              onChange={e => setManualCode(e.target.value)}
+              autoFocus
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  processScan(manualCode, 'MANUAL');
+                  setManualCode('');
+                }
+              }}
+            />
+            <button 
+              className="term-btn-confirm" 
+              onClick={() => {
+                processScan(manualCode, 'MANUAL');
+                setManualCode('');
+              }}
+              disabled={!manualCode.trim()}
+            >SEARCH PRODUCT</button>
+            <button className="term-btn-cancel" onClick={goHome}>CANCEL</button>
+          </div>
+        </div>
+      )}
+
+      {view === 'PRODUCT_RESULT' && (
+        <div className="term-result-view">
+          {flashMsg && <div className={`term-flash-msg ${flashMsg.kind}`}>{flashMsg.text}</div>}
+          
+          <div className={`term-result-header ${matchedProduct ? '' : 'error'}`}>
+            {matchedProduct ? 'PRODUCT FOUND' : 'UNEXPECTED PRODUCT'}
+          </div>
+
+          <div className="term-result-card">
+            <div className="term-product-image">IMAGE</div>
+            <div className="term-result-info">
+              <div className="term-product-name" style={{fontSize: '1.2rem'}}>{matchedProduct?.productName ?? 'Unknown Product'}</div>
+              <div className="term-product-sku" style={{fontSize: '1rem'}}>SKU: {matchedProduct?.sku ?? scannedCode}</div>
+              
+              <div style={{marginTop: '16px', display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--term-border)', paddingTop: '8px'}}>
+                <div>
+                  <div className="term-muted" style={{fontSize: '0.8rem'}}>EXPECTED</div>
+                  <div style={{fontSize: '1.2rem', fontWeight: 'bold'}}>{matchedProduct?.expected ?? 0}</div>
+                </div>
+                <div>
+                  <div className="term-muted" style={{fontSize: '0.8rem'}}>RECEIVED</div>
+                  <div style={{fontSize: '1.2rem', fontWeight: 'bold'}}>{matchedProduct?.received ?? 0}</div>
+                </div>
+                <div>
+                  <div className="term-muted" style={{fontSize: '0.8rem'}}>REMAINING</div>
+                  <div style={{fontSize: '1.2rem', fontWeight: 'bold'}}>{matchedProduct?.remaining ?? 0}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{borderTop: '1px solid var(--term-border)', paddingTop: '16px'}}>
+            <div className="term-section-title" style={{padding: '0', textAlign: 'center'}}>QUANTITY</div>
+            <div className="term-qty-control">
+              <button className="term-qty-btn" onClick={() => setQty(Math.max(1, qty - 1))}>−</button>
+              <div className="term-qty-value">{qty}</div>
+              <button className="term-qty-btn" onClick={() => setQty(qty + 1)}>+</button>
+            </div>
+          </div>
+
+          <button className="term-btn-confirm" onClick={confirmReceiving} disabled={busy}>
+            CONFIRM RECEIVING
+          </button>
+          <button className="term-btn-cancel" onClick={goHome} disabled={busy}>
+            CANCEL
           </button>
         </div>
-      </div>
-
-      {error && <div className="rt-error">{error}</div>}
-
-      {/* Progress — the numbers a receiving worker actually needs (§4/§5). */}
-      <div className="rt-progress">
-        <Metric label="CARTONS" v={`${tally?.receivedCartons ?? 0}/${tally?.expectedCartons ?? 0}`}
-          ok={(tally?.receivedCartons ?? 0) >= (tally?.expectedCartons ?? 0) && (tally?.expectedCartons ?? 0) > 0} />
-        <Metric label="UNITS" v={`${tally?.receivedUnits ?? 0}/${tally?.expectedUnits ?? 0}`}
-          ok={(tally?.receivedUnits ?? 0) >= (tally?.expectedUnits ?? 0) && (tally?.expectedUnits ?? 0) > 0} />
-        <Metric label="EXCEPTIONS" v={String(tally?.openDiscrepancies ?? 0)}
-          bad={(tally?.openDiscrepancies ?? 0) > 0} />
-      </div>
-
-      {/* PRIMARY ACTION — visually dominant (§5). */}
-      {!done && (
-        <button
-          className="os-btn os-btn--primary rt-scan-big"
-          disabled={paused || busy}
-          onClick={() => { setScanMode('CARTON'); setScannerOpen(true); }}
-        >
-          OPEN SCANNER
-        </button>
       )}
 
-      {/* Manual fallback — always available (§28), same backend path. */}
-      {!done && (
-        <div className="rt-manual">
-          <label className="os-label" htmlFor="rt-input">SCAN OR TYPE CARTON</label>
-          <div className="os-row">
-            <input
-              id="rt-input"
-              className="os-input"
-              value={manual}
-              onChange={(e) => setManual(e.target.value)}
-              onKeyDown={onCartonKey}
-              placeholder="CTN-… then Enter"
-              autoComplete="off"
-              autoCapitalize="characters"
-              spellCheck={false}
-              disabled={busy || paused}
-            />
-            <button
-              className="os-btn"
-              disabled={busy || paused || !manual.trim()}
-              onClick={() => { const v = manual; setManual(''); void submitCarton(v, 'MANUAL'); }}
-            >
-              ENTER
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Product unit receiving (migrated from the legacy terminal). */}
-      {!done && (
-        <div className="rt-manual">
-          {/* OPERATIONAL CONTAINER — where scanned articles physically go. */}
-          <div className="os-row" style={{ gap: 10, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-            <span className="os-label" style={{ margin: 0 }}>CONTAINER</span>
-            {tote ? (
-              <>
-                <span className="os-tag os-tag--ok">{tote.code}</span>
-                <span className="os-muted">scanned articles go into this tote</span>
-                <button className="os-btn" disabled={busy} onClick={() => setTote(null)}>RELEASE</button>
-              </>
-            ) : (
-              <>
-                {totes.slice(0, 4).map((t) => (
-                  <button key={t.id} className="os-btn" disabled={busy} onClick={() => { setTote(t); push(`container ${t.code} selected`, 'info'); }}>
-                    {t.code}
-                  </button>
-                ))}
-                <button
-                  className="os-btn os-btn--primary"
-                  disabled={busy}
-                  onClick={async () => {
-                    try {
-                      const t = await fulfillmentApi.createContainer({ type: 'RECEIVING' });
-                      setTote(t);
-                      push(`container ${t.code} created`, 'ok');
-                      await refreshTotes();
-                      printLabel({ kind: 'RECEIVING TOTE', code: t.code });
-                    } catch (e: any) {
-                      report('bad', e?.response?.data?.message ?? 'Could not create container');
-                    }
-                  }}
-                >
-                  + NEW TOTE
-                </button>
-                <span className="os-muted">no tote: units are only tallied (legacy mode)</span>
-              </>
-            )}
-          </div>
-          <label className="os-label" htmlFor="rt-product">SCAN OR TYPE PRODUCT</label>
-          <div className="os-row">
-            <input
-              id="rt-product"
-              className="os-input"
-              value={productSku}
-              onChange={(e) => setProductSku(e.target.value)}
-              onKeyDown={onProductKey}
-              placeholder="SKU / reference then Enter"
-              autoComplete="off"
-              autoCapitalize="characters"
-              spellCheck={false}
-              disabled={busy || paused}
-            />
-            <input
-              className="os-input rt-qty"
-              type="number"
-              min={1}
-              value={productQty}
-              onChange={(e) => setProductQty(e.target.value)}
-              disabled={busy || paused}
-              aria-label="Quantity"
-            />
-            <button
-              className="os-btn"
-              disabled={busy || paused || !productSku.trim()}
-              onClick={() => {
-                const v = productSku; const q = Number(productQty) || 1;
-                setProductSku(''); setProductQty('1');
-                void submitProduct(v, q, 'MANUAL');
-              }}
-            >
-              ENTER
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Inline outcome for non-camera input (the camera shows its own). */}
-      {outcome && !scannerOpen && (
-        <div key={outcome.token} className={`rt-outcome rt-outcome--${outcome.kind}`}>
-          {outcome.kind === 'ok' ? '✓ ' : outcome.kind === 'bad' ? '✕ ' : ''}{outcome.text}
-        </div>
-      )}
-
-      <div className="rt-cols">
-        <section className="os-card">
-          <h2 className="os-card-title">Cartons</h2>
-          <div className="rt-cartons">
-            {(session.cartons ?? []).map((c) => {
-              const received = c.status === 'RECEIVED';
-              return (
-                <div key={c.id} className={`rt-carton${received ? ' is-done' : ''}`}>
-                  <span>{received ? '✓' : '○'}</span>
-                  <span className="os-mono">{c.externalCartonId}</span>
-                </div>
-              );
-            })}
-            {session.cartons.length === 0 && <div className="os-muted">No cartons declared.</div>}
-          </div>
-        </section>
-
-        <section className="os-card">
-          <h2 className="os-card-title">Activity</h2>
-          <div className="rt-log">
-            {log.length === 0 && <div className="os-muted">No activity yet.</div>}
-            {log.map((l, i) => (
-              <div key={i} className={`rt-log-item ${l.kind}`}>
-                <span className="os-muted">{l.t}</span> {l.text}
-              </div>
-            ))}
-          </div>
-        </section>
-      </div>
-
-      {/* Expected products — supporting info (migrated). */}
-      {(session.products ?? []).length > 0 && (
-        <section className="os-card">
-          <h2 className="os-card-title">Products · {session.products.length} lines</h2>
-          <div className="rt-products">
-            <table className="os-table">
-              <thead>
-                <tr><th>SKU</th><th>Name</th><th>Category</th><th>Expected</th><th>Received</th><th>Status</th></tr>
-              </thead>
-              <tbody>
-                {session.products.map((p) => (
-                  <tr key={p.id}>
-                    <td className="mono">{p.sku ?? p.reference ?? '—'}</td>
-                    <td>{p.productName ?? '—'}</td>
-    <td>
-                      {/* Category is operational data for Sorting. Only a
-                          category CONFIRMED against the Category Master is
-                          green; anything else is an explicit NEEDS REVIEW —
-                          the worker never classifies manually here. */}
-                      {p.categoryStatus === 'CONFIRMED' && p.category
-                        ? (
-                          <span className="os-tag os-tag--ok">
-                            {p.category}{p.subcategory ? ` / ${p.subcategory}` : ''}
-                          </span>
-                        )
-                        : (
-                          <span className="os-tag os-tag--warn">
-                            {p.category ? `${p.category} · NEEDS REVIEW` : 'NEEDS REVIEW'}
-                          </span>
-                        )}
-                    </td>
-                    <td>{p.expected}</td>
-                    <td>{p.received}</td>
-                    <td><span className={`os-tag ${p.status === 'RECEIVED' ? 'os-tag--ok' : p.status === 'EXPECTED' ? 'os-tag--muted' : 'os-tag--warn'}`}>{p.status.replace(/_/g, ' ')}</span></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-
-      {/* Open discrepancies — visible, not buried (migrated). */}
-      {openDiscrepancies.length > 0 && (
-        <section className="os-card rt-disc">
-          <h2 className="os-card-title">Exceptions · {openDiscrepancies.length} open</h2>
-          {openDiscrepancies.map((d) => (
-            <div key={d.id} className="rt-disc-item">
-              <span className="os-tag os-tag--err">{d.type.replace(/_/g, ' ')}</span>
-              <span className="os-muted">{d.reason ?? d.sku ?? d.cartonCode ?? '—'}</span>
-            </div>
-          ))}
-        </section>
-      )}
-
-      {!done && (
-        <div className="rt-finish">
-          <button className="os-btn" disabled={busy || paused} onClick={complete}>COMPLETE RECEIVING</button>
-        </div>
-      )}
-      {done && <div className="rt-done">SESSION {session.status.replace(/_/g, ' ')}</div>}
-
-      {/* SCANNER WORK MODE — dual scanner host (software + hardware, §1/§5/§8). */}
-      {scannerOpen && (
-        <Suspense fallback={<div className="rt-scanner-loading">STARTING SCANNER…</div>}>
-        <ReceivingScanner
-          title={`RECEIVING · ${session.code}`}
-          enableOcr={ocrAllowed}
-          mode={scanMode}
-          onModeChange={setScanMode}
-          outcome={outcome}
-          corpus={corpus}
-          scanContext={scanContext}
-          onDetected={onScannerDetected}
-          onClose={() => {
-            setScannerOpen(false);
-            setOutcome(null);
-            setStatus({ text: 'SESSION ACTIVE', kind: 'info' });
-          }}
-        />
+      {view === 'SCANNER_CAMERA' && (
+        <Suspense fallback={<div className="term-muted" style={{padding: '32px'}}>STARTING SCANNER...</div>}>
+          <ReceivingScanner
+            title="SCAN PRODUCT"
+            enableOcr={ocrAllowed}
+            mode="PRODUCT"
+            corpus={corpus}
+            scanContext={scanContext}
+            onDetected={(val, src) => processScan(val, src)}
+            onClose={goHome}
+          />
         </Suspense>
       )}
-    </div>
-  );
-}
 
-function Metric({ label, v, ok, bad }: { label: string; v: string; ok?: boolean; bad?: boolean }) {
-  return (
-    <div className={`rt-metric${ok ? ' is-ok' : ''}${bad ? ' is-bad' : ''}`}>
-      <div className="rt-metric-v">{v}</div>
-      <div className="rt-metric-l">{label}</div>
+      <div className="term-bottom-nav">
+        <button className="term-nav-btn active">RCV HOME</button>
+        <button className="term-nav-btn" onClick={async () => {
+          if (confirm('Complete Receiving Session?')) {
+            await api.complete(session.id);
+            setSession(null);
+            setView('ARRIVALS');
+          }
+        }}>COMPLETE</button>
+        <button className="term-nav-btn" onClick={() => {
+          setSession(null);
+          setView('ARRIVALS');
+        }}>EXIT</button>
+      </div>
+
     </div>
   );
 }
