@@ -92,6 +92,7 @@ import com.ayrovi.worker.data.OrderSortingResult
 import com.ayrovi.worker.data.PackResult
 import com.ayrovi.worker.data.PackingView
 import com.ayrovi.worker.data.ReceivingSession
+import com.ayrovi.worker.data.ProductRow
 import com.ayrovi.worker.data.RequiredItem
 import com.ayrovi.worker.data.SessionStore
 import com.ayrovi.worker.data.ShipResult
