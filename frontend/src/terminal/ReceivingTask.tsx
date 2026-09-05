@@ -25,6 +25,7 @@ export default function ReceivingTask() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<ViewState>('ARRIVALS');
+  const [scanMode, setScanMode] = useState<'CARTON' | 'PRODUCT'>('CARTON');
   
   // Product Result State
   const [scannedCode, setScannedCode] = useState<string>('');
@@ -85,20 +86,47 @@ export default function ReceivingTask() {
     }
   };
 
-  const processScan = (rawCode: string, source: ScanSource) => {
-    if (!session || view === 'PRODUCT_RESULT') return;
+  const processScan = async (rawCode: string, source: ScanSource) => {
+    if (!session || view === 'PRODUCT_RESULT' || busy) return;
     const value = rawCode.trim();
     if (!value) return;
 
-    beepInfo();
-    const clean = cleanCode(value);
-    const product = session.products.find(p => cleanCode(p.sku ?? '') === clean || cleanCode(p.reference ?? '') === clean);
-    
-    setScannedCode(value);
-    setMatchedProduct(product ?? null);
-    setQty(1);
-    setFlashMsg(null);
-    setView('PRODUCT_RESULT');
+    if (scanMode === 'CARTON') {
+      setBusy(true);
+      try {
+        const s = await api.scanCarton(session.id, value, source === 'CAMERA' ? 'QR' : 'BARCODE', freshOperationId(), source);
+        setSession(s);
+        const f = s.flash;
+        if (f?.kind === 'CARTON_IDENTIFIED') {
+          const cartonId = f.carton?.externalCartonId ?? f.carton?.id;
+          const committed = await api.receiveCarton(s.id, cartonId, freshOperationId(), source);
+          setSession(committed);
+          beepSuccess();
+          setFlashMsg({ kind: 'ok', text: `CARTON RECEIVED: ${cartonId}` });
+          setScanMode('PRODUCT'); // Switch to product automatically!
+          setLastAction(`Carton ${cartonId} received`);
+        } else {
+          beepError();
+          setFlashMsg({ kind: 'bad', text: f?.kind === 'UNKNOWN_CARTON' ? 'UNKNOWN CARTON' : f?.kind === 'DUPLICATE_CARTON' ? 'ALREADY RECEIVED' : 'NOT ACCEPTED' });
+        }
+      } catch (e: any) {
+        beepError();
+        setFlashMsg({ kind: 'bad', text: e?.response?.data?.message ?? 'Server error' });
+      } finally {
+        setBusy(false);
+      }
+    } else {
+      // PRODUCT MODE
+      beepInfo();
+      const clean = cleanCode(value);
+      const product = session.products.find(p => cleanCode(p.sku ?? '') === clean || cleanCode(p.reference ?? '') === clean);
+      
+      setScannedCode(value);
+      setMatchedProduct(product ?? null);
+      setQty(1);
+      setFlashMsg(null);
+      setView('PRODUCT_RESULT');
+    }
   };
 
   // Attach Hardware Wedge globally when session is active
@@ -151,18 +179,27 @@ export default function ReceivingTask() {
   };
 
   const scanContext: ScanContext = useMemo(
-    () => buildScanContext({ mode: 'PRODUCT', cartons: [], products: session?.products ?? [] }),
-    [session]
+    () => buildScanContext({ mode: scanMode, cartons: session?.cartons ?? [], products: session?.products ?? [] }),
+    [session, scanMode]
   );
 
   const corpus = useMemo(() => {
     const out = new Set<string>();
-    for (const p of session?.products ?? []) {
-      const s = cleanCode(p.sku ?? ''); if(s.length>2) out.add(s);
-      const r = cleanCode(p.reference ?? ''); if(r.length>2) out.add(r);
+    if (scanMode === 'CARTON') {
+      for (const c of session?.cartons ?? []) {
+        const id = cleanCode(c.externalCartonId ?? ''); if(id.length>2) out.add(id);
+        const ref = cleanCode(c.reference ?? ''); if(ref.length>2) out.add(ref);
+        const qr = cleanCode(c.qrCodeValue ?? ''); if(qr.length>2) out.add(qr);
+        const bar = cleanCode(c.barcodeValue ?? ''); if(bar.length>2) out.add(bar);
+      }
+    } else {
+      for (const p of session?.products ?? []) {
+        const s = cleanCode(p.sku ?? ''); if(s.length>2) out.add(s);
+        const r = cleanCode(p.reference ?? ''); if(r.length>2) out.add(r);
+      }
     }
     return [...out];
-  }, [session]);
+  }, [session, scanMode]);
 
   const goHome = () => setView('HOME');
 
@@ -226,9 +263,21 @@ export default function ReceivingTask() {
             </div>
           </div>
 
+          
+          <div style={{ display: 'flex', gap: '8px', padding: '16px 16px 0' }}>
+            <button 
+              style={{ flex: 1, padding: '12px', background: scanMode === 'PRODUCT' ? 'var(--term-green)' : 'var(--term-surface-2)', color: scanMode === 'PRODUCT' ? '#000' : 'var(--term-text)', border: 'none', fontWeight: 'bold' }}
+              onClick={() => setScanMode('PRODUCT')}
+            >SCAN PRODUCT</button>
+            <button 
+              style={{ flex: 1, padding: '12px', background: scanMode === 'CARTON' ? 'var(--term-green)' : 'var(--term-surface-2)', color: scanMode === 'CARTON' ? '#000' : 'var(--term-text)', border: 'none', fontWeight: 'bold' }}
+              onClick={() => setScanMode('CARTON')}
+            >SCAN CARTON</button>
+          </div>
+
           <div className="term-primary-action">
             <button className="term-btn-scan" onClick={() => setView('SCANNER_CAMERA')}>
-              + SCAN PRODUCT
+              + SCAN {scanMode}
             </button>
             <div className="term-hw-status ready">SCANNER CT40 SIDE TRIGGER READY</div>
           </div>
@@ -360,7 +409,7 @@ export default function ReceivingTask() {
             mode="PRODUCT"
             corpus={corpus}
             scanContext={scanContext}
-            onDetected={(val, src) => processScan(val, src)}
+            onDetected={(val, src) => { setView('HOME'); processScan(val, src); }}
             onClose={goHome}
           />
         </Suspense>
