@@ -45,6 +45,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import android.content.Context
+import android.os.BatteryManager
+import android.content.Intent
+import android.content.IntentFilter
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -174,6 +178,7 @@ fun AyroviApp(store: SessionStore) {
     var bootError by remember { mutableStateOf<String?>(null) }
     var online by remember { mutableStateOf(true) }
     var tick by remember { mutableIntStateOf(0) }
+    var todayCount by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) { while (true) { delay(1_000); tick += 1 } }
 
@@ -251,10 +256,11 @@ fun AyroviApp(store: SessionStore) {
                             onBack = { activeStation = null; activeTask = null; scope.launch { boot(); setStatus("READY") } },
                             onExpired = { store.clear(); loggedIn = false },
                             onStatus = ::setStatus, onLastAction = { lastAction = it },
+                            onAccepted = { todayCount += 1 },
                         )
                     }
                 }
-                Footer(footer, footerKind, lastAction, ctx?.station?.name)
+                Footer(footer, footerKind, lastAction, ctx?.station?.name, todayCount)
             }
         }
     }
@@ -264,8 +270,24 @@ fun AyroviApp(store: SessionStore) {
 // SHELL: strip, tabs, footer
 // ============================================================
 @Composable
+@Composable
+private fun rememberBatteryPct(): Int {
+    val ctx = LocalContext.current
+    val read: () -> Int = {
+        runCatching {
+            val bm = ctx.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+            bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY).takeIf { it > 0 } ?: -1
+        }.getOrDefault(-1)
+    }
+    var pct by remember { mutableIntStateOf(read()) }
+    LaunchedEffect(Unit) { while (true) { pct = read(); delay(60_000) } }
+    return pct
+}
+
 private fun TopStrip(me: MeResponse?, ctx: TerminalContext?, online: Boolean, tick: Int, onLogout: () -> Unit) {
     val time = remember(tick) { SimpleDateFormat("HH:mm:ss", Locale.US).format(Date()) }
+    val batt = rememberBatteryPct()
+    val battColor = when { batt < 0 -> Dim; batt <= 15 -> Red; batt <= 30 -> Amber; else -> Green }
     Surface(color = Theme.surface, tonalElevation = 0.dp) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
@@ -281,6 +303,10 @@ private fun TopStrip(me: MeResponse?, ctx: TerminalContext?, online: Boolean, ti
                     fontSize = 11.sp, color = if (ctx?.station == null) Red else Dim,
                     fontFamily = FontFamily.Monospace,
                 )
+            }
+            if (batt >= 0) {
+                Text("⚡${batt}%", fontSize = 10.sp, color = battColor, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.width(8.dp))
             }
             StatusDot(online)
             Spacer(Modifier.width(6.dp))
@@ -341,7 +367,7 @@ private fun StationTabs(
 }
 
 @Composable
-private fun Footer(status: String, kind: FeedbackKind, lastAction: String?, stationName: String?) {
+private fun Footer(status: String, kind: FeedbackKind, lastAction: String?, stationName: String?, todayCount: Int = 0) {
     val color = when (kind) {
         FeedbackKind.OK -> Green; FeedbackKind.BAD -> Red; FeedbackKind.INFO -> Blue
     }
@@ -353,6 +379,13 @@ private fun Footer(status: String, kind: FeedbackKind, lastAction: String?, stat
             Text(lastAction ?: "—", fontSize = 10.sp, color = Dim,
                 fontFamily = FontFamily.Monospace, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
+            if (todayCount > 0) {
+                Surface(color = Green.copy(alpha = 0.15f), shape = RoundedCornerShape(6.dp)) {
+                    Text(" $todayCount ", fontWeight = FontWeight.Black, fontSize = 10.sp, color = Green,
+                        fontFamily = FontFamily.Monospace)
+                }
+                Spacer(Modifier.width(6.dp))
+            }
             Text(stationName ?: "unassigned", fontSize = 10.sp, color = Dim, fontFamily = FontFamily.Monospace)
         }
     }
@@ -382,7 +415,18 @@ private fun Footer(status: String, kind: FeedbackKind, lastAction: String?, stat
 }
 
 @Composable
-internal fun FlashBar(fb: Feedback?, onDismiss: () -> Unit = {}) {
+internal fun FlashBar(fb: Feedback?, onDismiss: () -> Unit = {}, onCount: () -> Unit = {}, ctaText: String = "SCAN NEXT ▸") {
+    val ctx = LocalContext.current
+    LaunchedEffect(fb) {
+        if (fb != null) {
+            when (fb.kind) {
+                FeedbackKind.OK -> { FeedbackSounds.ok(ctx); onCount() }
+                FeedbackKind.BAD -> FeedbackSounds.bad(ctx)
+                FeedbackKind.INFO -> FeedbackSounds.warn(ctx)
+            }
+            if (fb.kind == FeedbackKind.OK) { delay(1800); onDismiss() }
+        }
+    }
     AnimatedVisibility(visible = fb != null) {
         fb ?: return@AnimatedVisibility
         val bg = when (fb.kind) {
@@ -390,22 +434,37 @@ internal fun FlashBar(fb: Feedback?, onDismiss: () -> Unit = {}) {
             FeedbackKind.BAD -> Red
             FeedbackKind.INFO -> Blue
         }
-        Card(colors = CardDefaults.cardColors(containerColor = bg.copy(alpha = 0.14f)),
-            border = androidx.compose.foundation.BorderStroke(1.dp, bg.copy(alpha = 0.5f)),
-            modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
-            Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(when (fb.kind) {
-                    FeedbackKind.OK -> "✓"; FeedbackKind.BAD -> "✕"; FeedbackKind.INFO -> "ℹ"
-                }, color = bg, fontWeight = FontWeight.Black, fontSize = 20.sp)
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(fb.title, color = bg, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    if (fb.sub != null) Text(fb.sub, color = Theme.onBackground, fontSize = 11.sp)
+        Column {
+            Card(colors = CardDefaults.cardColors(containerColor = bg.copy(alpha = 0.14f)),
+                border = androidx.compose.foundation.BorderStroke(1.dp, bg.copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth().padding(bottom = if (fb.kind == FeedbackKind.OK) 6.dp else 10.dp)) {
+                Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(when (fb.kind) {
+                        FeedbackKind.OK -> "✓"; FeedbackKind.BAD -> "✕"; FeedbackKind.INFO -> "ℹ"
+                    }, color = bg, fontWeight = FontWeight.Black, fontSize = 22.sp)
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(fb.title, color = bg, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        if (fb.sub != null) Text(fb.sub, color = Theme.onBackground, fontSize = 11.sp)
+                    }
+                    TextButton(onClick = onDismiss) { Text("×", color = Dim, fontSize = 18.sp) }
                 }
-                TextButton(onClick = onDismiss) { Text("×", color = Dim) }
             }
+            if (fb.kind == FeedbackKind.OK) ScanNextCta(ctaText)
         }
     }
+}
+
+@Composable
+internal fun ScanNextCta(text: String = "SCAN NEXT ▸") {
+    Surface(color = Green.copy(alpha = 0.10f), shape = RoundedCornerShape(10.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Green.copy(alpha = 0.5f))) {
+        Text(text,
+            modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
+            textAlign = TextAlign.Center, color = Green, fontWeight = FontWeight.Black,
+            fontSize = 18.sp, letterSpacing = 4.sp)
+    }
+    Spacer(Modifier.height(8.dp))
 }
 
 @Composable
@@ -458,8 +517,9 @@ internal fun ManualEntry(
     val kb = LocalSoftwareKeyboardController.current
     OutlinedTextField(
         value = value, onValueChange = onValue, singleLine = true,
+        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 18.sp, fontFamily = FontFamily.Monospace),
         enabled = enabled, label = { Text(label, fontSize = 11.sp, letterSpacing = 1.sp) },
-        placeholder = { Text(placeholder, color = Dim.copy(alpha = 0.6f), fontSize = 12.sp) },
+        placeholder = { Text(placeholder, color = Dim.copy(alpha = 0.6f), fontSize = 14.sp) },
         keyboardOptions = KeyboardOptions(
             capitalization = KeyboardCapitalization.Characters,
             autoCorrectEnabled = false,
@@ -472,13 +532,14 @@ internal fun ManualEntry(
         modifier = Modifier.fillMaxWidth().then(if (focus) Modifier.focusRequester(fr) else Modifier),
     )
     LaunchedEffect(Unit) { if (focus) runCatching { fr.requestFocus() } }
-    Spacer(Modifier.height(8.dp))
+    Spacer(Modifier.height(10.dp))
     Row(verticalAlignment = Alignment.CenterVertically) {
         Button(
             onClick = { val v = value.trim(); if (v.isNotBlank()) { onValue(""); onSubmit(v) } },
             enabled = enabled && value.isNotBlank(),
-            modifier = Modifier.weight(1f),
-        ) { Text("ENTER", letterSpacing = 2.sp, fontSize = 12.sp) }
+            modifier = Modifier.weight(1f).height(52.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Green, contentColor = Theme.onPrimary),
+        ) { Text("ENTER", letterSpacing = 4.sp, fontSize = 16.sp, fontWeight = FontWeight.Black) }
         if (extraButton != null) { Spacer(Modifier.width(8.dp)); extraButton() }
     }
 }
@@ -561,6 +622,19 @@ internal fun CameraToggle(
 }
 
 // Reusable scanner binding — same pattern across every station.
+// --- Feedback helpers (sound + vibe + footer updates) -----------------
+@Composable
+internal fun rememberFeedback(): (Feedback) -> Unit {
+    val ctx = LocalContext.current
+    return { fb: Feedback ->
+        when (fb.kind) {
+            FeedbackKind.OK -> FeedbackSounds.ok(ctx)
+            FeedbackKind.BAD -> FeedbackSounds.bad(ctx)
+            FeedbackKind.INFO -> FeedbackSounds.warn(ctx)
+        }
+    }
+}
+
 @Composable
 internal fun StationScanner(
     onScan: suspend (String) -> Unit,
@@ -800,15 +874,17 @@ private fun StationRouter(
     key: StationKey, task: TerminalTask?, repo: WorkerRepository, ctx: TerminalContext?,
     onBack: () -> Unit, onExpired: () -> Unit,
     onStatus: (String, FeedbackKind) -> Unit, onLastAction: (String) -> Unit,
+    onAccepted: () -> Unit = {},
 ) {
+    val onAcceptWrap: () -> Unit = onAccepted
     when (key) {
-        StationKey.RECEIVING -> ReceivingStation(repo, onBack, onExpired, onStatus, onLastAction)
-        StationKey.RECEIVING_CONTAINER -> ToteStation(repo, onBack, onExpired, onStatus, onLastAction)
-        StationKey.CUSTOMER_SORTING -> SortingStation(repo, onBack, onExpired, onStatus, onLastAction)
-        StationKey.CUSTOMER_BIN -> CustomerBinStation(repo, onBack, onExpired, onStatus, onLastAction)
-        StationKey.PACKING -> PackingStation(repo, onBack, onExpired, onStatus, onLastAction)
-        StationKey.SHIPPING -> ShippingStation(repo, onBack, onExpired, onStatus, onLastAction)
-        StationKey.ARCHIVE_TRACE -> TraceStation(repo, onBack, onExpired, onStatus, onLastAction)
+        StationKey.RECEIVING -> ReceivingStation(repo, onBack, onExpired, onStatus, onLastAction, onAcceptWrap)
+        StationKey.RECEIVING_CONTAINER -> ToteStation(repo, onBack, onExpired, onStatus, onLastAction, onAcceptWrap)
+        StationKey.CUSTOMER_SORTING -> SortingStation(repo, onBack, onExpired, onStatus, onLastAction, onAcceptWrap)
+        StationKey.CUSTOMER_BIN -> CustomerBinStation(repo, onBack, onExpired, onStatus, onLastAction, onAcceptWrap)
+        StationKey.PACKING -> PackingStation(repo, onBack, onExpired, onStatus, onLastAction, onAcceptWrap)
+        StationKey.SHIPPING -> ShippingStation(repo, onBack, onExpired, onStatus, onLastAction, onAcceptWrap)
+        StationKey.ARCHIVE_TRACE -> TraceStation(repo, onBack, onExpired, onStatus, onLastAction, onAcceptWrap)
     }
 }
 
@@ -820,6 +896,7 @@ private fun StationRouter(
 private fun ReceivingStation(
     repo: WorkerRepository, onBack: () -> Unit, onExpired: () -> Unit,
     onStatus: (String, FeedbackKind) -> Unit, onLastAction: (String) -> Unit,
+    onAccepted: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     var arrivals by remember { mutableStateOf<List<ArrivalRow>>(emptyList()) }
@@ -915,7 +992,7 @@ private fun ReceivingStation(
         }
         ContextCard("TASK / BATCH", s.arrival.code, s.arrival.customerName ?: s.arrival.storeName, Green)
         Spacer(Modifier.height(10.dp))
-        FlashBar(fb) { fb = null }
+        FlashBar(fb, { fb = null }, onAccepted)
         BigScanHero("SCAN CARTON", "Point the CT40 trigger at the carton barcode.",
             statusLabel = s.status.uppercase(), statusColor = if (s.status == "PAUSED") Amber else Green,
             cameraOn = camOn)
@@ -971,6 +1048,7 @@ private fun ReceivingStation(
 private fun ToteStation(
     repo: WorkerRepository, onBack: () -> Unit, onExpired: () -> Unit,
     onStatus: (String, FeedbackKind) -> Unit, onLastAction: (String) -> Unit,
+    onAccepted: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     // Find open receiving session (auto-resume from active)
@@ -1052,7 +1130,7 @@ private fun ToteStation(
             }
             return@Column
         }
-        FlashBar(fb) { fb = null }
+        FlashBar(fb, { fb = null }, onAccepted)
         ContextCard("SESSION", session!!.code, session!!.arrival.customerName, Green)
         Spacer(Modifier.height(10.dp))
         if (tote == null) {
@@ -1128,6 +1206,7 @@ private const val STEP_BIN_BIN = 1
 private fun SortingStation(
     repo: WorkerRepository, onBack: () -> Unit, onExpired: () -> Unit,
     onStatus: (String, FeedbackKind) -> Unit, onLastAction: (String) -> Unit,
+    onAccepted: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     var step by remember { mutableIntStateOf(STEP_SORT_ARTICLE) }
@@ -1175,14 +1254,14 @@ private fun SortingStation(
         val d = decision
         // Context: what question are we answering right now?
         if (step == STEP_SORT_ARTICLE) {
-            FlashBar(fb) { fb = null }
+            FlashBar(fb, { fb = null }, onAccepted)
             BigScanHero("SCAN ARTICLE", "The system will tell you WHERE it goes.",
                 hint = "SCAN WITH CT40 TRIGGER", statusLabel = "STEP 1/2 · ARTICLE", statusColor = Blue,
                 cameraOn = camOn)
             CameraToggle(camOn, setCam, coord, !busy)
         } else if (d != null) {
             // Destination prominently displayed
-            FlashBar(fb) { fb = null }
+            FlashBar(fb, { fb = null }, onAccepted)
             ContextCard("CUSTOMER", d.article?.productName ?: "", d.article?.sku, Amber)
             Spacer(Modifier.height(8.dp))
             ContextCard("DESTINATION", d.zone?.code ?: "—", d.zone?.name ?: "", Green)
@@ -1213,6 +1292,7 @@ private fun SortingStation(
 private fun CustomerBinStation(
     repo: WorkerRepository, onBack: () -> Unit, onExpired: () -> Unit,
     onStatus: (String, FeedbackKind) -> Unit, onLastAction: (String) -> Unit,
+    onAccepted: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     var step by remember { mutableIntStateOf(STEP_BIN_ARTICLE) }
@@ -1274,12 +1354,12 @@ private fun CustomerBinStation(
         BackBar("CUSTOMER BIN", onBack) { Text("$assigned", fontWeight = FontWeight.Black, fontSize = 20.sp, color = Green) }
         val d = decision
         if (step == STEP_BIN_ARTICLE) {
-            FlashBar(fb) { fb = null }
+            FlashBar(fb, { fb = null }, onAccepted)
             BigScanHero("SCAN ARTICLE", "Find the customer & bin for this article.",
                 statusLabel = "STEP 1/2 · ARTICLE", statusColor = Amber, cameraOn = camOn)
             CameraToggle(camOn, setCam, coord, !busy)
         } else if (d != null) {
-            FlashBar(fb) { fb = null }
+            FlashBar(fb, { fb = null }, onAccepted)
             ContextCard("CUSTOMER", d.order?.customer ?: "—", "Order ${d.order?.reference ?: ""}", Green)
             Spacer(Modifier.height(8.dp))
             ContextCard("TARGET BIN", d.bin?.code ?: "—", d.bin?.label ?: "",
@@ -1335,6 +1415,7 @@ private fun CustomerBinStation(
 private fun PackingStation(
     repo: WorkerRepository, onBack: () -> Unit, onExpired: () -> Unit,
     onStatus: (String, FeedbackKind) -> Unit, onLastAction: (String) -> Unit,
+    onAccepted: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     var view by remember { mutableStateOf<PackingView?>(null) }
@@ -1364,7 +1445,7 @@ private fun PackingStation(
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp)) {
         BackBar("PACKING", onBack) { Text("$packedToday", fontWeight = FontWeight.Black, fontSize = 20.sp, color = Green) }
-        FlashBar(fb) { fb = null }
+        FlashBar(fb, { fb = null }, onAccepted)
         val v = view
         if (v == null && packedShipment == null) {
             BigScanHero("SCAN CUSTOMER BIN", "The system will show the order and missing items.",
@@ -1448,6 +1529,7 @@ private fun PackingStation(
 private fun ShippingStation(
     repo: WorkerRepository, onBack: () -> Unit, onExpired: () -> Unit,
     onStatus: (String, FeedbackKind) -> Unit, onLastAction: (String) -> Unit,
+    onAccepted: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     var shipment by remember { mutableStateOf<ShipmentView?>(null) }
@@ -1478,7 +1560,7 @@ private fun ShippingStation(
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp)) {
         BackBar("SHIPPING", onBack) { Text("$shipped", fontWeight = FontWeight.Black, fontSize = 20.sp, color = Green) }
-        FlashBar(fb) { fb = null }
+        FlashBar(fb, { fb = null }, onAccepted)
         val s = shipment
         if (s == null) {
             BigScanHero("SCAN SHIPMENT", "Confirm dispatch for a ready-to-ship carton.",
@@ -1541,6 +1623,7 @@ private fun ShippingStation(
 private fun TraceStation(
     repo: WorkerRepository, onBack: () -> Unit, onExpired: () -> Unit,
     onStatus: (String, FeedbackKind) -> Unit, onLastAction: (String) -> Unit,
+    onAccepted: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     var view by remember { mutableStateOf<TraceView?>(null) }
@@ -1580,7 +1663,7 @@ private fun TraceStation(
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp)) {
         BackBar("ARCHIVE / TRACE", onBack)
-        FlashBar(fb) { fb = null }
+        FlashBar(fb, { fb = null }, onAccepted)
         val v = view
         if (v == null) {
             BigScanHero("SCAN ARTICLE", "See the full history of this item.",

@@ -41,6 +41,7 @@ const AdminOrders = lazy(() => import('./admin/pages/Orders'));
 const AdminOutboundShipments = lazy(() => import('./admin/pages/OutboundShipments'));
 const AdminTasks = lazy(() => import('./admin/pages/Tasks'));
 const AdminActivity = lazy(() => import('./admin/pages/Activity'));
+const AdminLiveBoard = lazy(() => import('./admin/pages/LiveBoard'));
 const AdminDataControl = lazy(() => import('./admin/pages/DataControl'));
 const AdminReceivingContainers = lazy(() => import('./admin/pages/ReceivingContainers'));
 const AdminCustomerBins = lazy(() => import('./admin/pages/CustomerBins'));
@@ -175,6 +176,7 @@ export default function App() {
             <Route path="shipments" element={<AdminOutboundShipments />} />
             <Route path="tasks" element={<AdminTasks />} />
             <Route path="activity" element={<AdminActivity />} />
+            <Route path="live" element={<AdminLiveBoard />} />
             {/* Operational containers (COMMAND #1 FINAL §08/§09/§12). */}
             <Route path="receiving-containers" element={<AdminReceivingContainers />} />
             <Route path="customer-bins" element={<AdminCustomerBins />} />
