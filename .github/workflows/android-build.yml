@@ -53,14 +53,23 @@ jobs:
         run: |
           set +e
           chmod +x gradlew
-          TERM=dumb ./gradlew :scanner-core:test :app:assembleDebug --no-daemon --stacktrace --console=plain 2>&1 | tee /tmp/android.log
-          code=${PIPESTATUS[0]}
+          TERM=dumb ./gradlew :scanner-core:test :app:assembleDebug --no-daemon --stacktrace --console=plain > /tmp/android.log 2>&1
+          code=$?
           echo "ANDROID_EXIT=$code"
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" != "0" ]; then
+            {
+              echo "## Build failed (exit=$code)"
+              echo '```'
+              grep -nE "^e:|^w:|FAILED|FAILURE:|error:|ERROR:|unresolved reference|type mismatch|Exception|What went wrong|Execution failed" /tmp/android.log | tail -n 200
+              echo '```'
+              echo "## Last 200 lines"
+              echo '```'
+              tail -n 200 /tmp/android.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
           python3 .github/workflows/annotate-android.py "$code" /tmp/android.log
-          echo "=== BUILD LOG TAIL ==="
-          tail -n 200 /tmp/android.log
-          echo "=== END LOG TAIL ==="
           exit $code
 
       - name: Upload build log on failure
