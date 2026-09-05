@@ -23,8 +23,8 @@ android {
         applicationId = "com.ayrovi.worker"
         minSdk = 26
         targetSdk = 35
-        versionCode = 35
-        versionName = "1.1.1"
+        versionCode = 40
+        versionName = "1.2.0"
         buildConfigField("String", "API_BASE_URL", "\"https://core-wh.onrender.com/api\"")
     }
 
