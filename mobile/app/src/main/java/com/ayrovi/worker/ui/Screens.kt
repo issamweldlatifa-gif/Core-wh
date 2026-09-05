@@ -123,22 +123,22 @@ import kotlin.math.max
 // THEME — professional warehouse-console look
 // ============================================================
 private val Theme = darkColorScheme(
-    primary = Color(0xFF00D084),          // scan green
-    onPrimary = Color(0xFF04110B),
-    secondary = Color(0xFF4CC2FF),
+    primary = Color(0xFF00FF66),          // neon green
+    onPrimary = Color(0xFF000000),
+    secondary = Color(0xFF00E5FF),
     tertiary = Color(0xFFFFB020),
-    background = Color(0xFF070B11),
-    surface = Color(0xFF0F1621),
-    surfaceVariant = Color(0xFF162031),
-    onBackground = Color(0xFFE8EEF7),
-    onSurface = Color(0xFFE8EEF7),
-    error = Color(0xFFFF5A5F),
+    background = Color(0xFF000000),       // pure black
+    surface = Color(0xFF111111),          // dark gray surface
+    surfaceVariant = Color(0xFF1A1A1A),   // lighter gray surface
+    onBackground = Color(0xFFFFFFFF),
+    onSurface = Color(0xFFFFFFFF),
+    error = Color(0xFFFF3B30),
 )
-private val Green = Color(0xFF00D084)
+private val Green = Color(0xFF00FF66)
 private val Amber = Color(0xFFFFB020)
-private val Red = Color(0xFFFF5A5F)
-private val Blue = Color(0xFF4CC2FF)
-private val Dim = Color(0xFF7E8AA2)
+private val Red = Color(0xFFFF3B30)
+private val Blue = Color(0xFF00E5FF)
+private val Dim = Color(0xFF888888)
 
 private enum class Screen { Login, Home }
 private enum class StationKey {
