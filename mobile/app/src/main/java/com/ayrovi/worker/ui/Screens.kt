@@ -270,7 +270,6 @@ fun AyroviApp(store: SessionStore) {
 // SHELL: strip, tabs, footer
 // ============================================================
 @Composable
-@Composable
 private fun rememberBatteryPct(): Int {
     val ctx = LocalContext.current
     val read: () -> Int = {
@@ -284,6 +283,7 @@ private fun rememberBatteryPct(): Int {
     return pct
 }
 
+@Composable
 private fun TopStrip(me: MeResponse?, ctx: TerminalContext?, online: Boolean, tick: Int, onLogout: () -> Unit) {
     val time = remember(tick) { SimpleDateFormat("HH:mm:ss", Locale.US).format(Date()) }
     val batt = rememberBatteryPct()
