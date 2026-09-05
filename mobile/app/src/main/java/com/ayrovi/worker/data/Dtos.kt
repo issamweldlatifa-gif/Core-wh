@@ -4,16 +4,15 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 
 /**
- * Wire DTOs. Decoding is tolerant (ignoreUnknownKeys + defaulted nulls) so a
- * server that adds fields never breaks an older installed worker app — the
- * backend stays the single source of truth for what a worker may do.
+ * Wire DTOs. Decoding is intentionally tolerant (the repository Json instance
+ * uses ignoreUnknownKeys) while these shapes mirror the worker API responses.
  */
 
 @Serializable
 data class LoginRequest(
     val identifier: String,
     val secret: String,
-    val mode: String? = null, // 'pin' | 'password' (lowercase, matches backend LoginDto)
+    val mode: String? = null,
     val app: String = "WORKER_NATIVE",
     val deviceId: String? = null,
 )
@@ -84,7 +83,16 @@ data class ActiveReceivingRef(
     val id: String? = null,
     val code: String? = null,
     val status: String? = null,
+    val startedAt: String? = null,
     val expectedArrival: ExpectedArrivalRef? = null,
+)
+
+@Serializable
+data class ActivePutawayRef(
+    val id: String? = null,
+    val code: String? = null,
+    val status: String? = null,
+    val startedAt: String? = null,
 )
 
 @Serializable
@@ -95,6 +103,7 @@ data class TerminalContext(
     val home: String? = null,
     val station: StationRef? = null,
     val activeSession: ActiveReceivingRef? = null,
+    val activePutaway: ActivePutawayRef? = null,
 )
 
 @Serializable
@@ -112,12 +121,87 @@ data class ArrivalRow(
     val cartons: Int? = null,
 )
 
+// ---------------------------------------------------------------------------
+// Receiving — exact projection returned by ReceivingService.sessionDetail().
+// ---------------------------------------------------------------------------
+
 @Serializable
-data class SessionHeader(
+data class DetailArrival(
     val id: String? = null,
     val code: String? = null,
+    val externalArrivalId: String? = null,
+    val customerName: String? = null,
+    val customerId: String? = null,
+    val storeName: String? = null,
     val status: String? = null,
-    val flash: FlashView? = null,
+)
+
+@Serializable
+data class CartonRow(
+    val id: String? = null,
+    val externalCartonId: String? = null,
+    val reference: String? = null,
+    val qrCodeValue: String? = null,
+    val barcodeValue: String? = null,
+    val cartonNumber: Int? = null,
+    val totalCartons: Int? = null,
+    val status: String? = null,
+    val weight: Double? = null,
+    val weightUnit: String? = null,
+)
+
+@Serializable
+data class CartonEvent(
+    val id: String? = null,
+    val code: String? = null,
+    val scanType: String? = null,
+    val source: String? = null,
+    val status: String? = null,
+    val cartonId: String? = null,
+    val receivedAt: String? = null,
+)
+
+@Serializable
+data class ProductRow(
+    val id: String? = null,
+    val sku: String? = null,
+    val reference: String? = null,
+    val productName: String? = null,
+    val category: String? = null,
+    val subcategory: String? = null,
+    val categoryStatus: String? = null,
+    val expected: Int = 0,
+    val received: Int = 0,
+    val remaining: Int = 0,
+    val difference: Int = 0,
+    val status: String? = null,
+)
+
+@Serializable
+data class DiscrepancyRow(
+    val id: String? = null,
+    val type: String? = null,
+    val status: String? = null,
+    val reason: String? = null,
+    val expected: Int? = null,
+    val actual: Int? = null,
+    val difference: Int? = null,
+    val resolution: String? = null,
+)
+
+@Serializable
+data class ReceivingTally(
+    val expectedCartons: Int = 0,
+    val receivedCartons: Int = 0,
+    val expectedProducts: Int = 0,
+    val receivedProducts: Int = 0,
+    val expectedUnits: Int = 0,
+    val receivedUnits: Int = 0,
+    val openDiscrepancies: Int = 0,
+    val shortUnits: Int = 0,
+    val overageUnits: Int = 0,
+    val unexpectedProducts: Int = 0,
+    val missingCartons: Int = 0,
 )
 
 @Serializable
@@ -125,12 +209,112 @@ data class FlashView(
     val kind: String? = null,
     val code: String? = null,
     val message: String? = null,
-    val shipment: String? = null,
+    val shipment: JsonElement? = null,
+    val arrival: JsonElement? = null,
     val sku: String? = null,
-    // For CARTON_IDENTIFIED the server puts a carton OBJECT under `carton`;
-    // for other kinds it may be a plain string. We only need `kind` — the
-    // receive step is driven by the original scanned code.
+    val expected: Int? = null,
+    val received: Int? = null,
     val carton: JsonElement? = null,
+)
+
+@Serializable
+data class ReceivingSession(
+    val id: String,
+    val code: String,
+    val status: String,
+    val startedAt: String,
+    val pausedAt: String? = null,
+    val completedAt: String? = null,
+    val deviceType: String? = null,
+    val deviceName: String? = null,
+    val scanSource: String? = null,
+    val arrival: DetailArrival = DetailArrival(),
+    val cartons: List<CartonRow> = emptyList(),
+    val receivedCartonEvents: List<CartonEvent> = emptyList(),
+    val products: List<ProductRow> = emptyList(),
+    val discrepancies: List<DiscrepancyRow> = emptyList(),
+    val tally: ReceivingTally = ReceivingTally(),
+    val flash: FlashView? = null,
+)
+
+// ---------------------------------------------------------------------------
+// Putaway — projections returned by PutawayService.
+// ---------------------------------------------------------------------------
+
+@Serializable
+data class PutawayQueueCarton(
+    val id: String? = null,
+    val externalCartonId: String? = null,
+    val cartonNumber: Int? = null,
+    val totalCartons: Int? = null,
+    val receivedAt: String? = null,
+    val shipmentCode: String? = null,
+    val arrivalCode: String? = null,
+    val customerName: String? = null,
+)
+
+@Serializable
+data class PutawayWorker(
+    val id: String? = null,
+    val name: String? = null,
+    val employeeCode: String? = null,
+)
+
+@Serializable
+data class PutawayStation(
+    val id: String? = null,
+    val code: String? = null,
+    val name: String? = null,
+)
+
+@Serializable
+data class PutawayPlacement(
+    val id: String? = null,
+    val cartonCode: String? = null,
+    val locationCode: String? = null,
+    val placedAt: String? = null,
+    val releasedAt: String? = null,
+    val cartonSource: String? = null,
+    val locationSource: String? = null,
+)
+
+@Serializable
+data class PutawayTally(
+    val storedThisSession: Int = 0,
+    val totalPlacements: Int = 0,
+    val pendingCartons: Int = 0,
+)
+
+@Serializable
+data class PutawaySession(
+    val id: String,
+    val code: String,
+    val status: String,
+    val startedAt: String,
+    val completedAt: String? = null,
+    val worker: PutawayWorker? = null,
+    val station: PutawayStation? = null,
+    val placements: List<PutawayPlacement> = emptyList(),
+    val tally: PutawayTally = PutawayTally(),
+)
+
+@Serializable
+data class PutawayFlashView(
+    val kind: String? = null,
+    val code: String? = null,
+    val status: String? = null,
+    val carton: JsonElement? = null,
+    val location: JsonElement? = null,
+    val moved: Boolean? = null,
+)
+
+@Serializable
+data class PutawayFlashEnvelope(val flash: PutawayFlashView)
+
+@Serializable
+data class PutawayPlaceResponse(
+    val flash: PutawayFlashView,
+    val session: PutawaySession? = null,
 )
 
 /** Human summary for one scan outcome shown to the operator. */
