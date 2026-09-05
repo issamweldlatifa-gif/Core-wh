@@ -5,6 +5,15 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+val apiBaseUrl = providers.gradleProperty("ayroviApiBaseUrl")
+    .orElse(providers.environmentVariable("AYROVI_API_BASE_URL"))
+    .orElse("https://core-wh.onrender.com/api").get().trimEnd('/')
+val apiUri = java.net.URI(apiBaseUrl)
+require(apiUri.scheme == "https" && !apiUri.host.isNullOrBlank() && apiUri.rawUserInfo == null && apiUri.rawQuery == null && apiUri.rawFragment == null) {
+    "AYROVI API root must be a trusted HTTPS URL without credentials/query/fragment."
+}
+val legacyFallback = providers.gradleProperty("workerLegacyFallback").map(String::toBooleanStrict).orElse(false)
+
 android {
     namespace = "com.ayrovi.worker"
     compileSdk = 35
@@ -23,15 +32,18 @@ android {
         applicationId = "com.ayrovi.worker"
         minSdk = 26
         targetSdk = 35
-        versionCode = 41
-        versionName = "1.3.0"
-        buildConfigField("String", "API_BASE_URL", "\"https://core-wh.onrender.com/api\"")
+        versionCode = 42
+        versionName = "1.4.0-pilot"
+        buildConfigField("String", "API_BASE_URL", "\"${apiBaseUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
+        buildConfigField("boolean", "WORKER_LEGACY_FALLBACK", legacyFallback.get().toString())
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("debug")
+            // Unsigned by default. Production signing belongs to the managed release pipeline.
+            signingConfig = null
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -53,20 +65,25 @@ android {
 kotlin { jvmToolchain(17) }
 
 dependencies {
-    implementation(project(":scanner-core"))
+    implementation(project(":worker-core"))
+    implementation(project(":design-system"))
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.activity:activity-compose:1.10.0")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("androidx.camera:camera-camera2:1.4.1")
     implementation("androidx.camera:camera-lifecycle:1.4.1")
     implementation("androidx.camera:camera-view:1.4.1")
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
-    implementation("com.google.mlkit:text-recognition:16.0.1")
     debugImplementation("androidx.compose.ui:ui-tooling")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+    androidTestImplementation(platform("androidx.compose:compose-bom:2024.12.01"))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
 }

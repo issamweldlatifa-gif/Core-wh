@@ -163,9 +163,9 @@ internal enum class FeedbackKind { OK, BAD, INFO }
 // ROOT
 // ============================================================
 @Composable
-fun AyroviApp(store: SessionStore) {
+// Frozen migration rollback in the SAME package/app. Do not add features here.
+fun AyroviApp(store: SessionStore, repo: WorkerRepository) {
     val scope = rememberCoroutineScope()
-    val repo = remember { WorkerRepository(store) }
     var me by remember { mutableStateOf<MeResponse?>(null) }
     var ctx by remember { mutableStateOf<TerminalContext?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -221,7 +221,7 @@ fun AyroviApp(store: SessionStore) {
 
     MaterialTheme(colorScheme = Theme) {
         if (!loggedIn) {
-            LoginScreen(repo) { loggedIn = true; scope.launch { loading = true; boot(); loading = false } }
+            LoginScreen(repo, store) { loggedIn = true; scope.launch { loading = true; boot(); loading = false } }
             return@MaterialTheme
         }
         Scaffold(
@@ -657,20 +657,19 @@ internal fun StationScanner(
     val ctx = LocalContext.current
     val owner = LocalLifecycleOwner.current
     DisposableEffect(owner) {
-        val hw = HoneywellScanner(ctx) { v ->
-            if (!busyRef.value && enabledRef.value) coordinator.onScanned(v, fromOcr = false, source = HoneywellScanner.SOURCE)
-        }
+        val hw = com.ayrovi.worker.scanner.ScannerService(ctx, coordinator)
         val obs = LifecycleEventObserver { _, e ->
             when (e) {
-                Lifecycle.Event.ON_START -> hw.start()
-                Lifecycle.Event.ON_PAUSE -> hw.stop()
+                Lifecycle.Event.ON_RESUME -> { coordinator.manager.setEnabled(!busyRef.value && enabledRef.value); hw.start() }
+                Lifecycle.Event.ON_PAUSE -> { coordinator.manager.setEnabled(false); hw.stop() }
                 else -> Unit
             }
         }
         owner.lifecycle.addObserver(obs)
-        if (owner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) hw.start()
-        onDispose { owner.lifecycle.removeObserver(obs); hw.stop() }
+        if (owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) hw.start()
+        onDispose { owner.lifecycle.removeObserver(obs); coordinator.manager.setEnabled(false); hw.stop() }
     }
+    SideEffect { coordinator.manager.setEnabled(!busy && enabled && owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
     return Triple(coordinator, cameraOn, { cameraOn = it })
 }
 
@@ -697,8 +696,7 @@ internal fun elapsed(startedAt: String, tick: Int): String {
 // LOGIN (kept as v1.1.0)
 // ============================================================
 @Composable
-private fun LoginScreen(repo: WorkerRepository, onSuccess: () -> Unit) {
-    val store = SessionStore(LocalContext.current)
+private fun LoginScreen(repo: WorkerRepository, store: SessionStore, onSuccess: () -> Unit) {
     var identifier by remember { mutableStateOf("") }
     var secret by remember { mutableStateOf("") }
     var deviceCode by remember { mutableStateOf(store.deviceCode) }

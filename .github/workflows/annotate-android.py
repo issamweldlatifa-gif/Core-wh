@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""Strip ANSI, find any line containing obvious error keywords, emit annotations + a gist dump."""
-import json
+"""Strip ANSI, find any line containing obvious error keywords, emit annotations."""
 import os
 import re
 import sys
-import urllib.request
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 LINE_RE = re.compile(r"(?:^|\n)(?:e:\s*|w:\s*)?([^\s:][^:]+):(?:\((\d+),\s*(\d+)\)|(\d+):(?:(\d+):)?)\s*:?\s*(error|warning):\s*(.*)")
@@ -38,7 +36,7 @@ def main() -> int:
     lines = text.splitlines()
 
     if exit_code == 0:
-        print("::notice::Android build + scanner tests OK")
+        print("::notice::Android core tests, compile and lint OK")
         return 0
 
     # Collect any line that looks like a Kotlin/Java compile error.
@@ -88,33 +86,7 @@ def main() -> int:
             tail = tail[-1400:]
         print("::error file=mobile/app/build.gradle.kts,line=1::" + tail.replace("%", "%25").replace("\r", "").replace("\n", "%0A"))
 
-    # Push the full error section to a gist using the built-in token so we can read it.
-    try:
-        gh = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
-        if gh:
-            body = {
-                "description": f"Android build log tail run {os.environ.get('GITHUB_RUN_ID','?')}",
-                "public": False,
-                "files": {
-                    "build-tail.txt": {"content": "\n".join(lines[-2000:])[-290000:]},
-                },
-            }
-            req = urllib.request.Request(
-                "https://api.github.com/gists",
-                data=json.dumps(body).encode(),
-                headers={
-                    "Authorization": f"Bearer {gh}",
-                    "Accept": "application/vnd.github+json",
-                    "Content-Type": "application/json",
-                    "User-Agent": "android-ci",
-                },
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=20) as resp:
-                data = json.loads(resp.read())
-                print(f"::warning::Full log tail: {data.get('html_url')}")
-    except Exception as e:
-        print(f"(gist upload failed: {e})")
+    # Full logs stay in the controlled CI artifact; never publish build logs to a gist.
 
     return 0
 

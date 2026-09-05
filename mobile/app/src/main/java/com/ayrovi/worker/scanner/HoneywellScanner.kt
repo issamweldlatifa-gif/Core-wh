@@ -42,6 +42,7 @@ class HoneywellScanner(
 
         val r = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent?.action !in setOf(ACTION_BARCODE_READ, "com.ayrovi.worker.action.BARCODE")) return
                 val value = extractBarcode(intent) ?: return
                 onBarcode(value)
             }
@@ -102,13 +103,7 @@ class HoneywellScanner(
         claimed = false
     }
 
-    /**
-     * Note on trust: we only ever register on Honeywell-built devices, and
-     * only the Honeywell scanner service (or the system) emits this exact
-     * broadcast action there — the Data Collection Intent API has no public
-     * per-broadcast sender check, so we rely on the device being a locked
-     * Honeywell unit (admin-managed) for spoof protection.
-     */
+    /** An exported broadcast is untrusted even on a Honeywell device. Backend validation is mandatory. */
     private fun extractBarcode(intent: Intent?): String? {
         if (intent == null) return null
         for (key in BARCODE_EXTRA_CANDIDATES) {
@@ -117,8 +112,6 @@ class HoneywellScanner(
                 ?.takeIf { it.isNotEmpty() }
                 ?.let { return it }
         }
-        // Fallback: some profiles deliver the code as the intent data URI.
-        intent.data?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
         return null
     }
 
