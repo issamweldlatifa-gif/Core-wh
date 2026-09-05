@@ -60,12 +60,13 @@ jobs:
           if [ "$code" != "0" ]; then
             {
               echo "## Build failed (exit=$code)"
+              echo "### Error lines"
               echo '```'
-              grep -nE "^e:|^w:|FAILED|FAILURE:|error:|ERROR:|unresolved reference|type mismatch|Exception|What went wrong|Execution failed" /tmp/android.log | tail -n 200
+              grep -nE "^e:|^w:|FAILED|FAILURE:|error:|ERROR|unresolved reference|type mismatch|Exception|What went wrong|Execution failed|> Task|BUILD " /tmp/android.log | tail -n 300
               echo '```'
-              echo "## Last 200 lines"
+              echo "### Last 250 lines"
               echo '```'
-              tail -n 200 /tmp/android.log
+              tail -n 250 /tmp/android.log
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
           fi
