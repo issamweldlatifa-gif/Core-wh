@@ -152,8 +152,8 @@ private enum class StationKey {
         }
     }
 }
-private data class Feedback(val kind: FeedbackKind, val title: String, val sub: String? = null)
-private enum class FeedbackKind { OK, BAD, INFO }
+internal data class Feedback(val kind: FeedbackKind, val title: String, val sub: String? = null)
+internal enum class FeedbackKind { OK, BAD, INFO }
 
 // ============================================================
 // ROOT
@@ -1556,8 +1556,8 @@ private fun TraceStation(
             "INBOUND SHIPMENT" to t.inboundShipment,
             "SOURCE CARTON" to t.sourceCarton,
             "RECEIVING" to t.receivingSession,
-            "CONTAINER" to t.container?.code?.let { "${it.label ?: ""} (${it.code})".trim() },
-            "STORAGE LOCATION" to t.storageLocation?.let { "${it.code} (zone ${it.zone})" },
+            "CONTAINER" to t.container?.let { c -> "${c.label ?: ""} (${c.code})".trim() },
+            "STORAGE LOCATION" to t.storageLocation?.let { loc -> "${loc.code} (zone ${loc.zone})" },
             "CUSTOMER ORDER" to t.customerOrder,
             "CUSTOMER" to t.customer,
             "OUTBOUND SHIPMENT" to t.outboundShipment,
