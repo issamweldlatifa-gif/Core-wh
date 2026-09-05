@@ -571,7 +571,7 @@ private fun HomeScreen(
 
             if (openAssign.isNotEmpty()) {
                 SectionTitle("ASSIGNED TASKS")
-                openAssign.forEach { a ->
+                for (a in openAssign) {
                     AssignedTaskCard(a, busy = busyBtn == a.id) {
                         scope.launch {
                             busyBtn = a.id
@@ -604,7 +604,7 @@ private fun HomeScreen(
                 }
             } else {
                 SectionTitle("MY TASKS")
-                readyTasks.forEach { task ->
+                for (task in readyTasks) {
                     val openCode = if (task.key == "receiving") ctx?.activeSession?.code else null
                     TaskCard(
                         task = task,
@@ -1013,7 +1013,7 @@ private fun ReceivingWorkspace(
         // Cartons list
         SectionTitle("CARTONS · ${s.cartons.count { it.status == "RECEIVED" }}/${s.cartons.size}")
         if (s.cartons.isEmpty()) Text("No cartons declared.", color = Dark.onBackground.copy(alpha = 0.6f), fontSize = 12.sp)
-        s.cartons.forEach { c ->
+        for (c in s.cartons) {
             val received = c.status == "RECEIVED"
             Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
                 Text(if (received) "✓" else "○", color = if (received) Success else Dark.onBackground)
@@ -1028,7 +1028,7 @@ private fun ReceivingWorkspace(
         // Products table (key columns only for mobile)
         if (s.products.isNotEmpty()) {
             SectionTitle("PRODUCTS · ${s.products.size} lines")
-            s.products.forEach { p ->
+            for (p in s.products) {
                 val sku = p.sku ?: p.reference
                 Card(colors = CardDefaults.cardColors(containerColor = Dark.surface), modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
                     Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1058,7 +1058,7 @@ private fun ReceivingWorkspace(
         if (openDisc.isNotEmpty()) {
             Spacer(Modifier.height(10.dp))
             SectionTitle("EXCEPTIONS · ${openDisc.size} open")
-            openDisc.forEach { d ->
+            for (d in openDisc) {
                 Text("${d.type?.replace("_", " ") ?: "EXCEPTION"} · ${d.reason ?: "—"}", color = Danger, fontSize = 12.sp, modifier = Modifier.padding(vertical = 2.dp))
             }
         }
@@ -1067,12 +1067,17 @@ private fun ReceivingWorkspace(
         Spacer(Modifier.height(10.dp))
         SectionTitle("ACTIVITY")
         if (activity.isEmpty() && s.receivedCartonEvents.isEmpty()) Text("No activity yet.", color = Dark.onBackground.copy(alpha = 0.6f), fontSize = 12.sp)
-        activity.take(25).forEach {
-            Text("${it.time}  ${it.text}", color = when (it.kind) { StatusKind.OK -> Dark.onBackground; StatusKind.BAD -> Danger; StatusKind.INFO -> Dark.secondary }, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+        for (evt in activity.take(25)) {
+            val color = when (evt.kind) {
+                StatusKind.OK -> Dark.onBackground
+                StatusKind.BAD -> Danger
+                StatusKind.INFO -> Dark.secondary
+            }
+            Text("${evt.time}  ${evt.text}", color = color, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
         }
-        s.receivedCartonEvents.take(10).forEach {
+        for (evt in s.receivedCartonEvents.take(10)) {
             Text(
-                "${formatIsoTime(it.receivedAt)}  ${it.status ?: "SCAN"}  ${it.cartonId ?: it.code ?: "—"}",
+                "${formatIsoTime(evt.receivedAt)}  ${evt.status ?: "SCAN"}  ${evt.cartonId ?: evt.code ?: "—"}",
                 color = Dark.onBackground.copy(alpha = 0.6f),
                 fontFamily = FontFamily.Monospace,
                 fontSize = 11.sp,
