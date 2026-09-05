@@ -382,7 +382,7 @@ private fun Footer(status: String, kind: FeedbackKind, lastAction: String?, stat
 }
 
 @Composable
-fun FlashBar(fb: Feedback?, onDismiss: () -> Unit = {}) {
+internal fun FlashBar(fb: Feedback?, onDismiss: () -> Unit = {}) {
     AnimatedVisibility(visible = fb != null) {
         fb ?: return@AnimatedVisibility
         val bg = when (fb.kind) {
@@ -409,7 +409,7 @@ fun FlashBar(fb: Feedback?, onDismiss: () -> Unit = {}) {
 }
 
 @Composable
-fun BigScanHero(
+internal fun BigScanHero(
     title: String, subtitle: String? = null,
     hint: String = "SCAN WITH CT40 TRIGGER",
     statusLabel: String? = null, statusColor: Color = Blue,
@@ -444,7 +444,7 @@ fun BigScanHero(
 }
 
 @Composable
-fun ManualEntry(
+internal fun ManualEntry(
     label: String,
     value: String,
     onValue: (String) -> Unit,
@@ -461,7 +461,7 @@ fun ManualEntry(
         enabled = enabled, label = { Text(label, fontSize = 11.sp, letterSpacing = 1.sp) },
         placeholder = { Text(placeholder, color = Dim.copy(alpha = 0.6f), fontSize = 12.sp) },
         keyboardOptions = KeyboardOptions(
-            capitalization = KeyboardCapitalization.CHARACTERS,
+            capitalization = KeyboardCapitalization.Characters,
             autoCorrectEnabled = false,
             imeAction = ImeAction.Done,
         ),
@@ -484,7 +484,7 @@ fun ManualEntry(
 }
 
 @Composable
-fun Metric(label: String, value: String, color: Color = Theme.primary, modifier: Modifier = Modifier) {
+internal fun Metric(label: String, value: String, color: Color = Theme.primary, modifier: Modifier = Modifier) {
     Card(colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.10f)),
         border = androidx.compose.foundation.BorderStroke(1.dp, color.copy(alpha = 0.25f)),
         modifier = modifier) {
@@ -496,7 +496,7 @@ fun Metric(label: String, value: String, color: Color = Theme.primary, modifier:
 }
 
 @Composable
-fun ContextCard(title: String, value: String? = null, sub: String? = null, accent: Color = Blue) {
+internal fun ContextCard(title: String, value: String? = null, sub: String? = null, accent: Color = Blue) {
     Card(colors = CardDefaults.cardColors(containerColor = Theme.surface),
         modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -512,13 +512,13 @@ fun ContextCard(title: String, value: String? = null, sub: String? = null, accen
 }
 
 @Composable
-fun Section(label: String) {
+internal fun Section(label: String) {
     Text(label, fontSize = 10.sp, color = Theme.primary, fontWeight = FontWeight.Bold,
         letterSpacing = 2.sp, modifier = Modifier.padding(top = 14.dp, bottom = 6.dp))
 }
 
 @Composable
-fun BackBar(title: String, onBack: () -> Unit, trailing: @Composable () -> Unit = {}) {
+internal fun BackBar(title: String, onBack: () -> Unit, trailing: @Composable () -> Unit = {}) {
     Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         OutlinedButton(onClick = onBack, contentPadding = PaddingValues(horizontal = 10.dp)) { Text("‹") }
         Spacer(Modifier.width(10.dp))
@@ -529,7 +529,7 @@ fun BackBar(title: String, onBack: () -> Unit, trailing: @Composable () -> Unit 
 }
 
 @Composable
-fun CameraToggle(
+internal fun CameraToggle(
     cameraOn: Boolean, onToggle: (Boolean) -> Unit,
     coordinator: ScanCoordinator, enabled: Boolean = true,
 ) {
@@ -562,8 +562,7 @@ fun CameraToggle(
 
 // Reusable scanner binding — same pattern across every station.
 @Composable
-@Composable
-fun StationScanner(
+internal fun StationScanner(
     onScan: suspend (String) -> Unit,
     busy: Boolean,
     enabled: Boolean = true,
@@ -601,17 +600,17 @@ fun StationScanner(
     return Triple(coordinator, cameraOn, { cameraOn = it })
 }
 
-fun jsonString(el: JsonElement?, key: String): String? = runCatching {
+internal fun jsonString(el: JsonElement?, key: String): String? = runCatching {
     el?.jsonObject?.get(key)?.jsonPrimitive?.content
 }.getOrNull()
 
-fun timeNow(): String = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
-fun formatIso(v: String?): String {
+internal fun timeNow(): String = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
+internal fun formatIso(v: String?): String {
     if (v == null) return "--:--:--"
     return runCatching { SimpleDateFormat("HH:mm:ss", Locale.US).format(Date.from(Instant.parse(v))) }
         .getOrElse { "--:--:--" }
 }
-fun elapsed(startedAt: String, tick: Int): String {
+internal fun elapsed(startedAt: String, tick: Int): String {
     val start = runCatching { Instant.parse(startedAt).toEpochMilli() }.getOrElse { System.currentTimeMillis() }
     val s = max(0L, (System.currentTimeMillis() - start) / 1000)
     val h = s / 3600; val m = (s % 3600) / 60; val sec = s % 60
@@ -1120,14 +1119,18 @@ private fun ToteStation(
 // STATION 3: CUSTOMER SORTING (stowing)
 // Q: Where does this article go?  -> ZONE + LOCATION
 // ============================================================
+private const val STEP_SORT_ARTICLE = 0
+private const val STEP_SORT_LOCATION = 1
+private const val STEP_BIN_ARTICLE = 0
+private const val STEP_BIN_BIN = 1
+
 @Composable
 private fun SortingStation(
     repo: WorkerRepository, onBack: () -> Unit, onExpired: () -> Unit,
     onStatus: (String, FeedbackKind) -> Unit, onLastAction: (String) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    var step by remember { mutableStateOf(Step.ARTICLE) }
-    enum class Step { ARTICLE, LOCATION }
+    var step by remember { mutableIntStateOf(STEP_SORT_ARTICLE) }
     var decision by remember { mutableStateOf<SortingResult?>(null) }
     var busy by remember { mutableStateOf(false) }
     var fb by remember { mutableStateOf<Feedback?>(null) }
@@ -1138,12 +1141,12 @@ private fun SortingStation(
     val onScan: suspend (String) -> Unit = onScan@{ value ->
         busy = true; fb = null
         try {
-            if (step == Step.ARTICLE) {
+            if (step == STEP_SORT_ARTICLE) {
                 val r = repo.sortingScan(value)
                 decision = r
                 when (r.kind) {
                     "DESTINATION" -> {
-                        step = Step.LOCATION
+                        step = STEP_SORT_LOCATION
                         fb = Feedback(FeedbackKind.INFO,
                             "${r.article?.sku ?: value}  →  ZONE ${r.zone?.code}",
                             "Scan location: ${r.suggestedLocations.joinToString(" · ")}")
@@ -1154,12 +1157,12 @@ private fun SortingStation(
                     else -> { fb = Feedback(FeedbackKind.BAD, if (r.kind=="UNMAPPED") "NO DESTINATION CONFIGURED" else "AMBIGUOUS DESTINATION", r.article?.sku); onStatus("REJECTED", FeedbackKind.BAD) }
                 }
             } else {
-                val d = decision; if (d?.kind != "DESTINATION") { step = Step.ARTICLE; return@onScan }
+                val d = decision; if (d?.kind != "DESTINATION") { step = STEP_SORT_ARTICLE; return@onScan }
                 val res = repo.sortingStore(d.article!!.code!!, value)
                 val artLabel = res.flash?.sku ?: d.article?.sku ?: d.article?.code
                 fb = Feedback(FeedbackKind.OK, "STORED", "$artLabel → ${res.flash?.location ?: value}")
                 onStatus("STORED", FeedbackKind.OK); onLastAction("$artLabel → ${res.flash?.location ?: value}")
-                stored += 1; decision = null; step = Step.ARTICLE
+                stored += 1; decision = null; step = STEP_SORT_ARTICLE
             }
         } catch (ex: WorkerRepository.ApiException) { if (ex.code != 401) fb = Feedback(FeedbackKind.BAD, "ERROR", ex.message) else onExpired() }
         catch (ex: Exception) { fb = Feedback(FeedbackKind.BAD, "ERROR", ex.message) }
@@ -1171,7 +1174,7 @@ private fun SortingStation(
         BackBar("CUSTOMER SORTING", onBack) { Text("$stored", fontWeight = FontWeight.Black, fontSize = 20.sp, color = Green) }
         val d = decision
         // Context: what question are we answering right now?
-        if (step == Step.ARTICLE) {
+        if (step == STEP_SORT_ARTICLE) {
             FlashBar(fb) { fb = null }
             BigScanHero("SCAN ARTICLE", "The system will tell you WHERE it goes.",
                 hint = "SCAN WITH CT40 TRIGGER", statusLabel = "STEP 1/2 · ARTICLE", statusColor = Blue,
@@ -1190,14 +1193,14 @@ private fun SortingStation(
             CameraToggle(camOn, setCam, coord, !busy)
         }
         Spacer(Modifier.height(10.dp))
-        Section(if (step == Step.ARTICLE) "MANUAL ARTICLE" else "MANUAL LOCATION")
-        ManualEntry(if (step == Step.ARTICLE) "ARTICLE CODE" else "LOCATION CODE", manual,
+        Section(if (step == STEP_SORT_ARTICLE) "MANUAL ARTICLE" else "MANUAL LOCATION")
+        ManualEntry(if (step == STEP_SORT_ARTICLE) "ARTICLE CODE" else "LOCATION CODE", manual,
             { manual = it }, { v -> scope.launch { onScan(v) } }, enabled = !busy,
-            placeholder = if (step == Step.ARTICLE) "ART-…" else "")
+            placeholder = if (step == STEP_SORT_ARTICLE) "ART-…" else "")
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Metric("STORED", "$stored", Green, Modifier.weight(1f))
-            Metric("STEP", if (step == Step.ARTICLE) "1/2" else "2/2", Blue, Modifier.weight(1f))
+            Metric("STEP", if (step == STEP_SORT_ARTICLE) "1/2" else "2/2", Blue, Modifier.weight(1f))
         }
     }
 }
@@ -1212,8 +1215,7 @@ private fun CustomerBinStation(
     onStatus: (String, FeedbackKind) -> Unit, onLastAction: (String) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    enum class Step { ARTICLE, BIN }
-    var step by remember { mutableStateOf(Step.ARTICLE) }
+    var step by remember { mutableIntStateOf(STEP_BIN_ARTICLE) }
     var decision by remember { mutableStateOf<OrderSortingResult?>(null) }
     var busy by remember { mutableStateOf(false) }
     var fb by remember { mutableStateOf<Feedback?>(null) }
@@ -1228,12 +1230,12 @@ private fun CustomerBinStation(
     val onScan: suspend (String) -> Unit = onScan@{ value ->
         busy = true; fb = null
         try {
-            if (step == Step.ARTICLE) {
+            if (step == STEP_BIN_ARTICLE) {
                 val r = repo.orderSortingScan(value)
                 decision = r
                 when (r.kind) {
                     "ASSIGNMENT" -> {
-                        step = Step.BIN
+                        step = STEP_BIN_BIN
                         val binCode = r.bin?.code ?: "NO BIN"
                         fb = Feedback(FeedbackKind.INFO,
                             "${r.article?.sku ?: value} → ${r.order?.customer ?: ""}",
@@ -1244,7 +1246,7 @@ private fun CustomerBinStation(
                     else -> { fb = Feedback(FeedbackKind.BAD, r.reason ?: "REJECTED", r.article?.sku); onStatus("REJECTED", FeedbackKind.BAD) }
                 }
             } else {
-                val d = decision; if (d?.kind != "ASSIGNMENT") { step = Step.ARTICLE; return@onScan }
+                val d = decision; if (d?.kind != "ASSIGNMENT") { step = STEP_BIN_ARTICLE; return@onScan }
                 val res = repo.orderSortingAssign(d.article!!.code!!, value)
                 val isReady = res.flash?.kind == "BIN_READY_FOR_PACKING"
                 val artLabel = res.flash?.sku ?: d.article?.sku ?: d.article?.code
@@ -1255,7 +1257,7 @@ private fun CustomerBinStation(
                 else Feedback(FeedbackKind.OK, "ARTICLE IN BIN", "$artLabel → $binCode ($cust)")
                 onStatus(if (isReady) "READY FOR PACKING" else "ACCEPTED", FeedbackKind.OK)
                 onLastAction("$artLabel → $binCode")
-                assigned += 1; decision = null; step = Step.ARTICLE
+                assigned += 1; decision = null; step = STEP_BIN_ARTICLE
                 try { bins = repo.containers("CUSTOMER", "ACTIVE") } catch (_: Exception) { }
             }
         } catch (ex: WorkerRepository.ApiException) {
@@ -1271,7 +1273,7 @@ private fun CustomerBinStation(
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp)) {
         BackBar("CUSTOMER BIN", onBack) { Text("$assigned", fontWeight = FontWeight.Black, fontSize = 20.sp, color = Green) }
         val d = decision
-        if (step == Step.ARTICLE) {
+        if (step == STEP_BIN_ARTICLE) {
             FlashBar(fb) { fb = null }
             BigScanHero("SCAN ARTICLE", "Find the customer & bin for this article.",
                 statusLabel = "STEP 1/2 · ARTICLE", statusColor = Amber, cameraOn = camOn)
@@ -1298,7 +1300,7 @@ private fun CustomerBinStation(
                                 fb = Feedback(FeedbackKind.OK, "NEW BIN CREATED", "${bin.code} → ${bin.label}")
                                 // auto-assign to new bin
                                 val res = repo.orderSortingAssign(d.article!!.code!!, bin.code)
-                                assigned += 1; decision = null; step = Step.ARTICLE
+                                assigned += 1; decision = null; step = STEP_BIN_ARTICLE
                                 val artLabel = res.flash?.sku ?: d.article?.sku ?: d.article?.code
                                 fb = Feedback(FeedbackKind.OK, "ARTICLE IN BIN", "$artLabel → ${res.flash?.bin ?: bin.code}")
                                 onLastAction("bin ${bin.code} created")
@@ -1314,8 +1316,8 @@ private fun CustomerBinStation(
             CameraToggle(camOn, setCam, coord, !busy)
         }
         Spacer(Modifier.height(10.dp))
-        Section(if (step == Step.ARTICLE) "MANUAL ARTICLE" else "MANUAL BIN")
-        ManualEntry(if (step == Step.ARTICLE) "ARTICLE CODE" else "BIN CODE", manual,
+        Section(if (step == STEP_BIN_ARTICLE) "MANUAL ARTICLE" else "MANUAL BIN")
+        ManualEntry(if (step == STEP_BIN_ARTICLE) "ARTICLE CODE" else "BIN CODE", manual,
             { manual = it }, { v -> scope.launch { onScan(v) } }, enabled = !busy)
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
