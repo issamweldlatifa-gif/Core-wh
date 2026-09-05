@@ -2,7 +2,6 @@ import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { ReceivingService } from './receiving.service';
-import { RequireApplication } from '../../common/decorators/require-application.decorator';
 
 /**
  * Receiving Terminal API (JWT). Warehouse workers scan cartons/products
@@ -12,7 +11,6 @@ import { RequireApplication } from '../../common/decorators/require-application.
 @ApiTags('Receiving')
 @ApiBearerAuth()
 @Controller('receiving')
-@RequireApplication('WORKER_NATIVE')
 export class ReceivingController {
   constructor(private readonly receiving: ReceivingService) {}
 
