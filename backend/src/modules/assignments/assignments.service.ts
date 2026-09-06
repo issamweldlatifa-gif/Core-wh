@@ -347,11 +347,13 @@ export class AssignmentsService {
       this.prisma.workerTaskAssignment.findMany({
         where: { workerId: userId, status: { in: ['ASSIGNED', 'IN_PROGRESS', 'BLOCKED'] } },
         orderBy: { createdAt: 'asc' },
+        include: { arrival: true, carton: true, container: true, outboundShipment: true, order: true, station: true },
       }),
       this.prisma.workerTaskAssignment.findMany({
         where: { workerId: userId, status: { in: ['COMPLETED', 'COMPLETED_WITH_DISCREPANCY', 'CANCELLED'] } },
         orderBy: { completedAt: 'desc' },
         take: 10,
+        include: { arrival: true, carton: true, container: true, outboundShipment: true, order: true, station: true },
       }),
     ]);
     return { open: open.map((r) => this.shape(r)), recent: recent.map((r) => this.shape(r)) };
