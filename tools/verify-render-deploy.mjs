@@ -4,7 +4,10 @@ import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 
 const expectedCommit = process.argv[2] || execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-const expectedBranch = 'arena/01a073df-core-wh';
+// Production rule: the Render service follows "master". Every production
+// release must land in master (feature branches are merged in, never
+// deployed directly), so this is the only branch verification accepts.
+const expectedBranch = 'master';
 const serviceIds = (process.env.AYROVI_RENDER_SERVICE_IDS || '').split(',').map((s) => s.trim()).filter(Boolean);
 const token = process.env.RENDER_API_KEY;
 const timeoutMs = Math.min(Number(process.env.AYROVI_DEPLOY_TIMEOUT_MS || 600000), 1200000);
