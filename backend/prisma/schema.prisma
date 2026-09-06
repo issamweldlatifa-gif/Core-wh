@@ -209,6 +209,16 @@ enum AuditAction {
   DEVICE_UPDATED
   DEVICE_STATUS_CHANGED
   DEVICE_ASSIGNED
+  // Master workflow chain — automatic task dispatch + container staging +
+  // customer container QR/lock + shipping verification.
+  TASK_AUTO_DISPATCHED // backend auto-generated the next operational task
+  CONTAINER_STAGED // a closed tote was moved to a temporary storage station
+  CUSTOMER_QR_GENERATED // customer container completed → QR generated
+  CUSTOMER_CONTAINER_LOCKED // customer container locked after completion
+  CUSTOMER_CONTAINER_REOPENED // admin correction reopened a locked customer container
+  SHIPPING_VERIFIED // shipping pre-dispatch verification (customer/container/status)
+  EXCEPTION_CREATED // worker-reported operational exception (any stage)
+  EXCEPTION_RESOLVED // admin resolved an operational exception
 }
 
 enum ApiClientStatus {
@@ -592,6 +602,7 @@ model Zone {
   aisles    Aisle[]
   locations Location[]
   categoryMappings CategoryZoneMapping[]
+  stations  Station[]
 
   @@unique([warehouseId, code])
   @@index([warehouseId])
@@ -792,6 +803,11 @@ model WarehouseOrder {
   // D-41/D-42: lightweight external projection — NO customer record is stored.
   externalOrderReference    String               @unique // C2: idempotency anchor; normalized trim + UPPERCASE (D-64)
   externalCustomerReference String // reference ONLY; normalized trim + UPPERCASE (D-64); non-unique index
+  /// Display name of the customer from the CRM card (projection only — still
+  /// no local customer master). Kept for customer cards, the customer
+  /// container label and bordereau search (Master Order §12/§18).
+  customerName              String?
+  customerSurname           String?
   source                    OrderSource          @default(ADMIN)
   status                    WarehouseOrderStatus @default(OPEN)
   // D-50: optional at creation; must be set before Receiving (Phase 3 prerequisite).
@@ -1177,6 +1193,19 @@ model OperationalContainer {
   orderId String?
   order   WarehouseOrder? @relation(fields: [orderId], references: [id], onDelete: SetNull)
 
+  /// Customer container QR payload, generated server-side when the bin is
+  /// completed (READY_FOR_PACKING) and the card LOCKED (Master Order §15).
+  /// Format: `AYROVI:BIN-xxxxxx:ORDER-REF:CUSTOMER-REF`. NULL until complete.
+  qrValue String? @unique
+
+  /// Temporary storage (staging) placement of a CLOSED receiving tote
+  /// (Master Order §11): which station/zone the container physically waits at.
+  /// Written by the container stage operation; SetNull keeps history.
+  stagingStationId String?
+  stagingStation   Station? @relation("ContainerStaging", fields: [stagingStationId], references: [id], onDelete: SetNull)
+  stagedAt         DateTime?
+  stagedById       String? // plain worker id (no FK) — mirrors WarehouseCarton.claimedById
+
   createdBy String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1275,6 +1304,7 @@ model OutboundShipment {
 
   articles ArticleUnit[]
   taskAssignments WorkerTaskAssignment[] @relation("AssignmentOutbound")
+  verifications ShippingVerification[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1282,6 +1312,70 @@ model OutboundShipment {
   @@index([orderId])
   @@index([status])
   @@map("outbound_shipments")
+}
+
+/// Pre-dispatch verification (Master Order §17): shipping may only be posted
+/// after a verification that bound actor + shipment + CONTENT HASH. A
+/// verification expires and is single-use; `ship` re-checks the content hash
+/// so contents cannot change between verify and dispatch.
+model ShippingVerification {
+  id                 String   @id @default(uuid())
+  outboundShipmentId String
+  outboundShipment   OutboundShipment @relation(fields: [outboundShipmentId], references: [id], onDelete: Cascade)
+
+  verifiedById String? // the worker who verified (audited actor)
+  /// SHA-256 over the sorted (code|sku) content of the shipment's articles —
+  /// recomputed at ship time and compared.
+  contentHash String
+  expiresAt   DateTime
+  usedAt      DateTime? // set when the dispatch consumed this verification
+
+  createdAt DateTime @default(now())
+
+  @@index([outboundShipmentId])
+  @@map("shipping_verifications")
+}
+
+/// Worker-reported operational exception for ANY stage (sorting / packing /
+/// shipping / container), generalising the receiving-only
+/// ReceivingDiscrepancy pattern without duplicating it: receiving keeps its
+/// session-scoped discrepancy entity; everything else lands here. One
+/// exceptions model, one admin board, audited create/resolve (Master Order
+/// §7/§14/§26).
+enum OperationalExceptionStatus {
+  OPEN
+  RESOLVED
+  REJECTED
+}
+
+model OperationalException {
+  id     String @id @default(uuid())
+  code   String @unique // EXC-XXXXXX, server-generated
+  /// Same vocabulary as DiscrepancyType (SHORTAGE, MISSING_PRODUCT, ...).
+  type   String
+  status OperationalExceptionStatus @default(OPEN)
+
+  entityType String // receiving_session | container | article | order | outbound | station | other
+  entityId   String?
+  entityCode String? // human code (RCN-/ART-/BIN-/OUT-...)
+  taskKey    String?
+
+  reason String
+
+  reportedById String?
+  stationId    String?
+  station      Station? @relation("ExceptionStation", fields: [stationId], references: [id], onDelete: SetNull)
+
+  resolvedById String?
+  resolvedAt   DateTime?
+  resolution   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([type])
+  @@map("operational_exceptions")
 }
 
 // ------------------------------------------------------------------
@@ -1673,6 +1767,9 @@ enum StationDepartment {
   PACKING
   INVENTORY
   DISPATCH
+  /// Temporary storage position for CLOSED receiving totes (Master Order §11):
+  /// a full container is moved here and waits for the sorting step.
+  STAGING
 }
 
 enum StationStatus {
@@ -1715,6 +1812,12 @@ model Station {
   warehouseId String?
   warehouse   Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
 
+  /// Zone this physical station sits in (Master Order §11 — the
+  /// station/zone relationship is BACKEND/ADMIN CONFIGURATION, not code).
+  /// For STAGING stations: the temporary-storage zone closed totes are moved to.
+  zoneId  String?
+  zone    Zone?   @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1723,10 +1826,13 @@ model Station {
   workerSessions  Session[]            @relation("SessionStation")
   putawaySessions PutawaySession[]     @relation("StationPutawaySessions")
   taskAssignments WorkerTaskAssignment[] @relation("AssignmentStation")
+  stagedContainers OperationalContainer[] @relation("ContainerStaging")
+  exceptions      OperationalException[]   @relation("ExceptionStation")
 
   @@index([department])
   @@index([status])
   @@index([assignedWorkerId])
+  @@index([zoneId])
   @@map("stations")
 }
 
@@ -1739,6 +1845,9 @@ enum CorrectionAction {
   REOPEN_SESSION
   VOID_OPERATION
   RESOLVE_EXCEPTION
+  /// Reopen a COMPLETED/LOCKED customer container (READY_FOR_PACKING →
+  /// ACTIVE). Authorized admin workflow only — fully audited (Master Order §15).
+  REOPEN_CUSTOMER_BIN
 }
 
 /// An append-only correction record (§8). Operational history is NEVER

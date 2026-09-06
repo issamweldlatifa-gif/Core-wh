@@ -69,7 +69,13 @@ const PROBE_SQL = `
     (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'worker_task_assignments' AND column_name = 'arrivalId')     AS wta_arrival,
     (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'worker_task_assignments' AND column_name = 'stationId')     AS wta_station,
     (SELECT COUNT(*) FROM information_schema.tables  WHERE table_schema = 'public' AND table_name = 'receiving_scan_events')      AS receiving_scan_events,
-    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'warehouse_cartons' AND column_name = 'claimedById')         AS carton_claim
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'warehouse_cartons' AND column_name = 'claimedById')         AS carton_claim,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'stations'               AND column_name = 'zoneId')             AS station_zone,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'operational_containers' AND column_name = 'qrValue')            AS container_qr,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'operational_containers' AND column_name = 'stagingStationId') AS container_staging,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'warehouse_orders'       AND column_name = 'customerName')     AS order_customer_name,
+    (SELECT COUNT(*) FROM information_schema.tables  WHERE table_schema = 'public' AND table_name = 'shipping_verifications')  AS shipping_verifications,
+    (SELECT COUNT(*) FROM information_schema.tables  WHERE table_schema = 'public' AND table_name = 'operational_exceptions')  AS operational_exceptions
 `;
 
 /**
@@ -448,6 +454,72 @@ END $$`,
   `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'TASK_IN_PROGRESS'`,
   // receiving tote lifecycle: full or manually closed -> READY_FOR_SORTING.
   `ALTER TYPE "ContainerStatus" ADD VALUE IF NOT EXISTS 'READY_FOR_SORTING'`,
+  // ---- master workflow chain (migration 20260906180000) ----------------------
+  `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'TASK_AUTO_DISPATCHED'`,
+  `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'CONTAINER_STAGED'`,
+  `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'CUSTOMER_QR_GENERATED'`,
+  `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'CUSTOMER_CONTAINER_LOCKED'`,
+  `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'CUSTOMER_CONTAINER_REOPENED'`,
+  `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'SHIPPING_VERIFIED'`,
+  `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'EXCEPTION_CREATED'`,
+  `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'EXCEPTION_RESOLVED'`,
+  `ALTER TYPE "StationDepartment" ADD VALUE IF NOT EXISTS 'STAGING'`,
+  `ALTER TYPE "CorrectionAction" ADD VALUE IF NOT EXISTS 'REOPEN_CUSTOMER_BIN'`,
+  `DO $$ BEGIN CREATE TYPE "OperationalExceptionStatus" AS ENUM ('OPEN', 'RESOLVED', 'REJECTED'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  // stations ↔ zone configuration (§11).
+  `ALTER TABLE "stations" ADD COLUMN IF NOT EXISTS "zoneId" TEXT`,
+  `CREATE INDEX IF NOT EXISTS "stations_zoneId_idx" ON "stations"("zoneId")`,
+  `DO $$ BEGIN ALTER TABLE "stations" ADD CONSTRAINT "stations_zoneId_fkey" FOREIGN KEY ("zoneId") REFERENCES "zones"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  // container staging + customer QR (§11/§15).
+  `ALTER TABLE "operational_containers" ADD COLUMN IF NOT EXISTS "qrValue" TEXT`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "operational_containers_qrValue_key" ON "operational_containers"("qrValue")`,
+  `ALTER TABLE "operational_containers" ADD COLUMN IF NOT EXISTS "stagingStationId" TEXT`,
+  `CREATE INDEX IF NOT EXISTS "operational_containers_stagingStationId_idx" ON "operational_containers"("stagingStationId")`,
+  `ALTER TABLE "operational_containers" ADD COLUMN IF NOT EXISTS "stagedAt" TIMESTAMP(3)`,
+  `ALTER TABLE "operational_containers" ADD COLUMN IF NOT EXISTS "stagedById" TEXT`,
+  `DO $$ BEGIN ALTER TABLE "operational_containers" ADD CONSTRAINT "operational_containers_stagingStationId_fkey" FOREIGN KEY ("stagingStationId") REFERENCES "stations"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  // customer name/surname projection for cards + bordereau search (§12/§18).
+  `ALTER TABLE "warehouse_orders" ADD COLUMN IF NOT EXISTS "customerName" TEXT`,
+  `ALTER TABLE "warehouse_orders" ADD COLUMN IF NOT EXISTS "customerSurname" TEXT`,
+  `CREATE INDEX IF NOT EXISTS "warehouse_orders_customerName_idx" ON "warehouse_orders"("customerName")`,
+  `CREATE INDEX IF NOT EXISTS "warehouse_orders_customerSurname_idx" ON "warehouse_orders"("customerSurname")`,
+  // shipping pre-dispatch verification (§17).
+  `CREATE TABLE IF NOT EXISTS "shipping_verifications" (
+    "id" TEXT NOT NULL,
+    "outboundShipmentId" TEXT NOT NULL,
+    "verifiedById" TEXT,
+    "contentHash" TEXT NOT NULL,
+    "expiresAt" TIMESTAMP(3) NOT NULL,
+    "usedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "shipping_verifications_pkey" PRIMARY KEY ("id")
+  )`,
+  `CREATE INDEX IF NOT EXISTS "shipping_verifications_outboundShipmentId_idx" ON "shipping_verifications"("outboundShipmentId")`,
+  `DO $$ BEGIN ALTER TABLE "shipping_verifications" ADD CONSTRAINT "shipping_verifications_outboundShipmentId_fkey" FOREIGN KEY ("outboundShipmentId") REFERENCES "outbound_shipments"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  // cross-stage operational exceptions (§7/§14/§26).
+  `CREATE TABLE IF NOT EXISTS "operational_exceptions" (
+    "id" TEXT NOT NULL,
+    "code" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "status" "OperationalExceptionStatus" NOT NULL DEFAULT 'OPEN',
+    "entityType" TEXT NOT NULL,
+    "entityId" TEXT,
+    "entityCode" TEXT,
+    "taskKey" TEXT,
+    "reason" TEXT NOT NULL,
+    "reportedById" TEXT,
+    "stationId" TEXT,
+    "resolvedById" TEXT,
+    "resolvedAt" TIMESTAMP(3),
+    "resolution" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    CONSTRAINT "operational_exceptions_pkey" PRIMARY KEY ("id")
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "operational_exceptions_code_key" ON "operational_exceptions"("code")`,
+  `CREATE INDEX IF NOT EXISTS "operational_exceptions_status_idx" ON "operational_exceptions"("status")`,
+  `CREATE INDEX IF NOT EXISTS "operational_exceptions_type_idx" ON "operational_exceptions"("type")`,
+  `DO $$ BEGIN ALTER TABLE "operational_exceptions" ADD CONSTRAINT "operational_exceptions_stationId_fkey" FOREIGN KEY ("stationId") REFERENCES "stations"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
 ];
 
 export async function repairSchemaDriftIfNeeded(): Promise<void> {
@@ -495,6 +567,7 @@ export async function repairSchemaDriftIfNeeded(): Promise<void> {
       '20260903140000_admin_data_void_control',
       '20260903150000_admin_worker_control_tasks',
       '20260906120000_worker_operational_model',
+      '20260906180000_master_workflow_chain',
     ]) {
       try {
         await prisma.$executeRawUnsafe(`
