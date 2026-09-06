@@ -385,10 +385,12 @@ BEGIN
       IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'AssignmentStatus_new') THEN
         CREATE TYPE "AssignmentStatus_new" AS ENUM ('ASSIGNED', 'IN_PROGRESS', 'COMPLETED', 'COMPLETED_WITH_DISCREPANCY', 'BLOCKED', 'CANCELLED');
       END IF;
+      EXECUTE 'ALTER TABLE "worker_task_assignments" ALTER COLUMN "status" DROP DEFAULT';
       EXECUTE 'ALTER TABLE "worker_task_assignments" ALTER COLUMN "status" TYPE "AssignmentStatus_new" '
            || 'USING (CASE "status"::text WHEN ''OPEN'' THEN ''ASSIGNED''::text WHEN ''DONE'' THEN ''COMPLETED''::text ELSE "status"::text END)::"AssignmentStatus_new"';
       DROP TYPE "AssignmentStatus";
       ALTER TYPE "AssignmentStatus_new" RENAME TO "AssignmentStatus";
+      EXECUTE 'ALTER TABLE "worker_task_assignments" ALTER COLUMN "status" SET DEFAULT ''ASSIGNED''::"AssignmentStatus"';
     END IF;
   END IF;
 END $$`,
@@ -396,12 +398,12 @@ END $$`,
   `ALTER TYPE "AssignmentStatus" ADD VALUE IF NOT EXISTS 'COMPLETED_WITH_DISCREPANCY'`,
   `ALTER TYPE "AssignmentStatus" ADD VALUE IF NOT EXISTS 'BLOCKED'`,
   `ALTER TABLE "worker_task_assignments" ADD COLUMN IF NOT EXISTS "taskKey" TEXT`,
-  `ALTER TABLE "worker_task_assignments" ADD COLUMN IF NOT EXISTS "arrivalId" UUID`,
-  `ALTER TABLE "worker_task_assignments" ADD COLUMN IF NOT EXISTS "cartonId" UUID`,
-  `ALTER TABLE "worker_task_assignments" ADD COLUMN IF NOT EXISTS "containerId" UUID`,
-  `ALTER TABLE "worker_task_assignments" ADD COLUMN IF NOT EXISTS "outboundShipmentId" UUID`,
-  `ALTER TABLE "worker_task_assignments" ADD COLUMN IF NOT EXISTS "orderId" UUID`,
-  `ALTER TABLE "worker_task_assignments" ADD COLUMN IF NOT EXISTS "stationId" UUID`,
+  `ALTER TABLE "worker_task_assignments" ADD COLUMN IF NOT EXISTS "arrivalId" TEXT`,
+  `ALTER TABLE "worker_task_assignments" ADD COLUMN IF NOT EXISTS "cartonId" TEXT`,
+  `ALTER TABLE "worker_task_assignments" ADD COLUMN IF NOT EXISTS "containerId" TEXT`,
+  `ALTER TABLE "worker_task_assignments" ADD COLUMN IF NOT EXISTS "outboundShipmentId" TEXT`,
+  `ALTER TABLE "worker_task_assignments" ADD COLUMN IF NOT EXISTS "orderId" TEXT`,
+  `ALTER TABLE "worker_task_assignments" ADD COLUMN IF NOT EXISTS "stationId" TEXT`,
   `UPDATE "worker_task_assignments" a SET "arrivalId" = e.id FROM "expected_arrivals" e WHERE a."relatedType" = 'ARRIVAL' AND a."relatedCode" = e.code AND a."arrivalId" IS NULL`,
   `UPDATE "worker_task_assignments" a SET "cartonId" = c.id FROM "warehouse_cartons" c WHERE a."relatedType" IN ('CARTON', 'SHIPMENT') AND (a."relatedCode" = c."externalCartonId" OR a."relatedCode" = c."qrCodeValue" OR a."relatedCode" = c."barcodeValue") AND a."cartonId" IS NULL`,
   `UPDATE "worker_task_assignments" a SET "containerId" = o.id FROM "operational_containers" o WHERE a."relatedType" IN ('CONTAINER', 'BIN', 'TOTE') AND a."relatedCode" = o.code AND a."containerId" IS NULL`,
@@ -439,18 +441,13 @@ END $$`,
   `ALTER TABLE "warehouse_cartons" ADD COLUMN IF NOT EXISTS "claimedAt" TIMESTAMP(3)`,
   // stations.deviceId -> Device registry FK (C-8).
   `UPDATE "stations" s SET "deviceId" = d.id FROM "devices" d WHERE s."deviceId" = d.code`,
-  `UPDATE "stations" SET "deviceId" = NULL WHERE "deviceId" IS NOT NULL AND "deviceId" !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'`,
-  `DO $$ BEGIN ALTER TABLE "stations" ALTER COLUMN "deviceId" TYPE UUID USING ("deviceId"::uuid); EXCEPTION WHEN others THEN NULL; END $$`,
+  `UPDATE "stations" SET "deviceId" = NULL WHERE "deviceId" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "devices" d WHERE d.id = "stations"."deviceId")`,
   `DO $$ BEGIN ALTER TABLE "stations" ADD CONSTRAINT "stations_deviceId_fkey" FOREIGN KEY ("deviceId") REFERENCES "devices"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
   // worker issue reporting + assignment lifecycle audit actions.
   `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'WORKER_ISSUE_REPORTED'`,
   `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'TASK_IN_PROGRESS'`,
   // receiving tote lifecycle: full or manually closed -> READY_FOR_SORTING.
-  `DO $$ BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_enum WHERE enumtypid = '"ContainerStatus"'::regtype AND enumlabel = 'READY_FOR_SORTING') THEN
-      ALTER TYPE "ContainerStatus" ADD VALUE 'READY_FOR_SORTING';
-    END IF;
-  END $$`,
+  `ALTER TYPE "ContainerStatus" ADD VALUE IF NOT EXISTS 'READY_FOR_SORTING'`,
 ];
 
 export async function repairSchemaDriftIfNeeded(): Promise<void> {
