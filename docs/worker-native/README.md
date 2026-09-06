@@ -2,7 +2,7 @@
 
 **Checkpoint: Receiving-first pilot. Full production migration is NOT COMPLETE.**
 
-The existing Kotlin/Compose app in `mobile/` is being evolved—not replaced by another app or a WebView. Application ID remains **`com.ayrovi.worker`**. The backend and shared Admin/web source are unchanged. Legacy Worker UI is frozen and retained behind explicit retirement gates.
+The existing Kotlin/Compose app in `mobile/` has been evolved for this pilot—not replaced by another app or a WebView. Application ID remains **`com.ayrovi.worker`**. The backend and shared Admin/web source are unchanged. Legacy Worker UI is frozen and retained behind explicit retirement gates.
 
 ## Implemented in this slice
 
@@ -25,9 +25,11 @@ Real-backend/DB/negative-permission validation, physical enterprise devices, war
 
 - Frontend: **107 tests passed**; unrelated baseline typecheck failure remains in `LiveBoard.tsx:38`.
 - Backend: **62 tests and Nest build passed**; no-engine Prisma type generation, not a live DB run.
-- Native CI at `12ef374`: **20 scanner + 60 core tests, Android build, lint and test APK compile passed**. Final hardening rerun is tracked in [15](15-testing-report.md).
-- Android instrumentation: test sources provided; execution requires restored GitHub workflow-dispatch access or an approved local Android environment.
+- Final native CI at `b0771e8`: **91 JVM tests (20 scanner + 71 core), Android build, lint and test APK compilation passed**. See [15](15-testing-report.md).
+- Android instrumentation: **eight tests compiled, not executed**. Manual workflow dispatch remains permission-restricted after GitHub reconnection; use an authorized Actions account or approved local Android environment.
 - Physical hardware / production pilot / cutover / retirement: **NOT RUN / NOT AUTHORIZED**.
+
+**QA download:** [Receiving pilot APK artifact](https://github.com/issamweldlatifa-gif/Core-wh/actions/runs/34002636062/artifacts/9979997734) · [Successful build and reports](https://github.com/issamweldlatifa-gif/Core-wh/actions/runs/34002636062). Debug/QA artifact only, not a production release. Native source verified at `b0771e89e77c41d29c16a472ebd065b6dc9132a5`.
 
 ## The nineteen deliverables
 
@@ -57,4 +59,4 @@ Real-backend/DB/negative-permission validation, physical enterprise devices, war
 
 See [`mobile/README.md`](../../mobile/README.md) for JDK17/SDK35, HTTPS environment configuration and test/build commands. Register approved test workers/devices through existing Admin tools; no credentials in chat or Git.
 
-Finish final native CI/instrumentation verification, resolve the required backend contract work, and execute the Receiving physical/API acceptance gate **before expanding new workflow screens or retiring legacy code**. Standing discipline: **CLEAN FIRST — NO ACCUMULATION**.
+Execute instrumentation and real API/DB verification, resolve the required backend contract work, and execute the Receiving physical/API acceptance gate **before expanding new workflow screens or retiring legacy code**. Standing discipline: **CLEAN FIRST — NO ACCUMULATION**.

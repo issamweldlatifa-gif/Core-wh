@@ -35,7 +35,9 @@ This is not a claim that the overall migration is complete. The legacy retention
 - [x] No silent backend/schema/permission contract modifications.
 - [x] Backend-invalid legacy assumptions documented rather than copied as truth.
 - [x] Source/test/contract/plan/hardware evidence distinguished; limitations not labeled complete.
-- [ ] Final native verification for final commit recorded in report15.
+- [x] All 19 reports present, relative links checked, single production repository/transport/scanner guards verified, whitespace diff clean.
+- [x] Final native source `b0771e8`: 91 JVM tests, APK build, lint and test APK compilation passed; recorded in report15.
+- [ ] Android instrumentation execution (eight cases compiled only).
 - [ ] Real backend/DB/role/hardware/pilot evidence accepted.
 - [ ] All requested critical workflows migrated.
 - [ ] Legacy retirement approved/executed and entire dependency/import/route graph cleaned.

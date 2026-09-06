@@ -70,3 +70,5 @@ The web Worker Terminal is the temporary migration reference/fallback. Its sourc
 ## Audit disposition
 
 See [02](02-component-matrix.md) for classifications, [03](03-api-contracts.md) for contracts, [04](04-business-logic.md) for extraction and invalid-rule handling. Verified here means **source-verified** unless the test evidence explicitly says executed. No claims that a physical scanner, production API, pilot, or retirement passed.
+
+Current migration evidence (2026-09-06) is in [15](15-testing-report.md). The table above remains the frozen baseline audit, not a claim that every original native defect persists in the new Receiving lane. Backend/web source remains unchanged.

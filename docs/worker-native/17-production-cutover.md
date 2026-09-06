@@ -9,7 +9,8 @@ No production deployment, release, fleet update or stock operation was performed
 | Gate | Current decision |
 |---|---|
 | Source audit, endpoint contracts, extraction boundaries | Documented; source authority preserved. |
-| Final native CI/test/lint and secure-storage/device upgrade | See report15; physical upgrade still pending. |
+| Native CI/test/lint | PASS: 91 JVM tests, APK build/lint/test APK compile at `b0771e8`; report15. |
+| Instrumentation / secure-storage and device upgrade | Eight cases compile but execution and physical upgrade remain pending. |
 | Backend BC-01…06 and source-matching schema deployment | BLOCKED / owner decisions and implementation required. |
 | Complete Receiving real API/DB/device validation | NOT RUN. |
 | Complete other critical workflows and role matrix | NOT IMPLEMENTED/VALIDATED. |
@@ -24,7 +25,7 @@ No production deployment, release, fleet update or stock operation was performed
 1. Name warehouse operations, backend, Android/MDM, security, QA and release owners. Approve explicit scope/cohort/station/test inventory and stop criteria.
 2. Match staging API commit/schema/permissions to report03; implement/validate missing contracts separately. Never use a convenient production URL as proof of compatibility.
 3. Build reproducibly from reviewed branch/commit with JDK17/SDK35 and an approved HTTPS API root. Record APK hash, versionCode, signing certificate, dependency and scanner profile revisions. There is one package: `com.ayrovi.worker`.
-4. Debug APKs are QA only. Release is intentionally unsigned until the organization's secure signing process supplies the existing trusted identity. Do not change package ID or uninstall/clear app data to evade signature conflicts.
+4. Debug APKs are QA only (latest artifact linked in report15). Release is intentionally unsigned until the organization's secure signing process supplies the existing trusted identity. Do not change package ID or uninstall/clear app data to evade signature conflicts.
 5. Validate encrypted-store upgrade, retained device registration and unresolved-operation preservation. Provision operational accounts and device/station mappings through existing Admin tools; no credentials in chat/Git.
 6. Keep a tested, signed previous artifact outside Git plus the frozen web reference. Same-package downgrade/update/MDM procedure must be tested. Source code is not an installable rollback.
 7. Execute reports15–16 and real stock/audit checks. No production pilot approval inferred from unit passes.
