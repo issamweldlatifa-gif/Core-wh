@@ -30,7 +30,15 @@ class MainActivity : ComponentActivity() {
                 }
             } else if (BuildConfig.WORKER_LEGACY_FALLBACK) {
                 // Explicit build-time rollback only, SAME application ID. Retire after cutover gates.
-                AyroviApp(dependencies.sessions, dependencies.repository)
+                if (dependencies.frozenRollbackAllowed) AyroviApp(dependencies.sessions, dependencies.repository)
+                else AyroviTerminalTheme {
+                    TerminalShell(
+                        header = { TerminalHeader("ROLLBACK BLOCKED", "DEVICE RECONCILIATION REQUIRED", null, "CHECKING") },
+                        footer = { TerminalFooter("DO NOT REPLAY RECEIPTS") {} },
+                    ) {
+                        WarningState("UNRESOLVED OPERATION", "This device has an unresolved native operation. Use the approved native recovery build and reconcile with a supervisor before switching clients. Do not clear app data.")
+                    }
+                }
             } else WorkerTerminalApp(dependencies)
         }
     }

@@ -5,7 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.ayrovi.worker.data.*
 import com.ayrovi.worker.domain.OperationalMessage
 import com.ayrovi.worker.domain.MessageTone
-import com.ayrovi.worker.domain.WorkerAccess
+import com.ayrovi.worker.domain.WorkerSessionUseCase
 import com.ayrovi.worker.domain.toOperationalMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -20,6 +20,7 @@ import kotlinx.coroutines.launch
 data class WorkerAppState(
     val signedIn: Boolean = false,
     val loginGeneration: Long = 0,
+    val identityVersion: Long? = null,
     val busy: Boolean = false,
     val verified: Boolean = false,
     val me: MeResponse? = null,
@@ -30,11 +31,11 @@ data class WorkerAppState(
     val message: OperationalMessage? = null,
 )
 
-class WorkerAppViewModel(private val repository: WorkerRepository, private val store: SessionStorage) : ViewModel() {
-    private val mutable = MutableStateFlow(WorkerAppState(signedIn = store.hasSession()))
+class WorkerAppViewModel(private val session: WorkerSessionUseCase) : ViewModel() {
+    private val mutable = MutableStateFlow(WorkerAppState(signedIn = session.hasSession))
     val state = mutable.asStateFlow()
-    val connection = repository.connection
-    val deviceCode = store.deviceCode
+    val connection = session.connection
+    val deviceCode = session.deviceCode
     private var generation = 0L
     private var foreground = false
     private var monitor: Job? = null
@@ -42,9 +43,9 @@ class WorkerAppViewModel(private val repository: WorkerRepository, private val s
     init {
         viewModelScope.launch {
             connection.collect { status ->
-                if (status == ConnectionState.AUTH_ERROR && !store.hasSession()) expireSession()
+                if (status == ConnectionState.AUTH_ERROR && !session.hasSession) expireSession()
                 if (status == ConnectionState.OFFLINE) mutable.update { it.copy(verified = false) }
-                if (status == ConnectionState.CHECKING && foreground && store.hasSession()) refresh()
+                if (status == ConnectionState.CHECKING && foreground && session.hasSession) refresh()
             }
         }
     }
@@ -53,7 +54,7 @@ class WorkerAppViewModel(private val repository: WorkerRepository, private val s
         foreground = true
         monitor?.cancel()
         monitor = viewModelScope.launch {
-            while (isActive) { if (store.hasSession()) refresh(); delay(30_000) }
+            while (isActive) { if (session.hasSession) refresh(); delay(30_000) }
         }
     }
 
@@ -72,7 +73,7 @@ class WorkerAppViewModel(private val repository: WorkerRepository, private val s
         mutable.update { it.copy(busy = true, message = null) }
         viewModelScope.launch {
             try {
-                repository.login(identifier, secret, if (pin) "pin" else "password", deviceCode)
+                session.login(identifier, secret, pin)
                 mutable.update { it.copy(signedIn = true, loginGeneration = ++generation) }
                 loadContext()
             } catch (cancelled: CancellationException) { throw cancelled }
@@ -82,7 +83,7 @@ class WorkerAppViewModel(private val repository: WorkerRepository, private val s
     }
 
     fun refresh() {
-        if (mutable.value.busy || !store.hasSession()) return
+        if (mutable.value.busy || !session.hasSession) return
         mutable.update { it.copy(busy = true, verified = false, message = null) }
         viewModelScope.launch {
             try { loadContext() }
@@ -93,22 +94,12 @@ class WorkerAppViewModel(private val repository: WorkerRepository, private val s
     }
 
     private suspend fun loadContext() {
-        val me = repository.me()
-        if (!WorkerAccess.isWorkerSession(me)) {
-            store.clear()
-            throw WorkerRepository.ApiException(401, "This session is not authorized for the Worker application.")
-        }
-        val context = repository.terminalContext()
-        if (context.worker?.id != me.user?.id) {
-            store.clear()
-            throw WorkerRepository.ApiException(401, "Worker identity could not be verified.")
-        }
-        // Publish fresh authorization even if the optional queue read later fails.
-        mutable.update { it.copy(me = me, context = context, tasks = WorkerAccess.visibleTasks(me, context), signedIn = true) }
-        val assignments = repository.assignments()
-        val count = if (WorkerAccess.VIEW_RECEIVING in me.permissions && WorkerAccess.EXECUTE_RECEIVING in me.permissions)
-            repository.arrivals().size else null
-        mutable.update { it.copy(assignments = assignments, receivingArrivals = count, verified = foreground, message = null) }
+        val verified = session.loadContext()
+        mutable.update { it.copy(
+            signedIn = true, me = verified.me, context = verified.context, tasks = verified.tasks,
+            assignments = verified.assignments, receivingArrivals = verified.receivingArrivalCount,
+            identityVersion = verified.identityVersion, verified = foreground, message = null,
+        ) }
     }
 
     fun completeAssignment(id: String) {
@@ -116,8 +107,7 @@ class WorkerAppViewModel(private val repository: WorkerRepository, private val s
         mutable.update { it.copy(busy = true, message = null) }
         viewModelScope.launch {
             try {
-                repository.completeAssignment(id)
-                val assignments = repository.assignments()
+                val assignments = session.completeAssignment(id)
                 mutable.update { it.copy(assignments = assignments, message = OperationalMessage("ASSIGNMENT COMPLETED", "The backend recorded this assignment as done.", MessageTone.SUCCESS)) }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) {
@@ -133,7 +123,7 @@ class WorkerAppViewModel(private val repository: WorkerRepository, private val s
         mutable.update { it.copy(busy = true, verified = false) }
         viewModelScope.launch {
             try {
-                val revoked = repository.logout()
+                val revoked = session.logout()
                 mutable.value = WorkerAppState(message = if (revoked) null else OperationalMessage(
                     "SIGNED OUT ON THIS DEVICE", "Server logout was not confirmed. Ask an administrator to revoke the previous session.", MessageTone.WARNING))
             } catch (cancelled: CancellationException) { throw cancelled }
@@ -144,14 +134,14 @@ class WorkerAppViewModel(private val repository: WorkerRepository, private val s
     }
 
     fun expireSession() {
-        if (store.hasSession()) store.clear()
+        if (!session.expire(mutable.value.identityVersion)) { refresh(); return }
         mutable.value = WorkerAppState(message = OperationalMessage("SIGN IN REQUIRED", "Your session expired or was revoked. Unconfirmed work will not be replayed."))
     }
 
     private fun fail(failure: Exception) {
         if (failure is WorkerRepository.ApiException && failure.code == 401) {
-            if (store.hasSession()) store.clear()
-            mutable.value = WorkerAppState(message = failure.toOperationalMessage())
-        } else mutable.update { it.copy(signedIn = store.hasSession(), verified = false, message = failure.toOperationalMessage()) }
+            if (session.expire(mutable.value.identityVersion)) mutable.value = WorkerAppState(message = failure.toOperationalMessage())
+            else mutable.update { it.copy(verified = false, message = failure.toOperationalMessage()) }
+        } else mutable.update { it.copy(signedIn = session.hasSession, verified = false, message = failure.toOperationalMessage()) }
     }
 }

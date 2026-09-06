@@ -33,7 +33,7 @@ internal fun <T : ViewModel> factory(create: () -> T): ViewModelProvider.Factory
 /** The new lane contains no repository calls or business rules in Compose. */
 @Composable
 fun WorkerTerminalApp(container: AppContainer) {
-    val model: WorkerAppViewModel = viewModel(factory = factory { WorkerAppViewModel(container.repository, container.sessions) })
+    val model: WorkerAppViewModel = viewModel(factory = factory { WorkerAppViewModel(container.workerSession) })
     val state by model.state.collectAsStateWithLifecycle()
     val connection by model.connection.collectAsStateWithLifecycle()
     val owner = LocalLifecycleOwner.current

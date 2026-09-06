@@ -1,6 +1,7 @@
 package com.ayrovi.worker.di
 
 import android.content.Context
+import com.ayrovi.worker.domain.WorkerSessionUseCase
 import com.ayrovi.worker.BuildConfig
 import com.ayrovi.worker.data.SessionStore
 import com.ayrovi.worker.data.WorkerRepository
@@ -9,5 +10,7 @@ import com.ayrovi.worker.data.WorkerRepository
 class AppContainer(context: Context) {
     val sessions = SessionStore(context.applicationContext)
     val repository = WorkerRepository(sessions, BuildConfig.API_BASE_URL)
+    val workerSession = WorkerSessionUseCase(repository, sessions)
+    val frozenRollbackAllowed = sessions.read() == null
     val connectivity = NetworkMonitor(context.applicationContext, repository.transport::networkAvailable)
 }

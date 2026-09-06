@@ -44,6 +44,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Composable
 import android.content.Context
 import android.os.BatteryManager
@@ -788,10 +789,12 @@ private fun HomeScreen(
                     Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(a.title, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            if (!a.relatedCode.isNullOrBlank())
-                                Text(a.relatedCode, color = Amber, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
-                            if (!a.description.isNullOrBlank())
-                                Text(a.description, fontSize = 11.sp, color = Dim)
+                            a.relatedCode?.takeIf { it.isNotBlank() }?.let {
+                                Text(it, color = Amber, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                            }
+                            a.description?.takeIf { it.isNotBlank() }?.let {
+                                Text(it, fontSize = 11.sp, color = Dim)
+                            }
                         }
                         Button(onClick = {
                             scope.launch {
