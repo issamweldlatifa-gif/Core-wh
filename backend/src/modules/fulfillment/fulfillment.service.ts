@@ -221,6 +221,7 @@ export class FulfillmentService {
       include: { expectedArrival: { select: { id: true, code: true } } },
     });
     if (!session) throw new NotFoundException('Receiving session not found.');
+    await this.assignments.assertOperationalAccess(actor.id, 'receiving', { arrivalId: session.arrivalId });
     if (session.status !== 'RECEIVING') {
       throw new ConflictException('This receiving session is not active.');
     }
@@ -411,6 +412,7 @@ export class FulfillmentService {
       include: { _count: { select: { articles: { where: { status: 'IN_CONTAINER' } } } } },
     });
     if (!container) throw new NotFoundException('Container not found.');
+    if (container.type !== 'RECEIVING') throw new ConflictException('Only receiving totes can be closed here.');
     if (container.status !== 'ACTIVE') {
       throw new ConflictException(`Container ${container.code} is already ${container.status}.`);
     }
@@ -763,6 +765,12 @@ export class FulfillmentService {
     });
 
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM operational_containers WHERE id = ${bin.id} FOR UPDATE`;
+      await this.assignments.assertOperationalAccess(actor.id, 'packing', { containerId: bin.id }, tx);
+      const currentBin = await tx.operationalContainer.findUnique({ where: { id: bin.id } });
+      if (!currentBin || currentBin.status !== 'READY_FOR_PACKING') throw new ConflictException('Container is not ready for packing or already packed.');
+      const currentReadiness = await this.checkOrderCompleteness(tx, bin.order!.id);
+      if (!currentReadiness.complete) throw new ConflictException('Order contents changed. Verify the container again.');
       const code = await this.genOutboundCode(tx);
       const shipment = await tx.outboundShipment.create({
         data: {
@@ -799,7 +807,7 @@ export class FulfillmentService {
         },
         tx,
       );
-      this.events.emit('packed', { shipment: code, order: bin.order!.externalOrderReference, actor: actor.id, t: Date.now() });
+      await this.assignments.containerPacked(bin.id, actor.id, tx);
       return {
         flash: { kind: 'PACKED', shipment: code, order: bin.order!.externalOrderReference },
         shipment: {
@@ -811,8 +819,7 @@ export class FulfillmentService {
         },
       };
     }).then(async (r) => {
-      // Operational assignment lifecycle: packing tasks on this bin complete.
-      await this.assignments.containerPacked(bin.id, actor.id).catch(() => 0);
+      this.events.emit('packed', { shipment: r.shipment.code, order: bin.order!.externalOrderReference, actor: actor.id, t: Date.now() });
       return r;
     });
   }
@@ -846,6 +853,10 @@ export class FulfillmentService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM outbound_shipments WHERE id = ${shipment.id} FOR UPDATE`;
+      await this.assignments.assertOperationalAccess(actor.id, 'shipping', { outboundShipmentId: shipment.id }, tx);
+      const current = await tx.outboundShipment.findUnique({ where: { id: shipment.id } });
+      if (!current || current.status !== 'READY_TO_SHIP') throw new ConflictException('Shipment already changed or shipped.');
       await tx.outboundShipment.update({
         where: { id: shipment.id },
         data: { status: 'SHIPPED', shippedBy: actor.id, shippedAt: new Date() },
@@ -890,11 +901,10 @@ export class FulfillmentService {
         },
         tx,
       );
-      this.events.emit('shipped', { shipment: shipment.code, actor: actor.id, t: Date.now() });
+      await this.assignments.outboundShipped(shipment.id, actor.id, tx);
       return { flash: { kind: 'SHIPPED', shipment: shipment.code } };
     }).then(async (r) => {
-      // Operational assignment lifecycle: shipping tasks on this outbound complete.
-      await this.assignments.outboundShipped(shipment.id, actor.id).catch(() => 0);
+      this.events.emit('shipped', { shipment: shipment.code, actor: actor.id, t: Date.now() });
       return r;
     });
   }

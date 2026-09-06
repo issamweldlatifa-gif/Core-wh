@@ -32,9 +32,13 @@ export default function SessionDetailPage() {
         <div>
           <h1 className="ac-title">Session {s.code}</h1>
           <p className="ac-sub">
-            {s.worker?.name ?? 'unknown worker'} · {s.arrival?.code ?? '—'} ·{' '}
+            <span className={`os-tag ${s.status === 'COMPLETED' ? 'os-tag--ok' : s.status === 'RECEIVING' ? 'os-tag--warn' : 'os-tag--info'}`}>
+              {s.status}
+            </span>
+            {' '}{s.worker?.name ?? 'unknown worker'} · {s.arrival?.code ?? '—'} ·{' '}
             {new Date(s.startedAt).toLocaleString()} · {s.deviceType ?? 'device n/a'}
             {s.station ? ` · ${s.station.code}` : ''}
+            {s.completedAt ? ` · completed ${new Date(s.completedAt).toLocaleString()}` : ' · not completed'}
           </p>
         </div>
         <div className="os-row">
@@ -63,12 +67,21 @@ export default function SessionDetailPage() {
 
         <div className="ac-panels">
           <section className="os-card">
-            <h2 className="os-card-title">Cartons</h2>
+            <h2 className="os-card-title">Cartons ({data.cartons.length})</h2>
             <table className="os-table">
-              <thead><tr><th>Code</th><th>Source</th><th>Status</th><th /></tr></thead>
+              <thead>
+                <tr><th>Carton ID</th><th>Reference</th><th>QR / Barcode</th><th>Scanned</th><th>Source</th><th>Status</th><th /></tr>
+              </thead>
               <tbody>
                 {data.cartons.map((c) => (
                   <tr key={c.id}>
+                    <td className="mono">{c.carton?.externalCartonId ?? c.carton?.id ?? '—'}</td>
+                    <td className="mono">{c.carton?.cartonReference ?? '—'}</td>
+                    <td className="mono os-muted">
+                      {c.carton
+                        ? [c.carton.qrCodeValue, c.carton.barcodeValue].filter(Boolean).join(' / ') || '—'
+                        : '—'}
+                    </td>
                     <td className="mono">{c.scannedCode}</td>
                     <td className="os-muted">{c.source}</td>
                     <td>
@@ -83,19 +96,21 @@ export default function SessionDetailPage() {
                     </td>
                   </tr>
                 ))}
-                {data.cartons.length === 0 && <tr><td colSpan={4} className="os-empty">No carton events.</td></tr>}
+                {data.cartons.length === 0 && <tr><td colSpan={7} className="os-empty">No carton events.</td></tr>}
               </tbody>
             </table>
           </section>
 
           <section className="os-card">
-            <h2 className="os-card-title">Products</h2>
+            <h2 className="os-card-title">Products ({data.products.length})</h2>
             <table className="os-table">
-              <thead><tr><th>SKU</th><th>Recv/Exp</th><th>Status</th><th /></tr></thead>
+              <thead><tr><th>SKU</th><th>Reference</th><th>Product</th><th>Recv/Exp</th><th>Status</th><th /></tr></thead>
               <tbody>
                 {data.products.map((p) => (
                   <tr key={p.id}>
                     <td className="mono">{p.sku ?? '—'}</td>
+                    <td className="mono">{p.reference ?? '—'}</td>
+                    <td>{p.productName ?? '—'}</td>
                     <td>{p.receivedQuantity}/{p.expectedQuantity}</td>
                     <td><span className="os-tag os-tag--info">{p.status}</span></td>
                     <td>
@@ -110,9 +125,31 @@ export default function SessionDetailPage() {
                     </td>
                   </tr>
                 ))}
-                {data.products.length === 0 && <tr><td colSpan={4} className="os-empty">No product lines.</td></tr>}
+                {data.products.length === 0 && <tr><td colSpan={6} className="os-empty">No product lines.</td></tr>}
               </tbody>
             </table>
+          </section>
+
+          <section className="os-card">
+            <h2 className="os-card-title">Discrepancies / reported issues ({data.discrepancies.length})</h2>
+            {data.discrepancies.length === 0 ? (
+              <div className="os-empty">No discrepancies reported.</div>
+            ) : (
+              <table className="os-table">
+                <thead><tr><th>Type</th><th>Status</th><th>Reason</th></tr></thead>
+                <tbody>
+                  {data.discrepancies.map((d) => (
+                    <tr key={d.id}>
+                      <td>{d.type.replace(/_/g, ' ')}</td>
+                      <td>
+                        <span className={`os-tag ${d.status === 'OPEN' ? 'os-tag--err' : 'os-tag--ok'}`}>{d.status}</span>
+                      </td>
+                      <td className="os-muted">{d.reason ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </section>
 
           <section className="os-card">

@@ -7,120 +7,110 @@ on:
     paths:
       - 'mobile/**'
       - '.github/workflows/android-build.yml'
+  pull_request:
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/android-build.yml'
   workflow_dispatch:
+    inputs:
+      run_emulator_tests:
+        description: 'Run emulator UI/storage tests on a manual build (not physical hardware certification)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: worker-android-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   assemble:
-    name: Compile app + scanner-core tests
+    name: Core tests, native compile and lint
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     defaults:
       run:
         working-directory: mobile
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Ensure Android 35 platform is installed
-        run: |
-          echo "y" | sdkmanager --install "platforms;android-35" || true
-          echo "y" | sdkmanager --licenses >/dev/null || true
-
-      - name: Ensure debug keystore exists
-        run: |
-          mkdir -p "$HOME/.android"
-          if [ ! -f "$HOME/.android/debug.keystore" ]; then
-            keytool -genkeypair -v \
-              -keystore "$HOME/.android/debug.keystore" \
-              -storepass android -alias androiddebugkey -keypass android \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
-          fi
-
-      - name: Compile + unit tests
-        id: build
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Install Android platform
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Compile, test and lint
         shell: bash
         run: |
-          set +e
           chmod +x gradlew
-          TERM=dumb ./gradlew :scanner-core:test :app:assembleDebug --no-daemon --stacktrace --console=plain > /tmp/android.log 2>&1
+          set +e
+          ./gradlew :scanner-core:test :worker-core:test :app:assembleDebug :app:lintDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace --console=plain > /tmp/android.log 2>&1
           code=$?
-          echo "ANDROID_EXIT=$code"
-          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
-          if [ "$code" != "0" ]; then
-            {
-              echo "## Build failed (exit=$code)"
-              echo "### Error lines"
-              echo '```'
-              grep -nE "^e:|^w:|FAILED|FAILURE:|error:|ERROR|unresolved reference|type mismatch|Exception|What went wrong|Execution failed|> Task|BUILD " /tmp/android.log | tail -n 300
-              echo '```'
-              echo "### Last 250 lines"
-              echo '```'
-              tail -n 250 /tmp/android.log
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-          python3 $GITHUB_WORKSPACE/.github/workflows/annotate-android.py "$code" /tmp/android.log
-          exit $code
-
-      - name: Upload build log on failure
-        if: failure()
+          cat /tmp/android.log
+          python3 "$GITHUB_WORKSPACE/.github/workflows/annotate-android.py" "$code" /tmp/android.log
+          exit "$code"
+      - name: Upload verification reports
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: android-build-log
-          path: /tmp/android.log
-          if-no-files-found: ignore
-
-      - name: Upload debug APK (artifact)
+          name: worker-verification-reports
+          path: |
+            /tmp/android.log
+            mobile/worker-core/build/reports/
+            mobile/scanner-core/build/reports/
+            mobile/app/build/reports/
+      - name: Upload Receiving pilot APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: ayrovi-worker-debug-apk
+          name: ayrovi-worker-receiving-pilot-${{ github.sha }}
           path: mobile/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+      # Deliberately no automatic gh release delete/create. A branch build is
+      # not permission for a production cutover or a rolling fleet update.
 
-      - name: Publish rolling canary release (phone download link)
-        if: success()
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  emulator:
+    name: Handheld UI and storage checks (emulator)
+    needs: assemble
+    if: github.event_name != 'workflow_dispatch' || inputs.run_emulator_tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Enable KVM
         run: |
-          set -e
-          APK="app/build/outputs/apk/debug/app-debug.apk"
-          test -s "$APK"
-          TAG="worker-canary"
-          REPO="${{ github.repository }}"
-          BODY="AYROVI Worker (native Android) — internal canary build from commit ${GITHUB_SHA::7}.
-
-          Debug-signed APK for internal warehouse distribution only (never Google Play).
-          On your phone: open this release page, download the .apk below, and allow
-          “Install unknown apps” for your browser when Android asks."
-
-          # Drop any previous canary release + tag so the tag always points at the
-          # exact commit that produced this APK.
-          EXISTING_ID="$(gh release view "$TAG" --repo "$REPO" --json id --jq .id 2>/dev/null || true)"
-          if [ -n "$EXISTING_ID" ]; then
-            gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag
-          fi
-
-          # `gh release create` uploads the asset through the official flow
-          # (uploads.github.com with built-in retries) — far more reliable than
-          # raw curl for the ~42MB APK.
-          gh release create "$TAG" "$APK" \
-            --repo "$REPO" \
-            --target "${GITHUB_SHA}" \
-            --title "AYROVI Worker - internal canary" \
-            --notes "$BODY" \
-            --prerelease
-
-          echo "::notice::Canary release ready: https://github.com/$REPO/releases/tag/$TAG"
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          working-directory: mobile
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            adb shell wm size 720x1280
+            adb shell wm density 320
+            adb shell settings put system font_scale 1.0
+            set +e; ./gradlew :app:connectedDebugAndroidTest --no-daemon --console=plain; code=$?; mkdir -p /tmp/worker-ui-evidence; adb pull /sdcard/Pictures/AYROVI-UI-Tests /tmp/worker-ui-evidence || true; echo "::notice::Native UI fixture screenshots: $(find /tmp/worker-ui-evidence -name '*.png' | wc -l)"; exit $code
+      - name: Summarize Android test evidence
+        if: always()
+        working-directory: mobile
+        run: python3 ../.github/workflows/annotate-android.py 0 /dev/null --android-only
+      - name: Upload emulator evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: worker-emulator-results
+          path: |
+            mobile/app/build/reports/androidTests/
+            mobile/app/build/outputs/androidTest-results/
+            /tmp/worker-ui-evidence/

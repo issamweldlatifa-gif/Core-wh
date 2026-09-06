@@ -375,6 +375,7 @@ export class PutawayService {
     const location = locationFlash.location as { id: string; locationCode: string };
 
     const result = await this.prisma.$transaction(async (tx) => {
+      await this.assignments.assertOperationalAccess(actor.id, 'putaway', { cartonId }, tx);
       const carton = await tx.warehouseCarton.findUnique({ where: { id: cartonId } });
       if (!carton) throw new NotFoundException('Carton disappeared.');
 
@@ -416,6 +417,7 @@ export class PutawayService {
         },
       });
 
+      await this.assignments.cartonStored(cartonId, actor.id, tx);
       return { carton: updated, moved, unchanged: false };
     });
 
@@ -434,8 +436,6 @@ export class PutawayService {
         },
       });
 
-      // Operational assignment lifecycle: putaway tasks on this carton complete.
-      await this.assignments.cartonStored(cartonId, actor.id).catch(() => 0);
 
       // Sorting traceability: record which destination the CONFIGURED
       // category mapping resolved to at placement time, alongside the zone

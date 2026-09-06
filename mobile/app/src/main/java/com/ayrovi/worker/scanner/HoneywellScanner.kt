@@ -29,21 +29,24 @@ import androidx.core.content.ContextCompat
 class HoneywellScanner(
     context: Context,
     private val onBarcode: (value: String) -> Unit,
+    private val isSupported: () -> Boolean = { isHoneywellDevice() },
 ) {
     private val appContext = context.applicationContext
     private var receiver: BroadcastReceiver? = null
     private var claimed = false
 
+    val isActive: Boolean get() = receiver != null && claimed
+
     /** Wire the trigger while the workflow screen is active. */
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
     fun start() {
-        if (!isHoneywellDevice()) return // phones: camera is the scanner
+        if (!isSupported()) return // existing vendor detection; phones do not claim this imager
         if (receiver != null) return
 
         val r = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                val value = extractBarcode(intent) ?: return
-                onBarcode(value)
+                if (intent?.action !in setOf(ACTION_BARCODE_READ, "com.ayrovi.worker.action.BARCODE")) return
+                onBarcode(extractBarcode(intent).orEmpty())
             }
         }
         val filter = IntentFilter().apply {
@@ -102,23 +105,13 @@ class HoneywellScanner(
         claimed = false
     }
 
-    /**
-     * Note on trust: we only ever register on Honeywell-built devices, and
-     * only the Honeywell scanner service (or the system) emits this exact
-     * broadcast action there — the Data Collection Intent API has no public
-     * per-broadcast sender check, so we rely on the device being a locked
-     * Honeywell unit (admin-managed) for spoof protection.
-     */
+    /** An exported broadcast is untrusted even on a Honeywell device. Backend validation is mandatory. */
     private fun extractBarcode(intent: Intent?): String? {
         if (intent == null) return null
         for (key in BARCODE_EXTRA_CANDIDATES) {
             intent.getStringExtra(key)
-                ?.trim()
-                ?.takeIf { it.isNotEmpty() }
-                ?.let { return it }
+                ?.let { return it } // empty/invalid data must reach the shared input guard
         }
-        // Fallback: some profiles deliver the code as the intent data URI.
-        intent.data?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
         return null
     }
 
@@ -131,7 +124,7 @@ class HoneywellScanner(
             "com.honeywell.aidc.action.ACTION_CLAIM_SCANNER"
         private const val ACTION_RELEASE_SCANNER =
             "com.honeywell.aidc.action.ACTION_RELEASE_SCANNER"
-        private const val ACTION_BARCODE_READ =
+        const val ACTION_BARCODE_READ =
             "com.honeywell.aidc.action.ACTION_BARCODE_READ_EVENT"
 
         private const val EXTRA_SCANNER = "com.honeywell.aidc.extra.EXTRA_SCANNER"
@@ -149,11 +142,18 @@ class HoneywellScanner(
         )
 
         /** True on Honeywell rugged devices (CT40/CT30/CN80/...). */
-        fun isHoneywellDevice(): Boolean {
-            val manufacturer = Build.MANUFACTURER ?: ""
-            val brand = Build.BRAND ?: ""
-            return manufacturer.contains("honeywell", ignoreCase = true) ||
-                brand.contains("honeywell", ignoreCase = true)
-        }
+        fun isHoneywellDevice(manufacturer: String? = Build.MANUFACTURER, brand: String? = Build.BRAND): Boolean =
+            manufacturer.orEmpty().contains("honeywell", ignoreCase = true) || brand.orEmpty().contains("honeywell", ignoreCase = true)
+
+        /** Refine the EXISTING detector in place; never infer CT40 from viewport width. */
+        fun presentationMode(
+            manufacturer: String? = Build.MANUFACTURER,
+            brand: String? = Build.BRAND,
+            model: String? = Build.MODEL,
+        ): WorkerDevice = runCatching {
+            if (isHoneywellDevice(manufacturer, brand) &&
+                Regex("(^|[^a-z0-9])ct40(?:[ _-]?xp)?($|[^a-z0-9])", RegexOption.IGNORE_CASE).containsMatchIn(model.orEmpty()))
+                WorkerDevice.CT40 else WorkerDevice.PHONE
+        }.getOrDefault(WorkerDevice.PHONE)
     }
 }

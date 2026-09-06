@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 
@@ -36,6 +36,7 @@ export class SystemService {
 
   async health() {
     const db = await this.prisma.$queryRaw`SELECT 1 as ok`.catch(() => null);
+    if (!db) throw new ServiceUnavailableException({ status: 'unavailable', database: 'down', build: this.readBuildInfo(), timestamp: new Date().toISOString() });
     return {
       status: 'ok',
       version: '0.1.0',

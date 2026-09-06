@@ -4,3 +4,8 @@ local.properties
 *.iml
 .externalNativeBuild/
 .cxx/
+
+# Signing material belongs to the managed secret store, never source control.
+*.jks
+*.keystore
+keystore.properties

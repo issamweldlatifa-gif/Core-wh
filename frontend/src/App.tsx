@@ -81,6 +81,51 @@ function PermissionGate({ perm, children }: { perm: string; children: JSX.Elemen
   return children;
 }
 
+/**
+ * Application-surface router (Order #3, client mirror of the back-end
+ * ApplicationGuard). The worker terminal is a WORKER_NATIVE surface and the
+ * Admin Control Center is an ADMIN_WEB surface — the session's `application`
+ * is server truth, never a client claim. A session that lands on the wrong
+ * surface is routed to its own workspace BEFORE any API call, so the UI can
+ * never end up in the dead-end 403 the guard (correctly) returns.
+ *
+ * This is routing only: the back-end guard remains the security boundary.
+ */
+export function SurfaceGate({
+  surface,
+  children,
+}: {
+  surface: 'ADMIN_WEB' | 'WORKER_NATIVE';
+  children: JSX.Element;
+}) {
+  const { me, loading } = useAuth();
+  if (loading) {
+    return (
+      <div className="login-wrap">
+        <div className="spinner" style={{ color: 'var(--accent-2)' }} />
+      </div>
+    );
+  }
+  if (!me) return <Navigate to="/login" replace />;
+  if (!me.application || me.application === surface) return children;
+  if (surface === 'WORKER_NATIVE') {
+    // An ADMIN_WEB session on a worker route: admins monitor and correct, they
+    // do not scan. Their receiving oversight lives in the Control Center.
+    if (me.permissions.includes('operations.view')) return <Navigate to="/admin" replace />;
+    return (
+      <div style={{ padding: 40, maxWidth: 720, margin: '0 auto' }}>
+        <h1 className="page-title">Access denied</h1>
+        <p className="page-sub">
+          This workspace is reserved for the Worker application; your session is {me.application}.
+        </p>
+      </div>
+    );
+  }
+  // A WORKER_NATIVE session on an admin route: the floor worker's whole world
+  // is the terminal (§2/§46).
+  return <Navigate to="/terminal" replace />;
+}
+
 export default function App() {
   return (
     <AuthProvider>
@@ -103,8 +148,18 @@ export default function App() {
             <Route index element={<Dashboard />} />
             <Route path="/profile" element={<Profile />} />
           {/* ---- WORKER TERMINAL (§3-§5) -------------------------------
-              A worker's whole world. Full-screen, no admin navigation. */}
-          <Route path="/terminal" element={<WorkerShell />}>
+              A worker's whole world. Full-screen, no admin navigation.
+              Surface-gated (Order #3): the terminal API is WORKER_NATIVE —
+              an ADMIN_WEB session is routed to the Control Center instead of
+              hitting worker-only endpoints. */}
+          <Route
+            path="/terminal"
+            element={(
+              <SurfaceGate surface="WORKER_NATIVE">
+                <WorkerShell />
+              </SurfaceGate>
+            )}
+          >
             <Route index element={<WorkerTerminalHome />} />
             <Route
               path="receiving"
@@ -157,10 +212,19 @@ export default function App() {
 
           {/* ---- ADMIN CONTROL CENTER V1 (§6/§34) ----------------------
               Dedicated unified shell (HEADER + SIDEBAR + MAIN), guarded by
-              operations.view — workers never land here (§41/§46). */}
+              operations.view — workers never land here (§41/§46). The admin
+              API surface is ADMIN_WEB (Order #3): a WORKER_NATIVE session is
+              routed back to the terminal instead of hitting admin-only
+              endpoints. */}
           <Route
             path="/admin"
-            element={<PermissionGate perm="operations.view"><AdminShell /></PermissionGate>}
+            element={(
+              <PermissionGate perm="operations.view">
+                <SurfaceGate surface="ADMIN_WEB">
+                  <AdminShell />
+                </SurfaceGate>
+              </PermissionGate>
+            )}
           >
             <Route index element={<ControlCenter />} />
             <Route path="operations" element={<AdminOperations />} />
@@ -185,9 +249,11 @@ export default function App() {
             {/* Legacy alias — old generic containers board now covered by the
                 Receiving Containers board. */}
             <Route path="containers" element={<Navigate to="/admin/receiving-containers" replace />} />
-            {/* Legacy aliases to generic modules. */}
+            {/* Legacy aliases to generic modules. Receiving oversight for an
+                ADMIN_WEB session is the Operations page (active sessions →
+                session drill-down) — never the worker terminal surface. */}
             <Route path="arrivals" element={<Navigate to="/expected-arrivals" replace />} />
-            <Route path="receiving" element={<Navigate to="/terminal/receiving" replace />} />
+            <Route path="receiving" element={<Navigate to="/admin/operations" replace />} />
             <Route path="structure" element={<Navigate to="/warehouse/structure" replace />} />
             <Route path="users" element={<Navigate to="/users" replace />} />
             <Route path="roles" element={<Navigate to="/roles" replace />} />

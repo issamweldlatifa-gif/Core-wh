@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { NavLink, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { NAV_ITEMS } from '../components/NavItems';
+import { NAV_ITEMS, filterNavItems } from '../components/NavItems';
 import './global-shell.css';
 
 /**
@@ -59,7 +59,9 @@ export default function GlobalShell() {
   }
   if (!me) return <Navigate to="/login" replace />;
 
-  const visibleItems = NAV_ITEMS.filter((item) => !item.permission || hasPermission(item.permission));
+  // RBAC + application surface (Order #3): worker workspaces are hidden from
+  // an ADMIN_WEB session (their API is Worker-only) and vice versa.
+  const visibleItems = filterNavItems(NAV_ITEMS, hasPermission, me.application);
 
   return (
     <div className="gs">

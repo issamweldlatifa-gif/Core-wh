@@ -1,3 +1,5 @@
+import { AssignmentsService } from '../src/modules/assignments/assignments.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaClient } from '@prisma/client';
 import { ExpectedArrivalsService } from '../src/modules/expected-arrivals/expected-arrivals.service';
 import { ReceivingService } from '../src/modules/receiving/receiving.service';
@@ -81,9 +83,9 @@ describe('OPERATIONAL FLOW — receiving tote -> sorting -> bin -> pack -> ship'
   beforeAll(async () => {
     prisma = new PrismaClient();
     arrivals = new ExpectedArrivalsService(prisma as any, captureAudit);
-    receiving = new ReceivingService(prisma as any, captureAudit);
+    receiving = new ReceivingService(prisma as any, captureAudit, new AssignmentsService(prisma as any, captureAudit));
     categories = new CategoriesService(prisma as any, captureAudit);
-    fulfillment = new FulfillmentService(prisma as any, captureAudit, categories);
+    fulfillment = new FulfillmentService(prisma as any, captureAudit, categories, new EventEmitter2(), new AssignmentsService(prisma as any, captureAudit));
     orders = new OrdersService(prisma as any, captureAudit);
 
     const worker = await (prisma as any).user.create({
@@ -177,7 +179,7 @@ describe('OPERATIONAL FLOW — receiving tote -> sorting -> bin -> pack -> ship'
     );
     expect(res.matched).toBe(true);
     expect(res.flash.kind).toBe('ARTICLE_RECEIVED');
-    articleCode = res.flash.article.code;
+    articleCode = receivedArticle(res).code;
     expect(articleCode).toMatch(/^ART-/);
 
     const unit = await (prisma as any).articleUnit.findUnique({ where: { code: articleCode }, include: { container: true } });
@@ -190,7 +192,7 @@ describe('OPERATIONAL FLOW — receiving tote -> sorting -> bin -> pack -> ship'
     const res2 = await fulfillment.scanArticleAtReceiving(
       sessionId, { sku: SKU, containerCode: toteCode }, actor,
     );
-    article2Code = res2.flash.article.code;
+    article2Code = receivedArticle(res2).code;
   });
 
   // 2 ---------------------------------------------------------------
@@ -397,7 +399,7 @@ describe('OPERATIONAL FLOW — receiving tote -> sorting -> bin -> pack -> ship'
 
   // 16b -------------------------------------------------------------
   it('control-center overview exposes the fulfillment pipeline counters', async () => {
-    const operations = new OperationsService(prisma as any);
+    const operations = new OperationsService(prisma as any, new AssignmentsService(prisma as any, captureAudit));
     const overview = await operations.overview();
     const c = overview.counters as any;
     // presence + sane types (absolute values depend on concurrent data)
@@ -414,7 +416,7 @@ describe('OPERATIONAL FLOW — receiving tote -> sorting -> bin -> pack -> ship'
 
   // 16c ---- Admin Control Center FLOW MODEL PATCH -------------------
   it('control-center overview pipeline follows the flow model patch (no category gate)', async () => {
-    const operations = new OperationsService(prisma as any);
+    const operations = new OperationsService(prisma as any, new AssignmentsService(prisma as any, captureAudit));
     const overview = await operations.overview();
     const ids = overview.pipeline.map((s) => s.id);
     // Category / Storage are optional paths — they must not appear as stages.
@@ -455,3 +457,8 @@ describe('OPERATIONAL FLOW — receiving tote -> sorting -> bin -> pack -> ship'
     expect(t.trace.shippedAt).toBeTruthy();
   });
 });
+
+function receivedArticle(result: Awaited<ReturnType<FulfillmentService['scanArticleAtReceiving']>>) {
+    if (!('article' in result.flash)) throw new Error('Expected a confirmed ArticleUnit, not an idempotency reply.');
+    return result.flash.article;
+}

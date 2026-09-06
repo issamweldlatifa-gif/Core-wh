@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Strip ANSI, find any line containing obvious error keywords, emit annotations + a gist dump."""
-import json
+"""Strip ANSI, find any line containing obvious error keywords, emit annotations."""
 import os
 import re
 import sys
-import urllib.request
+import glob
+import xml.etree.ElementTree as ET
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 LINE_RE = re.compile(r"(?:^|\n)(?:e:\s*|w:\s*)?([^\s:][^:]+):(?:\((\d+),\s*(\d+)\)|(\d+):(?:(\d+):)?)\s*:?\s*(error|warning):\s*(.*)")
@@ -24,7 +24,60 @@ def to_rel(fpath: str) -> str:
     return os.path.basename(fpath)
 
 
+def escape(value: str) -> str:
+    return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def summarize_reports() -> None:
+    # Accessible through the Checks API even if an artifact CDN is unavailable.
+    for module in ("scanner-core", "worker-core"):
+        files = glob.glob(f"{module}/build/test-results/test/TEST-*.xml")
+        total = failed = skipped = 0
+        for path in files:
+            root = ET.parse(path).getroot()
+            total += int(root.get("tests", 0))
+            failed += int(root.get("failures", 0)) + int(root.get("errors", 0))
+            skipped += int(root.get("skipped", 0))
+            for case in root.findall("testcase"):
+                for failure in list(case.findall("failure")) + list(case.findall("error")):
+                    message = f"{module}: {case.get('classname')}.{case.get('name')}: {failure.get('message', '')}\n{failure.text or ''}"
+                    print("::error::" + escape(message[:3500]))
+        if files:
+            print(f"::notice::{module}: {total} tests, {failed} failures, {skipped} skipped")
+    for path in glob.glob("app/build/reports/lint-results-*.xml"):
+        for issue in ET.parse(path).getroot().findall("issue"):
+            if issue.get("severity") not in ("Error", "Fatal"):
+                continue
+            message = f"Lint {issue.get('id')}: {issue.get('message')}"
+            location = issue.find("location")
+            where = "" if location is None else f" file={to_rel(location.get('file', 'mobile/app/build.gradle.kts'))},line={location.get('line', '1')}"
+            print(f"::error{where}::" + escape(message))
+
+
+def summarize_android_tests() -> None:
+    files = glob.glob("app/build/outputs/androidTest-results/connected/**/*.xml", recursive=True)
+    total = failed = skipped = 0
+    for path in files:
+        try:
+            root = ET.parse(path).getroot()
+        except ET.ParseError:
+            continue
+        total += int(root.get("tests", 0))
+        failed += int(root.get("failures", 0)) + int(root.get("errors", 0))
+        skipped += int(root.get("skipped", 0))
+        for case in root.findall("testcase"):
+            for failure in list(case.findall("failure")) + list(case.findall("error")):
+                print("::error::" + escape(f"Android {case.get('classname')}.{case.get('name')}: {failure.get('message', '')}\n{failure.text or ''}"[:3500]))
+    if files:
+        print(f"::notice::Android instrumentation: {total} tests, {failed} failures, {skipped} skipped (emulator, not physical CT40)")
+    else:
+        print("::warning::No Android instrumentation results were produced; not a test pass.")
+
+
 def main() -> int:
+    if "--android-only" in sys.argv:
+        summarize_android_tests()
+        return 0
     if len(sys.argv) < 3:
         return 2
     try:
@@ -37,8 +90,9 @@ def main() -> int:
     text = strip_ansi(raw)
     lines = text.splitlines()
 
+    summarize_reports()
     if exit_code == 0:
-        print("::notice::Android build + scanner tests OK")
+        print("::notice::Android core tests, compile and lint OK")
         return 0
 
     # Collect any line that looks like a Kotlin/Java compile error.
@@ -57,20 +111,21 @@ def main() -> int:
             lineno = m.group(2) or m.group(4)
             col = m.group(3) or m.group(5)
             msg = m.group(6) or ""
-            errors.append((fpath, lineno, col, msg))
+            errors.append((fpath, lineno, col, msg, "warning" if s.startswith("w:") else "error"))
             continue
         # Javac form: file.kt:12: error: message
         m2 = re.match(r"^(.+?):(\d+):(?:\s*error|\s*warning):\s*(.*)$", s)
         if m2 and (".kt" in m2.group(1) or ".java" in m2.group(1) or ".kts" in m2.group(1)):
-            errors.append((m2.group(1), m2.group(2), None, m2.group(3)))
+            errors.append((m2.group(1), m2.group(2), None, m2.group(3), "warning" if "warning:" in s else "error"))
 
-    print(f"=== found {len(errors)} compiler errors ===")
+    errors.sort(key=lambda item: item[4] != "error")
+    print(f"=== found {len(errors)} compiler diagnostics ===")
     emitted = 0
-    for fpath, lineno, col, msg in errors[:80]:
+    for fpath, lineno, col, msg, level in errors[:80]:
         rel = to_rel(fpath)
         col_attr = f",col={col}" if col else ""
         safe = msg.replace("%", "%25").replace("\r", "").replace("\n", " ")
-        print(f"::error file={rel},line={lineno}{col_attr}::{safe}")
+        print(f"::{level} file={rel},line={lineno}{col_attr}::{safe}")
         print(f"E {rel}:{lineno}: {msg}")
         emitted += 1
 
@@ -88,33 +143,7 @@ def main() -> int:
             tail = tail[-1400:]
         print("::error file=mobile/app/build.gradle.kts,line=1::" + tail.replace("%", "%25").replace("\r", "").replace("\n", "%0A"))
 
-    # Push the full error section to a gist using the built-in token so we can read it.
-    try:
-        gh = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
-        if gh:
-            body = {
-                "description": f"Android build log tail run {os.environ.get('GITHUB_RUN_ID','?')}",
-                "public": False,
-                "files": {
-                    "build-tail.txt": {"content": "\n".join(lines[-2000:])[-290000:]},
-                },
-            }
-            req = urllib.request.Request(
-                "https://api.github.com/gists",
-                data=json.dumps(body).encode(),
-                headers={
-                    "Authorization": f"Bearer {gh}",
-                    "Accept": "application/vnd.github+json",
-                    "Content-Type": "application/json",
-                    "User-Agent": "android-ci",
-                },
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=20) as resp:
-                data = json.loads(resp.read())
-                print(f"::warning::Full log tail: {data.get('html_url')}")
-    except Exception as e:
-        print(f"(gist upload failed: {e})")
+    # Full logs stay in the controlled CI artifact; never publish build logs to a gist.
 
     return 0
 

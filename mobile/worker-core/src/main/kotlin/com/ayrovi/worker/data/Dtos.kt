@@ -6,14 +6,19 @@ import kotlinx.serialization.json.JsonElement
 @Serializable data class LoginRequest(
     val identifier: String, val secret: String, val mode: String? = null,
     val app: String = "WORKER_NATIVE", val deviceId: String? = null,
-)
-@Serializable data class AuthTokens(val accessToken: String, val refreshToken: String)
+) {
+    override fun toString() = "LoginRequest(REDACTED)"
+}
+@Serializable data class AuthTokens(val accessToken: String, val refreshToken: String) {
+    override fun toString() = "AuthTokens(REDACTED)"
+}
 @Serializable data class MeUser(
     val id: String? = null, val name: String? = null, val employeeCode: String? = null,
     val email: String? = null, val status: String? = null,
 )
 @Serializable data class MeSession(
     val id: String? = null, val application: String? = null, val deviceId: String? = null, val stationId: String? = null,
+    val expiresAt: String? = null,
 )
 @Serializable data class MeResponse(
     val user: MeUser? = null, val roles: List<String> = emptyList(),
@@ -39,17 +44,28 @@ import kotlinx.serialization.json.JsonElement
 )
 @Serializable data class ResumeRef(
     val path: String? = null, val label: String? = null, val code: String? = null,
+    val kind: String? = null, val startedAt: String? = null,
 )
 @Serializable data class TerminalContext(
     val worker: WorkerRef? = null, val tasks: List<TerminalTask> = emptyList(),
     val readyTaskCount: Int? = null, val home: String? = null,
     val station: StationRef? = null, val activeSession: ActiveReceivingRef? = null,
     val resume: ResumeRef? = null,
+    val activePutaway: ActiveReceivingRef? = null,
 )
 @Serializable data class TerminalAssignment(
     val id: String, val title: String, val description: String? = null,
     val relatedCode: String? = null, val status: String? = null,
-)
+    val taskKey: String? = null, val entity: AssignmentEntities? = null,
+) {
+    val isInstruction: Boolean get() = taskKey.isNullOrBlank() && entity?.let {
+        it.arrival == null && it.carton == null && it.container == null && it.outbound == null && it.order == null
+    } != false
+}
+@Serializable data class AssignmentEntity(val id: String? = null, val code: String? = null, val status: String? = null)
+@Serializable data class AssignmentEntities(val arrival: AssignmentEntity? = null, val carton: AssignmentEntity? = null,
+    val container: AssignmentEntity? = null, val outbound: AssignmentEntity? = null, val order: AssignmentEntity? = null)
+@Serializable data class WorkCount(val key: String, val assigned: Int = 0, val available: Int = 0, val mine: Int = 0)
 @Serializable data class AssignmentsResponse(
     val open: List<TerminalAssignment> = emptyList(), val recent: List<TerminalAssignment> = emptyList(),
 )
@@ -79,8 +95,8 @@ import kotlinx.serialization.json.JsonElement
 @Serializable data class ProductRow(
     val id: String? = null, val sku: String? = null, val reference: String? = null,
     val productName: String? = null, val category: String? = null, val subcategory: String? = null,
-    val categoryStatus: String? = null, val expected: Int = 0, val received: Int = 0,
-    val remaining: Int = 0, val difference: Int = 0, val status: String? = null,
+    val categoryStatus: String? = null, val expected: Int, val received: Int,
+    val remaining: Int, val difference: Int, val status: String? = null,
 )
 @Serializable data class DiscrepancyRow(
     val id: String? = null, val type: String? = null, val status: String? = null, val reason: String? = null,
@@ -88,11 +104,11 @@ import kotlinx.serialization.json.JsonElement
     val cartonCode: String? = null, val resolution: String? = null,
 )
 @Serializable data class ReceivingTally(
-    val expectedCartons: Int = 0, val receivedCartons: Int = 0,
-    val expectedProducts: Int = 0, val receivedProducts: Int = 0,
-    val expectedUnits: Int = 0, val receivedUnits: Int = 0,
-    val openDiscrepancies: Int = 0, val shortUnits: Int = 0,
-    val overageUnits: Int = 0, val unexpectedProducts: Int = 0, val missingCartons: Int = 0,
+    val expectedCartons: Int, val receivedCartons: Int,
+    val expectedProducts: Int, val receivedProducts: Int,
+    val expectedUnits: Int, val receivedUnits: Int,
+    val openDiscrepancies: Int, val shortUnits: Int,
+    val overageUnits: Int, val unexpectedProducts: Int, val missingCartons: Int,
 )
 @Serializable data class FlashView(
     val kind: String? = null, val code: String? = null, val message: String? = null,
@@ -101,6 +117,7 @@ import kotlinx.serialization.json.JsonElement
     val carton: JsonElement? = null, val article: JsonElement? = null,
     val container: String? = null, val location: String? = null,
     val bin: String? = null, val customer: String? = null,
+    val containerCount: Int? = null, val containerCapacity: Int? = null, val containerFull: Boolean = false,
 )
 @Serializable data class ReceivingSession(
     val id: String, val code: String, val status: String, val startedAt: String,
@@ -111,7 +128,7 @@ import kotlinx.serialization.json.JsonElement
     val receivedCartonEvents: List<CartonEvent> = emptyList(),
     val products: List<ProductRow> = emptyList(),
     val discrepancies: List<DiscrepancyRow> = emptyList(),
-    val tally: ReceivingTally = ReceivingTally(),
+    val tally: ReceivingTally,
     val flash: FlashView? = null,
 )
 
@@ -140,6 +157,7 @@ import kotlinx.serialization.json.JsonElement
 @Serializable data class OpContainerDetail(
     val id: String? = null, val code: String, val type: String? = null, val status: String? = null,
     val label: String? = null, val order: OpOrderDetail? = null, val articles: List<OpArticle> = emptyList(),
+    val capacity: Int? = null,
 )
 @Serializable data class OpOrderDetail(
     val externalOrderReference: String? = null, val externalCustomerReference: String? = null,

@@ -8,21 +8,37 @@ import './dashboard.css';
 /**
  * DASHBOARD = Monitor + Navigate (UX rule). It NEVER rebuilds an operational
  * workspace: for every module it shows only live STATUS + the door into the
- * real workspace (e.g. Receiving status + [OPEN RECEIVING]).
+ * real workspace (e.g. Receiving status + [VIEW RECEIVING]).
  *
- * ONE layout, ROLE-AWARE content:
- *   - operations.view holders -> system status, operational metrics, alerts,
- *     live sessions (recent activity) and administrative actions.
- *   - workers                -> current task, operational status, expected
- *     work and the primary action into their workspace.
- * Identity, roles, logout and permission dumps are NOT shown here — they live
- * in the global header (compact) and /profile (detail).
+ * ONE layout, ROLE-AWARE content — selected by APPLICATION SURFACE first
+ * (Order #3: the session's `application` is server truth), then permissions:
+ *   - WORKER_NATIVE sessions   -> worker dashboard (worker/terminal API).
+ *   - ADMIN_WEB sessions       -> admin dashboard (admin operations API)
+ *                                 or, without operations.view, a read-only
+ *                                 module view. An ADMIN_WEB session NEVER
+ *     calls the worker terminal API — that surface rejects it with 403.
  */
-export default function Dashboard() {
-  const { hasPermission } = useAuth();
-  const isAdmin = hasPermission('operations.view');
+export type DashboardSurface = 'worker' | 'admin' | 'readonly';
 
-  return isAdmin ? <AdminDashboard /> : <WorkerDashboard />;
+export function resolveDashboard(
+  application: 'ADMIN_WEB' | 'WORKER_NATIVE' | undefined,
+  permissions: string[],
+): DashboardSurface {
+  const has = (p: string) => permissions.includes(p);
+  if (application === 'WORKER_NATIVE') return 'worker';
+  // Unknown surface (legacy token): fall back to the pre-surface behaviour.
+  const isAdmin = has('operations.view');
+  if (application === 'ADMIN_WEB') return isAdmin ? 'admin' : 'readonly';
+  return isAdmin ? 'admin' : has('receiving.execute') || has('stowing.execute') ? 'worker' : 'readonly';
+}
+
+export default function Dashboard() {
+  const { me } = useAuth();
+
+  const surface = resolveDashboard(me?.application, me?.permissions ?? []);
+  if (surface === 'worker') return <WorkerDashboard />;
+  if (surface === 'admin') return <AdminDashboard />;
+  return <ReadOnlyDashboard />;
 }
 
 /* ============================== WORKER ==================================== */
@@ -198,9 +214,9 @@ function AdminDashboard() {
                 title="Receiving"
                 status={c.activeSessions > 0 ? `${c.activeSessions} LIVE SESSION${c.activeSessions > 1 ? 'S' : ''}` : `${c.expectedArrivals} EXPECTED`}
                 tone={c.activeSessions > 0 ? 'warn' : 'ok'}
-                to="/terminal/receiving"
-                action="OPEN RECEIVING"
-                note="Physically receive expected arrivals: scan cartons, count product units, raise exceptions."
+                to="/admin/operations"
+                action="VIEW RECEIVING"
+                note="Monitor receiving: live sessions, cartons and product lines per worker, exceptions and completion — in the Operations view. Scanning stays in the Worker app."
               />
             )}
             {canStow && (
@@ -208,9 +224,9 @@ function AdminDashboard() {
                 title="Putaway / Stowing"
                 status={c.awaitingPutaway > 0 ? `${c.awaitingPutaway} AWAITING` : 'CLEAR'}
                 tone={c.awaitingPutaway > 0 ? 'warn' : 'ok'}
-                to="/terminal/putaway"
-                action="OPEN PUTAWAY"
-                note="Move received cartons to their assigned warehouse locations."
+                to="/admin/operations"
+                action="VIEW PUTAWAY"
+                note="Monitor stowing sessions and cartons awaiting putaway — in the Operations view. Stowing execution stays in the Worker app."
               />
             )}
           </div>
@@ -248,6 +264,44 @@ function AdminDashboard() {
             {hasPermission('warehouses.view') && <Link to="/warehouse" className="btn">Warehouse</Link>}
             {hasPermission('audit.view') && <Link to="/audit" className="btn">Audit Log</Link>}
             {hasPermission('system.view') && <Link to="/system" className="btn">System Settings</Link>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================ READ-ONLY ADMIN ============================== */
+/**
+ * ADMIN_WEB session without operations.view (e.g. VIEWER class). It must NOT
+ * render the Worker dashboard: the terminal context endpoint is a
+ * WORKER_NATIVE surface and rejects this session with 403 (Order #3). Show
+ * the modules the session can actually open instead — read-only doors only.
+ */
+function ReadOnlyDashboard() {
+  const { hasPermission } = useAuth();
+
+  const modules = (
+    [
+      { to: '/expected-arrivals', label: 'Expected Arrivals', perm: 'expected_arrivals.view' },
+      { to: '/warehouse', label: 'Warehouse Structure', perm: 'warehouses.view' },
+      { to: '/categories', label: 'Categories', perm: 'inventory.view' },
+      { to: '/audit', label: 'Audit Log', perm: 'audit.view' },
+      { to: '/profile', label: 'Profile & Permissions', perm: null },
+    ] as const
+  ).filter((m) => !m.perm || hasPermission(m.perm));
+
+  return (
+    <div className="dash">
+      <h1 className="page-title">Dashboard</h1>
+      <p className="page-sub">Read-only web access · operational workspaces run in the Worker app.</p>
+      <div className="grid2">
+        <div className="card">
+          <h3>Your modules</h3>
+          <div className="dash-actions" style={{ display: 'grid', gap: 8, justifyItems: 'start' }}>
+            {modules.map((m) => (
+              <Link key={m.to} to={m.to} className="btn">{m.label}</Link>
+            ))}
           </div>
         </div>
       </div>

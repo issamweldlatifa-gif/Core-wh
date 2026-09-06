@@ -17,4 +17,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "ayrovi-worker"
-include(":app", ":scanner-core")
+include(":app", ":worker-core", ":scanner-core", ":design-system")

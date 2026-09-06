@@ -1,0 +1,67 @@
+name: Worker Managed Release Candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: 'Approved HTTPS AYROVI API root (ending in /api)'
+        required: true
+        type: string
+      confirm_candidate:
+        description: 'This is an approved signed QA candidate, not permission for production rollout'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  signed-candidate:
+    if: inputs.confirm_candidate
+    environment: warehouse-release
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    env:
+      AYROVI_API_BASE_URL: ${{ inputs.api_base_url }}
+      AYROVI_SIGNING_KEY_ALIAS: ${{ secrets.AYROVI_SIGNING_KEY_ALIAS }}
+      AYROVI_SIGNING_STORE_PASSWORD: ${{ secrets.AYROVI_SIGNING_STORE_PASSWORD }}
+      AYROVI_SIGNING_KEY_PASSWORD: ${{ secrets.AYROVI_SIGNING_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Validate managed signing configuration
+        env:
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.AYROVI_SIGNING_KEYSTORE_BASE64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in SIGNING_KEYSTORE_BASE64 AYROVI_SIGNING_KEY_ALIAS AYROVI_SIGNING_STORE_PASSWORD AYROVI_SIGNING_KEY_PASSWORD; do
+            if [ -z "${!name:-}" ]; then echo "::error::Managed signing configuration missing: $name"; exit 1; fi
+          done
+          umask 077
+          printf '%s' "$SIGNING_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/ayrovi-release.jks"
+          echo "AYROVI_SIGNING_STORE_FILE=$RUNNER_TEMP/ayrovi-release.jks" >> "$GITHUB_ENV"
+      - name: Build and validate signed release candidate
+        run: |
+          ./gradlew :scanner-core:test :worker-core:test :app:lintRelease :app:assembleRelease --no-daemon
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+          sha256sum app/build/outputs/apk/release/app-release.apk > app/build/outputs/apk/release/SHA256SUMS
+      - name: Upload signed candidate to controlled artifact storage
+        uses: actions/upload-artifact@v4
+        with:
+          name: ayrovi-worker-signed-candidate-${{ github.sha }}
+          path: |
+            mobile/app/build/outputs/apk/release/app-release.apk
+            mobile/app/build/outputs/apk/release/SHA256SUMS
+          if-no-files-found: error
+      - name: Remove ephemeral signing material
+        if: always()
+        run: rm -f "$RUNNER_TEMP/ayrovi-release.jks"

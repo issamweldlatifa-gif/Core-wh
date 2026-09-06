@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -44,20 +43,19 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
 import android.content.Context
 import android.os.BatteryManager
-import android.content.Intent
-import android.content.IntentFilter
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -80,25 +78,15 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.ayrovi.worker.data.ArrivalRow
-import com.ayrovi.worker.data.ArticleScanResult
 import com.ayrovi.worker.data.AssignmentsResponse
-import com.ayrovi.worker.data.BinRef
-import com.ayrovi.worker.data.FlashView
 import com.ayrovi.worker.data.MeResponse
 import com.ayrovi.worker.data.OpContainer
-import com.ayrovi.worker.data.OrderRef
 import com.ayrovi.worker.data.OrderSortingResult
 import com.ayrovi.worker.data.PackResult
 import com.ayrovi.worker.data.PackingView
-import com.ayrovi.worker.data.ReceivingSession
-import com.ayrovi.worker.data.RequiredItem
 import com.ayrovi.worker.data.SessionStore
-import com.ayrovi.worker.data.ShipResult
 import com.ayrovi.worker.data.ShipmentView
 import com.ayrovi.worker.data.SortingResult
-import com.ayrovi.worker.data.SortingStoreResult
-import com.ayrovi.worker.data.TerminalAssignment
 import com.ayrovi.worker.data.TerminalContext
 import com.ayrovi.worker.data.TerminalTask
 import com.ayrovi.worker.data.TraceView
@@ -110,7 +98,6 @@ import java.text.SimpleDateFormat
 import java.time.Instant
 import java.util.Date
 import java.util.Locale
-import java.util.UUID
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
@@ -141,17 +128,15 @@ private val Dim = Color(0xFF7E8AA2)
 
 private enum class Screen { Login, Home }
 private enum class StationKey {
-    RECEIVING, RECEIVING_CONTAINER, CUSTOMER_SORTING, CUSTOMER_BIN,
+    CUSTOMER_SORTING, CUSTOMER_BIN,
     PACKING, SHIPPING, ARCHIVE_TRACE;
     companion object {
         fun fromKey(key: String?): StationKey? = when (key) {
-            "receiving" -> RECEIVING
             "customer-sorting", "sorting" -> CUSTOMER_SORTING
             "customer-bin", "order-sorting" -> CUSTOMER_BIN
             "packing" -> PACKING
             "shipping" -> SHIPPING
             "archive-trace" -> ARCHIVE_TRACE
-            "receiving-container" -> RECEIVING_CONTAINER
             else -> null
         }
     }
@@ -163,9 +148,9 @@ internal enum class FeedbackKind { OK, BAD, INFO }
 // ROOT
 // ============================================================
 @Composable
-fun AyroviApp(store: SessionStore) {
+// Frozen migration rollback in the SAME package/app. Do not add features here.
+fun AyroviApp(store: SessionStore, repo: WorkerRepository) {
     val scope = rememberCoroutineScope()
-    val repo = remember { WorkerRepository(store) }
     var me by remember { mutableStateOf<MeResponse?>(null) }
     var ctx by remember { mutableStateOf<TerminalContext?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -192,17 +177,7 @@ fun AyroviApp(store: SessionStore) {
             ctx = repo.terminalContext()
             online = true
             bootError = null
-            // Auto-open task if server says to resume.
-            val resume = ctx?.resume
-            if (resume != null) {
-                val key = StationKey.fromKey(
-                    if (resume.path?.contains("receiving") == true) "receiving" else null
-                )
-                if (key != null) {
-                    activeStation = key
-                    activeTask = ctx?.tasks?.firstOrNull { it.key == "receiving" }
-                }
-            }
+            // Receiving is owned exclusively by the shared native state machine now.
             true
         } catch (ex: WorkerRepository.ApiException) {
             online = true
@@ -221,7 +196,7 @@ fun AyroviApp(store: SessionStore) {
 
     MaterialTheme(colorScheme = Theme) {
         if (!loggedIn) {
-            LoginScreen(repo) { loggedIn = true; scope.launch { loading = true; boot(); loading = false } }
+            LoginScreen(repo, store) { loggedIn = true; scope.launch { loading = true; boot(); loading = false } }
             return@MaterialTheme
         }
         Scaffold(
@@ -333,8 +308,6 @@ private fun StationTabs(
     onSelect: (StationKey?, TerminalTask?) -> Unit,
 ) {
     val supported = mapOf(
-        StationKey.RECEIVING to "RCV",
-        StationKey.RECEIVING_CONTAINER to "TOTE",
         StationKey.CUSTOMER_SORTING to "SORT",
         StationKey.CUSTOMER_BIN to "BIN",
         StationKey.PACKING to "PACK",
@@ -345,7 +318,7 @@ private fun StationTabs(
         NavigationBarItem(
             selected = active == null,
             onClick = { onSelect(null, null) },
-            icon = { Text("H", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+            icon = { Text("⌂", fontSize = 18.sp) },
             label = { Text("HOME", fontSize = 9.sp) },
         )
         // Show only permitted tasks; map key to short label
@@ -356,9 +329,9 @@ private fun StationTabs(
                 selected = active == key,
                 onClick = { onSelect(key, t) },
                 icon = {
-                    Text(if (key == StationKey.RECEIVING && inProgress) "●" else "▣",
+                    Text("▣",
                         fontSize = 14.sp,
-                        color = if (key == StationKey.RECEIVING && inProgress) Amber else Color.Unspecified)
+                        color = Color.Unspecified)
                 },
                 label = { Text(label, fontSize = 9.sp) },
             )
@@ -657,20 +630,19 @@ internal fun StationScanner(
     val ctx = LocalContext.current
     val owner = LocalLifecycleOwner.current
     DisposableEffect(owner) {
-        val hw = HoneywellScanner(ctx) { v ->
-            if (!busyRef.value && enabledRef.value) coordinator.onScanned(v, fromOcr = false, source = HoneywellScanner.SOURCE)
-        }
+        val hw = com.ayrovi.worker.scanner.ScannerService(ctx, coordinator)
         val obs = LifecycleEventObserver { _, e ->
             when (e) {
-                Lifecycle.Event.ON_START -> hw.start()
-                Lifecycle.Event.ON_PAUSE -> hw.stop()
+                Lifecycle.Event.ON_RESUME -> { coordinator.manager.setEnabled(!busyRef.value && enabledRef.value); hw.start() }
+                Lifecycle.Event.ON_PAUSE -> { coordinator.manager.setEnabled(false); hw.stop() }
                 else -> Unit
             }
         }
         owner.lifecycle.addObserver(obs)
-        if (owner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) hw.start()
-        onDispose { owner.lifecycle.removeObserver(obs); hw.stop() }
+        if (owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) hw.start()
+        onDispose { owner.lifecycle.removeObserver(obs); coordinator.manager.setEnabled(false); hw.stop() }
     }
+    SideEffect { coordinator.manager.setEnabled(!busy && enabled && owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
     return Triple(coordinator, cameraOn, { cameraOn = it })
 }
 
@@ -697,8 +669,7 @@ internal fun elapsed(startedAt: String, tick: Int): String {
 // LOGIN (kept as v1.1.0)
 // ============================================================
 @Composable
-private fun LoginScreen(repo: WorkerRepository, onSuccess: () -> Unit) {
-    val store = SessionStore(LocalContext.current)
+private fun LoginScreen(repo: WorkerRepository, store: SessionStore, onSuccess: () -> Unit) {
     var identifier by remember { mutableStateOf("") }
     var secret by remember { mutableStateOf("") }
     var deviceCode by remember { mutableStateOf(store.deviceCode) }
@@ -790,10 +761,12 @@ private fun HomeScreen(
                     Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(a.title, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            if (!a.relatedCode.isNullOrBlank())
-                                Text(a.relatedCode, color = Amber, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
-                            if (!a.description.isNullOrBlank())
-                                Text(a.description, fontSize = 11.sp, color = Dim)
+                            a.relatedCode?.takeIf { it.isNotBlank() }?.let {
+                                Text(it, color = Amber, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                            }
+                            a.description?.takeIf { it.isNotBlank() }?.let {
+                                Text(it, fontSize = 11.sp, color = Dim)
+                            }
                         }
                         Button(onClick = {
                             scope.launch {
@@ -834,34 +807,23 @@ private fun HomeScreen(
 
 @Composable
 private fun StationTile(key: StationKey, task: TerminalTask, active: Boolean, onClick: () -> Unit) {
-    // §34: compact industrial ICONS — monospace letter badges, no emojis.
     val (icon, question, color) = when (key) {
-        StationKey.RECEIVING -> Triple("RCV", "What am I receiving?", Green)
-        StationKey.RECEIVING_CONTAINER -> Triple("TOT", "Which tote am I filling?", Blue)
-        StationKey.CUSTOMER_SORTING -> Triple("SRT", "Where does this article go?", Amber)
-        StationKey.CUSTOMER_BIN -> Triple("BIN", "Is this the correct bin?", Amber)
-        StationKey.PACKING -> Triple("PKC", "Which items are still missing?", Blue)
-        StationKey.SHIPPING -> Triple("SHP", "Which shipment am I confirming?", Green)
-        StationKey.ARCHIVE_TRACE -> Triple("TRC", "What happened to this item?", Dim)
+        StationKey.CUSTOMER_SORTING -> Triple("↗", "Where does this article go?", Amber)
+        StationKey.CUSTOMER_BIN -> Triple("🗂", "Is this the correct bin?", Amber)
+        StationKey.PACKING -> Triple("📮", "Which items are still missing?", Blue)
+        StationKey.SHIPPING -> Triple("🚚", "Which shipment am I confirming?", Green)
+        StationKey.ARCHIVE_TRACE -> Triple("🔍", "What happened to this item?", Dim)
     }
     Card(colors = CardDefaults.cardColors(containerColor = Theme.surface),
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), onClick = onClick) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(44.dp).background(color.copy(alpha = 0.12f), CircleShape),
-                contentAlignment = Alignment.Center) {
-                    Text(icon, fontSize = 13.sp, fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace, letterSpacing = 1.sp)
-                }
+                contentAlignment = Alignment.Center) { Text(icon, fontSize = 22.sp) }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text((task.label ?: key.name).uppercase(), fontWeight = FontWeight.Bold, fontSize = 14.sp,
                         letterSpacing = 1.sp)
-                    if (active && key == StationKey.RECEIVING) {
-                        Spacer(Modifier.width(8.dp))
-                        Text("IN PROGRESS", color = Amber, fontSize = 9.sp, fontWeight = FontWeight.Bold,
-                            modifier = Modifier.background(Amber.copy(alpha = 0.2f), RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 1.dp))
-                    }
                 }
                 Text(question, color = Dim, fontSize = 11.sp)
             }
@@ -882,355 +844,11 @@ private fun StationRouter(
 ) {
     val onAcceptWrap: () -> Unit = onAccepted
     when (key) {
-        StationKey.RECEIVING -> ReceivingStation(repo, onBack, onExpired, onStatus, onLastAction, onAcceptWrap)
-        StationKey.RECEIVING_CONTAINER -> ToteStation(repo, onBack, onExpired, onStatus, onLastAction, onAcceptWrap)
         StationKey.CUSTOMER_SORTING -> SortingStation(repo, onBack, onExpired, onStatus, onLastAction, onAcceptWrap)
         StationKey.CUSTOMER_BIN -> CustomerBinStation(repo, onBack, onExpired, onStatus, onLastAction, onAcceptWrap)
         StationKey.PACKING -> PackingStation(repo, onBack, onExpired, onStatus, onLastAction, onAcceptWrap)
         StationKey.SHIPPING -> ShippingStation(repo, onBack, onExpired, onStatus, onLastAction, onAcceptWrap)
         StationKey.ARCHIVE_TRACE -> TraceStation(repo, onBack, onExpired, onStatus, onLastAction, onAcceptWrap)
-    }
-}
-
-// ============================================================
-// STATION 1: RECEIVING (optimised for article throughput)
-// Q: What am I receiving?  -> Big answer: SESSION + TALLY + SCAN
-// ============================================================
-@Composable
-private fun ReceivingStation(
-    repo: WorkerRepository, onBack: () -> Unit, onExpired: () -> Unit,
-    onStatus: (String, FeedbackKind) -> Unit, onLastAction: (String) -> Unit,
-    onAccepted: () -> Unit = {},
-) {
-    val scope = rememberCoroutineScope()
-    var arrivals by remember { mutableStateOf<List<ArrivalRow>>(emptyList()) }
-    var session by remember { mutableStateOf<ReceivingSession?>(null) }
-    var loading by remember { mutableStateOf(true) }
-    var busy by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var fb by remember { mutableStateOf<Feedback?>(null) }
-    var tick by remember { mutableIntStateOf(0) }
-
-    LaunchedEffect(Unit) { while (true) { delay(1000); tick += 1 } }
-
-    suspend fun loadArrivals() { arrivals = repo.arrivals() }
-    suspend fun open(a: ArrivalRow) {
-        val id = a.code ?: a.id ?: return
-        busy = true; error = null
-        try {
-            session = repo.activeSession(id) ?: repo.startReceiving(id)
-            fb = Feedback(FeedbackKind.INFO, "SESSION ACTIVE", session!!.code); onStatus("SESSION ACTIVE", FeedbackKind.INFO)
-            onLastAction("session ${session!!.code} started")
-        } catch (ex: WorkerRepository.ApiException) { if (ex.code == 401) onExpired() else error = ex.message }
-        catch (ex: Exception) { error = ex.message } finally { busy = false }
-    }
-    LaunchedEffect(Unit) { loading = true; try { loadArrivals() } catch (e: Exception) { error = e.message }; loading = false }
-
-    val onScan: suspend (String) -> Unit = onScan@{ value ->
-        val s = session
-        if (s == null) return@onScan
-        busy = true; error = null
-        try {
-            // C-1: scan-carton only IDENTIFIES the carton — the backend does
-            // NOT commit a receipt there. Success ("CARTON RECEIVED") may only
-            // be shown AFTER the explicit receive-carton commit returns.
-            var updated = repo.scanCarton(s.id, value, "BARCODE", UUID.randomUUID().toString(), "EXTERNAL_SCANNER")
-            session = updated
-            when (updated.flash?.kind) {
-                "CARTON_IDENTIFIED", "CARTON_RECEIVED", "CARTON_CONFIRMED" -> {
-                    val cid = jsonString(updated.flash!!.carton, "externalCartonId")
-                        ?: jsonString(updated.flash!!.carton, "code")
-                        ?: jsonString(updated.flash!!.carton, "qrCodeValue")
-                        ?: value
-                    // Commit the receipt BEFORE claiming success (C-1). The
-                    // operationId makes the commit idempotent on retries.
-                    updated = repo.receiveCarton(s.id, cid, UUID.randomUUID().toString(), "EXTERNAL_SCANNER")
-                    session = updated
-                    val f = updated.flash?.kind
-                    if (f == "DUPLICATE_CARTON") {
-                        fb = Feedback(FeedbackKind.BAD, "ALREADY RECEIVED", cid); onStatus("REJECTED", FeedbackKind.BAD)
-                    } else {
-                        fb = Feedback(FeedbackKind.OK, "CARTON RECEIVED",
-                            "$cid  ·  ${updated.tally.receivedCartons}/${updated.tally.expectedCartons} cartons")
-                        onStatus("ACCEPTED", FeedbackKind.OK); onLastAction("carton $cid received")
-                    }
-                }
-                "UNKNOWN_CARTON" -> { fb = Feedback(FeedbackKind.BAD, "UNKNOWN CARTON", value); onStatus("REJECTED", FeedbackKind.BAD) }
-                "WRONG_SHIPMENT" -> { fb = Feedback(FeedbackKind.BAD, "WRONG SHIPMENT", value); onStatus("REJECTED", FeedbackKind.BAD) }
-                "DUPLICATE_CARTON" -> { fb = Feedback(FeedbackKind.BAD, "ALREADY RECEIVED", value); onStatus("REJECTED", FeedbackKind.BAD) }
-                else -> {
-                    val t = updated.tally
-                    if (t.receivedCartons > s.tally.receivedCartons) {
-                        fb = Feedback(FeedbackKind.OK, "CARTON RECEIVED",
-                            "$value  ·  ${t.receivedCartons}/${t.expectedCartons} cartons")
-                        onStatus("ACCEPTED", FeedbackKind.OK); onLastAction("carton $value received")
-                    } else {
-                        fb = Feedback(FeedbackKind.BAD, "NOT ACCEPTED", value); onStatus("REJECTED", FeedbackKind.BAD)
-                    }
-                }
-            }
-        } catch (ex: WorkerRepository.ApiException) {
-            if (ex.code != 401) { error = ex.message; fb = Feedback(FeedbackKind.BAD, "ERROR", ex.message) } else onExpired()
-        } catch (ex: Exception) { error = ex.message; fb = Feedback(FeedbackKind.BAD, "ERROR", ex.message) }
-        finally { busy = false }
-    }
-    val (coord, camOn, setCam) = StationScanner(onScan = onScan, busy = busy, enabled = session != null)
-
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp)) {
-        if (session == null) {
-            BackBar("RECEIVING", onBack)
-            if (error != null) { FlashBar(Feedback(FeedbackKind.BAD, "ERROR", error)); Spacer(Modifier.height(6.dp)) }
-            when {
-                loading -> CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
-                arrivals.isEmpty() -> Text("No arrivals awaiting receiving.", color = Dim)
-                else -> for (a in arrivals) {
-                    Card(colors = CardDefaults.cardColors(containerColor = Theme.surface),
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), onClick = { scope.launch { open(a) } }) {
-                        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(a.code ?: "—", fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                                Text(a.customerName ?: a.storeName ?: "—", fontSize = 12.sp, color = Dim)
-                                Text("${a.cartons ?: 0} cartons · ${a.units ?: 0} units", fontSize = 11.sp, color = Dim)
-                            }
-                            Button(onClick = { scope.launch { open(a) } }) {
-                                Text(if (a.status == "EXPECTED") "START" else "RESUME")
-                            }
-                        }
-                    }
-                }
-            }
-            return@Column
-        }
-        val s = session!!
-        val t = s.tally
-        BackBar("RECEIVING", onBack) {
-            Text(elapsed(s.startedAt, tick), fontFamily = FontFamily.Monospace, color = Blue, fontWeight = FontWeight.Bold)
-        }
-        ContextCard("TASK / BATCH", s.arrival.code, s.arrival.customerName ?: s.arrival.storeName, Green)
-        Spacer(Modifier.height(10.dp))
-        FlashBar(fb, { fb = null }, onAccepted)
-        BigScanHero("SCAN CARTON", "Point the CT40 trigger at the carton barcode.",
-            statusLabel = s.status.uppercase(), statusColor = if (s.status == "PAUSED") Amber else Green,
-            // C-2: the label mirrors the BACKEND session status verbatim
-            // (RECEIVING / PAUSED / COMPLETED...) — never a local fiction.
-            cameraOn = camOn)
-        CameraToggle(camOn, setCam, coord, enabled = !busy && s.status != "PAUSED")
-        Spacer(Modifier.height(10.dp))
-        Section("MANUAL ENTRY")
-        var mVal by remember { mutableStateOf("") }
-        ManualEntry("CARTON CODE", mVal, { mVal = it }, { v -> scope.launch { onScan(v) } }, enabled = !busy && s.status != "PAUSED")
-        Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Metric("CARTONS", "${t.receivedCartons}/${t.expectedCartons}",
-                if (t.receivedCartons >= t.expectedCartons && t.expectedCartons > 0) Green else Theme.primary, Modifier.weight(1f))
-            Metric("UNITS", "${t.receivedUnits}/${t.expectedUnits}", Theme.primary, Modifier.weight(1f))
-            Metric("EXCEPTIONS", "${t.openDiscrepancies}", if (t.openDiscrepancies > 0) Red else Dim, Modifier.weight(1f))
-        }
-        val open = s.discrepancies.filter { it.status == "OPEN" }
-        if (open.isNotEmpty()) {
-            Section("OPEN EXCEPTIONS")
-            for (d in open) Text("• ${d.type?.replace("_"," ")} · ${d.reason ?: "—"}", color = Red, fontSize = 12.sp)
-        }
-        Spacer(Modifier.height(10.dp))
-        Section("SESSION")
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            if (s.status == "RECEIVING" || s.status == "ACTIVE") {
-                OutlinedButton(onClick = {
-                    scope.launch { busy = true; try { session = repo.pauseSession(s.id) } catch (e: Exception) { fb = Feedback(FeedbackKind.BAD, "ERROR", e.message) } finally { busy = false } }
-                }, modifier = Modifier.weight(1f), enabled = !busy) { Text("PAUSE") }
-            } else if (s.status == "PAUSED") {
-                OutlinedButton(onClick = {
-                    scope.launch { busy = true; try { session = repo.resumeSession(s.id); fb = Feedback(FeedbackKind.OK, "RESUMED", s.code) } catch (e: Exception) { fb = Feedback(FeedbackKind.BAD, "ERROR", e.message) } finally { busy = false } }
-                }, modifier = Modifier.weight(1f), enabled = !busy) { Text("RESUME") }
-            }
-            OutlinedButton(onClick = {
-                scope.launch {
-                    busy = true; try {
-                        val done = repo.completeSession(s.id); session = done
-                        fb = Feedback(FeedbackKind.OK, "SESSION COMPLETE", done.code)
-                        onStatus("DONE", FeedbackKind.OK); onLastAction("session ${done.code} complete")
-                    } catch (e: Exception) { fb = Feedback(FeedbackKind.BAD, "CANNOT COMPLETE", e.message) } finally { busy = false }
-                }
-            }, modifier = Modifier.weight(1f), enabled = !busy && (s.status == "RECEIVING" || s.status == "ACTIVE" || s.status == "PAUSED")) {
-                Text("COMPLETE")
-            }
-        }
-    }
-}
-
-// ============================================================
-// STATION 2: RECEIVING CONTAINER / TOTE
-// Q: Which container am I processing?  -> scan tote, then scan articles into it
-// ============================================================
-@Composable
-private fun ToteStation(
-    repo: WorkerRepository, onBack: () -> Unit, onExpired: () -> Unit,
-    onStatus: (String, FeedbackKind) -> Unit, onLastAction: (String) -> Unit,
-    onAccepted: () -> Unit = {},
-) {
-    val scope = rememberCoroutineScope()
-    // Find open receiving session (auto-resume from active)
-    var session by remember { mutableStateOf<ReceivingSession?>(null) }
-    var tote by remember { mutableStateOf<String?>(null) }   // active tote code
-    var totes by remember { mutableStateOf<List<OpContainer>>(emptyList()) }
-    var newLabel by remember { mutableStateOf("") }
-    var busy by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var fb by remember { mutableStateOf<Feedback?>(null) }
-    var manualSku by remember { mutableStateOf("") }
-    var articlesCount by remember { mutableStateOf(0) }
-    var tick by remember { mutableIntStateOf(0) }
-    var cameraOn by remember { mutableStateOf(false) }
-    var loading by remember { mutableStateOf(true) }
-
-    LaunchedEffect(Unit) { while(true){delay(1000); tick++} }
-    suspend fun refresh() {
-        totes = repo.containers("RECEIVING", "ACTIVE")
-        val actives = repo.arrivals()
-        for (a in actives) {
-            val key = a.code ?: a.id
-            if (key != null) {
-                val s = repo.activeSession(key)
-                if (s != null) { session = s; break }
-            }
-        }
-        loading = false
-    }
-    LaunchedEffect(Unit) { try { refresh() } catch (e: Exception) { error = e.message; loading = false } }
-
-    val onScan: suspend (String) -> Unit = onScan@{ value ->
-        val s = session
-        if (s == null) { fb = Feedback(FeedbackKind.BAD, "NO ACTIVE RECEIVING SESSION"); onStatus("ERROR", FeedbackKind.BAD); return@onScan }
-        if (tote == null) {
-            busy = true
-            try {
-                val c = repo.container(value)
-                if (c.type != "RECEIVING") { fb = Feedback(FeedbackKind.BAD, "NOT A RECEIVING TOTE", c.code); return@onScan }
-                tote = c.code; articlesCount = c.articles.size
-                fb = Feedback(FeedbackKind.INFO, "TOTE SELECTED", "${c.code} · ${c.label ?: ""}")
-                onStatus("SCAN ARTICLE", FeedbackKind.OK); onLastAction("tote ${c.code} selected")
-            } catch (ex: Exception) { fb = Feedback(FeedbackKind.BAD, "CONTAINER NOT FOUND", value); onStatus("ERROR", FeedbackKind.BAD) }
-            finally { busy = false }
-            return@onScan
-        }
-        // Scan article into tote
-        busy = true
-        try {
-            val r = repo.scanArticleAtReceiving(s.id, value, tote!!, null, UUID.randomUUID().toString())
-            // C-4: a replayed operationId is NOT a new article — do not
-            // count it locally and say so honestly.
-            if (r.flash?.kind == "DUPLICATE_OPERATION") {
-                fb = Feedback(FeedbackKind.INFO, "ALREADY COUNTED — NOT REPEATED", value)
-                onStatus("DUPLICATE", FeedbackKind.INFO)
-                return@onScan
-            }
-            articlesCount += 1
-            if (r.matched) {
-                val sku = r.flash?.sku ?: value
-                fb = Feedback(FeedbackKind.OK, "ARTICLE PLACED IN ${tote}",
-                    "$sku  ·  articles $articlesCount")
-                onStatus("ACCEPTED", FeedbackKind.OK); onLastAction("article $value → $tote")
-            } else {
-                fb = Feedback(FeedbackKind.BAD, "UNEXPECTED ARTICLE — EXCEPTION RECORDED", value)
-                onStatus("EXCEPTION", FeedbackKind.BAD); onLastAction("UNEXPECTED $value in $tote")
-            }
-        } catch (ex: WorkerRepository.ApiException) {
-            if (ex.code != 401) { error = ex.message; fb = Feedback(FeedbackKind.BAD, "ERROR", ex.message) }
-            else onExpired()
-        } catch (ex: Exception) { error = ex.message; fb = Feedback(FeedbackKind.BAD, "ERROR", ex.message) }
-        finally { busy = false }
-    }
-    val (coord, camOn, setCam) = StationScanner(onScan, busy)
-
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp)) {
-        BackBar("RECEIVING CONTAINER / TOTE", onBack)
-        if (loading) { CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally)); return@Column }
-        if (session == null) {
-            Card(colors = CardDefaults.cardColors(containerColor = Theme.surface)) {
-                Column(Modifier.padding(18.dp)) {
-                    Text("NO ACTIVE RECEIVING SESSION", fontWeight = FontWeight.Bold, color = Red)
-                    Spacer(Modifier.height(4.dp))
-                    Text("Open a Receiving session first (RECEIVING tab) to scan articles into a tote.", fontSize = 12.sp, color = Dim)
-                }
-            }
-            return@Column
-        }
-        FlashBar(fb, { fb = null }, onAccepted)
-        ContextCard("SESSION", session!!.code, session!!.arrival.customerName, Green)
-        Spacer(Modifier.height(10.dp))
-        if (tote == null) {
-            BigScanHero("SCAN CONTAINER", "Scan the tote QR or pick one below.",
-                hint = "SCAN TOTE WITH CT40 TRIGGER", statusLabel = "READY", statusColor = Blue)
-            Spacer(Modifier.height(8.dp))
-            Section("OR CREATE NEW TOTE")
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(newLabel, { newLabel = it }, singleLine = true,
-                    label = { Text("Label (optional)", fontSize = 10.sp) },
-                    modifier = Modifier.weight(1f))
-                Spacer(Modifier.width(8.dp))
-                Button(onClick = {
-                    scope.launch {
-                        busy = true; try {
-                            val c = repo.createContainer("RECEIVING", label = newLabel.ifBlank { null })
-                            totes = listOf(c) + totes; newLabel = ""
-                            fb = Feedback(FeedbackKind.OK, "NEW TOTE CREATED", c.code); onLastAction("tote ${c.code} created")
-                        } catch (e: Exception) { fb = Feedback(FeedbackKind.BAD, "COULD NOT CREATE TOTE", e.message) }
-                        finally { busy = false }
-                    }
-                }, enabled = !busy) { Text("+ NEW TOTE") }
-            }
-            Spacer(Modifier.height(8.dp))
-            Section("ACTIVE TOTES")
-            if (totes.isEmpty()) Text("No active totes.", color = Dim, fontSize = 12.sp)
-            for (t in totes) {
-                Card(colors = CardDefaults.cardColors(containerColor = Theme.surface),
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp), onClick = {
-                        tote = t.code; articlesCount = t.articleCount
-                        fb = Feedback(FeedbackKind.INFO, "TOTE SELECTED", "${t.code} · ${t.articleCount} articles")
-                        onStatus("SCAN ARTICLE", FeedbackKind.OK); onLastAction("tote ${t.code}")
-                    }) {
-                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(t.code, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                            Text(t.label ?: "receiving tote", fontSize = 11.sp, color = Dim)
-                        }
-                        Text("${t.articleCount}", fontWeight = FontWeight.Black, fontSize = 18.sp, color = Blue)
-                        Spacer(Modifier.width(4.dp)); Text("items", fontSize = 10.sp, color = Dim)
-                    }
-                }
-            }
-        } else {
-            ContextCard("CURRENT CONTAINER", tote, "$articlesCount items · Ready", Green)
-            Spacer(Modifier.height(10.dp))
-            BigScanHero("SCAN ARTICLE", "Scan each unit out of the carton → place into $tote.",
-                hint = "SCAN ARTICLE INTO $tote", statusLabel = "ACTIVE", statusColor = Green,
-                cameraOn = camOn)
-            CameraToggle(camOn, setCam, coord, !busy)
-            Spacer(Modifier.height(10.dp))
-            Section("MANUAL SKU")
-            ManualEntry("SKU / REFERENCE", manualSku, { manualSku = it }, { v -> scope.launch { onScan(v) } },
-                enabled = !busy)
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                // §21: close the tote NOW at any count — the backend seals it
-                // (READY_FOR_SORTING) and it moves to the sorting step.
-                OutlinedButton(onClick = {
-                    scope.launch {
-                        busy = true
-                        try {
-                            val closed = repo.closeContainer(tote!!)
-                            fb = Feedback(FeedbackKind.INFO, "TOTE ${closed.code} CLOSED AT ${closed.count}", "READY FOR SORTING")
-                            onLastAction("tote ${closed.code} closed at ${closed.count}")
-                            tote = null; articlesCount = 0
-                        } catch (e: Exception) { fb = Feedback(FeedbackKind.BAD, "CANNOT CLOSE TOTE", e.message) }
-                        finally { busy = false }
-                    }
-                }, enabled = !busy, modifier = Modifier.weight(1f)) { Text("CLOSE TOTE") }
-                OutlinedButton(onClick = { tote = null; articlesCount = 0 }, enabled = !busy, modifier = Modifier.weight(1f)) {
-                    Text("CHANGE TOTE")
-            }
-            }
-        }
     }
 }
 

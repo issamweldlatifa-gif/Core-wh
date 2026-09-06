@@ -215,9 +215,25 @@ export interface SessionDetail {
   cartons: Array<{
     id: string; scannedCode: string; status: string; source: string; scanType: string;
     receivedAt: string | null;
+    /**
+     * The authoritative WarehouseCarton this event matched (null = unknown
+     * code). Carries the external carton ID, reference and the QR/barcode
+     * identities the admin Receiving drill-down must show.
+     */
+    carton: {
+      id: string;
+      externalCartonId: string;
+      cartonReference: string | null;
+      qrCodeValue: string | null;
+      barcodeValue: string | null;
+      cartonNumber: number;
+      totalCartons: number;
+      status: string;
+    } | null;
   }>;
   products: Array<{
-    id: string; sku: string | null; productName: string | null;
+    id: string; sku: string | null; reference: string | null; productName: string | null;
+    category: string | null;
     expectedQuantity: number; receivedQuantity: number; status: string;
   }>;
   discrepancies: Array<{ id: string; type: string; status: string; reason: string | null }>;
