@@ -26,6 +26,13 @@ export class StationsService {
     private readonly audit: AuditService,
   ) {}
 
+  /** Validate a zone id exists (S11: the zone link is admin config, not code). */
+  private async assertZone(zoneId: string): Promise<string> {
+    const zone = await this.prisma.zone.findUnique({ where: { id: zoneId } });
+    if (!zone) throw new NotFoundException(`Zone "${zoneId}" not found.`);
+    return zoneId;
+  }
+
   private normaliseCode(raw: string): string {
     const code = (raw ?? '').trim().toUpperCase();
     if (!CODE_RE.test(code)) {
@@ -69,12 +76,15 @@ export class StationsService {
       capabilities?: StationCapability[];
       deviceId?: string | null;
       warehouseId?: string | null;
+      /** Master Order §11: the station/zone link is created as configuration. */
+      zoneId?: string | null;
     },
     actor: StationActor,
   ) {
     const code = this.normaliseCode(input.code);
     const clash = await this.prisma.station.findUnique({ where: { code } });
     if (clash) throw new ConflictException(`Station code "${code}" already exists.`);
+    const zoneId = input.zoneId ? await this.assertZone(input.zoneId) : null;
 
     const station = await this.prisma.station.create({
       data: {
@@ -84,7 +94,9 @@ export class StationsService {
         capabilities: input.capabilities ?? [],
         deviceId: input.deviceId ?? null,
         warehouseId: input.warehouseId ?? null,
+        zoneId,
       },
+      include: { zone: { select: { id: true, code: true, warehouseId: true } } },
     });
     await this.audit.log({
       actorUserId: actor.id,
@@ -92,7 +104,7 @@ export class StationsService {
       entityType: 'station',
       entityId: station.id,
       ipAddress: actor.ip,
-      metadata: { code, department: station.department },
+      metadata: { code, department: station.department, zoneId },
     });
     return station;
   }
@@ -130,13 +142,7 @@ export class StationsService {
       }
       data.department = input.department as never;
     }
-    if (input.zoneId !== undefined) {
-      if (input.zoneId) {
-        const zone = await this.prisma.zone.findUnique({ where: { id: input.zoneId } });
-        if (!zone) throw new NotFoundException(`Zone "${input.zoneId}" not found.`);
-      }
-      data.zoneId = input.zoneId;
-    }
+    if (input.zoneId !== undefined) data.zoneId = input.zoneId ? await this.assertZone(input.zoneId) : null;
 
     const saved = await this.prisma.station.update({ where: { id: station.id }, data });
     await this.audit.log({

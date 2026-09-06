@@ -132,6 +132,8 @@ export class StationsController {
       capabilities?: StationCapability[];
       deviceId?: string | null;
       warehouseId?: string | null;
+      /** Master Order §11: the station/zone link is created as configuration. */
+      zoneId?: string | null;
     },
     @Req() req: any,
   ) {

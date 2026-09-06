@@ -267,6 +267,8 @@ export interface StationRow {
   id: string; code: string; name: string; department: string; status: string;
   capabilities: string[]; deviceId: string | null;
   assignedWorker: { id: string; name: string; employeeCode: string } | null;
+  /** Master Order S11 — the station/zone link is admin-visible configuration. */
+  zone?: { id: string; code: string } | null;
 }
 
 /** Registered hardware for the Native Worker App (strict device binding).
@@ -403,12 +405,18 @@ export const adminApi = {
     client.get<CorrectionRow[]>('/v1/operations/corrections', { params: { sessionId } }).then((r) => r.data),
 
   stations: () => client.get<StationRow[]>('/v1/stations').then((r) => r.data),
-  createStation: (d: { code: string; name: string; department: string; capabilities?: string[] }) =>
+  createStation: (d: { code: string; name: string; department: string; capabilities?: string[]; zoneId?: string | null }) =>
     client.post<StationRow>('/v1/stations', d).then((r) => r.data),
   stationStatus: (id: string, status: string) =>
     client.post<StationRow>(`/v1/stations/${id}/status`, { status }).then((r) => r.data),
   assignStation: (id: string, workerId: string | null) =>
     client.post<StationRow>(`/v1/stations/${id}/assign`, { workerId }).then((r) => r.data),
+  /** Master Order S11 — station/zone + department is admin configuration. */
+  updateStation: (id: string, d: { department?: string; zoneId?: string | null }) =>
+    client.patch<StationRow>(`/v1/stations/${id}`, d).then((r) => r.data),
+  warehouses: () => client.get<Array<{ id: string; code: string; name: string }>>('/v1/warehouses').then((r) => r.data),
+  zones: (warehouseId: string) =>
+    client.get<Array<{ id: string; code: string }>>('/v1/zones', { params: { warehouseId } }).then((r) => r.data),
 
   // Devices — hardware registered for the Native Worker App (ADMIN_WEB only).
   devices: () => client.get<DeviceRow[]>('/v1/devices').then((r) => r.data),
@@ -438,6 +446,8 @@ export const adminApi = {
     client.post('/v1/operations/corrections/resolve-exception', { discrepancyId, reason, resolution }).then((r) => r.data),
   reopenSession: (sessionId: string, reason: string) =>
     client.post('/v1/operations/corrections/reopen-session', { sessionId, reason }).then((r) => r.data),
+  reopenCustomerBin: (containerCode: string, reason: string) =>
+    client.post('/v1/operations/corrections/reopen-customer-bin', { containerCode, reason }).then((r) => r.data),
 
   // Admin Data Control — soft-void (COMMAND #2). Read = operations.view,
   // void = operations.correct (admin only).
