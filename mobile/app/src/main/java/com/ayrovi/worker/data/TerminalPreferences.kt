@@ -6,11 +6,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /** Non-sensitive display preferences ONLY. Never stores auth, permissions, task or receipt data. */
-class TerminalPreferences(context: Context, fileName: String = "ayrovi_terminal_appearance") {
+class TerminalPreferences(context: Context, fileName: String = "ayrovi_terminal_appearance",
+    defaultMode: TerminalThemeMode = TerminalThemeMode.WHITE,
+    val darkMode: TerminalThemeMode = TerminalThemeMode.BLACK) {
     private val preferences = context.applicationContext.getSharedPreferences(fileName, Context.MODE_PRIVATE)
     private val mutable = MutableStateFlow(runCatching {
-        TerminalThemeMode.valueOf(preferences.getString("contrast_mode", "WHITE") ?: "WHITE")
-    }.getOrDefault(TerminalThemeMode.WHITE))
+        TerminalThemeMode.valueOf(preferences.getString("contrast_mode", defaultMode.name) ?: defaultMode.name)
+    }.getOrDefault(defaultMode))
     val theme = mutable.asStateFlow()
 
     @Synchronized fun selectTheme(mode: TerminalThemeMode): Boolean {

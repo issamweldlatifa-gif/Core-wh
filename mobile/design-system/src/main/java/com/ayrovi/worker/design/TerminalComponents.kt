@@ -6,6 +6,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -14,6 +16,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.testTag
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -52,44 +61,66 @@ fun TerminalShell(
     }
 }
 
+/** Compact identity header; device classification is provided, never detected by this component. */
 @Composable
 fun TerminalHeader(
     operation: String, worker: String, station: String?, connection: String,
     onBack: (() -> Unit)? = null, backEnabled: Boolean = true,
+    industrial: Boolean = false, onSettings: (() -> Unit)? = null,
 ) {
-    val toggleTheme = LocalTerminalThemeToggle.current
-    val mode = LocalTerminalThemeMode.current
-    Surface(color = TerminalTokens.background) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = TerminalTokens.sm, vertical = TerminalTokens.xs),
-            verticalArrangement = Arrangement.spacedBy(TerminalTokens.xxs)) {
-            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.md),
-                verticalArrangement = Arrangement.spacedBy(TerminalTokens.xxs)) {
-                Text("AYROVI / WORKER", style = MaterialTheme.typography.labelMedium, color = TerminalTokens.text)
-                ConnectionStatus(connection)
-            }
+    val toggle = LocalTerminalThemeToggle.current
+    Surface(color = TerminalTokens.background, modifier = Modifier.testTag(if (industrial) "CT40_HEADER" else "PHONE_HEADER")) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = TerminalTokens.sm, vertical = TerminalTokens.xxs)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-                if (onBack != null) HeaderAction("‹", "Back to work queue", onBack, backEnabled)
-                Text(operation, style = MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.weight(1f).semantics { heading() })
-                if (toggleTheme != null) HeaderAction(mode.next().name,
-                    "Switch to ${mode.next().name.lowercase()} theme", toggleTheme)
+                Text("AYROVI", style = MaterialTheme.typography.titleMedium)
+                ConnectionStatus(connection)
+                if (!industrial) Text(station ?: "NO STATION", style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.weight(1f), color = TerminalTokens.muted)
+                else Spacer(Modifier.weight(1f))
+                val settings = onSettings ?: toggle
+                if (settings != null) TerminalIconAction(TerminalIcon.SETTINGS, "Worker and settings", settings)
             }
-            Text(listOfNotNull(station, worker).joinToString(" · "), style = MaterialTheme.typography.bodyMedium,
-                color = TerminalTokens.muted)
+            Text(if (industrial) "$operation · ${station ?: "NO STATION"}" else worker,
+                style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)
         }
     }
 }
 
 @Composable
-private fun HeaderAction(label: String, description: String, onClick: () -> Unit, enabled: Boolean = true) {
-    OutlinedButton(onClick = onClick, enabled = enabled,
-        modifier = Modifier.width(TerminalTokens.headerActionWidth).heightIn(min = TerminalTokens.touch)
-            .semantics { contentDescription = description },
+fun TerminalIconAction(icon: TerminalIcon, label: String, onClick: () -> Unit, enabled: Boolean = true, modifier: Modifier = Modifier) {
+    IconButton(onClick = onClick, enabled = enabled,
+        modifier = modifier.size(TerminalTokens.touch).semantics { contentDescription = label }) {
+        WorkerIcon(icon, null, Modifier.size(TerminalTokens.icon), if (enabled) TerminalTokens.text else TerminalTokens.muted)
+    }
+}
+
+/** Small icon tile, not a dashboard card. Count null means unknown/unavailable, NOT zero. */
+@Composable
+fun WorkflowTile(label: String, icon: TerminalIcon, count: Int?, available: Boolean, enabled: Boolean,
+    onClick: () -> Unit, modifier: Modifier = Modifier) {
+    var previous by remember { mutableStateOf(count) }
+    var emphasize by remember { mutableStateOf(false) }
+    LaunchedEffect(count) {
+        emphasize = previous != null && count != null && count > (previous ?: 0)
+        previous = count
+        if (emphasize) { delay(350); emphasize = false }
+    }
+    val scale by animateFloatAsState(if (emphasize) 1.06f else 1f, tween(180), label = "work count update")
+    OutlinedButton(onClick, modifier.heightIn(min = TerminalTokens.tileHeight), enabled && available,
         shape = MaterialTheme.shapes.small, border = BorderStroke(TerminalTokens.stroke, TerminalTokens.border),
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = TerminalTokens.text),
-        contentPadding = PaddingValues(TerminalTokens.xs)) {
-        Text(label, style = if (label == "‹") MaterialTheme.typography.headlineMedium else MaterialTheme.typography.labelLarge)
+        contentPadding = PaddingValues(TerminalTokens.xs), colors = ButtonDefaults.outlinedButtonColors(contentColor = TerminalTokens.text)) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+            Box {
+                WorkerIcon(icon, null, Modifier.size(TerminalTokens.workflowIcon), if (available) TerminalTokens.text else TerminalTokens.muted)
+                if (count != null && count > 0) Badge(Modifier.align(Alignment.TopEnd).graphicsLayer { scaleX = scale; scaleY = scale },
+                    containerColor = TerminalTokens.instruction, contentColor = TerminalTokens.background) {
+                    Text(count.toString(), modifier = Modifier.semantics { contentDescription = "$count waiting" })
+                }
+            }
+            Text(label, style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center)
+            if (!available) Text("NOT AVAILABLE", style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
+        }
     }
 }
 
@@ -97,9 +128,9 @@ private fun HeaderAction(label: String, description: String, onClick: () -> Unit
 @Composable
 fun TerminalModeSelector(
     first: String, second: String, firstSelected: Boolean, enabled: Boolean,
-    onFirst: () -> Unit, onSecond: () -> Unit,
+    onFirst: () -> Unit, onSecond: () -> Unit, padded: Boolean = true,
 ) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = TerminalTokens.sm, vertical = TerminalTokens.xs),
+    Row(Modifier.fillMaxWidth().testTag("MODE_SELECTOR").then(if (padded) Modifier.padding(horizontal = TerminalTokens.sm, vertical = TerminalTokens.xs) else Modifier),
         horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
         listOf(Triple(first, firstSelected, onFirst), Triple(second, !firstSelected, onSecond)).forEach { (label, chosen, action) ->
             val modifier = Modifier.weight(1f).heightIn(min = TerminalTokens.touch)
@@ -108,7 +139,9 @@ fun TerminalModeSelector(
                 shape = MaterialTheme.shapes.small,
                 colors = ButtonDefaults.buttonColors(containerColor = TerminalTokens.primary, contentColor = TerminalTokens.onPrimary),
                 contentPadding = PaddingValues(TerminalTokens.xs)) {
-                Text("✓ $label", style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center)
+                WorkerIcon(TerminalIcon.CHECK, null, Modifier.size(TerminalTokens.iconSmall), TerminalTokens.onPrimary)
+                Spacer(Modifier.width(TerminalTokens.xxs))
+                Text(label, style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center)
             } else OutlinedButton(onClick = action, enabled = enabled, modifier = modifier,
                 shape = MaterialTheme.shapes.small, border = BorderStroke(TerminalTokens.stroke, TerminalTokens.border),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = TerminalTokens.text),
@@ -123,7 +156,7 @@ fun TerminalModeSelector(
 fun TerminalFooter(instruction: String, actions: @Composable ColumnScope.() -> Unit) {
     Surface(color = TerminalTokens.surface, tonalElevation = TerminalTokens.flat) {
         Column(Modifier.fillMaxWidth().padding(TerminalTokens.sm), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-            Text(instruction, style = MaterialTheme.typography.labelMedium, color = TerminalTokens.muted)
+            if (instruction.isNotBlank()) Text(instruction, style = MaterialTheme.typography.labelMedium, color = TerminalTokens.muted)
             actions()
         }
     }
@@ -172,7 +205,7 @@ fun LocationBlock(code: String, hierarchy: List<Pair<String, String>> = emptyLis
     }
 }
 @Composable fun ProductBlock(name: String?, sku: String, detail: String? = null) {
-    TerminalPanel("PRODUCT") { ProductIdentity(name ?: "Product name not supplied"); SKUBlock(sku); if (detail != null) Text(detail, style = MaterialTheme.typography.bodyMedium) }
+    TerminalPanel("PRODUCT") { ProductIdentity(name ?: "Product"); SKUBlock(sku); if (detail != null) Text(detail, style = MaterialTheme.typography.bodyMedium) }
 }
 @Composable fun ProductIdentity(name: String) = Text(name, style = MaterialTheme.typography.titleLarge)
 @Composable fun SKUBlock(sku: String) { Text("SKU", style = MaterialTheme.typography.labelMedium, color = TerminalTokens.muted); BarcodeDisplay(sku) }
@@ -249,7 +282,7 @@ fun TerminalNotice(title: String, detail: String, tone: TerminalTone) {
 @Composable fun ErrorState(title: String, detail: String, expected: String? = null, scanned: String? = null) {
     OperationalState(title, detail, TerminalTone.ERROR, expected, scanned)
 }
-@Composable fun LoadingState(label: String = "Checking warehouse server…") {
+@Composable fun LoadingState(label: String = "Please wait…") {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TerminalTokens.md)) {
         CircularProgressIndicator(Modifier.size(TerminalTokens.icon), color = TerminalTokens.instruction, strokeWidth = TerminalTokens.stroke * 2)
         Text(label, style = MaterialTheme.typography.bodyLarge)
@@ -262,31 +295,45 @@ private fun OperationalState(title: String, detail: String, tone: TerminalTone, 
     Surface(Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }, color = TerminalTokens.surface,
         shape = MaterialTheme.shapes.small, border = BorderStroke(TerminalTokens.stroke, tone.color())) {
         Column(Modifier.padding(TerminalTokens.sm), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-            Text("${symbol(tone)}  $title", style = MaterialTheme.typography.titleMedium, color = tone.color())
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+                WorkerIcon(tone.icon(), null, Modifier.size(TerminalTokens.icon), tone.color())
+                Text(title, style = MaterialTheme.typography.titleMedium, color = tone.color())
+            }
             Text(detail, style = MaterialTheme.typography.bodyLarge)
             if (expected != null) { Text("EXPECTED", style = MaterialTheme.typography.labelMedium); BarcodeDisplay(expected) }
             if (scanned != null) { Text("SCANNED", style = MaterialTheme.typography.labelMedium); BarcodeDisplay(scanned) }
         }
     }
 }
-private fun symbol(tone: TerminalTone) = when (tone) {
-    TerminalTone.SUCCESS -> "✓"
-    TerminalTone.WARNING -> "!"
-    TerminalTone.ERROR -> "×"
-    TerminalTone.INSTRUCTION -> "+"
-    TerminalTone.NEUTRAL -> "—"
+private fun TerminalTone.icon() = when (this) {
+    TerminalTone.SUCCESS -> TerminalIcon.SUCCESS
+    TerminalTone.WARNING -> TerminalIcon.WARNING
+    TerminalTone.ERROR -> TerminalIcon.ERROR
+    TerminalTone.INSTRUCTION -> TerminalIcon.SCANNER
+    TerminalTone.NEUTRAL -> TerminalIcon.QUEUE
 }
 @Composable fun StatusBadge(text: String, tone: TerminalTone = TerminalTone.NEUTRAL) {
-    Text("${symbol(tone)} $text", style = MaterialTheme.typography.labelMedium, color = tone.color())
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xxs)) {
+        WorkerIcon(tone.icon(), null, Modifier.size(TerminalTokens.iconSmall), tone.color())
+        Text(text, style = MaterialTheme.typography.labelMedium, color = tone.color())
+    }
 }
-@Composable fun ConnectionStatus(state: String) = StatusBadge(state.replace('_', ' '), when (state) {
-    "ONLINE" -> TerminalTone.SUCCESS
-    "SYNCING", "CHECKING" -> TerminalTone.INSTRUCTION
-    "OFFLINE", "SYNC_ERROR", "AUTH_ERROR" -> TerminalTone.ERROR
-    else -> TerminalTone.NEUTRAL
-})
+@Composable fun ConnectionStatus(state: String) {
+    val label = when (state) {
+        "ONLINE" -> "ONLINE"
+        "SYNCING", "CHECKING" -> "SYNCING"
+        "AUTH_ERROR" -> "SIGN IN"
+        else -> "OFFLINE"
+    }
+    val color = when (label) { "ONLINE" -> TerminalTokens.success; "SYNCING" -> TerminalTokens.warning; else -> TerminalTokens.error }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xxs)) {
+        if (label == "SYNCING") CircularProgressIndicator(Modifier.size(TerminalTokens.iconSmall), color = color, strokeWidth = TerminalTokens.stroke * 2)
+        else WorkerIcon(if (label == "ONLINE") TerminalIcon.ONLINE else TerminalIcon.OFFLINE, null, Modifier.size(TerminalTokens.iconSmall), color)
+        Text(label, style = MaterialTheme.typography.labelMedium, color = color)
+    }
+}
 @Composable fun SyncStatus(label: String) = StatusBadge(label, TerminalTone.INSTRUCTION)
-@Composable fun OfflineStatus() = StatusBadge("OFFLINE · SERVER AUTHORIZATION REQUIRED", TerminalTone.WARNING)
+@Composable fun OfflineStatus() = StatusBadge("OFFLINE · RECEIVING STOPPED", TerminalTone.WARNING)
 
 @Composable fun PrimaryAction(label: String, onClick: () -> Unit, enabled: Boolean = true, modifier: Modifier = Modifier.fillMaxWidth()) = TerminalAction(label, onClick, enabled, modifier, primary = true)
 @Composable fun SecondaryAction(label: String, onClick: () -> Unit, enabled: Boolean = true, modifier: Modifier = Modifier.fillMaxWidth()) = TerminalAction(label, onClick, enabled, modifier)

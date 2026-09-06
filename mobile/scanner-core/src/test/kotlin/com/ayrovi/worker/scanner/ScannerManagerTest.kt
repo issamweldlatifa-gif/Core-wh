@@ -74,6 +74,6 @@ class ScannerManagerTest {
         val scanner = ScannerManager(initiallyEnabled = true)
         scanner.capture("SKU", ScanSource.MANUAL)
         assertEquals(ScannerStatus.CAPTURED, scanner.state.value.status)
-        assertTrue(scanner.state.value.detail.contains("awaiting workflow validation"))
+        assertTrue(scanner.state.value.detail.contains("Checking"))
     }
 }

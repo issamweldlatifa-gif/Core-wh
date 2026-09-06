@@ -18,7 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-enum class TerminalThemeMode { WHITE, BLACK;
+enum class TerminalThemeMode { WHITE, BLACK, INDUSTRIAL;
     fun next() = if (this == WHITE) BLACK else WHITE
 }
 
@@ -47,7 +47,17 @@ data class TerminalPalette(
             warning = Color(0xFFFFD080), error = Color(0xFFFFADA5),
             onError = Color(0xFF230704), border = Color(0xFF767B80),
         )
-        fun forMode(mode: TerminalThemeMode) = if (mode == TerminalThemeMode.WHITE) White else Black
+        val Industrial = TerminalPalette(
+            background = Color(0xFF0E1419), surface = Color(0xFF18232D), raised = Color(0xFF1D2A35),
+            text = Color(0xFFF4F7FA), muted = Color(0xFFB7C2CC), primary = Color(0xFFFFB066), onPrimary = Color(0xFF23180E),
+            instruction = Color(0xFF8BD7F5), success = Color(0xFF38D17A), warning = Color(0xFFF2C46D),
+            error = Color(0xFFFF5252), onError = Color(0xFF190505), border = Color(0xFF536575),
+        )
+        fun forMode(mode: TerminalThemeMode) = when (mode) {
+            TerminalThemeMode.WHITE -> White
+            TerminalThemeMode.BLACK -> Black
+            TerminalThemeMode.INDUSTRIAL -> Industrial
+        }
     }
 }
 
@@ -83,6 +93,11 @@ object TerminalTokens {
     val raisedElevation = 2.dp
     val iconSmall = 20.dp
     val icon = 24.dp
+    val workflowIcon = 40.dp
+    val stateIcon = 72.dp
+    val deviceVisual = 152.dp
+    val compactDeviceVisual = 96.dp
+    val tileHeight = 112.dp
     val stroke = 1.dp
     val touch = 56.dp
     val primaryTouch = 64.dp

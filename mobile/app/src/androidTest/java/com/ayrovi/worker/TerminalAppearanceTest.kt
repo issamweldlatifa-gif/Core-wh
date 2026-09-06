@@ -62,7 +62,7 @@ class TerminalAppearanceTest {
     }
 
     @Test fun whiteBlackToggleAndModeControlsKeepTheSameWorkflow() {
-        val backend = ReadOnlyFixture()
+        val backend = ReceivingUiGateway()
         val model = ReceivingViewModel(backend, EmptyJournal, "worker", setOf("receiving.view", "receiving.execute"))
         var mode by mutableStateOf(TerminalThemeMode.WHITE)
         var observedBackground: Color? = null
@@ -71,28 +71,29 @@ class TerminalAppearanceTest {
             Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
                 AyroviTerminalTheme(mode, onToggleTheme = { mode = mode.next() }) {
                     observedBackground = TerminalTokens.background
-                    ReceivingScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {}, {})
+                    ReceivingScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {}, {}, onToggleTheme = { mode = mode.next() })
                 }
             }
         }
         compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
-        compose.onNodeWithText("✓ CARTON").assertIsSelected().assertHeightIsAtLeast(TerminalTokens.touch)
+        compose.onNodeWithText("CARTON").assertIsSelected().assertHeightIsAtLeast(TerminalTokens.touch)
         compose.onNodeWithContentDescription("Back to work queue").assertIsDisplayed().assertHeightIsAtLeast(TerminalTokens.touch)
         saveScreenshot("receiving-white")
-        compose.onNodeWithContentDescription("Switch to black theme").performClick()
+        compose.onNodeWithContentDescription("Worker and settings").performClick()
+        compose.onNodeWithText("CHANGE DISPLAY").performClick()
         compose.runOnIdle { assertEquals(Color.Black, observedBackground) }
-        compose.onNodeWithContentDescription("Switch to white theme").assertIsDisplayed()
+        compose.onNodeWithText("CLOSE").performClick()
         saveScreenshot("receiving-black")
         compose.onNodeWithText("PRODUIT").performClick()
         compose.waitUntil(10_000) { model.state.value.mode == com.ayrovi.worker.domain.ReceivingMode.PRODUCTS && !model.state.value.busy }
-        compose.onNodeWithText("✓ PRODUIT").assertIsSelected()
+        compose.onNodeWithText("PRODUIT").assertIsSelected()
         compose.onNodeWithText("SCAN RECEIVING TOTE").assertExists()
         compose.runOnIdle { assertEquals(0, backend.writes); assertEquals("session", model.state.value.session!!.id) }
         saveScreenshot("receiving-product-mode-black")
     }
 
     @Test fun handheldAtLargeFontKeepsModeBackAndPrimaryActionReachable() {
-        val model = ReceivingViewModel(ReadOnlyFixture(), EmptyJournal, "worker", setOf("receiving.view", "receiving.execute"))
+        val model = ReceivingViewModel(ReceivingUiGateway(), EmptyJournal, "worker", setOf("receiving.view", "receiving.execute"))
         compose.setContent {
             LaunchedEffect(Unit) { model.activate(setOf("receiving.view", "receiving.execute"), true, "session") }
             CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, fontScale = 1.5f)) {
@@ -104,19 +105,15 @@ class TerminalAppearanceTest {
             }
         }
         compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
-        compose.onNodeWithText("✓ CARTON").assertIsDisplayed().assertHeightIsAtLeast(TerminalTokens.touch)
+        compose.onNodeWithText("CARTON").assertIsDisplayed().assertHeightIsAtLeast(TerminalTokens.touch)
         compose.onNodeWithText("PRODUIT").assertIsDisplayed().assertHeightIsAtLeast(TerminalTokens.touch)
         compose.onNodeWithContentDescription("Back to work queue").assertIsDisplayed()
-        compose.onNodeWithText("TASK ACTIONS").assertIsDisplayed().assertHeightIsAtLeast(TerminalTokens.primaryTouch)
+        compose.onNodeWithText("TASK ACTIONS").assertIsDisplayed().assertHeightIsAtLeast(TerminalTokens.touch)
+        compose.onNodeWithText("SOFTWARE SCAN").performScrollTo().assertHeightIsAtLeast(TerminalTokens.primaryTouch)
         saveScreenshot("receiving-white-large-font")
     }
 
-    private fun saveScreenshot(name: String) {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val directory = File(context.getExternalFilesDir(null), "ui-evidence").apply { mkdirs() }
-        val bitmap = compose.onNodeWithTag("HANDHELD").captureToImage().asAndroidBitmap()
-        File(directory, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
-    }
+    private fun saveScreenshot(name: String) = saveNativeScreenshot(compose, name)
     private fun contrast(a: Color, b: Color): Float {
         val first = a.luminance(); val second = b.luminance()
         return (maxOf(first, second) + .05f) / (minOf(first, second) + .05f)
@@ -128,28 +125,4 @@ class TerminalAppearanceTest {
         override fun clear(id: String) = Unit
     }
 
-    private class ReadOnlyFixture : ReceivingGateway {
-        var writes = 0
-        private val fixture = ReceivingSession(
-            id = "session", code = "RCV-TEST-001", status = "RECEIVING", startedAt = "2026-09-06T08:00:00Z",
-            arrival = DetailArrival(id = "arrival", code = "WAR-TEST-001", customerName = "UI TEST FIXTURE"),
-            tally = ReceivingTally(expectedCartons = 0, receivedCartons = 0, expectedProducts = 1, receivedProducts = 0,
-                expectedUnits = 10, receivedUnits = 0, openDiscrepancies = 0, shortUnits = 10, overageUnits = 0,
-                unexpectedProducts = 0, missingCartons = 0),
-        )
-        override suspend fun arrivals() = emptyList<ArrivalRow>()
-        override suspend fun receivingSession(sessionId: String) = fixture
-        override suspend fun activeSession(arrivalIdOrCode: String) = fixture
-        override suspend fun container(code: String) = OpContainerDetail(code = code, type = "RECEIVING", status = "ACTIVE")
-        private fun unexpected(): Nothing { writes++; error("Unexpected warehouse write in appearance test") }
-        override suspend fun startReceiving(arrivalIdOrCode: String): ReceivingSession = unexpected()
-        override suspend fun scanCarton(sessionId: String, code: String, scanType: String, operationId: String, source: String): ReceivingSession = unexpected()
-        override suspend fun receiveCarton(sessionId: String, cartonId: String, operationId: String, source: String): ReceivingSession = unexpected()
-        override suspend fun scanArticleAtReceiving(sessionId: String, sku: String, containerCode: String, cartonCode: String?): ArticleScanResult = unexpected()
-        override suspend fun pauseSession(sessionId: String): ReceivingSession = unexpected()
-        override suspend fun resumeSession(sessionId: String): ReceivingSession = unexpected()
-        override suspend fun completeSession(sessionId: String): ReceivingSession = unexpected()
-        override suspend fun flagSession(sessionId: String, reason: String, sku: String?, code: String?): ReceivingSession = unexpected()
-        override suspend fun resolveDiscrepancy(discrepancyId: String, resolution: String): ReceivingSession = unexpected()
-    }
 }

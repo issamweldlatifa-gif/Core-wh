@@ -1,6 +1,11 @@
 package com.ayrovi.worker.presentation
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import com.ayrovi.worker.scanner.WorkerDevice
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,7 +22,6 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.ayrovi.worker.BuildConfig
 import com.ayrovi.worker.data.ConnectionState
 import com.ayrovi.worker.design.*
 import com.ayrovi.worker.di.AppContainer
@@ -33,7 +37,7 @@ internal fun <T : ViewModel> factory(create: () -> T): ViewModelProvider.Factory
 /** The new lane contains no repository calls or business rules in Compose. */
 @Composable
 fun WorkerTerminalApp(container: AppContainer, onThemeChanged: (TerminalThemeMode) -> Unit = {}) {
-    val model: WorkerAppViewModel = viewModel(factory = factory { WorkerAppViewModel(container.workerSession) })
+    val model: WorkerAppViewModel = viewModel(factory = factory { WorkerAppViewModel(container.workerSession, container.audio) })
     val appearance: AppearanceViewModel = viewModel(factory = factory { AppearanceViewModel(container.appearance) })
     val theme by appearance.theme.collectAsStateWithLifecycle()
     val themeWarning by appearance.warning.collectAsStateWithLifecycle()
@@ -43,6 +47,7 @@ fun WorkerTerminalApp(container: AppContainer, onThemeChanged: (TerminalThemeMod
     LaunchedEffect(theme) { onThemeChanged(theme) }
     val connection by model.connection.collectAsStateWithLifecycle()
     val owner = LocalLifecycleOwner.current
+    var showSettings by remember { mutableStateOf(false) }
     var route by rememberSaveable { mutableStateOf(TerminalRoute.QUEUE) }
     DisposableEffect(owner, model) {
         val observer = LifecycleEventObserver { _, event ->
@@ -62,97 +67,62 @@ fun WorkerTerminalApp(container: AppContainer, onThemeChanged: (TerminalThemeMod
     }
     AyroviTerminalTheme(mode = theme, onToggleTheme = appearance::toggleTheme) {
         if (!state.signedIn) {
-            SignInScreen(state, model.deviceCode, connection.name, model::login)
+            SignInScreen(state, model.deviceCode, connection.name, model::login, container.device)
         } else if (route == TerminalRoute.RECEIVING && state.me?.user?.id != null) {
             val workerId = state.me!!.user!!.id!!
             val receiving: ReceivingViewModel = viewModel(
                 key = "receiving-$workerId-${state.loginGeneration}",
-                factory = factory { ReceivingViewModel(container.repository, container.sessions, workerId, state.me!!.permissions.toSet()) },
+                factory = factory { ReceivingViewModel(container.repository, container.sessions, workerId, state.me!!.permissions.toSet(), container.audio) },
             )
             val available = state.verified && connection !in setOf(ConnectionState.OFFLINE, ConnectionState.AUTH_ERROR, ConnectionState.SYNC_ERROR)
-            LaunchedEffect(state.me?.permissions, available) {
-                receiving.activate(state.me!!.permissions.toSet(), available, state.context?.activeSession?.id)
+            LaunchedEffect(state.me?.permissions, available, connection) {
+                receiving.activate(state.me!!.permissions.toSet(), available, state.context?.activeSession?.id, connection)
             }
             ReceivingScreen(receiving, workerLabel(state), stationLabel(state), connection.name,
-                onBack = { route = TerminalRoute.QUEUE; model.refresh() }, onVerifyConnection = model::refresh, onAuthExpired = model::expireSession)
+                onBack = { route = TerminalRoute.QUEUE; model.refresh() }, onVerifyConnection = model::refresh, onAuthExpired = model::expireSession,
+                device = container.device, onToggleTheme = appearance::toggleTheme)
         } else {
-            WorkQueueScreen(state, connection.name, model::refresh, model::logout, model::completeAssignment) {
-                route = TerminalRoute.RECEIVING
-            }
+            WorkerWorkQueue(state, container.device, connection.name, workerLabel(state), stationLabel(state),
+                model::refresh, model::logout, { showSettings = true }, model::completeAssignment) { route = TerminalRoute.RECEIVING }
         }
+        if (showSettings) AlertDialog(onDismissRequest = { showSettings = false }, title = { Text("WORKER SETTINGS") },
+            text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
+                Text(workerLabel(state), style = MaterialTheme.typography.titleMedium)
+                Text(listOfNotNull(state.context?.station?.code, state.context?.station?.name).joinToString(" · "))
+                Text(if (container.device == WorkerDevice.CT40) "Honeywell CT40 · Side trigger" else "Phone · Touch scanning")
+                SecondaryAction("CHANGE DISPLAY", appearance::toggleTheme)
+                state.assignments?.open?.forEach { instruction ->
+                    Text(instruction.title)
+                    instruction.description?.let { Text(it) }
+                    SecondaryAction("MARK INSTRUCTION DONE", { model.completeAssignment(instruction.id) }, state.verified && !state.busy)
+                }
+            } }, confirmButton = { SecondaryAction("CLOSE", { showSettings = false }) })
     }
 }
 
 @Composable
-private fun SignInScreen(state: WorkerAppState, deviceCode: String, connection: String, onSignIn: (String, String, Boolean) -> Unit) {
+private fun SignInScreen(state: WorkerAppState, deviceCode: String, connection: String, onSignIn: (String, String, Boolean) -> Unit, device: WorkerDevice) {
+    var setup by remember { mutableStateOf(false) }
     var employee by rememberSaveable { mutableStateOf("") }
     // Deliberately NOT saveable: never persist passwords/PINs in saved state or local storage.
     var secret by remember { mutableStateOf("") }
     var pin by rememberSaveable { mutableStateOf(false) }
     TerminalShell(
-        header = { TerminalHeader("WAREHOUSE TERMINAL", "SIGN-IN REQUIRED", null, connection) },
+        header = { TerminalHeader("SIGN IN", "SIGN-IN REQUIRED", null, connection, industrial = device == WorkerDevice.CT40, onSettings = { setup = true }) },
         footer = { TerminalFooter("AUTHORIZED WORKERS ONLY") {
             PrimaryAction("SIGN IN", { val value = secret; secret = ""; onSignIn(employee, value, pin) }, !state.busy && !state.storageLocked && employee.isNotBlank() && secret.isNotBlank())
         } },
     ) {
-        TaskInstruction("READY FOR YOUR SHIFT", "Sign in with your AYROVI employee code.")
+        TaskInstruction("SIGN IN", "Enter your employee code.")
         state.message?.let { OperationalMessageView(it) }
-        if (state.busy) LoadingState("Waiting for warehouse server…")
+        if (state.busy) LoadingState("Signing in…")
         TerminalTextInput("EMPLOYEE CODE", employee, { employee = it }, enabled = !state.busy)
         TerminalTextInput(if (pin) "PIN" else "PASSWORD", secret, { secret = it }, enabled = !state.busy,
             secret = true, keyboardType = if (pin) KeyboardType.NumberPassword else KeyboardType.Password)
         SecondaryAction(if (pin) "USE PASSWORD" else "USE PIN", { pin = !pin; secret = "" }, !state.busy)
-        TerminalPanel("REGISTERED DEVICE") {
-            BarcodeDisplay(deviceCode)
-            Text("Give this device code to your administrator for registration. Device codes are not passwords.", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)
-        }
-        TerminalPanel("ENVIRONMENT / MIGRATION PILOT") {
-            Text(BuildConfig.API_BASE_URL, style = MaterialTheme.typography.bodyMedium)
-            Text("Receiving-first pilot. No offline stock operations. Production approval is still required.", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.warning)
-        }
-    }
-}
-
-@Composable
-private fun WorkQueueScreen(
-    state: WorkerAppState, connection: String, onRefresh: () -> Unit, onLogout: () -> Unit,
-    onCompleteAssignment: (String) -> Unit, onReceiving: () -> Unit,
-) {
-    TerminalShell(
-        header = { TerminalHeader("WORK QUEUE", workerLabel(state), stationLabel(state), if (!state.verified && connection == "ONLINE") "CHECKING" else connection) },
-        footer = { TerminalFooter("SERVER-ASSIGNED WORK") {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-                SecondaryAction("REFRESH", onRefresh, !state.busy, Modifier.weight(1f))
-                DangerAction("SIGN OUT", onLogout, !state.busy, Modifier.weight(1f))
-            }
-        } },
-    ) {
-        if (state.busy) LoadingState("Checking assignments and permissions…")
-        state.message?.let { OperationalMessageView(it) }
-        if (!state.verified && !state.busy) WarningState("WORK NOT VERIFIED", "Refresh the server connection before starting an operation. No offline work is queued.")
-        if (state.me != null && state.tasks.isEmpty() && !state.busy) EmptyState("NO AUTHORIZED WORKFLOWS", "Ask a supervisor to check your roles and station assignment.")
-        state.tasks.forEach { task ->
-            TerminalPanel(task.department ?: "WORKFLOW") {
-                Text(task.label ?: task.key.orEmpty(), style = MaterialTheme.typography.titleLarge)
-                if (task.key == "receiving") {
-                    QuantityDisplay("ARRIVALS IN SERVER QUEUE", state.receivingArrivals?.toString() ?: "—")
-                    state.context?.activeSession?.let { TaskStatus("OPEN SESSION · ${it.code}", TerminalTone.WARNING) }
-                    PrimaryAction(if (state.context?.activeSession != null) "CURRENT RECEIVING TASK" else "OPEN RECEIVING", onReceiving, state.verified && !state.busy)
-                } else {
-                    TaskStatus("LEGACY WORKFLOW · NOT MIGRATED", TerminalTone.WARNING)
-                    Text("Use the approved legacy terminal during the Receiving pilot. This build does not simulate this workflow.", style = MaterialTheme.typography.bodyMedium)
-                }
-            }
-        }
-        state.assignments?.open?.forEach { assignment ->
-            TerminalPanel("ASSIGNED INSTRUCTION") {
-                Text(assignment.title, style = MaterialTheme.typography.titleMedium)
-                assignment.relatedCode?.let { BarcodeDisplay(it) }
-                assignment.description?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
-                SecondaryAction("MARK INSTRUCTION DONE", { onCompleteAssignment(assignment.id) }, state.verified && !state.busy)
-            }
-        }
-        Text("MIGRATION PILOT · Receiving first. Other workflows remain frozen until hardware acceptance.", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)
+        if (setup) AlertDialog(onDismissRequest = { setup = false }, title = { Text("DEVICE SETUP") },
+            text = { Column { BarcodeDisplay(deviceCode); Text("Give this code to your supervisor to register the device.") } },
+            confirmButton = { SecondaryAction("CLOSE", { setup = false }) })
     }
 }
 
@@ -167,8 +137,6 @@ internal fun OperationalMessageView(message: OperationalMessage) {
 }
 
 private fun workerLabel(state: WorkerAppState): String = state.me?.user?.let {
-    listOfNotNull(it.employeeCode, it.name).joinToString(" · ")
+    listOfNotNull(it.name, it.employeeCode).joinToString(" · ")
 } ?: "VERIFYING WORKER"
-private fun stationLabel(state: WorkerAppState): String = state.context?.station?.let {
-    listOfNotNull(it.code, it.name).joinToString(" · ")
-} ?: "No station assigned by backend"
+private fun stationLabel(state: WorkerAppState): String? = state.context?.station?.code

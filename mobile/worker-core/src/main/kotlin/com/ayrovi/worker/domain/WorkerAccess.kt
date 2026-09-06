@@ -13,10 +13,12 @@ object WorkerAccess {
     fun isWorkerSession(me: MeResponse) = me.application == "WORKER_NATIVE" &&
         "WORKER_NATIVE" in me.allowedApplications && !me.user?.id.isNullOrBlank()
 
-    fun visibleTasks(me: MeResponse, context: TerminalContext): List<TerminalTask> {
+    fun visibleTasks(me: MeResponse, context: TerminalContext): List<TerminalTask> = permittedTasks(me, context).filter { it.ready == true }
+
+    fun permittedTasks(me: MeResponse, context: TerminalContext): List<TerminalTask> {
         if (!isWorkerSession(me) || context.worker?.id != me.user?.id) return emptyList()
         return context.tasks.filter { task ->
-            task.ready == true && task.permission != null && task.permission in me.permissions &&
+            task.permission != null && task.permission in me.permissions &&
                 (task.key != "receiving" || VIEW_RECEIVING in me.permissions)
         }.distinctBy { it.key }
     }

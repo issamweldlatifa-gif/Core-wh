@@ -100,7 +100,7 @@ jobs:
             adb shell wm size 720x1280
             adb shell wm density 320
             adb shell settings put system font_scale 1.0
-            set +e; ./gradlew :app:connectedDebugAndroidTest --no-daemon --console=plain; code=$?; mkdir -p /tmp/worker-ui-evidence; adb pull /sdcard/Android/data/com.ayrovi.worker/files/ui-evidence /tmp/worker-ui-evidence || true; exit $code
+            set +e; ./gradlew :app:connectedDebugAndroidTest --no-daemon --console=plain; code=$?; mkdir -p /tmp/worker-ui-evidence; adb pull /sdcard/Pictures/AYROVI-UI-Tests /tmp/worker-ui-evidence || true; echo "::notice::Native UI fixture screenshots: $(find /tmp/worker-ui-evidence -name '*.png' | wc -l)"; exit $code
       - name: Summarize Android test evidence
         if: always()
         working-directory: mobile

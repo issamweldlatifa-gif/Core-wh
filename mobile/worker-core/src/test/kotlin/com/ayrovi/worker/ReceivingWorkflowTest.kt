@@ -243,7 +243,7 @@ class ReceivingWorkflowTest {
         val journal = MemoryJournal(); val workflow = workflow(backend, journal); open(workflow); carton(workflow); product(workflow)
         workflow.confirmProduct(); runCurrent()
         assertNull(journal.read())
-        assertEquals("PERMISSION REQUIRED", workflow.state.value.message!!.title)
+        assertEquals("ACTION NOT ALLOWED", workflow.state.value.message!!.title)
     }
     @Test fun `final 401 ends workflow and keeps unauthorized actions disabled`() = runTest {
         val backend = ReceivingBackend().apply { articleFailure = WorkerRepository.ApiException(401, "Session revoked") }
@@ -327,6 +327,6 @@ class ReceivingWorkflowTest {
         workflow.reportException("Seal damaged"); runCurrent()
         assertEquals(1, backend.flagCalls)
         assertEquals("EXCEPTION REPORTED", workflow.state.value.message!!.title)
-        assertTrue(workflow.state.value.message!!.detail.contains("No rejection"))
+        assertTrue(workflow.state.value.message!!.detail.contains("supervisor"))
     }
 }

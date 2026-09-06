@@ -6,6 +6,9 @@ import com.ayrovi.worker.scanner.ScanSource
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -81,6 +84,9 @@ class ReceivingWorkflow(
         canResolve = WorkerAccess.RESOLVE_RECEIVING in permissions,
     ))
     val state = mutable.asStateFlow()
+    private var signalId = 0L
+    private val notifications = MutableSharedFlow<ReceivingSignal>(extraBufferCapacity = 32, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    val events = notifications.asSharedFlow()
 
     fun updateAccess(permissions: Set<String>, serverAvailable: Boolean) {
         this.permissions = permissions
@@ -121,7 +127,7 @@ class ReceivingWorkflow(
                         "${before.carton.code} is only identified. Confirm it before continuing in the selected mode.", MessageTone.INFO)) }
                 }
                 mode == ReceivingMode.CARTONS -> mutable.update { it.copy(step = ReceivingStep.CARTON, carton = null,
-                    message = OperationalMessage("CARTON MODE", "Scan a carton, verify it, then confirm receipt. Product drafts were not submitted.", MessageTone.INFO)) }
+                    message = OperationalMessage("CARTON MODE", "Scan a carton, verify it, then confirm receipt. No product was received.", MessageTone.INFO)) }
                 else -> enterProductLane(fresh, before.tote)
             }
         }
@@ -147,6 +153,7 @@ class ReceivingWorkflow(
         val active = gateway.activeSession(key)
         val session = active ?: mutate(MutationKind.START, arrivalCode = key) { gateway.startReceiving(key) }
         adoptSession(session)
+        if (session.status == "RECEIVING") signal(MessageTone.SUCCESS, "ARRIVAL FOUND", "Continue with the next scan.", session.arrival.code ?: key)
     }
 
     private fun identifyCarton(scan: ScanResult) = run {
@@ -166,19 +173,27 @@ class ReceivingWorkflow(
                 val code = flash.carton.field("externalCartonId") ?: throw ContractFailure("Identified carton has no code.")
                 mutable.update { it.copy(step = ReceivingStep.CONFIRM_CARTON,
                     carton = IdentifiedCarton(id, code, scan.source),
-                    message = OperationalMessage("CARTON IDENTIFIED", "Confirm that this carton has physically arrived. It has not been received yet.", MessageTone.INFO)) }
+                    message = OperationalMessage("CARTON IDENTIFIED", "Check the carton, then confirm receipt.", MessageTone.INFO)) }
+                signal(MessageTone.SUCCESS, "CARTON FOUND", "Confirm this carton.", code)
             }
             "DUPLICATE_CARTON" -> {
                 val code = (flash.carton as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
                 if (code != null && result.receivedCartonEvents.any { it.cartonId == code && it.status == "RECEIVED" }) {
-                    mutable.update { it.copy(step = ReceivingStep.CONFIRM_CARTON,
-                        carton = IdentifiedCarton(code, code, scan.source, alreadyReceived = true),
-                        message = OperationalMessage("CARTON ALREADY RECEIVED", "Use it as the source carton without counting it again.", MessageTone.WARNING)) }
+                    if (mutable.value.mode == ReceivingMode.CARTONS) {
+                        mutable.update { it.copy(step = ReceivingStep.CARTON, carton = null,
+                            message = OperationalMessage("ALREADY RECEIVED", "Scan the next carton.")) }
+                        signal(MessageTone.ERROR, "ALREADY RECEIVED", "Scan the next carton.", code)
+                    } else {
+                        mutable.update { it.copy(step = ReceivingStep.CONFIRM_CARTON,
+                            carton = IdentifiedCarton(code, code, scan.source, alreadyReceived = true),
+                            message = OperationalMessage("CARTON ALREADY RECEIVED", "Confirm it as your source carton. It will not be counted again.", MessageTone.WARNING)) }
+                        signal(MessageTone.ERROR, "ALREADY RECEIVED", "Confirm it only if this is your source carton.", code)
+                    }
                 } else notice("DUPLICATE CARTON", "This carton has already been received. Check the session with a supervisor.", scan.value)
             }
             "UNKNOWN_CARTON" -> notice("CARTON NOT FOUND", reason(result, "Unknown carton scan: ${scan.value}"), scan.value)
             "WRONG_SHIPMENT" -> notice("WRONG SHIPMENT", reason(result, "This carton belongs to another shipment."), scan.value, session.arrival.code)
-            else -> notice("CARTON NOT ACCEPTED", "The backend did not return an identification. Refresh the session before continuing.", scan.value)
+            else -> notice("CARTON NOT ACCEPTED", "Unable to identify this carton. Check the label and try again.", scan.value)
         }
     }
 
@@ -204,6 +219,7 @@ class ReceivingWorkflow(
                 message = OperationalMessage(if (carton.alreadyReceived) "ALREADY RECEIVED · NOT COUNTED AGAIN" else "CARTON RECEIVED",
                     "${carton.code} · Scan the next carton, or choose Produit.", if (carton.alreadyReceived) MessageTone.WARNING else MessageTone.SUCCESS)) }
         } else enterProductLane(mutable.value.session!!, mutable.value.tote)
+        signal(MessageTone.SUCCESS, if (carton.alreadyReceived) "SOURCE CONFIRMED" else "CARTON RECEIVED", "Continue with the next item.", carton.code)
     }
 
     private fun hasConfirmedSource(session: ReceivingSession): Boolean {
@@ -218,15 +234,15 @@ class ReceivingWorkflow(
         if (!hasConfirmedSource(session)) {
             mutable.update { it.copy(step = ReceivingStep.CARTON, sourceCarton = null,
                 message = OperationalMessage("PRODUCT MODE · SOURCE REQUIRED",
-                    "Scan and confirm the source carton first. Product mode does not bypass carton validation.", MessageTone.INFO)) }
+                    "Scan and confirm the source carton first.", MessageTone.INFO)) }
             return
         }
         mutable.update { it.copy(step = ReceivingStep.TOTE, tote = null,
-            message = OperationalMessage("PRODUCT MODE", "Scan an ACTIVE receiving tote before scanning products.", MessageTone.INFO)) }
+            message = OperationalMessage("PRODUCT MODE", "Scan an open receiving tote.", MessageTone.INFO)) }
         if (reuseTote != null) {
             val checked = if (verifyTote) gateway.container(reuseTote.code) else reuseTote
             if (checked.type != "RECEIVING" || checked.status != "ACTIVE") {
-                notice("TOTE CANNOT BE USED", "The selected tote is no longer ACTIVE / RECEIVING. Scan another tote.", checked.code, "ACTIVE RECEIVING tote")
+                notice("TOTE CANNOT BE USED", "This tote is closed or cannot receive products. Scan another tote.", checked.code, "Open receiving tote")
                 return
             }
             mutable.update { it.copy(step = ReceivingStep.PRODUCT, tote = checked,
@@ -239,10 +255,11 @@ class ReceivingWorkflow(
         activeSession() ?: return@run
         val tote = gateway.container(code)
         if (tote.type != "RECEIVING" || tote.status != "ACTIVE") {
-            return@run notice("TOTE CANNOT BE USED", "${tote.code} is ${tote.type ?: "unknown type"} / ${tote.status ?: "unknown status"}. Scan an ACTIVE receiving tote.", code, "ACTIVE RECEIVING tote")
+            return@run notice("TOTE CANNOT BE USED", "This tote is closed or cannot receive products. Scan another tote.", code, "Open receiving tote")
         }
         mutable.update { it.copy(tote = tote, step = ReceivingStep.PRODUCT, product = null,
             message = OperationalMessage("TOTE VERIFIED", "Place each confirmed article into ${tote.code}.", MessageTone.INFO)) }
+        signal(MessageTone.SUCCESS, "TOTE FOUND", "Scan the product.", tote.code)
     }
 
     private fun reviewProduct(scan: ScanResult) = run(readOnly = true) {
@@ -257,6 +274,9 @@ class ReceivingWorkflow(
             message = if (row == null || row.expected == 0)
                 OperationalMessage("PRODUCT NOT EXPECTED", "Confirming will record one physical article and a receiving exception. This is not a rejection.", MessageTone.WARNING, scanned = scan.value)
             else OperationalMessage("PRODUCT IDENTIFIED", "Check the product and confirm one physical unit into the tote.", MessageTone.INFO)) }
+        signal(if (row == null || row.expected == 0) MessageTone.WARNING else MessageTone.SUCCESS,
+            if (row == null || row.expected == 0) "PRODUCT NOT EXPECTED" else "PRODUCT FOUND",
+            "Check the product and quantity.", scan.value)
     }
 
     fun setQuantity(raw: String) {
@@ -272,7 +292,7 @@ class ReceivingWorkflow(
         val tote = mutable.value.tote ?: return@run
         val quantity = product.quantity.toIntOrNull()
         if (quantity == null || quantity <= 0) return@run notice("ENTER A VALID QUANTITY", "Use a positive whole number. No receipt was submitted.")
-        if (quantity != 1) return@run notice("BULK RECEIPT NOT SUPPORTED", "The current backend accepts one article per request. Confirm one physical unit at a time; no partial bulk loop will be sent.")
+        if (quantity != 1) return@run notice("RECEIVE ONE UNIT", "Receive one physical unit at a time.")
         mutate(MutationKind.RECEIVE_ARTICLE, subject = product.scan.value, containerCode = tote.code,
             receiptEvidence = { result: ArticleScanResult -> ConfirmedReceipt(
                 result.flash?.article.field("code")!!, product.scan.value, tote.code,
@@ -289,6 +309,8 @@ class ReceivingWorkflow(
         mutable.update { it.copy(step = ReceivingStep.RESULT, restoredReceipt = false, receipt = receipt,
             message = OperationalMessage(if (receipt.withException) "RECEIVED WITH EXCEPTION" else "ARTICLE RECEIVED",
                 "${receipt.articleCode} → ${receipt.toteCode}", if (receipt.withException) MessageTone.WARNING else MessageTone.SUCCESS)) }
+        signal(if (receipt.withException) MessageTone.WARNING else MessageTone.SUCCESS,
+            if (receipt.withException) "RECEIVED WITH EXCEPTION" else "ARTICLE RECEIVED", "Place the unit in its tote.", receipt.articleCode)
         // A later read failure does not turn the already confirmed write into an unconfirmed receipt.
         val fresh = gateway.receivingSession(session.id)
         mutable.update { it.copy(session = fresh) }
@@ -350,6 +372,8 @@ class ReceivingWorkflow(
             if (it.status !in closedStatuses) throw ContractFailure("The session was not completed by the backend.")
         } }
         adoptSession(complete)
+        signal(if (complete.status == "COMPLETED") MessageTone.SUCCESS else MessageTone.WARNING,
+            if (complete.status == "CANCELLED") "TASK CANCELLED" else "RECEIVING COMPLETE", "Return to the work queue.", complete.code)
     }
 
     fun reportException(reason: String) = run {
@@ -361,11 +385,11 @@ class ReceivingWorkflow(
         }
         updateSession(result)
         mutable.update { it.copy(message = OperationalMessage("EXCEPTION REPORTED",
-            "The backend recorded your reason. No rejection, quarantine or restock decision has been made.", MessageTone.WARNING)) }
+            "Your problem was reported. Keep affected items aside for your supervisor.", MessageTone.WARNING)) }
     }
 
     fun resolveException(id: String, reason: String) = run {
-        if (WorkerAccess.RESOLVE_RECEIVING !in permissions) return@run notice("PERMISSION REQUIRED", "You cannot resolve receiving discrepancies.")
+        if (WorkerAccess.RESOLVE_RECEIVING !in permissions) return@run notice("ACTION NOT ALLOWED", "You cannot resolve receiving discrepancies.")
         if (reason.isBlank() || reason.length > 1_000) return@run notice("RESOLUTION REQUIRED", "Enter an actual resolution, not an empty approval.")
         if (mutable.value.session?.discrepancies?.none { it.id == id && it.status == "OPEN" } != false) return@run
         val result = mutate(MutationKind.RESOLVE, subject = id) { gateway.resolveDiscrepancy(id, reason.trim()) }
@@ -427,11 +451,11 @@ class ReceivingWorkflow(
             journal.clear(pending.id)
             mutable.update { it.copy(pending = null) }
             adoptSession(session)
-            mutable.update { it.copy(message = OperationalMessage("SERVER STATE RELOADED",
-                "Continue from the recorded session state. No operation was replayed.", MessageTone.INFO)) }
+            mutable.update { it.copy(message = OperationalMessage("TASK REOPENED",
+                "Check your task before continuing.", MessageTone.INFO)) }
         } else {
             notice("OUTCOME NOT CONFIRMED",
-                "Do not scan or receive this item again. The current API cannot identify this operation after a lost response. A supervisor must reconcile and close the server session before this device can continue.", pending.subject.takeUnless { pending.kind == MutationKind.FLAG })
+                "Do not receive this item again. Ask your supervisor to check the receipt before continuing.", pending.subject.takeUnless { pending.kind == MutationKind.FLAG })
         }
     }
 
@@ -503,8 +527,8 @@ class ReceivingWorkflow(
         val before = mutable.value
         if (before.busy || before.authExpired || (!allowPending && (before.pending != null || before.storageBlocked || !before.loaded))) return
         val permitted = if (readOnly) WorkerAccess.VIEW_RECEIVING in permissions else requiredPermissions.all(permissions::contains)
-        if (!permitted) return notice("PERMISSION REQUIRED", "Your current permissions do not allow this operation.")
-        if (!before.serverAvailable) return notice("SERVER CONNECTION REQUIRED", "Reconnect and verify your session before continuing. No offline receipt was queued.")
+        if (!permitted) return notice("ACTION NOT ALLOWED", "Ask your supervisor to check your access.")
+        if (!before.serverAvailable) return notice("CONNECTION UNAVAILABLE", "Check the connection before continuing.")
         mutable.update { it.copy(busy = true, message = null) }
         scope.launch {
             try {
@@ -520,12 +544,13 @@ class ReceivingWorkflow(
                 val message = failure.toOperationalMessage().let {
                     if (input == null) it else it.copy(scanned = input, expected = when (before.step) {
                         ReceivingStep.ARRIVAL -> "AYROVI arrival code"
-                        ReceivingStep.TOTE -> "ACTIVE RECEIVING tote"
+                        ReceivingStep.TOTE -> "Open receiving tote"
                         ReceivingStep.PRODUCT, ReceivingStep.REVIEW_PRODUCT -> "Product SKU for ${before.session?.code}"
                         else -> "Carton for ${before.session?.arrival?.code}"
                     })
                 }
                 mutable.update { it.copy(message = message, authExpired = (failure is WorkerRepository.ApiException && failure.code == 401) || failure is SessionChangedFailure) }
+                signal(message.tone, message.title, message.detail, message.scanned)
             } finally {
                 mutable.update { it.copy(busy = false, step = if (it.pending != null && it.pending.confirmedReceipt == null) ReceivingStep.RECONCILE else it.step) }
             }
@@ -540,11 +565,17 @@ class ReceivingWorkflow(
     }
 
     private fun notice(title: String, detail: String, scanned: String? = null, expected: String? = null) {
-        mutable.update { it.copy(message = OperationalMessage(title, detail, expected = expected, scanned = scanned)) }
+        val safe = WorkerMessages.reason(detail, "Check the label or ask your supervisor.")
+        mutable.update { it.copy(message = OperationalMessage(title, safe, expected = expected, scanned = scanned)) }
+        signal(MessageTone.ERROR, title, safe, scanned)
+    }
+
+    @Synchronized private fun signal(tone: MessageTone, title: String, detail: String, code: String?) {
+        notifications.tryEmit(ReceivingSignal(++signalId, tone, title, detail, code))
     }
 
     private fun reason(session: ReceivingSession, fallback: String) =
-        session.discrepancies.firstOrNull { it.status == "OPEN" && it.type == session.flash?.kind }?.reason ?: fallback
+        WorkerMessages.reason(session.discrepancies.firstOrNull { it.status == "OPEN" && it.type == session.flash?.kind }?.reason, fallback)
 
     companion object {
         private val captureSteps = setOf(ReceivingStep.ARRIVAL, ReceivingStep.CARTON, ReceivingStep.TOTE, ReceivingStep.PRODUCT)

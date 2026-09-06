@@ -31,7 +31,7 @@ class WorkerSessionUseCase(private val repository: WorkerRepository, private val
         val count = if (WorkerAccess.VIEW_RECEIVING in me.permissions && WorkerAccess.EXECUTE_RECEIVING in me.permissions)
             repository.arrivals().size else null
         if (store.snapshot().identityVersion != identity) throw SessionChangedFailure(false)
-        return WorkerContextSnapshot(me, context, WorkerAccess.visibleTasks(me, context), assignments, count, identity)
+        return WorkerContextSnapshot(me, context, WorkerAccess.permittedTasks(me, context), assignments, count, identity)
     }
 
     suspend fun completeAssignment(id: String): AssignmentsResponse {

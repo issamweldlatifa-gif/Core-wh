@@ -6,6 +6,8 @@ import com.ayrovi.worker.data.*
 import com.ayrovi.worker.domain.OperationalMessage
 import com.ayrovi.worker.domain.MessageTone
 import com.ayrovi.worker.domain.WorkerSessionUseCase
+import com.ayrovi.worker.domain.AudioFeedback
+import com.ayrovi.worker.domain.WorkerQueuePolicy
 import com.ayrovi.worker.domain.toOperationalMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -30,9 +32,11 @@ data class WorkerAppState(
     val assignments: AssignmentsResponse? = null,
     val receivingArrivals: Int? = null,
     val message: OperationalMessage? = null,
-)
+) {
+    val queueItems get() = WorkerQueuePolicy.items(tasks, receivingArrivals)
+}
 
-class WorkerAppViewModel(private val session: WorkerSessionUseCase) : ViewModel() {
+class WorkerAppViewModel(private val session: WorkerSessionUseCase, private val audio: AudioFeedback = AudioFeedback.Silent) : ViewModel() {
     private val mutable = MutableStateFlow(WorkerAppState(signedIn = session.hasSession))
     val state = mutable.asStateFlow()
     val connection = session.connection
@@ -97,7 +101,9 @@ class WorkerAppViewModel(private val session: WorkerSessionUseCase) : ViewModel(
     }
 
     private suspend fun loadContext() {
+        val previous = mutable.value.receivingArrivals
         val verified = session.loadContext()
+        if (foreground && previous != null && verified.receivingArrivalCount != null && verified.receivingArrivalCount > previous) runCatching { audio.notification() }
         mutable.update { it.copy(
             signedIn = true, me = verified.me, context = verified.context, tasks = verified.tasks,
             assignments = verified.assignments, receivingArrivals = verified.receivingArrivalCount,
@@ -111,7 +117,7 @@ class WorkerAppViewModel(private val session: WorkerSessionUseCase) : ViewModel(
         viewModelScope.launch {
             try {
                 val assignments = session.completeAssignment(id)
-                mutable.update { it.copy(assignments = assignments, message = OperationalMessage("ASSIGNMENT COMPLETED", "The backend recorded this assignment as done.", MessageTone.SUCCESS)) }
+                mutable.update { it.copy(assignments = assignments, message = OperationalMessage("ASSIGNMENT COMPLETED", "This instruction is marked done.", MessageTone.SUCCESS)) }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) {
                 // No automatic completion retry. Reload assignments before offering another action.
@@ -130,18 +136,18 @@ class WorkerAppViewModel(private val session: WorkerSessionUseCase) : ViewModel(
             try {
                 val revoked = session.logout()
                 mutable.value = WorkerAppState(message = if (revoked) null else OperationalMessage(
-                    "SIGNED OUT ON THIS DEVICE", "Server logout was not confirmed. Ask an administrator to revoke the previous session.", MessageTone.WARNING))
+                    "SIGNED OUT ON THIS DEVICE", "Signed out here. Ask your supervisor to check the previous session.", MessageTone.WARNING))
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) {
                 mutable.value = WorkerAppState(storageLocked = true, message = OperationalMessage(
-                    "SECURE SIGN-OUT NOT CONFIRMED", "Stop using this device. Ask an administrator to revoke the session and repair secure storage before restarting or signing in."))
+                    "SECURE SIGN-OUT NOT CONFIRMED", "Stop using this device and ask your supervisor for help."))
             }
         }
     }
 
     fun expireSession() {
         if (!session.expire(mutable.value.identityVersion)) { refresh(); return }
-        mutable.value = WorkerAppState(message = OperationalMessage("SIGN IN REQUIRED", "Your session expired or was revoked. Unconfirmed work will not be replayed."))
+        mutable.value = WorkerAppState(message = OperationalMessage("SIGN IN REQUIRED", "Your session has ended. Sign in again. Ask your supervisor about any unconfirmed receipt."))
     }
 
     private fun fail(failure: Exception) {

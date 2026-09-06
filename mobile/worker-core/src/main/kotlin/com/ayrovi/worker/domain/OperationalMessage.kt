@@ -1,7 +1,7 @@
 package com.ayrovi.worker.domain
 
-import com.ayrovi.worker.data.SessionChangedFailure
 import com.ayrovi.worker.data.ContractFailure
+import com.ayrovi.worker.data.SessionChangedFailure
 import com.ayrovi.worker.data.TransportFailure
 import com.ayrovi.worker.data.WorkerRepository
 import kotlinx.serialization.SerializationException
@@ -9,33 +9,39 @@ import kotlinx.serialization.SerializationException
 enum class MessageTone { INFO, SUCCESS, WARNING, ERROR }
 
 data class OperationalMessage(
-    val title: String,
-    val detail: String,
-    val tone: MessageTone = MessageTone.ERROR,
-    val expected: String? = null,
-    val scanned: String? = null,
+    val title: String, val detail: String, val tone: MessageTone = MessageTone.ERROR,
+    val expected: String? = null, val scanned: String? = null,
 )
 
-/** Preserve backend reasons; do not expose raw HTML/stack traces or silently swallow refusals. */
+/** The single worker-safe boundary. Technical API exceptions remain available to diagnostics, not UI. */
+object WorkerMessages {
+    private val technical = Regex("(?i)(https?://|<[^>]+>|\\b(?:prisma|sql|exception|stacktrace|stack trace|jwt|bearer|token|dto|http|api|backend|undefined|null|permission\\(s\\))\\b|\\w+\\.(?:execute|view|manage|resolve_discrepancy)|\\bat [\\w.]+\\()")
+    fun reason(raw: String?, fallback: String): String {
+        val text = raw.orEmpty().trim()
+        if (text.isBlank() || text.length > 350 || technical.containsMatchIn(text)) return fallback
+        return text.replace("Receiving session", "Receiving task").replace("receiving session", "receiving task")
+    }
+    fun api(code: Int, raw: String, unknown: Boolean): OperationalMessage = when {
+        unknown -> OperationalMessage("RECEIPT NOT CONFIRMED", "Do not receive this item again. Check the connection and ask your supervisor.")
+        code == 401 -> OperationalMessage("SIGN IN REQUIRED", "Your session has ended. Sign in again to continue.")
+        code == 403 -> OperationalMessage("ACTION NOT ALLOWED", reason(raw, "Ask your supervisor to check your access or assignment."))
+        code == 404 -> OperationalMessage("NOT FOUND", reason(raw, "Check the label and scan again."))
+        code == 409 -> OperationalMessage("CANNOT CONTINUE", reason(raw, "This task has changed. Refresh it or ask your supervisor."))
+        code == 429 -> OperationalMessage("PLEASE WAIT", "Wait a moment before trying again.", MessageTone.WARNING)
+        code >= 500 || code == 408 -> OperationalMessage("CONNECTION UNAVAILABLE", "Check the connection, then refresh the task.", MessageTone.WARNING)
+        else -> OperationalMessage("CHECK THE CODE", reason(raw, "Check the code or quantity and try again."))
+    }
+}
+
 fun Throwable.toOperationalMessage(): OperationalMessage = when (this) {
-    is WorkerRepository.ApiException -> OperationalMessage(
-        when (code) {
-            401 -> "SIGN IN REQUIRED"
-            403 -> "PERMISSION REQUIRED"
-            404 -> "RECORD NOT FOUND"
-            409 -> "OPERATION CANNOT CONTINUE"
-            429 -> "PLEASE WAIT"
-            else -> if (outcomeUnknown) "OUTCOME NOT CONFIRMED" else "REQUEST NOT ACCEPTED"
-        }, message,
-    )
-    is SessionChangedFailure -> OperationalMessage("WORKER SESSION CHANGED",
-        if (outcomeUnknown) "Do not repeat this receipt. The previous worker's session changed before the result could be confirmed."
-        else "Reload your worker context before continuing. Nothing was retried under another login.")
-    is TransportFailure -> OperationalMessage(
-        if (outcomeUnknown) "OUTCOME NOT CONFIRMED" else "NETWORK UNAVAILABLE", message.orEmpty(),
-    )
-    is ContractFailure, is SerializationException -> OperationalMessage(
-        "SERVER RESPONSE NOT UNDERSTOOD", "Do not repeat the operation. Refresh the server state or ask a supervisor.",
-    )
-    else -> OperationalMessage("OPERATION STOPPED", "The terminal could not safely continue. Ask a supervisor; do not repeat an unconfirmed receipt.")
+    is WorkerRepository.ApiException -> WorkerMessages.api(code, message, outcomeUnknown)
+    is SessionChangedFailure -> OperationalMessage("SESSION CHANGED", if (outcomeUnknown)
+        "Do not receive this item again. Ask your supervisor to check the previous receipt."
+        else "Sign in and reopen your task.")
+    is TransportFailure -> if (outcomeUnknown) OperationalMessage("RECEIPT NOT CONFIRMED",
+        "Do not receive this item again. Check the connection and ask your supervisor.")
+        else OperationalMessage("CONNECTION UNAVAILABLE", "Check the connection, then try again.", MessageTone.WARNING)
+    is ContractFailure, is SerializationException -> OperationalMessage("UNABLE TO VERIFY",
+        "Do not repeat the receipt. Refresh the task or ask your supervisor.")
+    else -> OperationalMessage("WORK STOPPED", "Ask your supervisor for help. Do not repeat an unconfirmed receipt.")
 }

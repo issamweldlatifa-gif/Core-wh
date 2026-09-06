@@ -96,16 +96,6 @@ class WorkerRepository(
         return json.decodeFromString(ReceivingSession.serializer(), raw)
     }
 
-    @Deprecated("Totals-only legacy endpoint: no ArticleUnit or idempotency. Never use in the migrated tote lane.")
-    suspend fun receiveProduct(sessionId: String, sku: String, qty: Int, operationId: String, source: String): ReceivingSession {
-        require(qty > 0) { "Quantity must be a positive integer." }
-        val raw = post(
-            "/v1/receiving/sessions/${urlEncode(sessionId)}/receive-product",
-            """{"sku":${jq(sku)},"quantity":$qty,"operationId":${jq(operationId)},"source":${jq(source)}}""",
-        )
-        return json.decodeFromString(ReceivingSession.serializer(), raw)
-    }
-
     override suspend fun pauseSession(sessionId: String): ReceivingSession = receivingCommand(sessionId, "pause")
     override suspend fun resumeSession(sessionId: String): ReceivingSession = receivingCommand(sessionId, "resume")
     override suspend fun completeSession(sessionId: String): ReceivingSession = receivingCommand(sessionId, "complete")

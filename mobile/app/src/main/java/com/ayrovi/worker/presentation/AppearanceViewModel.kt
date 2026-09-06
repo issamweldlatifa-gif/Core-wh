@@ -11,7 +11,7 @@ class AppearanceViewModel(private val preferences: TerminalPreferences) : ViewMo
     private val mutableWarning = MutableStateFlow<String?>(null)
     val warning = mutableWarning.asStateFlow()
     fun toggleTheme() {
-        mutableWarning.value = if (preferences.selectTheme(theme.value.next())) null
-        else "Contrast changed for this session only. The display preference could not be saved."
+        mutableWarning.value = if (preferences.selectTheme(if (theme.value == com.ayrovi.worker.design.TerminalThemeMode.WHITE) preferences.darkMode else com.ayrovi.worker.design.TerminalThemeMode.WHITE)) null
+        else "Display changed for now. Your preference could not be saved."
     }
 }

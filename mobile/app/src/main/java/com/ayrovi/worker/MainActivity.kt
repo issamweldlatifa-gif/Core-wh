@@ -27,8 +27,8 @@ class MainActivity : ComponentActivity() {
                         header = { TerminalHeader("TERMINAL LOCKED", "NOT AUTHENTICATED", null, "AUTH_ERROR") },
                         footer = { TerminalFooter("SUPERVISOR ATTENTION REQUIRED") { RetryAction({ recreate() }) } },
                     ) {
-                        ErrorState("SECURE STARTUP UNAVAILABLE", "The terminal could not open secure storage or validate its configuration. No insecure fallback is allowed.")
-                        WarningState("DO NOT CLEAR APP DATA YET", "A supervisor must reconcile any unresolved work before resetting this device.")
+                        ErrorState("TERMINAL UNAVAILABLE", "Ask your supervisor for help before using this device.")
+                        WarningState("WORK NEEDS CHECKING", "Do not reset this device until your supervisor has checked the last receipt.")
                     }
                 }
             } else if (BuildConfig.WORKER_LEGACY_FALLBACK) {
@@ -36,10 +36,10 @@ class MainActivity : ComponentActivity() {
                 if (dependencies.frozenRollbackAllowed) AyroviApp(dependencies.sessions, dependencies.repository)
                 else AyroviTerminalTheme {
                     TerminalShell(
-                        header = { TerminalHeader("ROLLBACK BLOCKED", "DEVICE RECONCILIATION REQUIRED", null, "CHECKING") },
-                        footer = { TerminalFooter("DO NOT REPLAY RECEIPTS") {} },
+                        header = { TerminalHeader("WORK STOPPED", "SUPERVISOR REQUIRED", null, "CHECKING") },
+                        footer = { TerminalFooter("DO NOT RECEIVE THE ITEM AGAIN") {} },
                     ) {
-                        WarningState("UNRESOLVED OPERATION", "This device has an unresolved native operation. Use the approved native recovery build and reconcile with a supervisor before switching clients. Do not clear app data.")
+                        WarningState("UNRESOLVED OPERATION", "An earlier receipt needs checking. Ask your supervisor before continuing. Do not reset this device.")
                     }
                 }
             } else WorkerTerminalApp(dependencies, ::applyAppearance)
@@ -47,7 +47,7 @@ class MainActivity : ComponentActivity() {
     }
     private fun applyAppearance(mode: TerminalThemeMode) {
         val palette = TerminalPalette.forMode(mode)
-        val style = if (mode == TerminalThemeMode.BLACK) SystemBarStyle.dark(palette.background.toArgb())
+        val style = if (mode != TerminalThemeMode.WHITE) SystemBarStyle.dark(palette.background.toArgb())
         else SystemBarStyle.light(palette.background.toArgb(), palette.background.toArgb())
         enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
     }
