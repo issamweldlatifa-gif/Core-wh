@@ -1,4 +1,5 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { TASK_REGISTRY, taskByKey } from '../operations/task-registry';
@@ -358,27 +359,39 @@ export class AssignmentsService {
 
   /** Worker closes a plain instruction with a note (manual path). */
   async completeAssignment(userId: string, assignmentId: string, note?: string) {
-    const row = await this.prisma.workerTaskAssignment.findUnique({ where: { id: assignmentId } });
-    if (!row) throw new NotFoundException('No such assigned task.');
-    if (row.workerId !== userId) throw new NotFoundException('No such assigned task for this worker.');
-    if (row.status !== 'ASSIGNED' && row.status !== 'IN_PROGRESS' && row.status !== 'BLOCKED') {
-      throw new BadRequestException(`Task "${row.title}" is already ${row.status}.`);
+    return this.prisma.$transaction(async (tx) => {
+      const row = await tx.workerTaskAssignment.findUnique({ where: { id: assignmentId } });
+      if (!row || row.workerId !== userId) throw new NotFoundException('No such assigned task for this worker.');
+      if (row.taskKey || row.arrivalId || row.cartonId || row.containerId || row.outboundShipmentId || row.orderId) {
+        throw new ForbiddenException('Complete this task through its warehouse workflow.');
+      }
+      if (row.status !== 'ASSIGNED' && row.status !== 'IN_PROGRESS') throw new ConflictException('This task cannot be completed.');
+      const noteText = (note ?? '').trim();
+      const changed = await tx.workerTaskAssignment.updateMany({
+        where: { id: assignmentId, workerId: userId, status: { in: ['ASSIGNED', 'IN_PROGRESS'] }, taskKey: null,
+          arrivalId: null, cartonId: null, containerId: null, outboundShipmentId: null, orderId: null },
+        data: { status: 'COMPLETED', note: noteText || null, completedById: userId, completedAt: new Date() },
+      });
+      if (changed.count !== 1) throw new ConflictException('Task already changed or completed.');
+      await tx.auditLog.create({ data: {
+        actorUserId: userId, action: 'TASK_COMPLETED', entityType: 'worker_task', entityId: row.id,
+        metadata: { taskId: row.id, title: row.title, note: noteText || null, manual: true, previousState: row.status, newState: 'COMPLETED' },
+      } });
+      return { ok: true, id: assignmentId, status: 'COMPLETED' };
+    });
+  }
+
+  /** Existing available-floor-work policy is retained; linked work must respect its owner and block state. */
+  async assertOperationalAccess(workerId: string, taskKey: string,
+    entity: { arrivalId?: string; cartonId?: string; containerId?: string; outboundShipmentId?: string }, db: Prisma.TransactionClient = this.prisma) {
+    const rows = await db.workerTaskAssignment.findMany({ where: { taskKey, ...entity, status: { not: 'CANCELLED' } }, select: { id: true, workerId: true, status: true, stationId: true } });
+    if (!rows.length) return; // audited upstream floor-work policy; strict assignment-only cutover remains a gate
+    const own = rows.find((row) => row.workerId === workerId && ['ASSIGNED', 'IN_PROGRESS'].includes(row.status));
+    if (!own) throw new ForbiddenException('This work is not assigned to you or is blocked/completed.');
+    if (own.stationId) {
+      const station = await db.station.findUnique({ where: { id: own.stationId } });
+      if (!station || station.status !== 'ACTIVE' || station.assignedWorkerId !== workerId) throw new ForbiddenException('This task requires your assigned station.');
     }
-    const noteText = (note ?? '').trim();
-    await this.prisma.workerTaskAssignment.update({
-      where: { id: assignmentId },
-      data: { status: 'COMPLETED', note: noteText || null, completedById: userId, completedAt: new Date() },
-    });
-    await this.prisma.auditLog.create({
-      data: {
-        actorUserId: userId,
-        action: 'TASK_COMPLETED' as any,
-        entityType: 'worker_task',
-        entityId: row.id,
-        metadata: { taskId: row.id, title: row.title, note: noteText || null, manual: true } as any,
-      },
-    });
-    return { ok: true, id: assignmentId, status: 'COMPLETED' };
   }
 
   // ------------------------------------------------------------------
@@ -387,13 +400,14 @@ export class AssignmentsService {
   // ------------------------------------------------------------------
 
   /** A receiving session started on this arrival → ASSIGNED → IN_PROGRESS. */
-  async receivingStarted(arrivalId: string, sessionCode: string, workerId: string | null) {
-    const updated = await this.prisma.workerTaskAssignment.updateMany({
-      where: { arrivalId, status: 'ASSIGNED' },
+  async receivingStarted(arrivalId: string, sessionCode: string, workerId: string | null, db: Prisma.TransactionClient = this.prisma) {
+    if (!workerId) return 0;
+    const updated = await db.workerTaskAssignment.updateMany({
+      where: { arrivalId, workerId, taskKey: 'receiving', status: 'ASSIGNED' },
       data: { status: 'IN_PROGRESS' },
     });
     if (updated.count > 0) {
-      await this.prisma.auditLog.create({
+      await db.auditLog.create({
         data: {
           actorUserId: workerId,
           action: 'TASK_IN_PROGRESS' as any,
@@ -407,14 +421,15 @@ export class AssignmentsService {
   }
 
   /** Receiving completed on this arrival → COMPLETED(_WITH_DISCREPANCY). */
-  async receivingCompleted(arrivalId: string, withDiscrepancy: boolean, sessionCode: string, workerId: string | null) {
+  async receivingCompleted(arrivalId: string, withDiscrepancy: boolean, sessionCode: string, workerId: string | null, db: Prisma.TransactionClient = this.prisma) {
+    if (!workerId) return 0;
     const status = withDiscrepancy ? 'COMPLETED_WITH_DISCREPANCY' : 'COMPLETED';
-    const updated = await this.prisma.workerTaskAssignment.updateMany({
-      where: { arrivalId, status: { in: ['ASSIGNED', 'IN_PROGRESS', 'BLOCKED'] } },
+    const updated = await db.workerTaskAssignment.updateMany({
+      where: { arrivalId, workerId, taskKey: 'receiving', status: { in: ['ASSIGNED', 'IN_PROGRESS'] } },
       data: { status, completedById: workerId, completedAt: new Date(), note: `receiving session ${sessionCode}` },
     });
     if (updated.count > 0) {
-      await this.prisma.auditLog.create({
+      await db.auditLog.create({
         data: {
           actorUserId: workerId,
           action: 'TASK_COMPLETED' as any,
@@ -428,13 +443,14 @@ export class AssignmentsService {
   }
 
   /** A putaway placement stored the carton an assignment points at. */
-  async cartonStored(cartonId: string, workerId: string | null) {
-    const updated = await this.prisma.workerTaskAssignment.updateMany({
-      where: { cartonId, status: { in: ['ASSIGNED', 'IN_PROGRESS', 'BLOCKED'] } },
+  async cartonStored(cartonId: string, workerId: string | null, db: Prisma.TransactionClient = this.prisma) {
+    if (!workerId) return 0;
+    const updated = await db.workerTaskAssignment.updateMany({
+      where: { cartonId, workerId, taskKey: 'putaway', status: { in: ['ASSIGNED', 'IN_PROGRESS'] } },
       data: { status: 'COMPLETED', completedById: workerId, completedAt: new Date() },
     });
     if (updated.count > 0) {
-      await this.prisma.auditLog.create({
+      await db.auditLog.create({
         data: {
           actorUserId: workerId,
           action: 'TASK_COMPLETED' as any,
@@ -448,13 +464,14 @@ export class AssignmentsService {
   }
 
   /** Packing packed the bin an assignment points at. */
-  async containerPacked(containerId: string, workerId: string | null) {
-    const updated = await this.prisma.workerTaskAssignment.updateMany({
-      where: { containerId, status: { in: ['ASSIGNED', 'IN_PROGRESS', 'BLOCKED'] } },
+  async containerPacked(containerId: string, workerId: string | null, db: Prisma.TransactionClient = this.prisma) {
+    if (!workerId) return 0;
+    const updated = await db.workerTaskAssignment.updateMany({
+      where: { containerId, workerId, taskKey: 'packing', status: { in: ['ASSIGNED', 'IN_PROGRESS'] } },
       data: { status: 'COMPLETED', completedById: workerId, completedAt: new Date() },
     });
     if (updated.count > 0) {
-      await this.prisma.auditLog.create({
+      await db.auditLog.create({
         data: {
           actorUserId: workerId,
           action: 'TASK_COMPLETED' as any,
@@ -468,13 +485,14 @@ export class AssignmentsService {
   }
 
   /** Shipping dispatched the outbound shipment an assignment points at. */
-  async outboundShipped(shipmentId: string, workerId: string | null) {
-    const updated = await this.prisma.workerTaskAssignment.updateMany({
-      where: { outboundShipmentId: shipmentId, status: { in: ['ASSIGNED', 'IN_PROGRESS', 'BLOCKED'] } },
+  async outboundShipped(shipmentId: string, workerId: string | null, db: Prisma.TransactionClient = this.prisma) {
+    if (!workerId) return 0;
+    const updated = await db.workerTaskAssignment.updateMany({
+      where: { outboundShipmentId: shipmentId, workerId, taskKey: 'shipping', status: { in: ['ASSIGNED', 'IN_PROGRESS'] } },
       data: { status: 'COMPLETED', completedById: workerId, completedAt: new Date() },
     });
     if (updated.count > 0) {
-      await this.prisma.auditLog.create({
+      await db.auditLog.create({
         data: {
           actorUserId: workerId,
           action: 'TASK_COMPLETED' as any,

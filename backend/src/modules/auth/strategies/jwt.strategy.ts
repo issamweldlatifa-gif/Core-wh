@@ -52,7 +52,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     }
 
     const user = session.user;
-    if (!user || user.status !== 'ACTIVE') {
+    if (!user || user.status !== 'ACTIVE' || payload.sub !== session.userId) {
       throw new UnauthorizedException('User account is not active.');
     }
 
@@ -87,7 +87,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     // device that is now DISABLED or gone is revoked immediately.
     if (session.deviceId) {
       const device = session.device;
-      if (!device || device.status !== 'ACTIVE') {
+      if (!device || device.status !== 'ACTIVE' || (device.assignedWorkerId && device.assignedWorkerId !== user.id)) {
         await this.revoke(session.id);
         throw new UnauthorizedException('This device is no longer authorized.');
       }
@@ -131,6 +131,8 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       roles,
       permissions,
       sessionId: session.id,
+      deviceId: session.deviceId,
+      stationId: session.stationId,
       application,
       allowedApplications: [...allowedApplications],
     };

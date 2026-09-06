@@ -1,3 +1,5 @@
+import { AssignmentsService } from '../src/modules/assignments/assignments.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Test } from '@nestjs/testing';
 import { INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
 import request from 'supertest';
@@ -279,7 +281,7 @@ describe('PARTIE 2 — Workforce Operating Model', () => {
     const prismaSvc = prisma;
     const noAudit = { log: async () => {} } as any;
     const categories = new CategoriesService(prisma as any, noAudit);
-    const fulfillment = new FulfillmentService(prisma as any, noAudit, categories);
+    const fulfillment = new FulfillmentService(prisma as any, noAudit, categories, new EventEmitter2(), new AssignmentsService(prisma as any, noAudit));
     const actor = { id: `p2-${tag}`, name: 'P2', ip: null } as any;
 
     const custom = await fulfillment.createContainer({ type: 'RECEIVING', capacity: 3 }, actor);
@@ -305,9 +307,9 @@ describe('PARTIE 2 — Workforce Operating Model', () => {
     const prismaSvc = prisma;
     const noAudit = { log: async () => {} } as any;
     const arrivals = new ExpectedArrivalsService(prisma as any, noAudit);
-    const receiving = new ReceivingService(prisma as any, noAudit);
+    const receiving = new ReceivingService(prisma as any, noAudit, new AssignmentsService(prisma as any, noAudit));
     const categories = new CategoriesService(prisma as any, noAudit);
-    const fulfillment = new FulfillmentService(prisma as any, noAudit, categories);
+    const fulfillment = new FulfillmentService(prisma as any, noAudit, categories, new EventEmitter2(), new AssignmentsService(prisma as any, noAudit));
     const principal = { kind: 'static' as const, id: null, name: 'e2e-p2', idempotencyKey: null };
     const sku = `P2SKU-${tag}`;
     const cardId = `card:${tag}:nocate`;
@@ -342,7 +344,7 @@ describe('PARTIE 2 — Workforce Operating Model', () => {
     expect(scan.matched).toBe(true);
     expect(scan.flash.kind).toBe('ARTICLE_RECEIVED');
     const unit = await (prismaSvc as any).articleUnit.findUnique({
-      where: { code: scan.flash.article.code },
+      where: { code: receivedArticle(scan).code },
     });
     expect(unit.status).toBe('IN_CONTAINER');
     expect(unit.containerId).toBe(tote.id);
@@ -350,7 +352,7 @@ describe('PARTIE 2 — Workforce Operating Model', () => {
     expect(unit.categoryStatus).toBe('NEEDS_REVIEW'); // honest UNKNOWN, never a stop
 
     // Cleanup (scoped to this suite only).
-    await (prismaSvc as any).articleUnit.deleteMany({ where: { code: scan.flash.article.code } });
+    await (prismaSvc as any).articleUnit.deleteMany({ where: { code: receivedArticle(scan).code } });
     await (prismaSvc as any).receivingDiscrepancy.deleteMany({ where: { session: { id: session.id } } });
     await (prismaSvc as any).receivingCarton.deleteMany({ where: { session: { id: session.id } } });
     await (prismaSvc as any).receivingProduct.deleteMany({ where: { session: { id: session.id } } });
@@ -360,3 +362,8 @@ describe('PARTIE 2 — Workforce Operating Model', () => {
     await (prismaSvc as any).expectedArrival.deleteMany({ where: { customerArrivalCardId: cardId } });
   });
 });
+
+function receivedArticle(result: Awaited<ReturnType<FulfillmentService['scanArticleAtReceiving']>>) {
+    if (!('article' in result.flash)) throw new Error('Expected a confirmed ArticleUnit, not an idempotency reply.');
+    return result.flash.article;
+}

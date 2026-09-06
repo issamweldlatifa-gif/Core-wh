@@ -31,9 +31,10 @@ data class WorkerAppState(
     val tasks: List<TerminalTask> = emptyList(),
     val assignments: AssignmentsResponse? = null,
     val receivingArrivals: Int? = null,
+    val workCounts: List<WorkCount> = emptyList(),
     val message: OperationalMessage? = null,
 ) {
-    val queueItems get() = WorkerQueuePolicy.items(tasks, receivingArrivals)
+    val queueItems get() = WorkerQueuePolicy.items(tasks, receivingArrivals, workCounts)
 }
 
 class WorkerAppViewModel(private val session: WorkerSessionUseCase, private val audio: AudioFeedback = AudioFeedback.Silent) : ViewModel() {
@@ -107,13 +108,13 @@ class WorkerAppViewModel(private val session: WorkerSessionUseCase, private val 
         if (foreground && previous != null && incoming != null && incoming > previous) runCatching { audio.notification() }
         mutable.update { it.copy(
             signedIn = true, me = verified.me, context = verified.context, tasks = verified.tasks,
-            assignments = verified.assignments, receivingArrivals = verified.receivingArrivalCount,
+            assignments = verified.assignments, receivingArrivals = verified.receivingArrivalCount, workCounts = verified.workCounts,
             identityVersion = verified.identityVersion, verified = foreground, message = null,
         ) }
     }
 
     fun completeAssignment(id: String) {
-        if (mutable.value.busy || !mutable.value.verified || mutable.value.assignments?.open?.none { it.id == id } != false) return
+        if (mutable.value.busy || !mutable.value.verified || mutable.value.assignments?.open?.none { it.id == id && it.isInstruction && it.status in setOf("ASSIGNED", "IN_PROGRESS") } != false) return
         mutable.update { it.copy(busy = true, message = null) }
         viewModelScope.launch {
             try {

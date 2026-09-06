@@ -1,13 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
-import { getAccessToken } from '../../api/client';
+import { useEffect, useState } from 'react';
+import client, { getAccessToken } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
-import { adminApi } from '../api';
 
 /**
  * LIVE WALLBOARD — big-format display for warehouse TV / manager desk.
  * Connects to SSE /v1/live/events and shows:
  *   - Online workers
- *   - Throughput (today's scans/packs/ships)
+ *   - Events observed in this view (not authoritative daily totals)
  *   - Live event ticker with tone (ok/warn/err)
  * Falls back to 5s polling if SSE is unavailable (defensive).
  */
@@ -36,54 +35,64 @@ const labelFor = (topic: string) =>
   }[topic] ?? topic.toUpperCase());
 
 export default function LiveBoard() {
-  // The auth context carries no token (by design); read the stored access
-  // token for the SSE query param instead (EventSource cannot send headers).
-  const token = getAccessToken();
+  const { me } = useAuth();
+
   const [events, setEvents] = useState<LiveEvent[]>([]);
   const [connected, setConnected] = useState(false);
   const [counters, setCounters] = useState({ accepted: 0, rejected: 0, packed: 0, shipped: 0, ready: 0 });
-  const [online, setOnline] = useState<number | null>(null);
-  const esRef = useRef<EventSource | null>(null);
-
+  const online: number | null = null; // Live connection count is not worker-presence authority.
   useEffect(() => {
-    if (!token) return;
-    const base = (import.meta as any).env.VITE_API_BASE || '/api';
-    const url = `${base}/live/events?token=${encodeURIComponent(token)}`;
-    let es: EventSource;
-    try {
-      es = new EventSource(url);
-      esRef.current = es;
-    } catch {
-      setConnected(false);
-      return;
-    }
-    es.addEventListener('open', () => setConnected(true));
-    es.addEventListener('error', () => setConnected(false));
-    es.addEventListener('snapshot', (e: any) => {
+    if (!me || me.application !== 'ADMIN_WEB') return;
+    const controller = new AbortController();
+    const base = import.meta.env.VITE_API_BASE || '/api';
+    let stopped = false;
+    const consume = (data: string) => {
       try {
-        const snap = JSON.parse(e.data);
-        setOnline(snap.online);
-      } catch { /* */ }
-    });
-    es.onmessage = (e) => {
-      try {
-        const ev: LiveEvent = JSON.parse(e.data);
-        setEvents((prev) => [ev, ...prev].slice(0, 60));
-        setCounters((c) => {
-          const n = { ...c };
-          switch (ev.topic) {
-            case 'scan.accepted': n.accepted++; break;
-            case 'scan.rejected': n.rejected++; break;
-            case 'packed': n.packed++; break;
-            case 'shipped': n.shipped++; break;
-            case 'bin.ready': n.ready++; break;
-          }
-          return n;
-        });
-      } catch { /* */ }
+        const event: LiveEvent = JSON.parse(data);
+        if (!event.topic) return;
+        setEvents((previous) => [event, ...previous].slice(0, 60));
+        setCounters((previous) => ({
+          ...previous,
+          accepted: previous.accepted + Number(event.topic === 'scan.accepted'),
+          rejected: previous.rejected + Number(event.topic === 'scan.rejected'),
+          packed: previous.packed + Number(event.topic === 'packed'),
+          shipped: previous.shipped + Number(event.topic === 'shipped'),
+          ready: previous.ready + Number(event.topic === 'bin.ready'),
+        }));
+      } catch { /* ignore malformed event, never execute payload */ }
     };
-    return () => { es.close(); esRef.current = null; setConnected(false); };
-  }, [token]);
+    const connect = async () => {
+      while (!stopped) {
+        try {
+          // Shared auth client renews an expired session; the streaming request then uses a header.
+          await client.get('/v1/auth/me', { signal: controller.signal });
+          const token = getAccessToken();
+          if (!token || stopped) return;
+          const response = await fetch(`${base}/v1/live/events`, {
+            headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' }, signal: controller.signal,
+          });
+          if (!response.ok || !response.body) throw new Error('Live stream unavailable');
+          setConnected(true);
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          try {
+            while (!stopped) {
+              const part = await reader.read();
+              if (part.done) break;
+              buffer += decoder.decode(part.value, { stream: true }).replace(/\r/g, '');
+              const frames = buffer.split('\n\n');
+              buffer = frames.pop() ?? '';
+              for (const frame of frames) for (const line of frame.split('\n')) if (line.startsWith('data: ')) consume(line.slice(6));
+            }
+          } finally { reader.releaseLock(); }
+        } catch { if (stopped) return; }
+        if (!stopped) { setConnected(false); await new Promise((resolve) => setTimeout(resolve, 3000)); }
+      }
+    };
+    void connect();
+    return () => { stopped = true; controller.abort(); };
+  }, [me?.user.id, me?.application]);
 
   const bigNum = (label: string, val: number | string | null, color: string) => (
     <div className="live-metric" style={{ borderColor: color }}>
@@ -108,7 +117,7 @@ export default function LiveBoard() {
         {bigNum('Packed', counters.packed, '#00D084')}
         {bigNum('Shipped', counters.shipped, '#4A90E2')}
       </div>
-      <h2 style={{ marginTop: 24 }}>Live event feed</h2>
+      <h2 style={{ marginTop: 24 }}>Live event feed · counts observed in this view</h2>
       <div className="live-feed">
         {events.length === 0 && <div className="live-empty">Waiting for events… scans from the floor will appear here.</div>}
         {events.map((ev, i) => {

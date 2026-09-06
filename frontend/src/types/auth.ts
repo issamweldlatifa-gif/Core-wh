@@ -11,6 +11,8 @@ export interface AuthMe {
   user: AuthUser;
   roles: string[];
   permissions: string[];
+  application?: 'ADMIN_WEB' | 'WORKER_NATIVE';
+  allowedApplications?: Array<'ADMIN_WEB' | 'WORKER_NATIVE'>;
 }
 
 export interface AuthTokens {

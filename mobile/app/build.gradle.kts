@@ -16,11 +16,25 @@ require(apiUri.scheme == "https" && !apiUri.host.isNullOrBlank() && apiUri.rawUs
 }
 val legacyFallback = providers.gradleProperty("workerLegacyFallback").map(String::toBooleanStrict).orElse(false)
 
+val signingStore = providers.environmentVariable("AYROVI_SIGNING_STORE_FILE").orNull
+val signingAlias = providers.environmentVariable("AYROVI_SIGNING_KEY_ALIAS").orNull
+val signingStorePassword = providers.environmentVariable("AYROVI_SIGNING_STORE_PASSWORD").orNull
+val signingKeyPassword = providers.environmentVariable("AYROVI_SIGNING_KEY_PASSWORD").orNull
+val releaseSigningConfigured = listOf(signingStore, signingAlias, signingStorePassword, signingKeyPassword).all { !it.isNullOrBlank() }
+
 android {
     namespace = "com.ayrovi.worker"
     compileSdk = 35
 
     signingConfigs {
+        if (releaseSigningConfigured) create("managedRelease") {
+            storeFile = file(signingStore!!)
+            storePassword = signingStorePassword
+            keyAlias = signingAlias
+            keyPassword = signingKeyPassword
+            enableV1Signing = true
+            enableV2Signing = true
+        }
         // QA installable builds, signed with v1+v2 so sideloading works on
         // every Android >= minSdk. Replace with a private keystore for any
         // managed/internal distribution that must update in place.
@@ -34,8 +48,8 @@ android {
         applicationId = "com.ayrovi.worker"
         minSdk = 26
         targetSdk = 35
-        versionCode = 44
-        versionName = "1.5.0-pilot"
+        versionCode = 45
+        versionName = "1.5.1-rc1"
         buildConfigField("String", "API_BASE_URL", "\"${apiBaseUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
         buildConfigField("boolean", "WORKER_LEGACY_FALLBACK", legacyFallback.get().toString())
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -45,7 +59,7 @@ android {
         release {
             isMinifyEnabled = false
             // Unsigned by default. Production signing belongs to the managed release pipeline.
-            signingConfig = null
+            signingConfig = if (releaseSigningConfigured) signingConfigs.getByName("managedRelease") else null
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -88,4 +102,15 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
+}
+
+// No debug-signed or unsigned artifact can be advertised as a successful Release build.
+val verifyManagedReleaseSigning = tasks.register("verifyManagedReleaseSigning") {
+    doLast {
+        check(releaseSigningConfigured) { "Release signing is not configured. Supply the managed AYROVI_SIGNING_* environment through the approved secret store." }
+        check(file(signingStore!!).isFile) { "The managed release keystore file is unavailable." }
+    }
+}
+tasks.matching { it.name == "assembleRelease" || it.name == "bundleRelease" || it.name == "packageRelease" }.configureEach {
+    dependsOn(verifyManagedReleaseSigning)
 }

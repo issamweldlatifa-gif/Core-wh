@@ -9,7 +9,7 @@ interface ReceivingGateway {
     suspend fun scanCarton(sessionId: String, code: String, scanType: String, operationId: String, source: String): ReceivingSession
     suspend fun receiveCarton(sessionId: String, cartonId: String, operationId: String, source: String): ReceivingSession
     suspend fun container(code: String): OpContainerDetail
-    suspend fun scanArticleAtReceiving(sessionId: String, sku: String, containerCode: String, cartonCode: String? = null): ArticleScanResult
+    suspend fun scanArticleAtReceiving(sessionId: String, sku: String, containerCode: String, cartonCode: String? = null, operationId: String? = null): ArticleScanResult
     suspend fun pauseSession(sessionId: String): ReceivingSession
     suspend fun resumeSession(sessionId: String): ReceivingSession
     suspend fun completeSession(sessionId: String): ReceivingSession

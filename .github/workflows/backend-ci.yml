@@ -6,10 +6,35 @@ on:
       - 'arena/**'
     paths:
       - 'backend/**'
+      - 'frontend/**'
+      - 'build.sh'
+      - 'start.sh'
+      - 'render.yaml'
       - '.github/workflows/backend-ci.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
+  frontend:
+    name: Frontend lint typecheck tests build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint && npm run typecheck && npm test -- --maxWorkers=2 && npm run build
+
   test-and-build:
     name: Unit tests + build
     runs-on: ubuntu-latest
@@ -43,6 +68,9 @@ jobs:
           python3 -c 'import sys; lines=open("/tmp/unit.log",errors="replace").read().splitlines()[-140:]; m="\n".join(lines); esc=m.replace("%","%25").replace("\r","").replace("\n","%0A"); print(("::error::"+esc) if int(sys.argv[1])!=0 else "")' "$code"
           exit $code
 
+      - name: Correctness lint
+        run: npm run lint
+
       - name: Type-check / build
         shell: bash
         run: |
@@ -71,6 +99,7 @@ jobs:
           --health-timeout 5s
           --health-retries 12
     env:
+      AYROVI_TEST_DATABASE: 'true'
       DATABASE_URL: postgresql://ayrovi:ayrovi_dev@localhost:5432/ayrovi_warehouse?schema=public
       JWT_ACCESS_SECRET: ci_access_secret_do_not_use_in_prod_change_me_1234567890
       JWT_REFRESH_SECRET: ci_refresh_secret_do_not_use_in_prod_change_me_1234567890
@@ -126,10 +155,20 @@ jobs:
         shell: bash
         run: |
           set +e
-          npx jest --config ./test/jest-e2e.json test/isolation.e2e-spec.ts --runInBand > /tmp/e2e.log 2>&1
+          npx jest --config ./test/jest-e2e.json test/isolation.e2e-spec.ts test/warehouse-volume.e2e-spec.ts --runInBand > /tmp/e2e.log 2>&1
           code=$?
           echo "E2E_EXIT=$code"
           if [ "$code" -ne 0 ]; then
             python3 -c 'import sys; ls=open("/tmp/e2e.log",errors="replace").read().splitlines(); start=next((i for i,l in enumerate(ls) if l.startswith("  ● ")), None); sel=ls[start:start+110] if start is not None else ls[-90:]; print("::error::"+"\n".join(sel).replace("%","%25").replace("\r","").replace("\n","%0A"))'
           fi
           exit $code
+
+      - name: Upload database validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-database-validation
+          path: |
+            /tmp/e2e.log
+            /tmp/migrate.log
+            backend/test-results/

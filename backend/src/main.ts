@@ -21,7 +21,10 @@ async function bootstrap() {
   // path is not guaranteed to run (the service may start `node dist/main.js`
   // directly). The entrypoint is the ONLY code guaranteed to execute, so the
   // guarded, additive drift repair runs here before anything queries the DB.
-  await repairSchemaDriftIfNeeded();
+  // Never mutate a production schema or migration ledger as a hidden startup repair.
+  if (process.env.NODE_ENV !== 'production' && process.env.AYROVI_ALLOW_SCHEMA_REPAIR === 'true') {
+    await repairSchemaDriftIfNeeded();
+  }
 
   // FAIL FAST: refuse to boot without real JWT secrets. Previously the config
   // loader silently fell back to .env.example placeholders, which would let a

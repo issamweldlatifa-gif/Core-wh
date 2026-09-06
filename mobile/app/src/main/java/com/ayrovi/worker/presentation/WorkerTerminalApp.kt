@@ -94,7 +94,7 @@ fun WorkerTerminalApp(container: AppContainer, onThemeChanged: (TerminalThemeMod
                 state.assignments?.open?.forEach { instruction ->
                     Text(instruction.title)
                     instruction.description?.let { Text(it) }
-                    SecondaryAction("MARK INSTRUCTION DONE", { model.completeAssignment(instruction.id) }, state.verified && !state.busy)
+                    if (instruction.isInstruction) SecondaryAction("MARK INSTRUCTION DONE", { model.completeAssignment(instruction.id) }, state.verified && !state.busy)
                 }
             } }, confirmButton = { SecondaryAction("CLOSE", { showSettings = false }) })
     }

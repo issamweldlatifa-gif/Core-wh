@@ -21,7 +21,7 @@ services:
     runtime: node
     plan: free
     buildCommand: ./build.sh
-    # Migrations + seed run here (release phase), NOT during build. See start.sh.
+    # Reviewed migrations run here; seed is opt-in via AYROVI_RUN_SEED. See recovery report.
     startCommand: ./start.sh
     healthCheckPath: /api/v1/system/health
     autoDeploy: true

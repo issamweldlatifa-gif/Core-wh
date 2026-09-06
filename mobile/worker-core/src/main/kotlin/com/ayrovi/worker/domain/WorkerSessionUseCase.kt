@@ -10,6 +10,7 @@ data class WorkerContextSnapshot(
     val assignments: AssignmentsResponse,
     val receivingArrivalCount: Int?,
     val identityVersion: Long,
+    val workCounts: List<WorkCount> = emptyList(),
 )
 
 class WorkerSessionUseCase(private val repository: WorkerRepository, private val store: SessionStorage) {
@@ -28,10 +29,11 @@ class WorkerSessionUseCase(private val repository: WorkerRepository, private val
         val context = repository.terminalContext()
         if (context.worker?.id != me.user?.id) denyIdentity(identity, "Worker identity could not be verified.")
         val assignments = repository.assignments()
+        val counts = repository.workCounts()
         val count = if (WorkerAccess.VIEW_RECEIVING in me.permissions && WorkerAccess.EXECUTE_RECEIVING in me.permissions)
             repository.arrivals().size else null
         if (store.snapshot().identityVersion != identity) throw SessionChangedFailure(false)
-        return WorkerContextSnapshot(me, context, WorkerAccess.permittedTasks(me, context), assignments, count, identity)
+        return WorkerContextSnapshot(me, context, WorkerAccess.permittedTasks(me, context), assignments, count, identity, counts)
     }
 
     suspend fun completeAssignment(id: String): AssignmentsResponse {

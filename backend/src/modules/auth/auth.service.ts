@@ -7,6 +7,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { TokenService, RefreshTokenPayload } from './token.service';
 import * as bcrypt from 'bcrypt';
+import { randomUUID } from 'crypto';
+import { Prisma } from '@prisma/client';
 import {
   applicationsAllowedByRoleClasses,
   classifyRole,
@@ -199,30 +201,34 @@ export class AuthService {
 
   async refresh(refreshToken: string): Promise<AuthTokens> {
     const payload = this.tokens.verifyRefreshToken(refreshToken);
-    const session = await this.prisma.session.findUnique({
-      where: { id: payload.sid },
+    const hash = this.tokens.hashToken(refreshToken);
+    return this.prisma.$transaction(async (tx) => {
+      const session = await tx.session.findUnique({ where: { id: payload.sid }, include: { user: true, device: true, station: true } });
+      if (!session || session.status !== 'ACTIVE' || session.expiresAt.getTime() <= Date.now()
+          || session.userId !== payload.sub || session.refreshTokenHash !== hash
+          || (payload.app && payload.app !== session.application) || session.user.status !== 'ACTIVE') {
+        throw new UnauthorizedException('Session is no longer active.');
+      }
+      const roles = await tx.userRole.findMany({ where: { userId: session.userId }, include: { role: true } });
+      if (!applicationsAllowedByRoleClasses(roles.map((row) => roleClassOf(row.role))).has(session.application as ApplicationKind)) {
+        throw new UnauthorizedException('Your access has changed. Sign in again.');
+      }
+      if (session.deviceId && (!session.device || session.device.status !== 'ACTIVE'
+          || (session.device.assignedWorkerId && session.device.assignedWorkerId !== session.userId))) {
+        throw new UnauthorizedException('This device is no longer authorized.');
+      }
+      if (session.stationId && (!session.station || session.station.status !== 'ACTIVE' || session.station.assignedWorkerId !== session.userId)) {
+        throw new UnauthorizedException('Your station assignment has changed.');
+      }
+      // The consumed hash and ACTIVE state are compared atomically. Concurrent rotation has one winner.
+      const consumed = await tx.session.updateMany({
+        where: { id: session.id, userId: payload.sub, status: 'ACTIVE', refreshTokenHash: hash, expiresAt: { gt: new Date() } },
+        data: { status: 'REVOKED', revokedAt: new Date() },
+      });
+      if (consumed.count !== 1) throw new UnauthorizedException('Session renewal was already used.');
+      return this.createSession(session.userId, session.ipAddress ?? undefined, session.userAgent ?? undefined,
+        session.application as ApplicationKind, session.deviceId ?? undefined, session.stationId ?? undefined, tx);
     });
-    if (!session || session.status !== 'ACTIVE' || session.expiresAt.getTime() < Date.now()) {
-      throw new UnauthorizedException('Session is no longer active.');
-    }
-
-    // Rotate the refresh token to prevent replay.
-    await this.prisma.session.update({
-      where: { id: session.id },
-      data: { status: 'REVOKED', revokedAt: new Date() },
-    });
-
-    // A refresh keeps the SAME application surface the session was opened for
-    // (server truth is the DB row; the token claim is only echoed). Device and
-    // station binding are preserved across the rotation.
-    return this.createSession(
-      session.userId,
-      session.ipAddress ?? undefined,
-      session.userAgent ?? undefined,
-      session.application as ApplicationKind,
-      session.deviceId ?? undefined,
-      session.stationId ?? undefined,
-    );
   }
 
   async logout(userId: string, sessionId: string, ip?: string) {
@@ -277,40 +283,19 @@ export class AuthService {
    * that session id.
    */
   private async createSession(
-    userId: string,
-    ip?: string,
-    ua?: string,
-    application: ApplicationKind = 'ADMIN_WEB',
-    deviceId?: string,
-    stationId?: string,
+    userId: string, ip?: string, ua?: string, application: ApplicationKind = 'ADMIN_WEB',
+    deviceId?: string, stationId?: string, db: Prisma.TransactionClient = this.prisma,
   ): Promise<AuthTokens> {
-    // First create the session with a temporary hashed token so we can get an id.
-    const hashed = this.tokens.hashToken('placeholder');
-    const session = await this.prisma.session.create({
-      data: {
-        userId,
-        refreshTokenHash: hashed,
-        ipAddress: ip,
-        userAgent: ua,
-        status: 'ACTIVE',
-        application,
-        deviceId: deviceId ?? null,
-        stationId: stationId ?? null,
-        expiresAt: new Date(Date.now() + this.refreshTtlMs()),
-        lastSeenAt: new Date(),
-      },
-    });
-
-    // Now sign the real tokens bound to session.id.
-    const accessToken = this.tokens.signAccessToken(userId, session.id, application);
-    const { token: refreshToken } = this.tokens.signRefreshToken(userId, session.id, application);
-    const finalHash = this.tokens.hashToken(refreshToken);
-    await this.prisma.session.update({
-      where: { id: session.id },
-      data: { refreshTokenHash: finalHash },
-    });
-
-    return { accessToken, refreshToken };
+    // Generate identity before signing; no shared placeholder hash or partially initialized session.
+    const id = randomUUID();
+    const accessToken = this.tokens.signAccessToken(userId, id, application);
+    const refresh = this.tokens.signRefreshToken(userId, id, application);
+    await db.session.create({ data: {
+      id, userId, refreshTokenHash: this.tokens.hashToken(refresh.token), ipAddress: ip, userAgent: ua,
+      status: 'ACTIVE', application, deviceId: deviceId ?? null, stationId: stationId ?? null,
+      expiresAt: refresh.expiresAt, lastSeenAt: new Date(),
+    } });
+    return { accessToken, refreshToken: refresh.token };
   }
 
   /**

@@ -1,3 +1,5 @@
+import { AssignmentsService } from '../src/modules/assignments/assignments.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaClient } from '@prisma/client';
 import { ExpectedArrivalsService } from '../src/modules/expected-arrivals/expected-arrivals.service';
 import { ReceivingService } from '../src/modules/receiving/receiving.service';
@@ -86,9 +88,9 @@ describe('FINAL PHASE — Category Master + sorting mapping', () => {
   beforeAll(async () => {
     prisma = new PrismaClient();
     arrivals = new ExpectedArrivalsService(prisma as any, captureAudit);
-    receiving = new ReceivingService(prisma as any, captureAudit);
+    receiving = new ReceivingService(prisma as any, captureAudit, new AssignmentsService(prisma as any, captureAudit));
     categories = new CategoriesService(prisma as any, captureAudit);
-    putaway = new PutawayService(prisma as any, captureAudit, categories);
+    putaway = new PutawayService(prisma as any, captureAudit, categories, new AssignmentsService(prisma as any, captureAudit));
 
     // --- Real worker (FK target for the putaway session) ---
     const worker = await (prisma as any).user.create({

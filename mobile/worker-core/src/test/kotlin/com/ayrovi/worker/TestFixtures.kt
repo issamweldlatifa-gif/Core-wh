@@ -79,7 +79,7 @@ internal class ReceivingBackend : ReceivingGateway {
         return current
     }
     override suspend fun container(code: String): OpContainerDetail { calls += "container:$code"; return tote }
-    override suspend fun scanArticleAtReceiving(sessionId: String, sku: String, containerCode: String, cartonCode: String?): ArticleScanResult {
+    override suspend fun scanArticleAtReceiving(sessionId: String, sku: String, containerCode: String, cartonCode: String?, operationId: String?): ArticleScanResult {
         calls += "article"; articleCalls++; receivedSku = sku; receivedTote = containerCode; sourceCarton = cartonCode
         articleFailure?.let { throw it }
         current = current.copy(products = current.products.map { it.copy(received = 1, remaining = 1) }, tally = current.tally.copy(receivedUnits = 1, shortUnits = 1))

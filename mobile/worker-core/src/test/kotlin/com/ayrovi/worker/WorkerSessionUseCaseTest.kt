@@ -27,6 +27,7 @@ class WorkerSessionUseCaseTest {
     private fun responses(me: MeResponse = worker, terminal: TerminalContext = context) = Responses(mapOf(
         "/v1/auth/me" to json.encodeToString(MeResponse.serializer(), me),
         "/v1/terminal/context" to json.encodeToString(TerminalContext.serializer(), terminal),
+        "/v1/terminal/work" to "[]",
         "/v1/terminal/assignments" to """{"open":[],"recent":[]}""",
         "/v1/receiving/arrivals" to """[{"id":"one","code":"WAR-001"},{"id":"two","code":"WAR-002"}]""",
     ))

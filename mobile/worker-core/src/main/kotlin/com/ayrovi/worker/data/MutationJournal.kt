@@ -30,4 +30,4 @@ enum class MutationKind { START, IDENTIFY_CARTON, RECEIVE_CARTON, RECEIVE_ARTICL
 
 /** Backend receipt evidence, retained until the operator explicitly acknowledges the unit. */
 @Serializable
-data class ConfirmedReceipt(val articleCode: String, val sku: String, val toteCode: String, val withException: Boolean)
+data class ConfirmedReceipt(val articleCode: String, val sku: String, val toteCode: String, val withException: Boolean, val containerFull: Boolean = false)

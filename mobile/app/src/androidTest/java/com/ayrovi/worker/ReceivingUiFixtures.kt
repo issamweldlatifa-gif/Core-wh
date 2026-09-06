@@ -47,7 +47,7 @@ internal class ReceivingUiGateway(expectedCartons: Int = 0, var empty: Boolean =
         if (code != "RCN-TEST") throw WorkerRepository.ApiException(404, "Tote not found.")
         return OpContainerDetail(code = code, type = "RECEIVING", status = "ACTIVE")
     }
-    override suspend fun scanArticleAtReceiving(sessionId: String, sku: String, containerCode: String, cartonCode: String?): ArticleScanResult {
+    override suspend fun scanArticleAtReceiving(sessionId: String, sku: String, containerCode: String, cartonCode: String?, operationId: String?): ArticleScanResult {
         writes++
         session = session.copy(products = session.products.map { it.copy(received = 1, remaining = 0, difference = 0) },
             tally = session.tally.copy(receivedUnits = 1, receivedProducts = 1, shortUnits = 0))

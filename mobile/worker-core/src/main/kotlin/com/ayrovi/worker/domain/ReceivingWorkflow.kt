@@ -296,10 +296,10 @@ class ReceivingWorkflow(
         mutate(MutationKind.RECEIVE_ARTICLE, subject = product.scan.value, containerCode = tote.code,
             receiptEvidence = { result: ArticleScanResult -> ConfirmedReceipt(
                 result.flash?.article.field("code")!!, product.scan.value, tote.code,
-                result.flash?.kind == "UNEXPECTED_ARTICLE" || !result.matched,
+                result.flash?.kind == "UNEXPECTED_ARTICLE" || !result.matched, result.flash?.containerFull == true,
             ) },
-        ) {
-            gateway.scanArticleAtReceiving(session.id, product.scan.value, tote.code, mutable.value.sourceCarton?.code).also { result ->
+        ) { operation ->
+            gateway.scanArticleAtReceiving(session.id, product.scan.value, tote.code, mutable.value.sourceCarton?.code, operation.id).also { result ->
                 if (result.flash?.kind !in setOf("ARTICLE_RECEIVED", "UNEXPECTED_ARTICLE") || result.flash?.article.field("code").isNullOrBlank()) {
                     throw ContractFailure("The backend did not confirm an article identity.")
                 }
@@ -307,6 +307,7 @@ class ReceivingWorkflow(
         }
         val receipt = checkNotNull(mutable.value.pending?.confirmedReceipt)
         mutable.update { it.copy(step = ReceivingStep.RESULT, restoredReceipt = false, receipt = receipt,
+            tote = if (receipt.containerFull) null else it.tote,
             message = OperationalMessage(if (receipt.withException) "RECEIVED WITH EXCEPTION" else "ARTICLE RECEIVED",
                 "${receipt.articleCode} → ${receipt.toteCode}", if (receipt.withException) MessageTone.WARNING else MessageTone.SUCCESS)) }
         signal(if (receipt.withException) MessageTone.WARNING else MessageTone.SUCCESS,

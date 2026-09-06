@@ -41,7 +41,7 @@ internal fun WorkerWorkQueue(
                     Text(instruction.title, style = MaterialTheme.typography.titleMedium)
                     instruction.relatedCode?.let { BarcodeDisplay(it) }
                     instruction.description?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
-                    SecondaryAction("MARK INSTRUCTION DONE", { completeInstruction(instruction.id) }, state.verified && !state.busy)
+                    if (instruction.isInstruction) SecondaryAction("MARK INSTRUCTION DONE", { completeInstruction(instruction.id) }, state.verified && !state.busy)
                 }
             }
             if (industrial && state.assignments?.open?.isNotEmpty() == true) Text("${state.assignments.open.size} INSTRUCTIONS · OPEN SETTINGS TO REVIEW",

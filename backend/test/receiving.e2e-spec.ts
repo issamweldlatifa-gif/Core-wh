@@ -1,3 +1,5 @@
+import { AssignmentsService } from '../src/modules/assignments/assignments.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaClient } from '@prisma/client';
 import { ReceivingService } from '../src/modules/receiving/receiving.service';
 
@@ -32,7 +34,7 @@ describe('Phase 2 — Receiving', () => {
     prisma = new PrismaClient();
     // AuditService takes a PrismaService; the service only calls audit.log()
     // which accepts an optional tx — PrismaClient satisfies the call surface.
-    service = new ReceivingService(prisma as any, { log: async () => {} } as any);
+    service = new ReceivingService(prisma as any, { log: async () => {} } as any, new AssignmentsService(prisma as any, { log: async () => {} } as any));
   });
 
   afterAll(async () => {

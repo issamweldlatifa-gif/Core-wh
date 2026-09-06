@@ -81,6 +81,7 @@ export class ReceivingService {
       },
     });
     if (!arrival) throw new NotFoundException('Expected arrival not found.');
+    await this.assignments.assertOperationalAccess(actor.id, 'receiving', { arrivalId: arrival.id });
     if (arrival.status === 'RECEIVED' || arrival.status === 'RECEIVED_WITH_DISCREPANCY') {
       throw new ConflictException('This arrival is already received.');
     }
@@ -165,18 +166,15 @@ export class ReceivingService {
         entityId: session.id, ipAddress: actor.ip ?? null,
         metadata: { session: code, arrival: arrival.code, shipment: primaryShipment?.code ?? null },
       }, tx);
+      await this.assignments.receivingStarted(arrival.id, code, actor.id, tx);
       return session;
-    }).then(async (s) => {
-      // Operational assignment lifecycle (backend-driven): any ASSIGNED task
-      // on this arrival moves to IN_PROGRESS.
-      await this.assignments.receivingStarted(arrival.id, s.code, actor.id).catch(() => 0);
-      return this.sessionDetail(s.id);
-    });
+    }).then((s) => this.sessionDetail(s.id));
   }
 
   // ---------- scan / identify carton ----------
   async scanCarton(sessionId: string, code: string, scanType: 'QR' | 'BARCODE' | 'MANUAL', actor: ReceivingActor, operationId?: string, source: ScanSource = 'MANUAL') {
     const session = await this.requireActiveSession(sessionId);
+    await this.assignments.assertOperationalAccess(actor.id, 'receiving', { arrivalId: session.arrivalId });
     const term = code.trim();
     if (!term) throw new BadRequestException('Scan code is required.');
 
@@ -261,6 +259,7 @@ export class ReceivingService {
   // ---------- confirm carton received ----------
   async receiveCarton(sessionId: string, cartonExternalId: string, actor: ReceivingActor, operationId?: string, source: ScanSource = 'MANUAL') {
     const session = await this.requireActiveSession(sessionId);
+    await this.assignments.assertOperationalAccess(actor.id, 'receiving', { arrivalId: session.arrivalId });
     const carton = await this.prisma.warehouseCarton.findFirst({
       where: { OR: [{ externalCartonId: cartonExternalId }, { qrCodeValue: cartonExternalId }, { id: cartonExternalId }] },
       include: { shipment: true },
@@ -298,6 +297,7 @@ export class ReceivingService {
   // ---------- product scan / receive units ----------
   async receiveProduct(sessionId: string, sku: string, quantity: number, actor: ReceivingActor, source: ScanSource = 'MANUAL', operationId?: string) {
     const session = await this.requireActiveSession(sessionId);
+    await this.assignments.assertOperationalAccess(actor.id, 'receiving', { arrivalId: session.arrivalId });
     const qty = Math.max(1, Math.floor(Number(quantity) || 1));
     const term = (sku || '').trim();
     if (!term) throw new BadRequestException('SKU/reference is required.');
@@ -373,6 +373,7 @@ export class ReceivingService {
   // ---------- pause / resume ----------
   async pause(sessionId: string, actor: ReceivingActor) {
     const session = await this.requireSession(sessionId);
+    await this.assignments.assertOperationalAccess(actor.id, 'receiving', { arrivalId: session.arrivalId });
     if (session.status !== 'RECEIVING') throw new ConflictException('Session is not active.');
     await this.prisma.$transaction(async (tx) => {
       await tx.receivingSession.update({ where: { id: sessionId }, data: { status: 'PAUSED', pausedAt: new Date() } });
@@ -384,6 +385,7 @@ export class ReceivingService {
 
   async resume(sessionId: string, actor: ReceivingActor) {
     const session = await this.requireSession(sessionId);
+    await this.assignments.assertOperationalAccess(actor.id, 'receiving', { arrivalId: session.arrivalId });
     if (session.status !== 'PAUSED') throw new ConflictException('Session is not paused.');
     await this.prisma.$transaction(async (tx) => {
       await tx.receivingSession.update({ where: { id: sessionId }, data: { status: 'RECEIVING', resumedAt: new Date() } });
@@ -395,7 +397,8 @@ export class ReceivingService {
 
   // ---------- flag / resolve discrepancy ----------
   async flag(sessionId: string, payload: { code?: string; sku?: string; reason?: string }, actor: ReceivingActor) {
-    await this.requireActiveSession(sessionId);
+    const current = await this.requireActiveSession(sessionId);
+    await this.assignments.assertOperationalAccess(actor.id, 'receiving', { arrivalId: current.arrivalId });
     const type = payload.sku ? 'IDENTIFICATION_ERROR' : 'UNKNOWN_CARTON';
     await this.prisma.receivingDiscrepancy.create({ data: {
       receivingSessionId: sessionId, type: type as any, reason: payload.reason || payload.code || payload.sku || 'Flagged',
@@ -424,6 +427,7 @@ export class ReceivingService {
   // ---------- complete ----------
   async complete(sessionId: string, actor: ReceivingActor) {
     const session = await this.requireActiveSession(sessionId);
+    await this.assignments.assertOperationalAccess(actor.id, 'receiving', { arrivalId: session.arrivalId });
     const tally = await this.reconcile(sessionId);
 
     const hasOpenDiscrepancies = tally.openDiscrepancies > 0
@@ -437,10 +441,12 @@ export class ReceivingService {
     const arrivalStatus = hasOpenDiscrepancies ? 'RECEIVED_WITH_DISCREPANCY' : 'RECEIVED';
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.receivingSession.update({
-        where: { id: sessionId },
+      await this.assignments.assertOperationalAccess(actor.id, 'receiving', { arrivalId: session.arrivalId }, tx);
+      const changed = await tx.receivingSession.updateMany({
+        where: { id: sessionId, status: 'RECEIVING' },
         data: { status: finalStatus as any, completedBy: actor.id, completedAt: new Date() },
       });
+      if (changed.count !== 1) throw new ConflictException('Receiving already changed or completed.');
       await tx.expectedArrival.update({ where: { id: session.arrivalId }, data: { status: arrivalStatus as any } });
       // Mark short lines.
       if (hasOpenDiscrepancies) {
@@ -453,12 +459,10 @@ export class ReceivingService {
         actorUserId: actor.id,
         action: (hasOpenDiscrepancies ? 'RECEIVING_COMPLETED_WITH_DISCREPANCY' : 'RECEIVING_COMPLETED') as never,
         entityType: 'receiving_session', entityId: sessionId, ipAddress: actor.ip ?? null,
-        metadata: { finalStatus: arrivalStatus, tally },
+        metadata: { finalStatus: arrivalStatus, tally, workerId: actor.id, stationId: session.stationId, previousState: session.status },
       }, tx);
+      await this.assignments.receivingCompleted(session.arrivalId, hasOpenDiscrepancies, session.code, actor.id, tx);
     });
-    // Operational assignment lifecycle: assignment(s) on this arrival close
-    // as COMPLETED / COMPLETED_WITH_DISCREPANCY, mirroring the session.
-    await this.assignments.receivingCompleted(session.arrivalId, hasOpenDiscrepancies, session.code, actor.id).catch(() => 0);
     return this.sessionDetail(sessionId);
   }
 

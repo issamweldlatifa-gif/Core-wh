@@ -56,7 +56,16 @@ import kotlinx.serialization.json.JsonElement
 @Serializable data class TerminalAssignment(
     val id: String, val title: String, val description: String? = null,
     val relatedCode: String? = null, val status: String? = null,
-)
+    val taskKey: String? = null, val entity: AssignmentEntities? = null,
+) {
+    val isInstruction: Boolean get() = taskKey.isNullOrBlank() && entity?.let {
+        it.arrival == null && it.carton == null && it.container == null && it.outbound == null && it.order == null
+    } != false
+}
+@Serializable data class AssignmentEntity(val id: String? = null, val code: String? = null, val status: String? = null)
+@Serializable data class AssignmentEntities(val arrival: AssignmentEntity? = null, val carton: AssignmentEntity? = null,
+    val container: AssignmentEntity? = null, val outbound: AssignmentEntity? = null, val order: AssignmentEntity? = null)
+@Serializable data class WorkCount(val key: String, val assigned: Int = 0, val available: Int = 0, val mine: Int = 0)
 @Serializable data class AssignmentsResponse(
     val open: List<TerminalAssignment> = emptyList(), val recent: List<TerminalAssignment> = emptyList(),
 )
@@ -108,6 +117,7 @@ import kotlinx.serialization.json.JsonElement
     val carton: JsonElement? = null, val article: JsonElement? = null,
     val container: String? = null, val location: String? = null,
     val bin: String? = null, val customer: String? = null,
+    val containerCount: Int? = null, val containerCapacity: Int? = null, val containerFull: Boolean = false,
 )
 @Serializable data class ReceivingSession(
     val id: String, val code: String, val status: String, val startedAt: String,

@@ -28,14 +28,15 @@ cd "$ROOT_DIR"
 
 echo ">>> [1/4] Installing frontend dependencies (dev + prod)..."
 cd "$ROOT_DIR/frontend"
-npm install --include=dev
+npm ci --include=dev --no-audit --no-fund
 
 echo ">>> [2/4] Building the React SPA..."
+npm run typecheck
 npm run build
 
 echo ">>> [3/4] Installing backend dependencies (dev + prod)..."
 cd "$ROOT_DIR/backend"
-npm install --include=dev
+npm ci --include=dev --no-audit --no-fund
 
 echo ">>> [4/4] Generating Prisma client + building backend..."
 npx prisma generate
@@ -61,4 +62,4 @@ cat > public/build-info.json <<JSON
 JSON
 
 echo ">>> BUILD COMPLETE (commit=$COMMIT_SHORT spa=$SPA_JS)."
-echo ">>> Database migrations + seeding run at boot, via ./start.sh"
+echo ">>> Reviewed migrations run at boot. Seeding requires explicit operator configuration."

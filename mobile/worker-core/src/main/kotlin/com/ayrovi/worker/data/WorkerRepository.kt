@@ -36,6 +36,11 @@ class WorkerRepository(
 
     suspend fun me(): MeResponse = json.decodeFromString(MeResponse.serializer(), get("/v1/auth/me"))
     suspend fun terminalContext(): TerminalContext = json.decodeFromString(TerminalContext.serializer(), get("/v1/terminal/context"))
+    suspend fun workCounts(): List<WorkCount> = json.decodeFromString(
+        kotlinx.serialization.builtins.ListSerializer(WorkCount.serializer()), get("/v1/terminal/work"))
+    suspend fun closeContainer(code: String): ClosedContainer = json.decodeFromString(ClosedContainer.serializer(),
+        post("/v1/fulfillment/containers/${urlEncode(code)}/close", "{}"))
+
     suspend fun assignments(): AssignmentsResponse = json.decodeFromString(AssignmentsResponse.serializer(), get("/v1/terminal/assignments"))
     suspend fun completeAssignment(id: String) { post("/v1/terminal/assignments/${urlEncode(id)}/complete", "{}") }
 
@@ -128,10 +133,11 @@ class WorkerRepository(
         return json.decodeFromString(OpContainer.serializer(), post("/v1/fulfillment/containers", "{${parts.joinToString(",")}}"))
     }
 
-    override suspend fun scanArticleAtReceiving(sessionId: String, sku: String, containerCode: String, cartonCode: String?): ArticleScanResult {
+    override suspend fun scanArticleAtReceiving(sessionId: String, sku: String, containerCode: String, cartonCode: String?, operationId: String?): ArticleScanResult {
         val body = buildString {
             append("""{"sku":${jq(sku)},"containerCode":${jq(containerCode)}""")
             if (cartonCode != null) append(""","cartonCode":${jq(cartonCode)}""")
+            if (operationId != null) append(""","operationId":${jq(operationId)}""")
             append("}")
         }
         return json.decodeFromString(

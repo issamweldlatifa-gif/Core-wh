@@ -40,7 +40,7 @@ class ReceivingHttpJourneyTest {
                     path.endsWith("/containers/RCN-000001") -> """{"code":"RCN-000001","type":"RECEIVING","status":"ACTIVE"}"""
                     path.endsWith("/scan-article") -> {
                         val payload = Json.parseToJsonElement(request.body.readUtf8()).jsonObject
-                        check(payload.keys == setOf("sku", "containerCode", "cartonCode"))
+                        check(payload.keys == setOf("sku", "containerCode", "cartonCode", "operationId"))
                         check(payload["sku"]?.jsonPrimitive?.content == "Sku/a-01")
                         check(payload["cartonCode"]?.jsonPrimitive?.content == "CTN-001")
                         articleWrites++

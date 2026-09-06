@@ -37,6 +37,7 @@ describe('AssignmentsService (operational model)', () => {
 
   beforeEach(() => {
     db = prisma();
+    db.$transaction = jest.fn((action: any) => action(db));
     service = new AssignmentsService(db, audit);
   });
 
@@ -84,7 +85,7 @@ describe('AssignmentsService (operational model)', () => {
       const n = await service.receivingStarted('arr-1', 'RCV-000210', 'w1');
       expect(n).toBe(2);
       const upd = db.workerTaskAssignment.updateMany.mock.calls[0][0];
-      expect(upd.where).toEqual({ arrivalId: 'arr-1', status: 'ASSIGNED' });
+      expect(upd.where).toEqual({ arrivalId: 'arr-1', workerId: 'w1', taskKey: 'receiving', status: 'ASSIGNED' });
       expect(upd.data.status).toBe('IN_PROGRESS');
       expect(db.auditLog.create).toHaveBeenCalled();
     });
@@ -105,7 +106,7 @@ describe('AssignmentsService (operational model)', () => {
       expect(await service.containerPacked('bin1', 'w3')).toBe(1);
       expect(await service.outboundShipped('out1', 'w4')).toBe(1);
       for (const call of db.workerTaskAssignment.updateMany.mock.calls) {
-        expect(call[0].where.status).toEqual({ in: ['ASSIGNED', 'IN_PROGRESS', 'BLOCKED'] });
+        expect(call[0].where.status).toEqual({ in: ['ASSIGNED', 'IN_PROGRESS'] });
         expect(call[0].data.status).toBe('COMPLETED');
       }
     });
@@ -116,10 +117,36 @@ describe('AssignmentsService (operational model)', () => {
       db.workerTaskAssignment.findUnique.mockResolvedValue({
         id: 'a1', workerId: 'w1', status: 'ASSIGNED', title: 'T',
       });
-      db.workerTaskAssignment.update.mockResolvedValue({});
+      db.workerTaskAssignment.updateMany.mockResolvedValue({ count: 1 });
       db.auditLog.create.mockResolvedValue({});
       await expect(service.completeAssignment('w1', 'a1', 'done')).resolves.toMatchObject({ ok: true });
       await expect(service.completeAssignment('w2', 'a1', 'done')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('completion security', () => {
+    it('blocks manual completion of operational entity tasks and blocked instructions', async () => {
+      for (const row of [
+        { taskKey: 'receiving', arrivalId: 'arrival', status: 'ASSIGNED' },
+        { containerId: 'container', status: 'IN_PROGRESS' },
+        { status: 'BLOCKED' },
+      ]) {
+        db.workerTaskAssignment.findUnique.mockResolvedValue({ id: 'task', workerId: 'w1', title: 'Work', ...row });
+        await expect(service.completeAssignment('w1', 'task')).rejects.toThrow();
+      }
+      expect(db.workerTaskAssignment.updateMany).not.toHaveBeenCalled();
+    });
+    it('compare-and-set failure cannot create a second completion audit', async () => {
+      db.workerTaskAssignment.findUnique.mockResolvedValue({ id: 'task', workerId: 'w1', title: 'Instruction', status: 'ASSIGNED' });
+      db.workerTaskAssignment.updateMany.mockResolvedValue({ count: 0 });
+      await expect(service.completeAssignment('w1', 'task')).rejects.toThrow('already changed');
+      expect(db.auditLog.create).not.toHaveBeenCalled();
+    });
+    it('denies another worker or a blocked linked task', async () => {
+      db.workerTaskAssignment.findMany.mockResolvedValue([{ id: 'task', workerId: 'w2', status: 'ASSIGNED' }]);
+      await expect(service.assertOperationalAccess('w1', 'receiving', { arrivalId: 'arrival' })).rejects.toThrow(ForbiddenException);
+      db.workerTaskAssignment.findMany.mockResolvedValue([{ id: 'task', workerId: 'w1', status: 'BLOCKED' }]);
+      await expect(service.assertOperationalAccess('w1', 'receiving', { arrivalId: 'arrival' })).rejects.toThrow(ForbiddenException);
     });
   });
 
