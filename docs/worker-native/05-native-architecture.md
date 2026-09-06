@@ -9,6 +9,7 @@ Evolve **existing `mobile/`**. Keep application ID `com.ayrovi.worker`, one Acti
   MainActivity → WorkerTerminalApp (render + intents)
     WorkerAppViewModel / ReceivingViewModel (lifecycle)
       :worker-core
+        WorkerSessionUseCase (verified identity/context)
         ReceivingWorkflow (one guided use case + StateFlow)
           ReceivingGateway ← WorkerRepository (existing endpoint implementation)
             WorkerTransport → OkHttp → existing /api/v1
@@ -35,13 +36,13 @@ The frozen `ui/Screens.kt` remains a build-time rollback/reference. It reuses th
 
 ## Transport rules
 
-One authenticated transport, one serialization definition per API, pinned dependencies. HTTPS environment configuration only in production. No request/body/token logging. Close every response. Disable automatic connection retries and redirects for the shared client. Single-flight refresh compares the token generation so late failures cannot erase a new login or resurrect a signed-out session.
+One authenticated transport, one serialization definition per API, pinned dependencies. HTTPS environment configuration only in production. No request/body/token logging. Close every response. Disable automatic connection retries and redirects for the shared client. Single-flight refresh compares token and login identity generations so late failures cannot erase a new login or resurrect a signed-out session.
 
 A definitive 401 may be refreshed once before repeating the unauthorized request. A network failure/5xx after a mutation is **outcome unknown**, not a safe retry. No generic POST retry policy. Validate endpoint/response shape; a missing success discriminator is not success.
 
 ## Connection and recovery
 
-ONLINE means a backend request succeeded, not merely Wi-Fi present. SYNCING is a request in progress, OFFLINE is unavailable network, SYNC ERROR is request/contract failure, AUTH ERROR requires sign-in, CHECKING has not yet verified backend. Connectivity callbacks may mark availability but cannot grant permissions.
+ONLINE means a backend request succeeded, not merely Wi-Fi present. SYNCING stays active until all concurrent requests finish, OFFLINE is unavailable network, SYNC ERROR is a transport/server failure (a malformed success is separately shown as a blocking contract error), AUTH ERROR requires sign-in, CHECKING has not yet verified backend. Connectivity callbacks may mark availability but cannot grant permissions.
 
 No receipt outbox is enabled: no approved backend replay protocol exists. A small encrypted **mutation journal** records an in-flight physical receipt before dispatch so process death/lost response cannot silently repeat it. It is **not a queued request** and has no auto-sync/replay method. Aggregate quantities cannot prove which physical unit was accepted. Without an operation lookup endpoint an unresolved article receipt blocks further receipt mutations; a supervisor must reconcile/close the server session. See BC-01.
 

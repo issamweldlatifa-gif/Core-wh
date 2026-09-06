@@ -138,7 +138,7 @@ class ReceivingWorkflow(
                 } else notice("DUPLICATE CARTON", "This carton has already been received. Check the session with a supervisor.", scan.value)
             }
             "UNKNOWN_CARTON" -> notice("CARTON NOT FOUND", reason(result, "Unknown carton scan: ${scan.value}"), scan.value)
-            "WRONG_SHIPMENT" -> notice("WRONG SHIPMENT", reason(result, "This carton belongs to another shipment."), scan.value)
+            "WRONG_SHIPMENT" -> notice("WRONG SHIPMENT", reason(result, "This carton belongs to another shipment."), scan.value, session.arrival.code)
             else -> notice("CARTON NOT ACCEPTED", "The backend did not return an identification. Refresh the session before continuing.", scan.value)
         }
     }
@@ -166,7 +166,7 @@ class ReceivingWorkflow(
         activeSession() ?: return@run
         val tote = gateway.container(code)
         if (tote.type != "RECEIVING" || tote.status != "ACTIVE") {
-            return@run notice("TOTE CANNOT BE USED", "${tote.code} is ${tote.type ?: "unknown type"} / ${tote.status ?: "unknown status"}. Scan an ACTIVE receiving tote.", code)
+            return@run notice("TOTE CANNOT BE USED", "${tote.code} is ${tote.type ?: "unknown type"} / ${tote.status ?: "unknown status"}. Scan an ACTIVE receiving tote.", code, "ACTIVE RECEIVING tote")
         }
         mutable.update { it.copy(tote = tote, step = ReceivingStep.PRODUCT, product = null,
             message = OperationalMessage("TOTE VERIFIED", "Place each confirmed article into ${tote.code}.", MessageTone.INFO)) }
@@ -193,6 +193,7 @@ class ReceivingWorkflow(
         if (mutable.value.step != ReceivingStep.REVIEW_PRODUCT) return@run
         val session = activeSession() ?: return@run
         val product = mutable.value.product ?: return@run
+        if (session.tally.expectedCartons > 0 && mutable.value.carton == null) return@run notice("SOURCE CARTON REQUIRED", "Identify and confirm the physical source carton before receiving an article.")
         val tote = mutable.value.tote ?: return@run
         val quantity = product.quantity.toIntOrNull()
         if (quantity == null || quantity <= 0) return@run notice("ENTER A VALID QUANTITY", "Use a positive whole number. No receipt was submitted.")
@@ -221,7 +222,11 @@ class ReceivingWorkflow(
         val fresh = gateway.receivingSession(session.id)
         if (fresh.status != "RECEIVING") return@run adoptSession(fresh)
         mutable.update { it.copy(session = fresh, product = null, receipt = null,
-            step = if (it.tote != null) ReceivingStep.PRODUCT else ReceivingStep.TOTE, scanEpoch = it.scanEpoch + 1) }
+            step = when {
+                fresh.tally.expectedCartons > 0 && it.carton == null -> ReceivingStep.CARTON
+                it.tote != null -> ReceivingStep.PRODUCT
+                else -> ReceivingStep.TOTE
+            }, scanEpoch = it.scanEpoch + 1) }
     }
 
     fun changeCarton() {
@@ -231,6 +236,7 @@ class ReceivingWorkflow(
 
     fun changeTote() {
         if (!mutable.value.canMutate || mutable.value.session?.status != "RECEIVING") return
+        if ((mutable.value.session?.tally?.expectedCartons ?: 0) > 0 && mutable.value.carton == null) return
         mutable.update { it.copy(step = ReceivingStep.TOTE, tote = null, product = null, receipt = null, message = null, scanEpoch = it.scanEpoch + 1) }
     }
 
@@ -403,6 +409,10 @@ class ReceivingWorkflow(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
+                if (failure is WorkerRepository.ApiException && failure.code == 403) {
+                    permissions = permissions - WorkerAccess.EXECUTE_RECEIVING
+                    mutable.update { it.copy(authorized = false) }
+                }
                 mutable.update { it.copy(message = failure.toOperationalMessage(), authExpired = (failure is WorkerRepository.ApiException && failure.code == 401) || failure is SessionChangedFailure) }
             } finally {
                 mutable.update { it.copy(busy = false, step = if (it.pending != null) ReceivingStep.RECONCILE else it.step) }
@@ -417,8 +427,8 @@ class ReceivingWorkflow(
         throw failure
     }
 
-    private fun notice(title: String, detail: String, scanned: String? = null) {
-        mutable.update { it.copy(message = OperationalMessage(title, detail, scanned = scanned)) }
+    private fun notice(title: String, detail: String, scanned: String? = null, expected: String? = null) {
+        mutable.update { it.copy(message = OperationalMessage(title, detail, expected = expected, scanned = scanned)) }
     }
 
     private fun reason(session: ReceivingSession, fallback: String) =

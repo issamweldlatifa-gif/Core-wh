@@ -49,6 +49,10 @@ Aliases such as ConfirmAction and PauseAction delegate to the same action primit
 
 New operational screens must use these primitives and receive state/intents only. New token/component requires an audit of equivalents and a documented reason. Frozen rollback screens are explicitly transitional exceptions, not examples for future development. Do not rewrite other workflows as mockups before Receiving passes hardware acceptance.
 
+## Executed token review
+
+Relative-luminance calculation against actual `surface #19222B`: primary text **14.54:1**, muted text **8.83:1**, instruction **9.85:1**, success **9.94:1**, warning **10.51:1**, error **8.92:1**. These nominal pairs exceed 4.5:1. This calculation does not certify disabled controls, OEM rendering, glare, text clipping or practical gloved use; those remain device/accessibility checks.
+
 ## Design acceptance (pending device evidence)
 
 360dp-class handheld; 200% text; long SKU/name; landscape if device supports it; IME visible; bright/low light; gloves and one hand; TalkBack focus/order; status announcements; no color-only meaning; no hidden primary action under system bars/keyboard. Contrast/token review and screenshot tests are not substitutes for physical warehouse usability.

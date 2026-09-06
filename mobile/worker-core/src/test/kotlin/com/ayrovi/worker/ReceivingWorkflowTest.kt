@@ -231,6 +231,27 @@ class ReceivingWorkflowTest {
         assertEquals(0, backend.articleCalls)
         assertFalse(workflow.state.value.canMutate)
     }
+    @Test fun `completion review cannot bypass source carton confirmation`() = runTest {
+        val backend = ReceivingBackend(); val workflow = workflow(backend); open(workflow)
+        workflow.reviewCompletion(); runCurrent()
+        workflow.nextProduct(); runCurrent()
+        assertEquals(ReceivingStep.CARTON, workflow.state.value.step)
+        workflow.changeTote()
+        assertEquals(ReceivingStep.CARTON, workflow.state.value.step)
+        assertEquals(0, backend.articleCalls)
+    }
+    @Test fun `permission refusal stops writes until fresh permission context`() = runTest {
+        val backend = ReceivingBackend().apply { articleFailure = WorkerRepository.ApiException(403, "Permission revoked") }
+        val workflow = workflow(backend); open(workflow); carton(workflow); product(workflow)
+        workflow.confirmProduct(); runCurrent()
+        assertFalse(workflow.state.value.canMutate)
+        workflow.confirmProduct(); runCurrent()
+        assertEquals(1, backend.articleCalls)
+        backend.articleFailure = null
+        workflow.updateAccess(workerPermissions, true)
+        workflow.confirmProduct(); runCurrent()
+        assertEquals(2, backend.articleCalls)
+    }
     @Test fun `worker cannot close discrepancies or invent supervisor permission`() = runTest {
         val backend = ReceivingBackend(); val workflow = workflow(backend); open(workflow)
         workflow.reviewCompletion(); runCurrent(); workflow.complete(); runCurrent()

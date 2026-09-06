@@ -14,7 +14,7 @@ class ReceivingViewModel(gateway: ReceivingGateway, journal: MutationJournal, wo
 
     fun activate(permissions: Set<String>, available: Boolean, recoverySessionId: String?) {
         workflow.updateAccess(permissions, available)
-        if (available && !initialized) {
+        if (available && (!initialized || !state.value.loaded) && !state.value.busy) {
             initialized = true
             workflow.initialize(recoverySessionId)
         }

@@ -137,6 +137,21 @@ class WorkerTransportTest {
         release.countDown()
         assertEquals("{}", call.await())
     }
+    @Test fun `connection remains SYNCING until all concurrent requests finish`() = runBlocking {
+        val slowStarted = CountDownLatch(1); val release = CountDownLatch(1)
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                if (request.path == "/api/v1/auth/me") { slowStarted.countDown(); check(release.await(5, TimeUnit.SECONDS)) }
+                return MockResponse().setBody("{}")
+            }
+        }
+        val slow = async(Dispatchers.Default) { transport.request("GET", "/v1/auth/me") }
+        assertTrue(slowStarted.await(5, TimeUnit.SECONDS))
+        transport.request("GET", "/v1/terminal/context")
+        assertEquals(ConnectionState.SYNCING, transport.connection.value)
+        release.countDown(); slow.await()
+        assertEquals(ConnectionState.ONLINE, transport.connection.value)
+    }
     @Test fun `refresh rejection clears local auth with no second protected attempt`() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(401))
         server.enqueue(MockResponse().setResponseCode(401).setBody("""{"message":"Revoked refresh session"}"""))

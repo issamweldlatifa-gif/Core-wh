@@ -66,17 +66,31 @@ class HttpWorkerTransport internal constructor(
     override val connection = mutableConnection.asStateFlow()
     @Volatile private var networkPresent = true
 
-    override fun networkAvailable(available: Boolean) {
+    private var activeRequests = 0
+    private var lastOutcome = ConnectionState.CHECKING
+
+    @Synchronized override fun networkAvailable(available: Boolean) {
+        val wasAvailable = networkPresent
         networkPresent = available
-        if (!available) mutableConnection.value = ConnectionState.OFFLINE
-        else if (mutableConnection.value == ConnectionState.OFFLINE) mutableConnection.value = ConnectionState.CHECKING
+        if (available && !wasAvailable) lastOutcome = ConnectionState.CHECKING
+        publishConnection()
+    }
+    @Synchronized private fun beginRequest() { activeRequests++; publishConnection() }
+    @Synchronized private fun finishRequest() { activeRequests--; publishConnection() }
+    @Synchronized private fun outcome(value: ConnectionState) { lastOutcome = value; publishConnection() }
+    private fun publishConnection() {
+        mutableConnection.value = when {
+            !networkPresent -> ConnectionState.OFFLINE
+            activeRequests > 0 -> ConnectionState.SYNCING
+            else -> lastOutcome
+        }
     }
 
     override suspend fun request(method: String, path: String, body: String?, authenticated: Boolean): String {
         require(path.startsWith("/v1/") && !path.contains("#")) { "Only versioned worker API paths are supported." }
         if (!networkPresent) throw TransportFailure(outcomeUnknown = false)
-        mutableConnection.value = ConnectionState.SYNCING
         var session = store.snapshot()
+        beginRequest()
         try {
             if (authenticated && session.tokens == null) throw WorkerRepository.ApiException(401, "Sign in to continue.")
             var response = exchange(method, path, body, if (authenticated) session.tokens?.accessToken else null)
@@ -90,31 +104,34 @@ class HttpWorkerTransport internal constructor(
             if (response.status !in 200..299) {
                 if (authenticated && response.status == 401) store.clearIfVersion(session.version)
                 throw WorkerRepository.ApiException(
-                    response.status, errorMessage(response.body),
+                    response.status, if (response.status >= 500) "The warehouse server could not complete this request. Verify the server state before repeating an operation." else errorMessage(response.body),
                     outcomeUnknown = method != "GET" && (response.status >= 500 || response.status == 408 || response.status in 300..399),
                 )
             }
-            mutableConnection.value = if (networkPresent) ConnectionState.ONLINE else ConnectionState.OFFLINE
+            outcome(ConnectionState.ONLINE)
             return response.body
         } catch (cancelled: CancellationException) {
+            outcome(ConnectionState.CHECKING)
             throw cancelled
         } catch (failure: SessionChangedFailure) {
             // Do not overwrite the new login's connection state or clear its credentials.
             throw failure
         } catch (failure: WorkerRepository.ApiException) {
-            mutableConnection.value = when {
+            outcome(when {
                 !networkPresent -> ConnectionState.OFFLINE
                 failure.code == 401 -> ConnectionState.AUTH_ERROR
                 failure.code >= 500 || failure.code == 408 -> ConnectionState.SYNC_ERROR
                 else -> ConnectionState.ONLINE // A permission/business refusal is still a reachable API.
-            }
+            })
             throw failure
         } catch (failure: TransportFailure) {
-            mutableConnection.value = if (networkPresent) ConnectionState.SYNC_ERROR else ConnectionState.OFFLINE
+            outcome(if (networkPresent) ConnectionState.SYNC_ERROR else ConnectionState.OFFLINE)
             throw failure
         } catch (failure: IOException) {
-            mutableConnection.value = if (networkPresent) ConnectionState.SYNC_ERROR else ConnectionState.OFFLINE
+            outcome(if (networkPresent) ConnectionState.SYNC_ERROR else ConnectionState.OFFLINE)
             throw TransportFailure(method != "GET", failure)
+        } finally {
+            finishRequest()
         }
     }
 

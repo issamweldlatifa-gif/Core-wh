@@ -51,6 +51,7 @@ fun TerminalScanInput(label: String, enabled: Boolean, contextKey: String, onSca
         } else permission.launch(Manifest.permission.CAMERA)
     }
     SideEffect { manager.setEnabled(enabled && resumed) }
+    LaunchedEffect(enabled, resumed) { if (!enabled || !resumed) camera = false }
     LaunchedEffect(contextKey) { camera = false; manual = ""; manager.rearm() }
     LaunchedEffect(triggerSequence) {
         if (triggerSequence > 0) {

@@ -32,9 +32,11 @@ fun ReceivingScreen(
     var exceptionDialog by remember { mutableStateOf(false) }
     var resolveId by remember { mutableStateOf<String?>(null) }
     var reason by remember { mutableStateOf("") }
+    val captureEnabled = state.canScan && !exceptionDialog && resolveId == null
     val androidContext = LocalContext.current
     BackHandler { if (!state.busy) onBack() }
     LaunchedEffect(state.authExpired) { if (state.authExpired) onAuthExpired() }
+    LaunchedEffect(state.authorized) { if (state.loaded && !state.authorized && !state.authExpired) onVerifyConnection() }
     LaunchedEffect(state.receipt?.articleCode) { if (state.receipt != null) FeedbackSounds.ok(androidContext) }
     LaunchedEffect(state.message?.title) {
         if (state.message?.title in setOf("EXCEPTION REPORTED", "EXCEPTION RESOLVED")) {
@@ -76,7 +78,7 @@ fun ReceivingScreen(
 
         when (state.step) {
             ReceivingStep.ARRIVAL -> {
-                TerminalScanInput("AYROVI ARRIVAL CODE", state.canScan, "arrival:${state.scanEpoch}", workflow::scan)
+                TerminalScanInput("AYROVI ARRIVAL CODE", captureEnabled, "arrival:${state.scanEpoch}", workflow::scan)
                 if (state.loaded && state.arrivals.isEmpty()) EmptyState("NO ARRIVALS WAITING", "The server returned an empty Receiving queue. Refresh to check for new arrivals.")
                 if (state.arrivals.isNotEmpty()) TerminalPanel("OR SELECT A SERVER ARRIVAL") {
                     state.arrivals.forEach { arrival ->
@@ -86,16 +88,16 @@ fun ReceivingScreen(
                     }
                 }
             }
-            ReceivingStep.CARTON -> TerminalScanInput("SOURCE CARTON", state.canScan, "${state.session?.id}:carton:${state.scanEpoch}", workflow::scan)
+            ReceivingStep.CARTON -> TerminalScanInput("SOURCE CARTON", captureEnabled, "${state.session?.id}:carton:${state.scanEpoch}", workflow::scan)
             ReceivingStep.CONFIRM_CARTON -> state.carton?.let { LocationBlock(it.code, label = "IDENTIFIED SOURCE CARTON") }
             ReceivingStep.TOTE -> {
                 state.carton?.let { LocationBlock(it.code, label = "SOURCE CARTON") }
-                TerminalScanInput("RECEIVING TOTE QR / CODE", state.canScan, "${state.session?.id}:tote:${state.scanEpoch}", workflow::scan)
+                TerminalScanInput("RECEIVING TOTE QR / CODE", captureEnabled, "${state.session?.id}:tote:${state.scanEpoch}", workflow::scan)
                 Text("Use an existing ACTIVE receiving tote. Ask a supervisor if no tote has been provisioned.", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)
             }
             ReceivingStep.PRODUCT -> {
                 state.tote?.let { LocationBlock(it.code, label = "PLACE CONFIRMED ARTICLES INTO") }
-                TerminalScanInput("PRODUCT SKU", state.canScan, "${state.session?.id}:product:${state.scanEpoch}", workflow::scan)
+                TerminalScanInput("PRODUCT SKU", captureEnabled, "${state.session?.id}:product:${state.scanEpoch}", workflow::scan)
             }
             ReceivingStep.REVIEW_PRODUCT -> state.product?.let { review ->
                 ProductBlock(review.product?.productName, review.scan.value)

@@ -9,6 +9,7 @@ import com.ayrovi.worker.data.WorkerRepository
 /** Explicit application-scoped dependency injection; one client/store, no service locator in UI. */
 class AppContainer(context: Context) {
     val sessions = SessionStore(context.applicationContext)
+    init { check(sessions.deviceCode.isNotBlank()) { "Secure device identity is unavailable." } }
     val repository = WorkerRepository(sessions, BuildConfig.API_BASE_URL)
     val workerSession = WorkerSessionUseCase(repository, sessions)
     val frozenRollbackAllowed = sessions.read() == null
