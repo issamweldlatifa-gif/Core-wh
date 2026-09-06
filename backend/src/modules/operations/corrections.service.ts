@@ -33,6 +33,7 @@ const ACTION_PERMISSION: Record<CorrectionAction, string> = {
   REOPEN_SESSION: 'operations.correct',
   VOID_OPERATION: 'operations.correct',
   RESOLVE_EXCEPTION: 'operations.correct',
+  REOPEN_CUSTOMER_BIN: 'operations.correct',
 };
 
 @Injectable()
@@ -352,6 +353,78 @@ export class CorrectionsService {
           entityId: s.id,
           ipAddress: actor.ip ?? null,
           metadata: { correction: correction.code, session: s.code, reason: reason.trim() },
+        },
+        tx,
+      );
+      return correction;
+    });
+  }
+
+  /**
+   * REOPEN a locked customer bin (Master Order §15). A completed customer
+   * container is locked (READY_FOR_PACKING + customer QR) after the sorting
+   * step; a worker can never reopen it. This is the ONLY authorized path and
+   * it is an audited admin correction: the bin returns to ACTIVE so articles
+   * can be added/removed, the completeness check re-runs, and — if the order
+   * is complete again — a NEW QR is generated and the card locks again.
+   */
+  async reopenCustomerBin(containerCode: string, reason: string, actor: CorrectionActor) {
+    this.assertAllowed('REOPEN_CUSTOMER_BIN', actor);
+    this.assertReason(reason);
+
+    const bin = await this.prisma.operationalContainer.findUnique({
+      where: { code: containerCode.trim().toUpperCase() },
+    });
+    if (!bin) throw new NotFoundException('Container not found.');
+    if (bin.type !== 'CUSTOMER') throw new BadRequestException('Only customer bins can be reopened.');
+    if (bin.status === 'ACTIVE') throw new BadRequestException('Container is already open.');
+    if (bin.status === 'PACKED' || bin.status === 'CLOSED') {
+      throw new BadRequestException(`Container is ${bin.status}; use a packing/shipping correction instead.`);
+    }
+
+    const originalSnapshot = {
+      containerId: bin.id,
+      code: bin.code,
+      status: bin.status,
+      qrValue: bin.qrValue,
+    };
+
+    return this.prisma.$transaction(async (tx) => {
+      const saved = await tx.operationalContainer.update({
+        where: { id: bin.id },
+        data: { status: 'ACTIVE', qrValue: null },
+      });
+
+      const correction = await tx.operationCorrection.create({
+        data: {
+          code: await this.nextCode(tx),
+          action: 'REOPEN_CUSTOMER_BIN',
+          reason: reason.trim(),
+          adminId: actor.id,
+          ipAddress: actor.ip ?? null,
+          entityType: 'operational_container',
+          entityId: bin.id,
+          receivingSessionId: null,
+          workerId: bin.createdBy ?? null,
+          originalSnapshot: originalSnapshot as unknown as Prisma.InputJsonValue,
+          newSnapshot: { containerId: saved.id, status: saved.status, qrValue: null } as unknown as Prisma.InputJsonValue,
+        },
+      });
+
+      await this.audit.log(
+        {
+          actorUserId: actor.id,
+          action: 'CUSTOMER_CONTAINER_REOPENED' as never,
+          entityType: 'operational_container',
+          entityId: bin.id,
+          ipAddress: actor.ip ?? null,
+          metadata: {
+            correction: correction.code,
+            container: bin.code,
+            from: originalSnapshot.status,
+            to: saved.status,
+            reason: reason.trim(),
+          },
         },
         tx,
       );

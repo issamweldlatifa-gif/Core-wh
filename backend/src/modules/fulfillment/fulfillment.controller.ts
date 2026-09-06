@@ -57,6 +57,21 @@ export class FulfillmentController {
     return this.fulfillment.closeContainer(code, this.actor(req));
   }
 
+  @Post('containers/:code/stage')
+  @RequirePermissions('receiving.execute')
+  @ApiOperation({
+    summary:
+      'Stage a CLOSED (READY_FOR_SORTING) tote to its temporary storage station/zone (Order §11). ' +
+      'The station is resolved server-side from the worker station or the given stationCode.',
+  })
+  stageContainer(
+    @Param('code') code: string,
+    @Body() body: { stationCode?: string },
+    @Req() req: any,
+  ) {
+    return this.fulfillment.stageContainer(code, this.actor(req), { stationCode: body?.stationCode });
+  }
+
   // ---- 1+2. receiving article scan ----------------------------------------
 
   @Post('receiving/sessions/:sessionId/scan-article')
@@ -135,16 +150,88 @@ export class FulfillmentController {
 
   @Get('shipping/shipments/:code')
   @RequirePermissions('shipping.execute')
-  @ApiOperation({ summary: 'Shipping scan: outbound shipment detail (order, articles, tracking).' })
+  @ApiOperation({
+    summary:
+      'Shipping scan (Order §17): scan the customer container QR (AYROVI:…) or the OUT- label -> ' +
+      'the verification card (customer, container, status, contents).',
+  })
   shippingScan(@Param('code') code: string) {
     return this.fulfillment.shippingScan(code);
   }
 
+  @Post('shipping/shipments/:code/verify')
+  @RequirePermissions('shipping.execute')
+  @ApiOperation({
+    summary:
+      'Pre-dispatch verification (Order §17): verify customer + container + status and create a ' +
+      '10-minute, content-hash-bound verification. Shipping without it is rejected.',
+  })
+  shippingVerify(@Param('code') code: string, @Req() req: any) {
+    return this.fulfillment.shippingVerify(code, this.actor(req));
+  }
+
   @Post('shipping/shipments/:code/ship')
   @RequirePermissions('shipping.execute')
-  @ApiOperation({ summary: 'Dispatch: SHIPPED + audited container cleanup (history kept).' })
+  @ApiOperation({
+    summary:
+      'Dispatch (Order §17): SHIPPED + audited container cleanup — only with a valid, unexpired, ' +
+      'content-bound verification (the SHIPPING click).',
+  })
   ship(@Param('code') code: string, @Req() req: any) {
     return this.fulfillment.ship(code, this.actor(req));
+  }
+
+  // ---- 8. bordereau (Order §18) ------------------------------------------------
+
+  @Get('shipping/bordereau/search')
+  @RequirePermissions('operations.view')
+  @ApiOperation({
+    summary:
+      'Bordereau search (Order §18): find shipping documents by customer name/surname, ' +
+      'order reference, customer reference, shipment number, tracking or container QR.',
+  })
+  bordereauSearch(@Query('q') q: string) {
+    return this.fulfillment.searchBordereau(q ?? '');
+  }
+
+  @Get('shipping/bordereau/:code')
+  @RequirePermissions('operations.view')
+  @ApiOperation({ summary: 'The printable bordereau for a shipment / container QR (Order §18).' })
+  bordereau(@Param('code') code: string) {
+    return this.fulfillment.bordereau(code);
+  }
+
+  // ---- REPORT PROBLEM (Order §14) — available at every stage --------------
+
+  @Post('exceptions')
+  @ApiOperation({
+    summary:
+      'REPORT PROBLEM (Order §14): a worker at ANY stage reports an operational problem. ' +
+      'Creates a real OperationalException row, immediately visible in Admin, audited.',
+  })
+  reportProblem(
+    @Body() body: { stage: string; entityType?: string; entityCode?: string; type?: string; reason: string },
+    @Req() req: any,
+  ) {
+    return this.fulfillment.reportProblem(body, this.actor(req));
+  }
+
+  @Get('exceptions')
+  @RequirePermissions('operations.view')
+  @ApiOperation({ summary: 'Admin: unified operational exceptions across all stages.' })
+  listExceptions(@Query('status') status?: string, @Query('q') q?: string) {
+    return this.fulfillment.listExceptions({ status, q });
+  }
+
+  @Post('exceptions/:id/resolve')
+  @RequirePermissions('operations.correct')
+  @ApiOperation({ summary: 'Admin: resolve or reject a reported problem (audited).' })
+  resolveException(
+    @Param('id') id: string,
+    @Body() body: { resolution: 'RESOLVED' | 'REJECTED'; note?: string },
+    @Req() req: any,
+  ) {
+    return this.fulfillment.resolveException(id, body.resolution, body.note ?? '', this.actor(req));
   }
 
   // ---- traceability ----------------------------------------------------------------

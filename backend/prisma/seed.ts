@@ -580,7 +580,7 @@ async function main() {
     const stations: Array<{
       code: string;
       name: string;
-      department: 'RECEIVING' | 'SORTING' | 'PUTAWAY' | 'PACKING' | 'DISPATCH';
+      department: 'RECEIVING' | 'SORTING' | 'PUTAWAY' | 'PACKING' | 'DISPATCH' | 'STAGING';
       capabilities: Array<'CAMERA' | 'BARCODE_SCANNER' | 'QR_SCANNER' | 'OCR' | 'PRINTER' | 'SCALE'>;
     }> = [
       { code: 'ST-REC-01', name: 'Receiving Dock 1', department: 'RECEIVING', capabilities: ['CAMERA', 'BARCODE_SCANNER', 'QR_SCANNER', 'OCR', 'SCALE'] },
@@ -588,12 +588,31 @@ async function main() {
       { code: 'ST-SRT-01', name: 'Sorting Bench 1', department: 'SORTING', capabilities: ['CAMERA', 'BARCODE_SCANNER'] },
       { code: 'ST-PCK-01', name: 'Packing Bench 1', department: 'PACKING', capabilities: ['CAMERA', 'PRINTER', 'SCALE'] },
       { code: 'ST-SHP-01', name: 'Shipping Dock 1', department: 'DISPATCH', capabilities: ['CAMERA', 'BARCODE_SCANNER', 'QR_SCANNER'] },
+      // Master Order §11: the temporary storage position CLOSED receiving
+      // totes are staged at before the sorting step.
+      { code: 'ST-STG-01', name: 'Temporary Storage 1', department: 'STAGING', capabilities: ['CAMERA', 'BARCODE_SCANNER'] },
     ];
     for (const st of stations) {
       await prisma.station.upsert({
         where: { code: st.code },
         update: { name: st.name, department: st.department, capabilities: st.capabilities, warehouseId: wh?.id ?? null },
         create: { ...st, warehouseId: wh?.id ?? null },
+      });
+    }
+
+    // Master Order §11: the station → zone relationship is BACKEND/ADMIN
+    // configuration (Station.zoneId). The STAGING zone is where a full
+    // container physically rests until sorting; it must exist before a
+    // STAGING station can be used by the stageContainer workflow.
+    if (wh) {
+      const stgZone = await prisma.zone.upsert({
+        where: { warehouseId_code: { warehouseId: wh.id, code: 'STG' } },
+        update: {},
+        create: { warehouseId: wh.id, code: 'STG', name: 'Temporary Storage Zone' },
+      });
+      await prisma.station.update({
+        where: { code: 'ST-STG-01' },
+        data: { zoneId: stgZone.id },
       });
     }
 

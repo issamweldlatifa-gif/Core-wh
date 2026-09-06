@@ -4,12 +4,15 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { createHash } from 'crypto';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CategoriesService } from '../categories/categories.service';
 import { AssignmentsService } from '../assignments/assignments.service';
+import { TaskDispatchService } from '../assignments/dispatch.service';
+import { OPERATIONAL_ERRORS, normalizeScan } from '../../common/scan-normalizer';
 
 /**
  * OPERATIONAL WAREHOUSE FLOW (Blueprint §6, §27 + Execute order).
@@ -72,6 +75,7 @@ export class FulfillmentService {
     private readonly categories: CategoriesService,
     private readonly events: EventEmitter2,
     private readonly assignments: AssignmentsService,
+    private readonly dispatch: TaskDispatchService,
   ) {}
 
   // ------------------------------------------------------------------
@@ -213,7 +217,9 @@ export class FulfillmentService {
     input: { sku: string; containerCode: string; cartonCode?: string | null; operationId?: string },
     actor: FulfillmentActor,
   ) {
-    const sku = (input.sku || '').trim();
+    // Single normalization boundary (Master Order §24): CT40 and Phone may
+    // deliver the same code with different case/whitespace/line terminators.
+    const sku = normalizeScan(input.sku);
     if (!sku) throw new BadRequestException('SKU is required.');
 
     const session = await this.prisma.receivingSession.findUnique({
@@ -236,32 +242,37 @@ export class FulfillmentService {
       }
     }
 
+    const containerCode = normalizeScan(input.containerCode).toUpperCase();
     const container = await this.prisma.operationalContainer.findUnique({
-      where: { code: input.containerCode.trim().toUpperCase() },
+      where: { code: containerCode },
     });
-    if (!container) throw new NotFoundException('Container not found — scan a valid tote QR.');
+    if (!container) throw new NotFoundException(OPERATIONAL_ERRORS.containerNotFound);
     if (container.type !== 'RECEIVING') {
-      throw new ConflictException(`${container.code} is a ${container.type} container, not a receiving tote.`);
+      throw new ConflictException(OPERATIONAL_ERRORS.containerWrongType);
     }
     if (container.status !== 'ACTIVE') {
-      throw new ConflictException(`Container ${container.code} is ${container.status}.`);
+      throw new ConflictException(OPERATIONAL_ERRORS.containerClosed);
     }
 
     // Optional source carton (traceability). Never blocks the scan.
-    const carton = input.cartonCode
+    const cartonCode = normalizeScan(input.cartonCode);
+    const carton = cartonCode
       ? await this.prisma.warehouseCarton.findFirst({
           where: {
             OR: [
-              { externalCartonId: input.cartonCode.trim() },
-              { qrCodeValue: input.cartonCode.trim() },
+              { externalCartonId: { equals: cartonCode, mode: 'insensitive' } },
+              { qrCodeValue: { equals: cartonCode, mode: 'insensitive' } },
+              { barcodeValue: { equals: cartonCode, mode: 'insensitive' } },
             ],
           },
         })
       : null;
 
     // Match against the expected reconciliation line of this session.
+    // Case-insensitive at the backend boundary (Order §24) — the stored
+    // line value is authoritative, the scan only looks it up.
     const line = await this.prisma.receivingProduct.findFirst({
-      where: { receivingSessionId: sessionId, sku },
+      where: { receivingSessionId: sessionId, sku: { equals: sku, mode: 'insensitive' } },
     });
 
     return this.prisma.$transaction(async (tx) => {
@@ -398,6 +409,15 @@ export class FulfillmentService {
         matched,
         receivingProductId: lineId,
       };
+    }).then(async (result) => {
+      // Master Order §12/§13: when a unit that an open order still needs is
+      // received, the customer-sorting work becomes dispatchable. Deferred
+      // order cards (goods arrived after the order) are picked up here.
+      // Replays (replay:true) returned before this point and never re-fire.
+      await this.dispatch.onArticleReceived(sku, actor.id, {
+        reason: `article SKU ${sku} received at receiving`,
+      });
+      return result;
     });
   }
 
@@ -408,13 +428,15 @@ export class FulfillmentService {
    */
   async closeContainer(containerCode: string, actor: FulfillmentActor) {
     const container = await this.prisma.operationalContainer.findUnique({
-      where: { code: containerCode.trim().toUpperCase() },
+      where: { code: normalizeScan(containerCode).toUpperCase() },
       include: { _count: { select: { articles: { where: { status: 'IN_CONTAINER' } } } } },
     });
-    if (!container) throw new NotFoundException('Container not found.');
-    if (container.type !== 'RECEIVING') throw new ConflictException('Only receiving totes can be closed here.');
+    if (!container) throw new NotFoundException(OPERATIONAL_ERRORS.containerNotFound);
+    if (container.type !== 'RECEIVING') {
+      throw new ConflictException(`${container.code} is a ${container.type} container — only receiving totes close here.`);
+    }
     if (container.status !== 'ACTIVE') {
-      throw new ConflictException(`Container ${container.code} is already ${container.status}.`);
+      throw new ConflictException(OPERATIONAL_ERRORS.containerClosed);
     }
 
     await this.prisma.$transaction(async (tx) => {
@@ -444,12 +466,135 @@ export class FulfillmentService {
   }
 
   // ------------------------------------------------------------------
+  // 2b. CONTAINER STAGING — a CLOSED tote is moved to a configured
+  //     temporary storage station (Master Order §11). The station → zone
+  //     relationship is BACKEND/ADMIN configuration (Station.zoneId), not
+  //     code. This records the physical resting place of a full container
+  //     until the sorting step, and hands the work to the next worker via
+  //     the automatic dispatch (the receiving-container task completes, a
+  //     sorting task is created for the staged container).
+  // ------------------------------------------------------------------
+
+  /**
+   * Move a closed (READY_FOR_SORTING) receiving container to a temporary
+   * storage station. The station must be ACTIVE with department STAGING and
+   * a configured zone. If `stationCode` is omitted the worker's own assigned
+   * ACTIVE STAGING station is used (never trusted from the client otherwise).
+   */
+  async stageContainer(
+    containerCode: string,
+    actor: FulfillmentActor & { stationId?: string | null },
+    opts: { stationCode?: string | null } = {},
+  ) {
+    const container = await this.prisma.operationalContainer.findUnique({
+      where: { code: containerCode.trim().toUpperCase() },
+      include: { _count: { select: { articles: { where: { status: 'IN_CONTAINER' } } } } },
+    });
+    if (!container) throw new NotFoundException(OPERATIONAL_ERRORS.containerNotFound);
+    if (container.type !== 'RECEIVING') {
+      throw new ConflictException(`${container.code} is a ${container.type} container — only receiving totes are staged here.`);
+    }
+    if (container.status !== 'READY_FOR_SORTING') {
+      throw new ConflictException(
+        container.status === 'ACTIVE'
+          ? `Container ${container.code} is still open. Close it before staging.`
+          : `Container ${container.code} is ${container.status}.`,
+      );
+    }
+    if (container.stagingStationId) {
+      throw new ConflictException(`Container ${container.code} is already staged.`);
+    }
+
+    // Resolve the target STAGING station SERVER-SIDE only — the client never
+    // decides the storage location. Priority: explicit valid stationCode,
+    // then the worker's own ACTIVE station.
+    let station;
+    const requestedCode = normalizeScan(opts.stationCode).toUpperCase();
+    if (requestedCode) {
+      station = await this.prisma.station.findUnique({
+        where: { code: requestedCode },
+        include: { zone: { select: { id: true, code: true, warehouseId: true } } },
+      });
+      if (!station) throw new NotFoundException(`Staging station "${opts.stationCode}" not found.`);
+    } else if (actor.stationId) {
+      station = await this.prisma.station.findUnique({
+        where: { id: actor.stationId },
+        include: { zone: { select: { id: true, code: true, warehouseId: true } } },
+      });
+    } else {
+      // The worker's own ACTIVE station (Station.assignedWorkerId soft link).
+      station = await this.prisma.station.findFirst({
+        where: { assignedWorkerId: actor.id, status: 'ACTIVE' },
+        orderBy: { code: 'asc' },
+        include: { zone: { select: { id: true, code: true, warehouseId: true } } },
+      });
+    }
+
+    if (!station || station.department !== 'STAGING') {
+      throw new ConflictException(
+        'No STAGING station is available for this worker. A supervisor must configure a temporary storage station.',
+      );
+    }
+    if (station.status !== 'ACTIVE') {
+      throw new ConflictException(`Staging station ${station.code} is ${station.status}.`);
+    }
+    if (!station.zoneId) {
+      throw new ConflictException(`Staging station ${station.code} has no zone configured. Assign its zone in Admin.`);
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.operationalContainer.findUnique({ where: { id: container.id } });
+      if (!current || current.status !== 'READY_FOR_SORTING' || current.stagingStationId) {
+        throw new ConflictException('Container already changed or staged.');
+      }
+      const staged = await tx.operationalContainer.update({
+        where: { id: container.id },
+        data: { stagingStationId: station.id, stagedAt: new Date(), stagedById: actor.id },
+      });
+      await this.audit.log(
+        {
+          actorUserId: actor.id,
+          action: 'CONTAINER_STAGED' as never,
+          entityType: 'operational_container',
+          entityId: container.id,
+          ipAddress: actor.ip ?? null,
+          metadata: {
+            container: container.code,
+            station: station.code,
+            stationName: station.name,
+            zone: station.zone?.code ?? null,
+            count: container._count.articles,
+            capacity: container.capacity,
+          },
+        },
+        tx,
+      );
+      // Hand the work to the next worker: the container/placement task is
+      // done, a sorting task is auto-created for the staged container.
+      await this.dispatch.onContainerStaged(
+        { id: staged.id, code: staged.code },
+        actor.id,
+        { db: tx, reason: `container ${container.code} staged at ${station.code}` },
+      );
+      return {
+        ok: true,
+        code: container.code,
+        status: 'READY_FOR_SORTING' as const,
+        count: container._count.articles,
+        station: { code: station.code, name: station.name, department: station.department },
+        zone: station.zone ? { code: station.zone.code } : null,
+        stagedAt: staged.stagedAt,
+      };
+    });
+  }
+
+  // ------------------------------------------------------------------
   // 3. SORTING + STORAGE — article -> configured destination -> location
   // ------------------------------------------------------------------
 
   /** Scan an article: the SYSTEM decides where it goes. */
   async sortingScanArticle(articleCode: string) {
-    const article = await this.getArticle(articleCode);
+    const article = await this.getArticle(normalizeScan(articleCode));
 
     if (!['IN_CONTAINER', 'RECEIVED'].includes(article.status)) {
       return {
@@ -495,7 +640,7 @@ export class FulfillmentService {
     input: { articleCode: string; locationCode: string },
     actor: FulfillmentActor,
   ) {
-    const article = await this.getArticle(input.articleCode);
+    const article = await this.getArticle(normalizeScan(input.articleCode));
     if (!['IN_CONTAINER', 'RECEIVED'].includes(article.status)) {
       throw new ConflictException(`Article is ${article.status} — cannot store.`);
     }
@@ -571,7 +716,7 @@ export class FulfillmentService {
    * orders come from the existing Orders projection.
    */
   async orderSortingScanArticle(articleCode: string) {
-    const article = await this.getArticle(articleCode);
+    const article = await this.getArticle(normalizeScan(articleCode));
 
     if (article.status === 'IN_CUSTOMER_BIN' || article.status === 'PACKED' || article.status === 'SHIPPED') {
       return {
@@ -615,25 +760,31 @@ export class FulfillmentService {
     input: { articleCode: string; containerCode: string },
     actor: FulfillmentActor,
   ) {
-    const article = await this.getArticle(input.articleCode);
+    const article = await this.getArticle(normalizeScan(input.articleCode));
     if (['IN_CUSTOMER_BIN', 'PACKED', 'SHIPPED'].includes(article.status)) {
-      throw new ConflictException(`Article is already ${article.status}.`);
+      throw new ConflictException(OPERATIONAL_ERRORS.articleNotReady);
     }
 
     const bin = await this.prisma.operationalContainer.findUnique({
-      where: { code: input.containerCode.trim().toUpperCase() },
+      where: { code: normalizeScan(input.containerCode).toUpperCase() },
       include: { order: { include: { items: { include: { product: true } } } } },
     });
-    if (!bin) throw new NotFoundException('Container not found.');
-    if (bin.type !== 'CUSTOMER') throw new ConflictException(`${bin.code} is not a customer bin.`);
-    if (bin.status !== 'ACTIVE') throw new ConflictException(`Bin ${bin.code} is ${bin.status}.`);
+    if (!bin) throw new NotFoundException(OPERATIONAL_ERRORS.containerNotFound);
+    if (bin.type !== 'CUSTOMER') throw new ConflictException(OPERATIONAL_ERRORS.containerWrongType);
+    if (bin.status !== 'ACTIVE') {
+      throw new ConflictException(
+        bin.status === 'READY_FOR_PACKING'
+          ? `${OPERATIONAL_ERRORS.binClosed} (${bin.code} is complete — use the packing step).`
+          : `Bin ${bin.code} is ${bin.status}.`,
+      );
+    }
     if (!bin.order) throw new ConflictException(`Bin ${bin.code} has no order attached.`);
 
     // The article must actually be needed by THIS bin's order.
     const match = await this.findOrderNeeding(article.sku, bin.order.id);
     if (!match) {
       throw new ConflictException(
-        `WRONG BIN: order ${bin.order.externalOrderReference} (${bin.order.externalCustomerReference}) does not need SKU ${article.sku}.`,
+        `${OPERATIONAL_ERRORS.binWrongCustomer} Order ${bin.order.externalOrderReference} (${bin.order.externalCustomerReference}) does not need SKU ${article.sku}.`,
       );
     }
 
@@ -667,11 +818,42 @@ export class FulfillmentService {
 
       // Completeness check: every OPEN line fully covered -> bin is ready.
       const readiness = await this.checkOrderCompleteness(tx, bin.order!.id);
-      if (readiness.complete) {
+      let binCompletedNow = false;
+      if (readiness.complete && bin.status === 'ACTIVE') {
+        // Master Order §15: completion generates the customer/container QR
+        // and LOCKS the card. The worker can no longer add articles (status
+        // gate above); any reopen is an authorized, audited ADMIN correction
+        // (REOPEN_CUSTOMER_BIN) only.
+        const qrValue = `AYROVI:${bin.code}:${bin.order!.externalOrderReference}:${bin.order!.externalCustomerReference}`;
         await tx.operationalContainer.update({
           where: { id: bin.id },
-          data: { status: 'READY_FOR_PACKING' },
+          data: { status: 'READY_FOR_PACKING', qrValue: bin.qrValue ?? qrValue },
         });
+        await this.audit.log(
+          {
+            actorUserId: actor.id,
+            action: 'CUSTOMER_QR_GENERATED' as never,
+            entityType: 'operational_container',
+            entityId: bin.id,
+            ipAddress: actor.ip ?? null,
+            metadata: { bin: bin.code, order: bin.order!.externalOrderReference, customer: bin.order!.externalCustomerReference, qrValue },
+          },
+          tx,
+        );
+        await this.audit.log(
+          {
+            actorUserId: actor.id,
+            action: 'CUSTOMER_CONTAINER_LOCKED' as never,
+            entityType: 'operational_container',
+            entityId: bin.id,
+            ipAddress: actor.ip ?? null,
+            metadata: { bin: bin.code, order: bin.order!.externalOrderReference },
+          },
+          tx,
+        );
+        binCompletedNow = true;
+      }
+      if (readiness.complete) {
         await this.audit.log(
           {
             actorUserId: actor.id,
@@ -695,8 +877,20 @@ export class FulfillmentService {
           bin: bin.code,
           customer: bin.order!.externalCustomerReference,
           progress: readiness,
+          customerQr: binCompletedNow ? `AYROVI:${bin.code}:${bin.order!.externalOrderReference}:${bin.order!.externalCustomerReference}` : null,
+          locked: binCompletedNow,
         },
       };
+    }).then(async (result) => {
+      // Master Order §16: a completed customer container moves to the
+      // packing step automatically — no admin re-creation.
+      const completed = (result.flash as any).locked === true;
+      if (completed) {
+        await this.dispatch.onBinReady({ id: bin.id, code: bin.code }, actor.id, {
+          reason: `customer container ${bin.code} complete and locked`,
+        });
+      }
+      return result;
     });
   }
 
@@ -737,13 +931,13 @@ export class FulfillmentService {
   /** Verified -> pack: creates the outbound shipment with an internal label. */
   async pack(containerCode: string, actor: FulfillmentActor) {
     const bin = await this.prisma.operationalContainer.findUnique({
-      where: { code: containerCode.trim().toUpperCase() },
+      where: { code: normalizeScan(containerCode).toUpperCase() },
       include: {
         order: { include: { items: { include: { product: true } } } },
         articles: { where: { status: 'IN_CUSTOMER_BIN' } },
       },
     });
-    if (!bin) throw new NotFoundException('Container not found.');
+    if (!bin) throw new NotFoundException(OPERATIONAL_ERRORS.containerNotFound);
     if (bin.type !== 'CUSTOMER' || !bin.order) throw new ConflictException('Not a customer bin.');
     if (bin.status === 'PACKED' || bin.status === 'CLOSED') {
       throw new ConflictException(`Bin ${bin.code} is already ${bin.status}.`);
@@ -817,39 +1011,187 @@ export class FulfillmentService {
           trackingNumber: carrierResult.trackingNumber,
           labelValue: code, // internal label/QR — printed at the bench
         },
+        shipmentId: shipment.id,
       };
     }).then(async (r) => {
       this.events.emit('packed', { shipment: r.shipment.code, order: bin.order!.externalOrderReference, actor: actor.id, t: Date.now() });
+      // Master Order §16: after packing the next worker's task is SHIPPING —
+      // created automatically from the created shipment, not by admin.
+      await this.dispatch.onPacked(
+        { id: r.shipmentId, code: r.shipment.code },
+        actor.id,
+        { reason: `order ${bin.order!.externalOrderReference} packed as ${r.shipment.code}` },
+      );
       return r;
     });
   }
 
   // ------------------------------------------------------------------
-  // 6+7. SHIPPING + CLEANUP
+  // 6+7. SHIPPING + CLEANUP (Master Order §17/§18)
+  //
+  //   SCAN CUSTOMER CONTAINER QR  (or OUT- label)
+  //        ↓
+  //   VERIFY CUSTOMER → VERIFY CONTAINER → VERIFY STATUS
+  //        ↓
+  //   SHIP — only with a valid, unexpired, content-bound verification
   // ------------------------------------------------------------------
 
-  async shippingScan(code: string) {
+  /**
+   * Resolve a scan to an outbound shipment. Accepts:
+   *   - an OUT- label code, or
+   *   - a customer container QR (`AYROVI:BIN-…:ORDER:CUSTOMER`).
+   */
+  private async resolveShipmentByScan(rawCode: string) {
+    const code = normalizeScan(rawCode).toUpperCase();
+    if (!code) throw new BadRequestException(OPERATIONAL_ERRORS.shipmentNotFound);
+
+    if (code.startsWith('AYROVI:')) {
+      // Customer container QR: segment 2 is the bin code.
+      const binCode = code.split(':')[1];
+      const bin = binCode
+        ? await this.prisma.operationalContainer.findUnique({ where: { code: binCode } })
+        : null;
+      if (!bin || bin.type !== 'CUSTOMER') throw new NotFoundException(OPERATIONAL_ERRORS.containerNotFound);
+      const shipment = await this.prisma.outboundShipment.findFirst({
+        where: { containerId: bin.id },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          order: { select: { externalOrderReference: true, externalCustomerReference: true, customerName: true, customerSurname: true } },
+          articles: { select: { code: true, sku: true, productName: true, status: true } },
+          container: { select: { code: true, qrValue: true } },
+        },
+      });
+      if (!shipment) throw new ConflictException(`Container ${bin.code} is not packed yet — no shipping label exists.`);
+      return shipment;
+    }
+
     const shipment = await this.prisma.outboundShipment.findUnique({
-      where: { code: code.trim().toUpperCase() },
+      where: { code },
       include: {
-        order: { select: { externalOrderReference: true, externalCustomerReference: true } },
+        order: { select: { externalOrderReference: true, externalCustomerReference: true, customerName: true, customerSurname: true } },
         articles: { select: { code: true, sku: true, productName: true, status: true } },
-        container: { select: { code: true } },
+        container: { select: { code: true, qrValue: true } },
       },
     });
-    if (!shipment) throw new NotFoundException('Outbound shipment not found.');
+    if (!shipment) throw new NotFoundException(OPERATIONAL_ERRORS.shipmentNotFound);
     return shipment;
   }
 
-  /** Dispatch: SHIPPED + container cleanup. History and audit are kept. */
+  /** Worker scans (label or customer QR) → the shipment card to verify. */
+  async shippingScan(code: string) {
+    const shipment = await this.resolveShipmentByScan(code);
+    return {
+      code: shipment.code,
+      status: shipment.status,
+      carrier: shipment.carrier,
+      trackingNumber: shipment.trackingNumber,
+      order: shipment.order,
+      container: shipment.container ? { code: shipment.container.code, qr: shipment.container.qrValue } : null,
+      articles: shipment.articles,
+      packedAt: shipment.packedAt,
+    };
+  }
+
+  /** Deterministic content hash over the shipment's article set. */
+  private contentHashOf(articles: Array<{ code: string; sku: string }>): string {
+    const canonical = articles.map((a) => `${a.code}|${a.sku}`).sort().join('\n');
+    return createHash('sha256').update(canonical).digest('hex');
+  }
+
+  /**
+   * Pre-dispatch verification (Master Order §17): verify customer, container
+   * and status, and create a short-lived verification bound to actor +
+   * shipment + CONTENT HASH. Shipping without a valid verification is
+   * rejected — no unverified dispatch.
+   */
+  async shippingVerify(code: string, actor: FulfillmentActor) {
+    const shipment = await this.resolveShipmentByScan(code);
+    if (shipment.status === 'SHIPPED') throw new ConflictException(OPERATIONAL_ERRORS.shipmentAlreadyShipped);
+    if (!shipment.container) {
+      throw new ConflictException('This shipment has no customer container to verify.');
+    }
+    // VERIFY CUSTOMER: a scanned QR carries the customer ref; it must agree
+    // with the order (scanning an OUT- label skips this check).
+    const scannedCustomer = normalizeScan(code).toUpperCase().split(':')[3] || '';
+    if (scannedCustomer && normalizeScan(shipment.order.externalCustomerReference).toUpperCase() !== scannedCustomer) {
+      throw new ConflictException(
+        `CUSTOMER MISMATCH: this container belongs to ${shipment.order.externalCustomerReference}, not ${scannedCustomer}.`,
+      );
+    }
+
+    const hash = this.contentHashOf(shipment.articles);
+    const verification = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.shippingVerification.create({
+        data: {
+          outboundShipmentId: shipment.id,
+          verifiedById: actor.id,
+          contentHash: hash,
+          expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+        },
+      });
+      await this.audit.log(
+        {
+          actorUserId: actor.id,
+          action: 'SHIPPING_VERIFIED' as never,
+          entityType: 'outbound_shipment',
+          entityId: shipment.id,
+          ipAddress: actor.ip ?? null,
+          metadata: {
+            shipment: shipment.code,
+            verification: row.id,
+            customer: shipment.order.externalCustomerReference,
+            customerName: [shipment.order.customerName, shipment.order.customerSurname].filter(Boolean).join(' ') || null,
+            container: shipment.container!.code,
+            articles: shipment.articles.length,
+            contentHash: hash,
+          },
+        },
+        tx,
+      );
+      return row;
+    });
+
+    return {
+      ok: true,
+      verificationId: verification.id,
+      verifiedAt: verification.createdAt.toISOString(),
+      expiresAt: verification.expiresAt.toISOString(),
+      shipment: {
+        code: shipment.code,
+        status: shipment.status,
+        order: shipment.order,
+        container: { code: shipment.container.code, qr: shipment.container.qrValue },
+        articles: shipment.articles.length,
+      },
+    };
+  }
+
+  /** Dispatch: SHIPPED + container cleanup. Requires a valid verification. */
   async ship(code: string, actor: FulfillmentActor) {
     const shipment = await this.prisma.outboundShipment.findUnique({
-      where: { code: code.trim().toUpperCase() },
-      include: { order: true, container: true },
+      where: { code: normalizeScan(code).toUpperCase() },
+      include: { order: true, container: true, articles: { select: { code: true, sku: true } } },
     });
-    if (!shipment) throw new NotFoundException('Outbound shipment not found.');
+    if (!shipment) throw new NotFoundException(OPERATIONAL_ERRORS.shipmentNotFound);
     if (shipment.status === 'SHIPPED') {
-      throw new ConflictException(`Shipment ${shipment.code} is already SHIPPED.`);
+      throw new ConflictException(OPERATIONAL_ERRORS.shipmentAlreadyShipped);
+    }
+
+    // Verification gate: the most recent unused, unexpired verification for
+    // this shipment, bound to the SAME content.
+    const verification = await this.prisma.shippingVerification.findFirst({
+      where: { outboundShipmentId: shipment.id, usedAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!verification) {
+      throw new ConflictException(`${OPERATIONAL_ERRORS.verificationRequired} (verify the container, then ship)`);
+    }
+    if (verification.expiresAt.getTime() < Date.now()) {
+      throw new ConflictException(OPERATIONAL_ERRORS.verificationExpired);
+    }
+    const currentHash = this.contentHashOf(shipment.articles);
+    if (currentHash !== verification.contentHash) {
+      throw new ConflictException('Shipment contents changed since verification. Verify the container again.');
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -857,6 +1199,10 @@ export class FulfillmentService {
       await this.assignments.assertOperationalAccess(actor.id, 'shipping', { outboundShipmentId: shipment.id }, tx);
       const current = await tx.outboundShipment.findUnique({ where: { id: shipment.id } });
       if (!current || current.status !== 'READY_TO_SHIP') throw new ConflictException('Shipment already changed or shipped.');
+      await tx.shippingVerification.update({
+        where: { id: verification.id },
+        data: { usedAt: new Date() },
+      });
       await tx.outboundShipment.update({
         where: { id: shipment.id },
         data: { status: 'SHIPPED', shippedBy: actor.id, shippedAt: new Date() },
@@ -895,8 +1241,11 @@ export class FulfillmentService {
             shipment: shipment.code,
             order: shipment.order.externalOrderReference,
             customer: shipment.order.externalCustomerReference,
+            customerName: [shipment.order.customerName, shipment.order.customerSurname].filter(Boolean).join(' ') || null,
             carrier: shipment.carrier,
             tracking: shipment.trackingNumber,
+            verification: verification.id,
+            contentHash: currentHash,
           },
         },
         tx,
@@ -907,6 +1256,192 @@ export class FulfillmentService {
       this.events.emit('shipped', { shipment: shipment.code, actor: actor.id, t: Date.now() });
       return r;
     });
+  }
+
+  // ------------------------------------------------------------------
+  // 8. BORDEREAU — the shipping document (Master Order §18).
+  //    Admin searches by customer name/surname, order reference,
+  //    shipment number or container QR/reference and prints this.
+  // ------------------------------------------------------------------
+
+  async bordereau(code: string) {
+    const shipment = await this.resolveShipmentByScan(code);
+    const order = await this.prisma.warehouseOrder.findUnique({
+      where: { id: shipment.orderId },
+      include: { items: { include: { product: { select: { name: true, externalProductCode: true } } } } },
+    });
+    const container = shipment.containerId
+      ? await this.prisma.operationalContainer.findUnique({ where: { id: shipment.containerId } })
+      : null;
+    return {
+      document: 'BORDEREAU / SHIPPING DOCUMENT',
+      generatedAt: new Date().toISOString(),
+      shipment: {
+        code: shipment.code,
+        status: shipment.status,
+        carrier: shipment.carrier,
+        trackingNumber: shipment.trackingNumber,
+        packedAt: shipment.packedAt,
+        shippedAt: shipment.shippedAt,
+      },
+      customer: {
+        reference: order?.externalCustomerReference ?? null,
+        name: order?.customerName ?? null,
+        surname: order?.customerSurname ?? null,
+      },
+      order: {
+        reference: order?.externalOrderReference ?? null,
+        items: order?.items.map((i) => ({
+          sku: i.product.externalProductCode,
+          name: i.product.name,
+          requested: i.requestedQuantity,
+        })) ?? [],
+      },
+      container: container
+        ? { code: container.code, label: container.label, qr: container.qrValue ?? null, status: container.status }
+        : null,
+      contents: shipment.articles.map((a) => ({ code: a.code, sku: a.sku, productName: a.productName, status: a.status })),
+    };
+  }
+
+  /** Admin search across shipping documents: customer name/surname, order, shipment, QR. */
+  async searchBordereau(q: string) {
+    const term = normalizeScan(q).toUpperCase();
+    if (!term) return [];
+    return this.prisma.outboundShipment.findMany({
+      where: {
+        OR: [
+          { code: { contains: term } },
+          { trackingNumber: { contains: term } },
+          { order: { externalOrderReference: { contains: term } } },
+          { order: { externalCustomerReference: { contains: term } } },
+          { order: { customerName: { contains: term, mode: 'insensitive' } } },
+          { order: { customerSurname: { contains: term, mode: 'insensitive' } } },
+          { container: { code: { contains: term } } },
+          { container: { qrValue: { contains: term } } },
+        ],
+      },
+      orderBy: { packedAt: 'desc' },
+      take: 50,
+      select: {
+        code: true, status: true, trackingNumber: true, packedAt: true, shippedAt: true,
+        order: { select: { externalOrderReference: true, externalCustomerReference: true, customerName: true, customerSurname: true } },
+        container: { select: { code: true, qrValue: true } },
+        _count: { select: { articles: true } },
+      },
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // REPORT PROBLEM — one worker-facing action at EVERY stage (Master Order
+  // §14). The exception is a real row (OperationalException), immediately
+  // visible on the Admin unified exceptions board, with an audited
+  // RESOLVED/REJECTED lifecycle. Receiving keeps its session-scoped
+  // discrepancies (existing pattern) — those are merged on the admin board.
+  // ------------------------------------------------------------------
+
+  private async genExceptionCode(tx: Prisma.TransactionClient) {
+    for (let i = 0; i < 5; i += 1) {
+      const count = await tx.operationalException.count();
+      const code = `EXC-${String(count + 1 + i).padStart(6, '0')}`;
+      if (!(await tx.operationalException.findUnique({ where: { code } }))) return code;
+    }
+    return `EXC-R${Date.now().toString().slice(-6)}`;
+  }
+
+  async reportProblem(
+    input: { stage: string; entityType?: string; entityCode?: string; type?: string; reason: string },
+    actor: FulfillmentActor,
+  ) {
+    const reason = normalizeScan(input.reason);
+    if (!reason) throw new BadRequestException('Please describe the problem.');
+    const code = normalizeScan(input.entityCode ?? '');
+    const station = await this.prisma.station.findFirst({
+      where: { assignedWorkerId: actor.id, status: 'ACTIVE' },
+      select: { id: true, code: true },
+    });
+    return this.prisma.$transaction(async (tx) => {
+      const excCode = await this.genExceptionCode(tx);
+      const row = await tx.operationalException.create({
+        data: {
+          code: excCode,
+          type: normalizeScan(input.type) || 'MANUAL_REPORT',
+          status: 'OPEN',
+          entityType: input.entityType ?? 'other',
+          entityId: null,
+          entityCode: code || null,
+          reason: `${input.stage}: ${reason}`,
+          reportedById: actor.id,
+          stationId: station?.id ?? null,
+        },
+      });
+      await this.audit.log(
+        {
+          actorUserId: actor.id,
+          action: 'EXCEPTION_CREATED' as never,
+          entityType: 'operational_exception',
+          entityId: row.id,
+          ipAddress: actor.ip ?? null,
+          metadata: {
+            exception: row.code, stage: input.stage, type: row.type,
+            entity: code || null, station: station?.code ?? null, reason,
+          },
+        },
+        tx,
+      );
+      return { ok: true, code: row.code, status: row.status };
+    });
+  }
+
+  /** Admin: unified operational exceptions (all stages, one board). */
+  async listExceptions(filter: { status?: string; q?: string }) {
+    const q = normalizeScan(filter.q).toUpperCase();
+    return this.prisma.operationalException.findMany({
+      where: {
+        ...(filter.status ? { status: filter.status as never } : {}),
+        ...(q
+          ? {
+              OR: [
+                { code: { contains: q } },
+                { entityCode: { contains: q } },
+                { reason: { contains: q, mode: 'insensitive' } },
+                { type: { contains: q, mode: 'insensitive' } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+      include: { station: { select: { code: true, name: true, department: true } } },
+    });
+  }
+
+  /** Admin: resolve or reject an operational exception (audited). */
+  async resolveException(exceptionId: string, resolution: 'RESOLVED' | 'REJECTED', note: string, actor: FulfillmentActor) {
+    const final = resolution === 'RESOLVED' ? 'RESOLVED' : 'REJECTED';
+    await this.prisma.$transaction(async (tx) => {
+      const row = await tx.operationalException.findUnique({ where: { id: exceptionId } });
+      if (!row) throw new NotFoundException('Exception not found.');
+      if (row.status !== 'OPEN') throw new ConflictException(`Exception ${row.code} is already ${row.status}.`);
+      await tx.operationalException.update({
+        where: { id: exceptionId },
+        data: { status: final as never, resolvedById: actor.id, resolvedAt: new Date(), resolution: note || null },
+      });
+      await this.audit.log(
+        {
+          actorUserId: actor.id,
+          // One audit action for the lifecycle; the outcome is in metadata
+          // (the AuditAction vocabulary is schema-defined, not free text).
+          action: 'EXCEPTION_RESOLVED' as never,
+          entityType: 'operational_exception',
+          entityId: exceptionId,
+          ipAddress: actor.ip ?? null,
+          metadata: { exception: row.code, entity: row.entityCode ?? null, outcome: final, resolution: note || null },
+        },
+        tx,
+      );
+    });
+    return { ok: true };
   }
 
   // ------------------------------------------------------------------
@@ -1039,7 +1574,8 @@ export class FulfillmentService {
       where: {
         status: 'OPEN',
         order: { status: 'OPEN', ...(orderId ? { id: orderId } : {}) },
-        product: { externalProductCode: sku.trim().toUpperCase() },
+        // Order §24: case-insensitive at the boundary; stored code is authoritative.
+        product: { externalProductCode: { equals: sku.trim().toUpperCase(), mode: 'insensitive' } },
       },
       include: {
         order: { include: { containers: { where: { type: 'CUSTOMER', status: 'ACTIVE' } } } },

@@ -132,6 +132,8 @@ export class StationsController {
       capabilities?: StationCapability[];
       deviceId?: string | null;
       warehouseId?: string | null;
+      /** Master Order §11: the station/zone link is created as configuration. */
+      zoneId?: string | null;
     },
     @Req() req: any,
   ) {
@@ -143,7 +145,14 @@ export class StationsController {
   @ApiOperation({ summary: 'Update a station.' })
   update(
     @Param('id') id: string,
-    @Body() body: { name?: string; capabilities?: StationCapability[]; deviceId?: string | null },
+    @Body()
+    body: {
+      name?: string;
+      capabilities?: StationCapability[];
+      deviceId?: string | null;
+      department?: string;
+      zoneId?: string | null;
+    },
     @Req() req: any,
   ) {
     return this.stations.update(id, body, actorOf(req));
@@ -289,6 +298,16 @@ export class OperationsController {
   @ApiOperation({ summary: 'Reopen a completed session (history preserved).' })
   reopenSession(@Body() body: { sessionId: string; reason: string }, @Req() req: any) {
     return this.correctionsSvc.reopenSession(body.sessionId, body.reason, actorOf(req));
+  }
+
+  @Post('corrections/reopen-customer-bin')
+  @RequirePermissions('operations.correct')
+  @ApiOperation({
+    summary:
+      'Reopen a locked customer bin (Order §15). The only authorized path back from READY_FOR_PACKING; audited correction.',
+  })
+  reopenCustomerBin(@Body() body: { containerCode: string; reason: string }, @Req() req: any) {
+    return this.correctionsSvc.reopenCustomerBin(body.containerCode, body.reason, actorOf(req));
   }
 
   // ---- Admin Data Control (soft-void; view to read, correct to act) -------

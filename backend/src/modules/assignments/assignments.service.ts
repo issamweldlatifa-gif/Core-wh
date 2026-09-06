@@ -28,7 +28,8 @@ export type WorkDepartment =
   | 'PUTAWAY'
   | 'PACKING'
   | 'INVENTORY'
-  | 'DISPATCH';
+  | 'DISPATCH'
+  | 'STAGING';
 
 /** Worker-reportable issue types — exactly the existing discrepancy enum. */
 export const WORKER_ISSUE_TYPES = [

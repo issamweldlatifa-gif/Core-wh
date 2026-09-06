@@ -50,6 +50,14 @@ export class OrderCardEventDto {
   @IsString() @MinLength(1) @MaxLength(160)
   externalCustomerReference!: string;
 
+  @ApiPropertyOptional({ example: 'Ahmed', description: 'Customer display name from the CRM card (projection only).' })
+  @IsOptional() @IsString() @MaxLength(160)
+  customerName?: string | null;
+
+  @ApiPropertyOptional({ example: 'Ben Ali', description: 'Customer display surname from the CRM card (projection only).' })
+  @IsOptional() @IsString() @MaxLength(160)
+  customerSurname?: string | null;
+
   @ApiPropertyOptional({ enum: ['ADMIN', 'CRM', 'OCR', 'API'] })
   @IsOptional() @IsString() @IsIn(['ADMIN', 'CRM', 'OCR', 'API'])
   source?: 'ADMIN' | 'CRM' | 'OCR' | 'API';

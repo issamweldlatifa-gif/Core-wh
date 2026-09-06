@@ -6,6 +6,7 @@ import {
 import { createHash } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { TaskDispatchService } from '../assignments/dispatch.service';
 
 /**
  * Orders API over the EXISTING Phase-2 order projection models
@@ -23,6 +24,9 @@ import { AuditService } from '../audit/audit.service';
 export interface OrderIntakeInput {
   externalOrderReference: string;
   externalCustomerReference: string;
+  /** Display name of the customer from the CRM card (projection only). */
+  customerName?: string | null;
+  customerSurname?: string | null;
   source?: 'ADMIN' | 'CRM' | 'OCR' | 'API';
   note?: string | null;
   items: Array<{
@@ -41,6 +45,7 @@ export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly dispatch: TaskDispatchService,
   ) {}
 
   private contentHash(input: OrderIntakeInput) {
@@ -105,6 +110,11 @@ export class OrdersService {
           data: {
             externalOrderReference: ref,
             externalCustomerReference: customer,
+            // Display projection only (Master Order §12/§18: customer cards,
+            // container labels and bordereau search). NOT part of the
+            // content hash — identity stays (reference + customer ref + items).
+            customerName: input.customerName?.trim() || null,
+            customerSurname: input.customerSurname?.trim() || null,
             source: (input.source ?? 'API') as never,
             note: input.note ?? null,
             contentHash: hash,
@@ -115,7 +125,13 @@ export class OrdersService {
       } else {
         await tx.warehouseOrder.update({
           where: { id: existing.id },
-          data: { externalCustomerReference: customer, note: input.note ?? existing.note, contentHash: hash },
+          data: {
+            externalCustomerReference: customer,
+            customerName: input.customerName?.trim() || existing.customerName,
+            customerSurname: input.customerSurname?.trim() || existing.customerSurname,
+            note: input.note ?? existing.note,
+            contentHash: hash,
+          },
         });
         // Living update: replace OPEN lines only if nothing is fulfilled yet.
         const fulfilled = await tx.articleUnit.count({
@@ -159,6 +175,19 @@ export class OrdersService {
       );
 
       return { orderId, reference: ref, outcome };
+    }).then(async (result) => {
+      // Master Order §12: a NEW customer order card becomes available to the
+      // sorting workflow — auto-dispatch a customer-sorting task when
+      // matching goods exist (deferred until goods arrive otherwise).
+      // Idempotent replays (UNCHANGED) and content updates never re-dispatch.
+      if (result.outcome === 'CREATED') {
+        await this.dispatch.onOrderCreated(
+          { id: result.orderId, externalOrderReference: result.reference },
+          null,
+          { reason: `CRM order card ${result.reference} received` },
+        );
+      }
+      return result;
     });
   }
 

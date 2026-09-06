@@ -26,6 +26,13 @@ export class StationsService {
     private readonly audit: AuditService,
   ) {}
 
+  /** Validate a zone id exists (S11: the zone link is admin config, not code). */
+  private async assertZone(zoneId: string): Promise<string> {
+    const zone = await this.prisma.zone.findUnique({ where: { id: zoneId } });
+    if (!zone) throw new NotFoundException(`Zone "${zoneId}" not found.`);
+    return zoneId;
+  }
+
   private normaliseCode(raw: string): string {
     const code = (raw ?? '').trim().toUpperCase();
     if (!CODE_RE.test(code)) {
@@ -43,6 +50,8 @@ export class StationsService {
       orderBy: [{ department: 'asc' }, { code: 'asc' }],
       include: {
         assignedWorker: { select: { id: true, name: true, employeeCode: true } },
+        // Master Order §11: station↔zone is admin-visible configuration.
+        zone: { select: { id: true, code: true, warehouseId: true } },
       },
     });
   }
@@ -50,7 +59,10 @@ export class StationsService {
   async findOne(id: string) {
     const station = await this.prisma.station.findFirst({
       where: { OR: [{ id }, { code: id.toUpperCase() }] },
-      include: { assignedWorker: { select: { id: true, name: true, employeeCode: true } } },
+      include: {
+        assignedWorker: { select: { id: true, name: true, employeeCode: true } },
+        zone: { select: { id: true, code: true, warehouseId: true } },
+      },
     });
     if (!station) throw new NotFoundException('Station not found.');
     return station;
@@ -64,12 +76,15 @@ export class StationsService {
       capabilities?: StationCapability[];
       deviceId?: string | null;
       warehouseId?: string | null;
+      /** Master Order §11: the station/zone link is created as configuration. */
+      zoneId?: string | null;
     },
     actor: StationActor,
   ) {
     const code = this.normaliseCode(input.code);
     const clash = await this.prisma.station.findUnique({ where: { code } });
     if (clash) throw new ConflictException(`Station code "${code}" already exists.`);
+    const zoneId = input.zoneId ? await this.assertZone(input.zoneId) : null;
 
     const station = await this.prisma.station.create({
       data: {
@@ -79,7 +94,9 @@ export class StationsService {
         capabilities: input.capabilities ?? [],
         deviceId: input.deviceId ?? null,
         warehouseId: input.warehouseId ?? null,
+        zoneId,
       },
+      include: { zone: { select: { id: true, code: true, warehouseId: true } } },
     });
     await this.audit.log({
       actorUserId: actor.id,
@@ -87,14 +104,22 @@ export class StationsService {
       entityType: 'station',
       entityId: station.id,
       ipAddress: actor.ip,
-      metadata: { code, department: station.department },
+      metadata: { code, department: station.department, zoneId },
     });
     return station;
   }
 
   async update(
     id: string,
-    input: { name?: string; capabilities?: StationCapability[]; deviceId?: string | null },
+    input: {
+      name?: string;
+      capabilities?: StationCapability[];
+      deviceId?: string | null;
+      /** Master Order §11: admin configures the station's department. */
+      department?: string;
+      /** Master Order §11: admin configures the zone a station sits in (required for STAGING). */
+      zoneId?: string | null;
+    },
     actor: StationActor,
   ) {
     const station = await this.findOne(id);
@@ -110,6 +135,14 @@ export class StationsService {
       }
       data.deviceId = input.deviceId;
     }
+    if (input.department !== undefined) {
+      const departments = ['RECEIVING', 'SORTING', 'PUTAWAY', 'PACKING', 'INVENTORY', 'DISPATCH', 'STAGING'];
+      if (!departments.includes(input.department)) {
+        throw new BadRequestException(`department must be one of: ${departments.join(', ')}`);
+      }
+      data.department = input.department as never;
+    }
+    if (input.zoneId !== undefined) data.zoneId = input.zoneId ? await this.assertZone(input.zoneId) : null;
 
     const saved = await this.prisma.station.update({ where: { id: station.id }, data });
     await this.audit.log({
@@ -118,7 +151,15 @@ export class StationsService {
       entityType: 'station',
       entityId: station.id,
       ipAddress: actor.ip,
-      metadata: { code: saved.code },
+      metadata: {
+        code: saved.code,
+        changed: {
+          name: input.name !== undefined,
+          department: input.department !== undefined ? input.department : null,
+          zoneId: input.zoneId !== undefined ? input.zoneId : null,
+          deviceId: input.deviceId !== undefined ? input.deviceId : null,
+        },
+      },
     });
     return saved;
   }

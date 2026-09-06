@@ -97,7 +97,17 @@ function makeMocks() {
     },
   };
 
-  return { prisma, audit, rows, audits };
+  // Auto-dispatch is a no-op in these unit tests (no worker/role tables in
+  // the stub); the service only needs the seam to exist.
+  const dispatched: any[] = [];
+  const dispatch: any = {
+    dispatch: async (taskKey: string, entity: any, _ctx: any) => {
+      dispatched.push({ taskKey, entity });
+      return null;
+    },
+  };
+
+  return { prisma, audit, dispatch, dispatched, rows, audits };
 }
 
 function dto(over: any = {}) {
@@ -121,8 +131,8 @@ const principal: IntegrationPrincipal = { kind: 'static', id: null, name: 'ARRIV
 
 describe('ExpectedArrivalsService', () => {
   it('creates an EXPECTED arrival (not RECEIVED) from a customer card with products', async () => {
-    const { prisma, audit, rows, audits } = makeMocks();
-    const service = new ExpectedArrivalsService(prisma, audit);
+    const { prisma, audit, dispatch, dispatched, rows, audits } = makeMocks();
+    const service = new ExpectedArrivalsService(prisma, audit, dispatch);
 
     const res = await service.receiveCard(dto(), principal, '127.0.0.1');
 
@@ -143,6 +153,10 @@ describe('ExpectedArrivalsService', () => {
     expect(stored.totalUnits).toBe(3);
     expect(stored.customerName).toBe('Ahmed');
     expect(stored.storeName).toBe('SHEIN');
+    // Master Order §3: a new arrival auto-dispatches the Receiving task.
+    expect(dispatched).toHaveLength(1);
+    expect(dispatched[0].taskKey).toBe('receiving');
+    expect(dispatched[0].entity.arrivalId).toBe(stored.id);
     expect(stored.items).toHaveLength(2);
     expect(stored.items[1]).toMatchObject({ sku: 'SB-2', quantity: 2, size: '42', color: 'Black' });
 
@@ -166,8 +180,8 @@ describe('ExpectedArrivalsService', () => {
   });
 
   it('is idempotent: a double send of the same card returns the SAME Expected Arrival', async () => {
-    const { prisma, audit, rows, audits } = makeMocks();
-    const service = new ExpectedArrivalsService(prisma, audit);
+    const { prisma, audit, dispatch, dispatched, rows, audits } = makeMocks();
+    const service = new ExpectedArrivalsService(prisma, audit, dispatch);
 
     const first = await service.receiveCard(dto(), { ...principal, idempotencyKey: 'CARD-ARR-2026-000145' });
     const second = await service.receiveCard(dto(), { ...principal, idempotencyKey: 'CARD-ARR-2026-000145' });
@@ -178,11 +192,14 @@ describe('ExpectedArrivalsService', () => {
     expect(rows).toHaveLength(1);
     // Card audit only on actual creation (replays add nothing).
     expect(audits.filter((a) => a.action === 'CUSTOMER_ARRIVAL_CARD_RECEIVED')).toHaveLength(1);
+    // Auto-dispatch only on actual creation — the replay reuses the arrival.
+    expect(dispatched).toHaveLength(1);
+    expect(dispatched[0].taskKey).toBe('receiving');
   });
 
   it('rejects a card with no products without creating a partial record', async () => {
-    const { prisma, audit, rows, audits } = makeMocks();
-    const service = new ExpectedArrivalsService(prisma, audit);
+    const { prisma, audit, dispatch, dispatched, rows, audits } = makeMocks();
+    const service = new ExpectedArrivalsService(prisma, audit, dispatch);
     const empty = dto({ products: [] });
 
     await expect(service.receiveCard(empty, principal)).rejects.toBeInstanceOf(BadRequestException);
@@ -191,8 +208,8 @@ describe('ExpectedArrivalsService', () => {
   });
 
   it('handles a large card (100 products) and aggregates units', async () => {
-    const { prisma, audit, rows, audits } = makeMocks();
-    const service = new ExpectedArrivalsService(prisma, audit);
+    const { prisma, audit, dispatch, dispatched, rows, audits } = makeMocks();
+    const service = new ExpectedArrivalsService(prisma, audit, dispatch);
     const big = dto({
       products: Array.from({ length: 100 }, (_, i) => ({
         sku: `SKU-${i + 1}`,
