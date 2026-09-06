@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { APPLICATION_KEY } from '../decorators/require-application.decorator';
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { RequestWithUser } from '../interfaces/request-with-user.interface';
 import { AuditService } from '../../modules/audit/audit.service';
 import type { ApplicationKind } from '../../modules/access/application-access';
@@ -36,6 +37,16 @@ export class ApplicationGuard implements CanActivate {
       [context.getHandler(), context.getClass()],
     );
     if (!required || required.length === 0) return true;
+
+    // @Public() routes (e.g. /system/health) are unauthenticated by design —
+    // there is no session surface to isolate, so this guard must not touch
+    // them. Without this, an anonymous health probe on a surface-declaring
+    // controller would be rejected with 403 and break deploy health checks.
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (isPublic) return true;
 
     const request = context.switchToHttp().getRequest<RequestWithUser>();
     const user = request.user;
