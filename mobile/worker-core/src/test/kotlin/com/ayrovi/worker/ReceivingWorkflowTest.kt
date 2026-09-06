@@ -44,14 +44,47 @@ class ReceivingWorkflowTest {
         assertEquals("QR", backend.cartonScanType)
         assertEquals("CAMERA", backend.cartonSource)
     }
-    @Test fun `unknown arrival preserves expected scanned and backend reason`() = runTest {
+    @Test fun `unknown arrival preserves expected scanned and redirects to the queue`() = runTest {
         val backend = ReceivingBackend().apply { activeFailure = WorkerRepository.ApiException(404, "Expected arrival not found.") }
         val workflow = workflow(backend)
         workflow.scan(ScanResult("WAR-UNKNOWN", ScanSource.MANUAL)); runCurrent()
         assertEquals("WAR-UNKNOWN", workflow.state.value.message!!.scanned)
         assertEquals("AYROVI arrival code", workflow.state.value.message!!.expected)
-        assertEquals("Expected arrival not found.", workflow.state.value.message!!.detail)
+        // Receiving audit: a WAR-looking code the backend does not know is an
+        // operational redirect, never a raw lookup error shown to the operator.
+        assertEquals("ARRIVAL NOT FOUND", workflow.state.value.message!!.title)
+        assertEquals("This arrival is not available. Select an Arrival from the queue or scan its WAR- code.", workflow.state.value.message!!.detail)
         assertEquals(0, backend.startCalls)
+    }
+    @Test fun `non arrival scan at the ARRIVAL gate never reaches the arrival endpoint`() = runTest {
+        // Root cause regression (both modes): the first scan was always sent to
+        // the ExpectedArrival lookup, so carton/product/customer barcodes came
+        // back as "Expected arrival not found". They are answered locally now.
+        listOf("CTN-001", "Sku/a-01", "ARR-CRM-CARD", "CUST-0091").forEach { scanned ->
+            val backend = ReceivingBackend(); val workflow = workflow(backend)
+            workflow.scan(ScanResult(scanned, ScanSource.EXTERNAL_SCANNER)); runCurrent()
+            val message = workflow.state.value.message
+            assertEquals("NOT AN ARRIVAL CODE", message!!.title)
+            assertEquals("This is not an Arrival code. Select an Arrival from the queue or scan a WAR- code.", message.detail)
+            assertEquals(scanned, message.scanned)
+            assertEquals("AYROVI arrival code", message.expected)
+            assertEquals(ReceivingStep.ARRIVAL, workflow.state.value.step)
+            assertTrue(backend.calls.none { it.startsWith("active:") || it == "start" })
+        }
+    }
+    @Test fun `war arrival scan keeps the existing backend path in every mode`() = runTest {
+        val backend = ReceivingBackend(); val workflow = workflow(backend) // PRODUCTS mode helper
+        workflow.scan(ScanResult("WAR-001", ScanSource.EXTERNAL_SCANNER)); runCurrent()
+        assertTrue(backend.calls.contains("active:WAR-001"))
+        assertEquals(1, backend.startCalls)
+        assertEquals("RECEIVING", workflow.state.value.session!!.status)
+    }
+    @Test fun `queue selection opens the arrival through the same domain path`() = runTest {
+        val backend = ReceivingBackend(); val workflow = workflow(backend)
+        workflow.openArrival(workflow.state.value.arrivals.single().code ?: error("queue code")); runCurrent()
+        assertEquals(1, backend.startCalls)
+        assertTrue(backend.calls.contains("active:WAR-001"))
+        assertNotNull(workflow.state.value.session)
     }
     @Test fun `confirmation calls real carton command and uses received event`() = runTest {
         val backend = ReceivingBackend(); val journal = MemoryJournal(); val workflow = workflow(backend, journal); open(workflow); carton(workflow)
