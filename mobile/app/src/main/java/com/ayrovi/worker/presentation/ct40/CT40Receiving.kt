@@ -29,11 +29,14 @@ internal fun CT40Receiving(
         TerminalHeader("RECEIVING", worker, station, connection, industrial = true, onSettings = settings)
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
             // Adaptive fitting INSIDE CT40 mode; never used to classify a device.
-            val illustrationSize = if (maxHeight < TerminalTokens.deviceVisual * 3.5f || fontScale > 1.2f)
-                TerminalTokens.compactDeviceVisual else TerminalTokens.deviceVisual
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(TerminalTokens.xs),
+            val illustrationSize = when {
+                fontScale > 1.2f -> TerminalTokens.stateIcon
+                maxHeight < TerminalTokens.deviceVisual * 3.5f -> TerminalTokens.compactDeviceVisual
+                else -> TerminalTokens.deviceVisual
+            }
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = TerminalTokens.xs, vertical = TerminalTokens.xxs),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(TerminalTokens.xxs)) {
+                if (!view.emptyQueue) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(TerminalTokens.xxs)) {
                     view.step?.let { StepIndicator(it, 7, "RECEIVING") }
                     Text(view.instruction, style = MaterialTheme.typography.headlineMedium)
                 }
@@ -50,7 +53,7 @@ internal fun CT40Receiving(
                         SecondaryAction("CANCEL CAMERA", capture.cancel)
                     }
                     view.captureVisible && !view.feedback.transient -> {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+                        if (fontScale <= 1.2f) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
                             WorkerIcon(TerminalIcon.SCANNER, null, Modifier.size(TerminalTokens.iconSmall))
                             Text(view.target, style = MaterialTheme.typography.labelLarge)
                             Text("· CODE", style = MaterialTheme.typography.labelMedium, color = TerminalTokens.muted)

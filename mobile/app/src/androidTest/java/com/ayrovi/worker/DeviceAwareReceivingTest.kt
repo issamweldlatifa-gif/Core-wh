@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -66,6 +68,25 @@ class DeviceAwareReceivingTest {
         val density = InstrumentationRegistry.getInstrumentation().targetContext.resources.displayMetrics.density
         assertTrue("Compact CT40 header must fit within 100dp", headerHeight <= 100f * density)
         saveNativeScreenshot(compose, "ct40-arrival-ready")
+    }
+    @Test fun ct40LargeTextKeepsReadyStateAndNavigationVisible() {
+        val model = ReceivingViewModel(ReceivingUiGateway(), UiJournal(), "worker", permissions)
+        compose.setContent {
+            LaunchedEffect(Unit) { model.activate(permissions, true, null) }
+            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, fontScale = 1.5f)) {
+                Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
+                    AyroviTerminalTheme(TerminalThemeMode.INDUSTRIAL) {
+                        ReceivingScreen(model, "Test Worker · W-001", "ST-RCV-01", "ONLINE", {}, {}, {}, WorkerDevice.CT40)
+                    }
+                }
+            }
+        }
+        compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
+        compose.onNodeWithTag("SCAN_STATUS_TITLE").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Back to work queue").assertIsDisplayed().assertHeightIsAtLeast(TerminalTokens.touch)
+        compose.onNodeWithContentDescription("Task actions").assertIsDisplayed().assertHeightIsAtLeast(TerminalTokens.touch)
+        compose.onNodeWithTag("CT40_DEVICE_VISUAL").assertIsDisplayed()
+        saveNativeScreenshot(compose, "ct40-large-font")
     }
     @Test fun ct40SyntheticHardwareJourneyValidatesThenConfirmsThroughOneCore() {
         val backend = ReceivingUiGateway(expectedCartons = 1)

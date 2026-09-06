@@ -1,6 +1,6 @@
 # Device-aware Receiving · implementation and acceptance report
 
-Date: 2026-09-06 · starting source `02b3b48` · status: **audit complete; implementation/verification in progress**.
+Date: 2026-09-06 · starting source `02b3b48` · status: **implemented; verification in progress**.
 
 This increment is not accepted merely because it renders. Physical CT40 trigger/firmware, approved live API/DB, station authorization and full warehouse acceptance remain separate gates. Final executed evidence is recorded below after verification.
 
@@ -32,7 +32,16 @@ This increment is not accepted merely because it renders. Physical CT40 trigger/
 
 ## A. Files/components changed
 
-Pending final inventory.
+- Existing `scanner/HoneywellScanner.kt`: same detector, CT40 model refinement, empty-input delivery and testable vendor gate. `ScannerService.kt` and `ScannerManager.kt`: availability/capture/rejection event integration.
+- `ScannerCaptureHost.kt` **replaces** `TerminalScanInput.kt`; existing CameraX/ML Kit/DataWedge implementations are reused.
+- `ReceivingScreen.kt` is the one route and shared dialogs/lifecycle host; `phone/PhoneReceiving.kt`, `ct40/CT40Receiving.kt`, `ct40/CT40DeviceVisual.kt`, `ReceivingParts.kt` are presentation-only.
+- `ReceivingViewModel.kt`, `ReceivingFeedback.kt`, `ReceivingSignal.kt`: shared intents, feedback/timers and foreground audio/capture gating. Existing `ReceivingWorkflow.kt` remains the sole business flow.
+- `WorkQueueScreen.kt`, `WorkerQueuePolicy.kt`, existing session/ViewModel/access files: compact permitted workflow tiles and real-count badges; unsupported modules disabled with worker wording.
+- Existing `FeedbackSounds.kt` becomes a compatibility delegate for non-Receiving frozen screens; its implementation is refactored to `feedback/AndroidAudioFeedback.kt` and shared `AudioFeedback`/`AudioPolicy` ports. No blocking sleep.
+- `TerminalComponents.kt`, `TerminalTheme.kt`, `TerminalIcons.kt`,23 licensed small Material Outlined vectors and provenance/license files: compact headers, indicators, tiles and industrial palette.
+- `ui/Screens.kt`: obsolete native Receiving/Tote functions and routes removed. Unused native totals-only repository method removed; server endpoint/web consumers preserved.
+- `MainActivity.kt`, `AppContainer.kt`, display preferences: detected presentation and default industrial theme injection, worker-safe startup messages.
+- JVM/instrumentation tests, native CI screenshot collection and this report/dossier. No backend/frontend source or schema changes.
 
 ## B. Existing systems reused
 
@@ -55,6 +64,8 @@ Distinct scanner-first viewport, compact station header, native lightweight CT40
 One scanner session/manager and source pipeline per Receiving ViewModel/lifecycle. Capture events go to the same workflow regardless of presentation. Decode, backend validation and warehouse receipt remain distinct.
 
 ## G. Hardware trigger integration
+
+Do not use app software scanning to simulate a physical side trigger. Hardware decoder beeps/Scan Wedge notification settings must be checked in the managed Honeywell profile: the app's sound represents **validated workflow results**, whereas an OEM decode beep may only mean a barcode was read. Configure/verify them on the target firmware to avoid conflicting double feedback; no undocumented notification property is invented here.
 
 Existing Honeywell Data Collection Intent API claim/release/receiver remains the real imager path. The API integration currently provides decoded barcode events, not a certified hardware trigger-down/claim-ack signal. Do not invent such broadcasts or claim a button simulation is a trigger test. Readiness labels describe the foreground capture task; actual imager operation requires physical confirmation.
 
@@ -80,7 +91,9 @@ No receiving writes, replay, or invented offline authorization. Offline/connecti
 
 ## M. Test results
 
-Pending execution. Required: detector/fallback cases; shared flow with real HTTP transport tests; scan feedback timers/duplicates/rapid scans; audio dispatch/failure/volume policy; queue zero/positive/unknown counts; both native presentations at narrow viewport, large fonts, theme/navigation; receiving lifecycle and secure recovery regression. CI emulation is not physical hardware acceptance.
+First JVM execution: **101 worker-core +20 scanner-core tests passed** (run34007761925); native compile then exposed two compatibility issues (old screen operator imports and a nullable cross-module count). Corrected. Next compile exposed an unavailable test assertion; replaced with measured header bounds. Final build/emulator evidence remains pending below until executed.
+
+Pending final execution. Required: detector/fallback cases; shared flow with real HTTP transport tests; scan feedback timers/duplicates/rapid scans; audio dispatch/failure/volume policy; queue zero/positive/unknown counts; both native presentations at narrow viewport, large fonts, theme/navigation; receiving lifecycle and secure recovery regression. CI emulation is not physical hardware acceptance.
 
 ## N. Known limitations
 

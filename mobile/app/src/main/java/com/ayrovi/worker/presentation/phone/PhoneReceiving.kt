@@ -28,8 +28,10 @@ internal fun PhoneReceiving(
         scrollKey = view.workflow.step,
     ) {
         Column(Modifier.fillMaxWidth().testTag("PHONE_RECEIVING"), verticalArrangement = Arrangement.spacedBy(TerminalTokens.md)) {
-            view.step?.let { StepIndicator(it, 7, "RECEIVING") }
-            TaskInstruction(view.instruction)
+            if (!view.emptyQueue) {
+                view.step?.let { StepIndicator(it, 7, "RECEIVING") }
+                TaskInstruction(view.instruction)
+            }
             if (view.workflow.session != null) view.workflow.session?.let { Text(it.arrival.code ?: it.code, style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted) }
             ReceivingStatus(view, large = false)
             if (view.captureVisible && !view.emptyQueue) {

@@ -39,3 +39,7 @@ None of those multi-party acceptance signatures exists in this session. Reports1
 Record approved commit, removed paths/dependencies/routes, downstream consumer checks, build/test results, backup/rollback locations and hashes, deployment version, redirect/deprecation decisions, monitoring window and defects. Remove temporary flags/adapters/docs that imply two ongoing products. Update the component matrix and report19.
 
 The exit criterion is a single supported native Worker implementation plus necessary backend/Admin functionality—not “delete everything old” or merely hide its navigation.
+
+## Device-aware Receiving replacement
+
+The user-authorized replacement removes native `ReceivingStation`, `ToteStation`, their native route mappings and the unused totals-only native repository call. There is now exactly one native Receiving workflow/route with Phone and CT40 rendering. Other frozen native operations, React Worker fallback, backend services and Admin remain; this targeted removal is **not** full legacy retirement or production cutover approval.

@@ -51,3 +51,9 @@ Enterprise scan broadcasts must be exported to receive a vendor service. An expo
 ## Deferred / forbidden
 
 No online receipt replay in scanner, no generic offline queue, no stock mutation from OCR confidence, no app-per-device, no copied vendor UI. Physical hardware result status is **NOT RUN** until report16 is completed by an operator with devices.
+
+## Device-aware update
+
+`HoneywellScanner.presentationMode` refines the existing Honeywell detector in place using manufacturer/brand + known CT40 model. Unknown results fall back to PHONE; no width/UA detector is introduced. `ScannerCaptureHost` replaces the old scanner UI wrapper and stays common to Phone/CT40. CT40 primary input is the existing imager broadcast/side trigger, not CameraX or a simulated software-button click. Phone software/camera actions use the one existing CameraX decoder.
+
+Workflow outcomes, not decoder acceptance alone, drive the one ReceivingFeedbackController and AudioFeedback port. Simple errors automatically return to readiness; unknown outcomes and required physical confirmations do not. Duplicate feedback is throttled and automatic step advancement does not reset held-label suppression. Only deliberate next-item/mode intents re-arm. Actual Honeywell trigger-down/claim-ack timing is not supplied by the current intent adapter; physical firmware/profile certification remains pending.

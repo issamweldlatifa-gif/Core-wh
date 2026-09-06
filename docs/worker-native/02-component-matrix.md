@@ -7,7 +7,7 @@ Baseline and freeze scope: [01](01-worker-audit.md). REMOVE means **after its ga
 | `mobile/`, Gradle wrapper, application ID, single MainActivity | KEEP | Evolve the existing app; no new application ID or WebView. |
 | `frontend/src/terminal` routes, screens and styles | KEEP → REMOVE | Freeze as temporary legacy fallback. Remove only after all retirement gates. |
 | Web Receiving scanner/OCR/ONNX assets | KEEP → REMOVE | Retain while fallback needs them; inspect Admin imports before dependency/asset removal. Do not ship JavaScript scanner in Android. |
-| Existing native `ui/Screens.kt` | KEEP → REMOVE | Frozen rollback/reference behind explicit build-time switch, same APK ID; never a new feature destination. New Receiving does not call legacy receipt orchestration. Remove after native pilot/rollback validation. |
+| Existing native `ui/Screens.kt` | PARTIAL REMOVE | Obsolete ReceivingStation/ToteStation and their native routes removed in the device-aware update to eliminate competing Receiving logic. Non-Receiving compatibility screens stay frozen in the same app ID until their own migration gates. |
 | Native API DTOs | REFACTOR | Move to shared JVM core, retain one serialization definition per existing contract. Tighten fields incrementally with contract tests. |
 | `WorkerRepository` endpoint methods | REFACTOR | Keep one client; inject transport/session store/base URL, close responses, safe refresh, no auto mutation retry. Do not copy endpoints into ViewModels. |
 | Backend controllers and Prisma | KEEP | Source of truth. No silent contract/schema changes in native slice. Required changes tracked separately in API report. |
