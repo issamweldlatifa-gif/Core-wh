@@ -32,9 +32,15 @@ internal fun <T : ViewModel> factory(create: () -> T): ViewModelProvider.Factory
 
 /** The new lane contains no repository calls or business rules in Compose. */
 @Composable
-fun WorkerTerminalApp(container: AppContainer) {
+fun WorkerTerminalApp(container: AppContainer, onThemeChanged: (TerminalThemeMode) -> Unit = {}) {
     val model: WorkerAppViewModel = viewModel(factory = factory { WorkerAppViewModel(container.workerSession) })
+    val appearance: AppearanceViewModel = viewModel(factory = factory { AppearanceViewModel(container.appearance) })
+    val theme by appearance.theme.collectAsStateWithLifecycle()
+    val themeWarning by appearance.warning.collectAsStateWithLifecycle()
+    val androidContext = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(themeWarning) { themeWarning?.let { android.widget.Toast.makeText(androidContext, it, android.widget.Toast.LENGTH_LONG).show() } }
     val state by model.state.collectAsStateWithLifecycle()
+    LaunchedEffect(theme) { onThemeChanged(theme) }
     val connection by model.connection.collectAsStateWithLifecycle()
     val owner = LocalLifecycleOwner.current
     var route by rememberSaveable { mutableStateOf(TerminalRoute.QUEUE) }
@@ -54,7 +60,7 @@ fun WorkerTerminalApp(container: AppContainer) {
     LaunchedEffect(state.tasks) {
         if (route == TerminalRoute.RECEIVING && state.me != null && state.tasks.none { it.key == "receiving" }) route = TerminalRoute.QUEUE
     }
-    AyroviTerminalTheme {
+    AyroviTerminalTheme(mode = theme, onToggleTheme = appearance::toggleTheme) {
         if (!state.signedIn) {
             SignInScreen(state, model.deviceCode, connection.name, model::login)
         } else if (route == TerminalRoute.RECEIVING && state.me?.user?.id != null) {
@@ -155,8 +161,8 @@ internal fun OperationalMessageView(message: OperationalMessage) {
     when (message.tone) {
         MessageTone.ERROR -> ErrorState(message.title, message.detail, message.expected, message.scanned)
         MessageTone.WARNING -> WarningState(message.title, message.detail + (message.scanned?.let { "\nScanned: $it" } ?: ""))
-        MessageTone.SUCCESS -> SuccessState(message.title, message.detail)
-        MessageTone.INFO -> ScanResult(message.title, message.detail, TerminalTone.INSTRUCTION)
+        MessageTone.SUCCESS -> TerminalNotice(message.title, message.detail, TerminalTone.SUCCESS)
+        MessageTone.INFO -> TerminalNotice(message.title, message.detail, TerminalTone.INSTRUCTION)
     }
 }
 

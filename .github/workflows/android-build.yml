@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       run_emulator_tests:
-        description: 'Run additional emulator UI/storage tests (not physical hardware certification)'
+        description: 'Run emulator UI/storage tests on a manual build (not physical hardware certification)'
         type: boolean
         default: false
 
@@ -73,8 +73,9 @@ jobs:
       # not permission for a production cutover or a rolling fleet update.
 
   emulator:
-    name: Optional emulator checks (not hardware acceptance)
-    if: github.event_name == 'workflow_dispatch' && inputs.run_emulator_tests
+    name: Handheld UI and storage checks (emulator)
+    needs: assemble
+    if: github.event_name != 'workflow_dispatch' || inputs.run_emulator_tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -90,13 +91,26 @@ jobs:
           sudo udevadm trigger --name-match=kvm
       - uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: 30
+          target: google_apis
           arch: x86_64
           working-directory: mobile
-          script: ./gradlew :app:connectedDebugAndroidTest --no-daemon
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            adb shell wm size 720x1280
+            adb shell wm density 320
+            adb shell settings put system font_scale 1.0
+            set +e; ./gradlew :app:connectedDebugAndroidTest --no-daemon --console=plain; code=$?; mkdir -p /tmp/worker-ui-evidence; adb pull /sdcard/Android/data/com.ayrovi.worker/files/ui-evidence /tmp/worker-ui-evidence || true; exit $code
+      - name: Summarize Android test evidence
+        if: always()
+        working-directory: mobile
+        run: python3 ../.github/workflows/annotate-android.py 0 /dev/null --android-only
       - name: Upload emulator evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: worker-emulator-results
-          path: mobile/app/build/reports/androidTests/
+          path: |
+            mobile/app/build/reports/androidTests/
+            mobile/app/build/outputs/androidTest-results/
+            /tmp/worker-ui-evidence/

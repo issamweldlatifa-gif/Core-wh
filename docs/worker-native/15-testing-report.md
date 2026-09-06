@@ -1,5 +1,7 @@
 # 15 · Verification and regression report
 
+**v1.4.1 update in verification:** white/black themes, CT40-oriented navigation and one-tap Carton/Produit modes are implemented. New mode/appearance tests and automatic emulator checks are added; the previous v1.4.0 evidence below is retained and is not proof of these new changes. Final run/artifact will be recorded after completion.
+
 Date: **2026-09-06**. Latest verified native source: **`b0771e89e77c41d29c16a472ebd065b6dc9132a5`** on `arena/01a073df-core-wh`. Subsequent dossier-only edits do not change this tested source.
 
 **Native build is green. Warehouse/production acceptance is not complete.** Executed tests, source review, authored tests and missing physical/live validation are separate evidence categories.

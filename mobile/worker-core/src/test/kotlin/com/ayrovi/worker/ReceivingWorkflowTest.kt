@@ -18,6 +18,7 @@ class ReceivingWorkflowTest {
     private fun TestScope.workflow(backend: ReceivingBackend, journal: MemoryJournal = MemoryJournal(), permissions: Set<String> = workerPermissions): ReceivingWorkflow =
         ReceivingWorkflow(backend, journal, "worker", permissions, this).also {
             it.updateAccess(permissions, true); it.initialize(); runCurrent()
+            it.selectMode(ReceivingMode.PRODUCTS); runCurrent()
         }
     private fun TestScope.open(workflow: ReceivingWorkflow) { workflow.openArrival("WAR-001"); runCurrent() }
     private fun TestScope.carton(workflow: ReceivingWorkflow) {

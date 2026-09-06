@@ -54,3 +54,7 @@ Foreground/resume and periodic online context reads refresh permissions. Mutatio
 BC-04: backend Receiving lacks owner/takeover scope and atomic start. BC-05: refresh token stored-hash verification/atomic consumption and stronger device policy remain backend security work. Device manufacturer/model or an exported scanner broadcast is not attestation.
 
 Mandatory live tests: incorrect password/PIN; inactive worker; wrong application; unregistered/disabled/differently assigned device; revoked access/refresh; role removed mid-task; unauthorized direct API POST despite hidden UI; another worker's assignment; supervisor missing resolution capability; logout offline; logout/refresh race; next worker encountering an unresolved operation. Record backend revision, actor permission set and response/effects, without credentials. No such live matrix is certified yet.
+
+## UI independence and confidentiality (v1.4.1)
+
+Theme and navigation changes do not move stock arithmetic, role enforcement or credentials into Compose. The interface renders core state and dispatches intents; the backend remains the security boundary. Only WHITE/BLACK is stored in the non-sensitive appearance preferences. Client APK logic can be inspected/reverse-engineered; confidentiality must not depend on hiding a button or concealing client code. No production secret is embedded, and backend-only rules remain on the server.

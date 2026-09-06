@@ -16,11 +16,9 @@ class MainActivity : ComponentActivity() {
     private var container: AppContainer? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(TerminalTokens.background.toArgb()),
-            navigationBarStyle = SystemBarStyle.dark(TerminalTokens.background.toArgb()),
-        )
         container = runCatching { (application as AyroviWorkerApplication).container }.getOrNull()
+        applyAppearance(if (BuildConfig.WORKER_LEGACY_FALLBACK) TerminalThemeMode.BLACK
+            else container?.appearance?.theme?.value ?: TerminalThemeMode.WHITE)
         setContent {
             val dependencies = container
             if (dependencies == null) {
@@ -44,8 +42,14 @@ class MainActivity : ComponentActivity() {
                         WarningState("UNRESOLVED OPERATION", "This device has an unresolved native operation. Use the approved native recovery build and reconcile with a supervisor before switching clients. Do not clear app data.")
                     }
                 }
-            } else WorkerTerminalApp(dependencies)
+            } else WorkerTerminalApp(dependencies, ::applyAppearance)
         }
+    }
+    private fun applyAppearance(mode: TerminalThemeMode) {
+        val palette = TerminalPalette.forMode(mode)
+        val style = if (mode == TerminalThemeMode.BLACK) SystemBarStyle.dark(palette.background.toArgb())
+        else SystemBarStyle.light(palette.background.toArgb(), palette.background.toArgb())
+        enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
     }
     override fun onStart() { super.onStart(); container?.connectivity?.start() }
     override fun onStop() { container?.connectivity?.stop(); super.onStop() }

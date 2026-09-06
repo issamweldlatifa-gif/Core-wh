@@ -8,6 +8,18 @@ Home shows only server-authorized work, real arrival queue size and own instruct
 
 Architecture: `ReceivingScreen → ReceivingViewModel → ReceivingWorkflow → ReceivingGateway/WorkerRepository → actual AYROVI API`. Shared `TerminalScanInput` and design-system components only. No per-screen API implementation or independent scanner.
 
+## v1.4.1 · One-tap Carton / Produit modes
+
+One shared `ReceivingWorkflow`, repository and scanner, **not two workflows/APIs/apps**. Modes are interaction intents, not backend permissions.
+
+- **Carton (default):** arrival → scan/identify carton → explicit receipt confirmation → next carton. This does not receive product units or alter expected quantities.
+- **Produit:** switches to the article lane. A required source carton must have an actual server RECEIVED event; an identified-but-unconfirmed carton stays on confirmation. An ACTIVE RECEIVING tote is required and a reused tote is re-read on mode entry. The existing one-article confirmation/acknowledgement policy remains.
+- A mode change cannot dismiss an unresolved mutation or confirmed receipt awaiting acknowledgement, bypass pause/completion/offline/auth checks, or authorize a stock action. It sends no stock POST.
+- Switching away from a product review discards only its unsubmitted draft. Confirmed source and tote context are distinct from the current carton preview. Missing/removed source events force verification rather than inferring acceptance from totals.
+- Back navigation is in the header; task actions are grouped in a scanner-suspending menu. One scanner host stays mounted across operational steps, rather than recreating hardware adapters for each phase.
+
+The state table below describes the shared product lane; in Carton mode confirmation returns directly to CARTON. API requests/schema/permissions are unchanged. No bulk, condition/rejection, offline replay or backend authorization is invented by these mode buttons.
+
 ## Guided state machine
 
 | State / instruction | Input and backend action | Advance condition / feedback |

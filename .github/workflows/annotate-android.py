@@ -54,7 +54,30 @@ def summarize_reports() -> None:
             print(f"::error{where}::" + escape(message))
 
 
+def summarize_android_tests() -> None:
+    files = glob.glob("app/build/outputs/androidTest-results/connected/**/*.xml", recursive=True)
+    total = failed = skipped = 0
+    for path in files:
+        try:
+            root = ET.parse(path).getroot()
+        except ET.ParseError:
+            continue
+        total += int(root.get("tests", 0))
+        failed += int(root.get("failures", 0)) + int(root.get("errors", 0))
+        skipped += int(root.get("skipped", 0))
+        for case in root.findall("testcase"):
+            for failure in list(case.findall("failure")) + list(case.findall("error")):
+                print("::error::" + escape(f"Android {case.get('classname')}.{case.get('name')}: {failure.get('message', '')}\n{failure.text or ''}"[:3500]))
+    if files:
+        print(f"::notice::Android instrumentation: {total} tests, {failed} failures, {skipped} skipped (emulator, not physical CT40)")
+    else:
+        print("::warning::No Android instrumentation results were produced; not a test pass.")
+
+
 def main() -> int:
+    if "--android-only" in sys.argv:
+        summarize_android_tests()
+        return 0
     if len(sys.argv) < 3:
         return 2
     try:

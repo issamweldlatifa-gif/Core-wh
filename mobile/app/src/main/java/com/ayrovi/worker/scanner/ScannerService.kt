@@ -10,6 +10,7 @@ class ScannerService(context: Context, val coordinator: ScanCoordinator) {
     private val zebra = ZebraDataWedgeScanner(context) { value, symbology ->
         coordinator.onScanned(value, false, ScanSource.EXTERNAL_SCANNER.name, symbology)
     }
+    val supportsSoftwareTrigger: Boolean get() = ZebraDataWedgeScanner.isZebraDevice()
     val hasHardware: Boolean get() = HoneywellScanner.isHoneywellDevice() || ZebraDataWedgeScanner.isZebraDevice()
 
     fun start() {

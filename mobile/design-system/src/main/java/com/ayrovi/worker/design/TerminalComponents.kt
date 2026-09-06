@@ -17,6 +17,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
@@ -33,31 +37,84 @@ fun TerminalShell(
     header: @Composable () -> Unit,
     footer: @Composable () -> Unit,
     scrollKey: Any? = null,
+    toolbar: @Composable () -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val scroll = rememberScrollState()
     LaunchedEffect(scrollKey) { scroll.scrollTo(0) }
     Column(Modifier.fillMaxSize().background(TerminalTokens.background).safeDrawingPadding().imePadding()) {
         header()
+        toolbar()
         HorizontalDivider(color = TerminalTokens.border)
-        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll).padding(TerminalTokens.md),
-            verticalArrangement = Arrangement.spacedBy(TerminalTokens.md), content = content)
+        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll).padding(TerminalTokens.sm),
+            verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm), content = content)
         footer()
     }
 }
 
 @Composable
-fun TerminalHeader(operation: String, worker: String, station: String?, connection: String) {
-    Surface(color = TerminalTokens.surface) {
-        Column(Modifier.fillMaxWidth().padding(TerminalTokens.md), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+fun TerminalHeader(
+    operation: String, worker: String, station: String?, connection: String,
+    onBack: (() -> Unit)? = null, backEnabled: Boolean = true,
+) {
+    val toggleTheme = LocalTerminalThemeToggle.current
+    val mode = LocalTerminalThemeMode.current
+    Surface(color = TerminalTokens.background) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = TerminalTokens.sm, vertical = TerminalTokens.xs),
+            verticalArrangement = Arrangement.spacedBy(TerminalTokens.xxs)) {
             FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.md),
-                verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-                Text("AYROVI / WORKER", style = MaterialTheme.typography.labelMedium, color = TerminalTokens.muted)
+                verticalArrangement = Arrangement.spacedBy(TerminalTokens.xxs)) {
+                Text("AYROVI / WORKER", style = MaterialTheme.typography.labelMedium, color = TerminalTokens.text)
                 ConnectionStatus(connection)
             }
-            Text(operation, style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
-            Text(worker, style = MaterialTheme.typography.bodyMedium)
-            if (station != null) Text(station, style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+                if (onBack != null) HeaderAction("‹", "Back to work queue", onBack, backEnabled)
+                Text(operation, style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.weight(1f).semantics { heading() })
+                if (toggleTheme != null) HeaderAction(mode.next().name,
+                    "Switch to ${mode.next().name.lowercase()} theme", toggleTheme)
+            }
+            Text(listOfNotNull(station, worker).joinToString(" · "), style = MaterialTheme.typography.bodyMedium,
+                color = TerminalTokens.muted)
+        }
+    }
+}
+
+@Composable
+private fun HeaderAction(label: String, description: String, onClick: () -> Unit, enabled: Boolean = true) {
+    OutlinedButton(onClick = onClick, enabled = enabled,
+        modifier = Modifier.width(TerminalTokens.headerActionWidth).heightIn(min = TerminalTokens.touch)
+            .semantics { contentDescription = description },
+        shape = MaterialTheme.shapes.small, border = BorderStroke(TerminalTokens.stroke, TerminalTokens.border),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = TerminalTokens.text),
+        contentPadding = PaddingValues(TerminalTokens.xs)) {
+        Text(label, style = if (label == "‹") MaterialTheme.typography.headlineMedium else MaterialTheme.typography.labelLarge)
+    }
+}
+
+/** Generic, state-driven segmented control. It knows no warehouse rule or API. */
+@Composable
+fun TerminalModeSelector(
+    first: String, second: String, firstSelected: Boolean, enabled: Boolean,
+    onFirst: () -> Unit, onSecond: () -> Unit,
+) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = TerminalTokens.sm, vertical = TerminalTokens.xs),
+        horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+        listOf(Triple(first, firstSelected, onFirst), Triple(second, !firstSelected, onSecond)).forEach { (label, chosen, action) ->
+            val modifier = Modifier.weight(1f).heightIn(min = TerminalTokens.touch)
+                .semantics { selected = chosen; role = Role.Tab }
+            if (chosen) Button(onClick = action, enabled = enabled, modifier = modifier,
+                shape = MaterialTheme.shapes.small,
+                colors = ButtonDefaults.buttonColors(containerColor = TerminalTokens.primary, contentColor = TerminalTokens.onPrimary),
+                contentPadding = PaddingValues(TerminalTokens.xs)) {
+                Text("✓ $label", style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center)
+            } else OutlinedButton(onClick = action, enabled = enabled, modifier = modifier,
+                shape = MaterialTheme.shapes.small, border = BorderStroke(TerminalTokens.stroke, TerminalTokens.border),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = TerminalTokens.text),
+                contentPadding = PaddingValues(TerminalTokens.xs)) {
+                Text(label, style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center)
+            }
         }
     }
 }
@@ -65,7 +122,7 @@ fun TerminalHeader(operation: String, worker: String, station: String?, connecti
 @Composable
 fun TerminalFooter(instruction: String, actions: @Composable ColumnScope.() -> Unit) {
     Surface(color = TerminalTokens.surface, tonalElevation = TerminalTokens.flat) {
-        Column(Modifier.fillMaxWidth().padding(TerminalTokens.md), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+        Column(Modifier.fillMaxWidth().padding(TerminalTokens.sm), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
             Text(instruction, style = MaterialTheme.typography.labelMedium, color = TerminalTokens.muted)
             actions()
         }
@@ -76,17 +133,21 @@ fun TerminalFooter(instruction: String, actions: @Composable ColumnScope.() -> U
 fun TerminalPanel(title: String? = null, content: @Composable ColumnScope.() -> Unit) {
     Surface(Modifier.fillMaxWidth(), color = TerminalTokens.surface, shape = MaterialTheme.shapes.medium,
         border = BorderStroke(TerminalTokens.stroke, TerminalTokens.border)) {
-        Column(Modifier.padding(TerminalTokens.md), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+        Column(Modifier.padding(TerminalTokens.sm), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
             if (title != null) Text(title, style = MaterialTheme.typography.labelMedium, color = TerminalTokens.muted)
             content()
         }
     }
 }
 
-@Composable fun TaskHeader(number: String, status: String) {
-    TerminalPanel("CURRENT TASK") {
-        TaskNumber(number)
-        TaskStatus(status)
+@Composable fun TaskHeader(number: String, status: String, detail: String? = null) {
+    TerminalPanel {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(TerminalTokens.md),
+            verticalArrangement = Arrangement.spacedBy(TerminalTokens.xxs)) {
+            TaskNumber(number)
+            TaskStatus(status)
+        }
+        if (detail != null) Text(detail, style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)
     }
 }
 @Composable fun TaskNumber(number: String) = Text(number, style = MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Monospace))
@@ -121,14 +182,15 @@ fun LocationBlock(code: String, hierarchy: List<Pair<String, String>> = emptyLis
 
 @Composable
 fun ScanZone(label: String, enabled: Boolean, controls: @Composable ColumnScope.() -> Unit) {
+    val scanColor = if (enabled) TerminalTokens.instruction else TerminalTokens.muted
     Surface(Modifier.fillMaxWidth(), color = TerminalTokens.surface, shape = MaterialTheme.shapes.medium,
         border = BorderStroke(TerminalTokens.stroke, if (enabled) TerminalTokens.instruction else TerminalTokens.border)) {
-        Column(Modifier.padding(TerminalTokens.md), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
+        Column(Modifier.padding(TerminalTokens.sm), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TerminalTokens.md)) {
                 Canvas(Modifier.size(TerminalTokens.reticle)) {
                     val stroke = TerminalTokens.stroke.toPx() * 2
                     val arm = size.width / 3
-                    val c = if (enabled) TerminalTokens.instruction else TerminalTokens.muted
+                    val c = scanColor
                     for ((x, y) in listOf(0f to 0f, size.width to 0f, 0f to size.height, size.width to size.height)) {
                         drawLine(c, Offset(x, y), Offset(if (x == 0f) arm else x - arm, y), stroke)
                         drawLine(c, Offset(x, y), Offset(x, if (y == 0f) arm else y - arm), stroke)
@@ -170,6 +232,17 @@ fun ScanZone(label: String, enabled: Boolean, controls: @Composable ColumnScope.
 }
 @Composable fun StepIndicator(current: Int, total: Int, label: String) = Text("STEP $current / $total · $label", style = MaterialTheme.typography.labelMedium, color = TerminalTokens.muted)
 
+@Composable
+fun TerminalNotice(title: String, detail: String, tone: TerminalTone) {
+    Surface(Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
+        color = TerminalTokens.raised, shape = MaterialTheme.shapes.small) {
+        Column(Modifier.padding(TerminalTokens.sm), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xxs)) {
+            StatusBadge(title, tone)
+            Text(detail, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
 @Composable fun SuccessState(title: String, detail: String) = OperationalState(title, detail, TerminalTone.SUCCESS)
 @Composable fun WarningState(title: String, detail: String) = OperationalState(title, detail, TerminalTone.WARNING)
 @Composable fun ExceptionState(title: String, detail: String) = OperationalState(title, detail, TerminalTone.WARNING)
@@ -188,7 +261,7 @@ fun ScanZone(label: String, enabled: Boolean, controls: @Composable ColumnScope.
 private fun OperationalState(title: String, detail: String, tone: TerminalTone, expected: String? = null, scanned: String? = null) {
     Surface(Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }, color = TerminalTokens.surface,
         shape = MaterialTheme.shapes.small, border = BorderStroke(TerminalTokens.stroke, tone.color())) {
-        Column(Modifier.padding(TerminalTokens.md), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+        Column(Modifier.padding(TerminalTokens.sm), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
             Text("${symbol(tone)}  $title", style = MaterialTheme.typography.titleMedium, color = tone.color())
             Text(detail, style = MaterialTheme.typography.bodyLarge)
             if (expected != null) { Text("EXPECTED", style = MaterialTheme.typography.labelMedium); BarcodeDisplay(expected) }
@@ -230,7 +303,7 @@ private fun TerminalAction(label: String, onClick: () -> Unit, enabled: Boolean,
     if (primary || danger) Button(onClick, size, enabled,
         shape = MaterialTheme.shapes.small,
         colors = ButtonDefaults.buttonColors(containerColor = if (danger) TerminalTokens.error else TerminalTokens.primary,
-            contentColor = TerminalTokens.onPrimary),
+            contentColor = if (danger) TerminalTokens.onError else TerminalTokens.onPrimary),
         contentPadding = PaddingValues(TerminalTokens.md), content = text)
     else OutlinedButton(onClick, size, enabled, shape = MaterialTheme.shapes.small,
         border = BorderStroke(TerminalTokens.stroke, TerminalTokens.border),
@@ -243,6 +316,7 @@ fun TerminalTextInput(
     label: String, value: String, onValueChange: (String) -> Unit,
     enabled: Boolean = true, secret: Boolean = false, keyboardType: KeyboardType = KeyboardType.Text,
     error: String? = null, onSubmit: (() -> Unit)? = null, singleLine: Boolean = true,
+    modifier: Modifier = Modifier.fillMaxWidth(),
 ) {
     OutlinedTextField(
         value = value, onValueChange = onValueChange, enabled = enabled, singleLine = singleLine,
@@ -254,7 +328,7 @@ fun TerminalTextInput(
             autoCorrectEnabled = false, imeAction = if (onSubmit != null) ImeAction.Done else ImeAction.Default),
         keyboardActions = KeyboardActions(onDone = { if (enabled) onSubmit?.invoke() }),
         isError = error != null, supportingText = error?.let { { Text(it) } },
-        modifier = Modifier.fillMaxWidth().heightIn(min = TerminalTokens.touch),
+        modifier = modifier.heightIn(min = TerminalTokens.touch),
         shape = MaterialTheme.shapes.small,
     )
 }

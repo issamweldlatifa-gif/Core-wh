@@ -11,7 +11,7 @@ physical trigger / camera / manual input
           → StateFlow → terminal UI + text/icon/tone feedback
 ```
 
-One scanner decision implementation for all native workflows. No API inside scanner; no scanner implemented separately in each new screen. Existing `ScanDecision` is the reuse point. Web scanner remains frozen fallback and is never packaged as JavaScript in Android.
+One scanner decision implementation for all native workflows. In v1.4.1, one foreground capture host stays mounted across Receiving steps; hidden/review/menu states disable capture without creating another scanner engine. Manual entry expands on demand and retains its input preference across steps; source codes remain exact. No API inside scanner; no scanner implemented separately in each new screen. Existing `ScanDecision` is the reuse point. Web scanner remains frozen fallback and is never packaged as JavaScript in Android.
 
 ## Capture / state rules
 
