@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import type { AuditAction } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TASK_REGISTRY } from './terminal.service';
+import { AssignmentsService } from '../assignments/assignments.service';
 
 /**
  * Admin Control Center read models (spec §36/§37/§38).
@@ -91,7 +92,10 @@ type Metric = { key: string; value: number; unit: string };
 
 @Injectable()
 export class OperationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly assignmentsSvc: AssignmentsService,
+  ) {}
 
   /** Latest operational-audit timestamp per user (one typed aggregate query).
    * Plain `groupBy._max` on the audit log is avoided so the Control Center
@@ -1430,7 +1434,7 @@ export class OperationsService {
     const lastAt = await this.lastOpsActivityByUser(userIds);
     const openAssignments = await this.prisma.workerTaskAssignment.groupBy({
       by: ['workerId'],
-      where: { status: 'OPEN' },
+      where: { status: { in: ['ASSIGNED', 'IN_PROGRESS', 'BLOCKED'] } },
       _count: { _all: true },
     });
     const openTasksByWorker = new Map<string, number>();
@@ -1530,88 +1534,38 @@ export class OperationsService {
     }
     await this.prisma.user.update({ where: { id: target.id }, data: { status: 'DISABLED' } });
     await this.revokeUserSessions(target.id);
-    await this.prisma.workerTaskAssignment.updateMany({ where: { workerId: target.id, status: 'OPEN' }, data: { status: 'CANCELLED', cancelledById: actor.id, cancelledAt: new Date(), cancelReason: `worker removed — ${reason.trim()}` } });
+    await this.prisma.workerTaskAssignment.updateMany({ where: { workerId: target.id, status: { in: ['ASSIGNED', 'IN_PROGRESS', 'BLOCKED'] } }, data: { status: 'CANCELLED', cancelledById: actor.id, cancelledAt: new Date(), cancelReason: `worker removed — ${reason.trim()}` } });
     await this.auditWorkerControl(actor, 'USER_STATUS_CHANGED', target, { change: 'REMOVE', from: target.status, to: 'DISABLED', reason: reason.trim() });
     return { ok: true, id: target.id, employeeCode: target.employeeCode, status: 'DISABLED' };
   }
 
   // ---- Worker task assignments (admin side) --------------------------------
+  // Delegated to AssignmentsService, which owns the operational model:
+  // taskKey + authoritative entity links + ASSIGNED/IN_PROGRESS/COMPLETED
+  // lifecycle. These wrappers keep the historical /worker-tasks surface
+  // working while the Admin UI migrates to /operations/assignments.
 
-  async workerTasksList(workerId?: string, status?: string) {
-    const rows = await this.prisma.workerTaskAssignment.findMany({
-      where: {
-        ...(workerId ? { workerId } : {}),
-        ...(status && status !== 'ALL' ? { status: status as any } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 300,
-      include: {
-        worker: { select: { id: true, name: true, employeeCode: true, status: true } },
-        createdBy: { select: { id: true, name: true, employeeCode: true } },
-        completedBy: { select: { id: true, name: true, employeeCode: true } },
-      },
-    });
-    return rows.map((r) => ({
-      id: r.id,
-      title: r.title,
-      description: r.description,
-      relatedType: r.relatedType,
-      relatedCode: r.relatedCode,
-      status: r.status,
-      note: r.note,
-      createdAt: r.createdAt.toISOString(),
-      completedAt: r.completedAt?.toISOString() ?? null,
-      cancelledAt: r.cancelledAt?.toISOString() ?? null,
-      worker: r.worker ? { id: r.worker.id, name: r.worker.name, employeeCode: r.worker.employeeCode, status: r.worker.status } : null,
-      createdBy: r.createdBy ? { id: r.createdBy.id, name: r.createdBy.name, employeeCode: r.createdBy.employeeCode } : null,
-      completedBy: r.completedBy ? { id: r.completedBy.id, name: r.completedBy.name, employeeCode: r.completedBy.employeeCode } : null,
-    }));
+  workerTasksList(workerId?: string, status?: string, taskKey?: string) {
+    return this.assignmentsSvc.list({ workerId, status, taskKey });
   }
 
-  async workerTaskCreate(
-    input: { workerId: string; title: string; description?: string; relatedType?: string; relatedCode?: string },
+  workerTaskCreate(
+    input: {
+      workerId: string;
+      title?: string;
+      description?: string;
+      taskKey?: string;
+      relatedType?: string;
+      relatedCode?: string;
+      stationId?: string | null;
+    },
     actor: { id: string; ip?: string },
   ) {
-    const workerId = (input.workerId ?? '').trim();
-    const title = (input.title ?? '').trim();
-    if (!workerId) throw new BadRequestException('workerId is required.');
-    if (title.length < 3) throw new BadRequestException('A task title of at least 3 characters is required.');
-    const worker = await this.requireManageableWorker(workerId);
-    if (worker.status === 'DISABLED') throw new BadRequestException(`${worker.employeeCode} was removed — reactivate before assigning tasks.`);
-    const row = await this.prisma.workerTaskAssignment.create({
-      data: {
-        workerId,
-        title,
-        description: input.description?.trim() ? input.description.trim() : null,
-        relatedType: input.relatedType || null,
-        relatedCode: input.relatedCode || null,
-        createdById: actor.id || null,
-      },
-    });
-    await this.auditWorkerControl(actor, 'TASK_ASSIGNED', worker, {
-      taskId: row.id,
-      title,
-      relatedType: input.relatedType ?? null,
-      relatedCode: input.relatedCode ?? null,
-    });
-    return { ok: true, id: row.id, status: 'OPEN' };
+    return this.assignmentsSvc.create(input, actor);
   }
 
-  async workerTaskCancel(id: string, actor: { id: string; ip?: string }, reason?: string) {
-    const row = await this.prisma.workerTaskAssignment.findUnique({ where: { id }, include: { worker: { select: { id: true, name: true, employeeCode: true, status: true } } } });
-    if (!row) throw new NotFoundException(`No task assignment found for "${id}".`);
-    if (row.status !== 'OPEN') throw new ConflictException(`Task ${id} is already ${row.status}.`);
-    const reasonText = (reason ?? '').trim();
-    await this.prisma.workerTaskAssignment.update({
-      where: { id },
-      data: { status: 'CANCELLED', cancelledById: actor.id || null, cancelledAt: new Date(), cancelReason: reasonText || 'cancelled by admin' },
-    });
-    await this.auditWorkerControl(actor, 'TASK_CANCELLED', row.worker, {
-      taskId: row.id,
-      title: row.title,
-      reason: reasonText || null,
-    });
-    return { ok: true, id, status: 'CANCELLED' };
+  workerTaskCancel(id: string, actor: { id: string; ip?: string }, reason?: string) {
+    return this.assignmentsSvc.cancel(id, actor, reason);
   }
 
   /** Workforce → Tasks board: canonical registry + real floor numbers. */

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { getAccessToken } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { adminApi } from '../api';
 
@@ -35,7 +36,9 @@ const labelFor = (topic: string) =>
   }[topic] ?? topic.toUpperCase());
 
 export default function LiveBoard() {
-  const { token } = useAuth();
+  // The auth context carries no token (by design); read the stored access
+  // token for the SSE query param instead (EventSource cannot send headers).
+  const token = getAccessToken();
   const [events, setEvents] = useState<LiveEvent[]>([]);
   const [connected, setConnected] = useState(false);
   const [counters, setCounters] = useState({ accepted: 0, rejected: 0, packed: 0, shipped: 0, ready: 0 });

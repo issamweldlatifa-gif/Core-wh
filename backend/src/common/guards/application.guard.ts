@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { APPLICATION_KEY } from '../decorators/require-application.decorator';
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { RequestWithUser } from '../interfaces/request-with-user.interface';
 import { AuditService } from '../../modules/audit/audit.service';
 import type { ApplicationKind } from '../../modules/access/application-access';
@@ -31,26 +32,36 @@ export class ApplicationGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const required = this.reflector.getAllAndOverride<ApplicationKind>(
+    const required = this.reflector.getAllAndOverride<ApplicationKind[]>(
       APPLICATION_KEY,
       [context.getHandler(), context.getClass()],
     );
-    if (!required) return true;
+    if (!required || required.length === 0) return true;
+
+    // @Public() routes (e.g. /system/health) are unauthenticated by design —
+    // there is no session surface to isolate, so this guard must not touch
+    // them. Without this, an anonymous health probe on a surface-declaring
+    // controller would be rejected with 403 and break deploy health checks.
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (isPublic) return true;
 
     const request = context.switchToHttp().getRequest<RequestWithUser>();
     const user = request.user;
     if (!user) {
       throw new ForbiddenException('Access denied.');
     }
-    if (user.application !== required) {
+    if (!required.includes(user.application)) {
       await this.recordDenial(user, required, 'application_mismatch', request.ip);
+      const label = required.map((r) => (r === 'WORKER_NATIVE' ? 'Worker' : 'Admin')).join(' or ');
       throw new ForbiddenException(
-        `This endpoint is reserved for the ${
-          required === 'WORKER_NATIVE' ? 'Worker' : 'Admin'
-        } application; this session is ${user.application}.`,
+        `This endpoint is reserved for the ${label} application; this session is ${user.application}.`,
       );
     }
-    if (!(user.allowedApplications ?? []).includes(required)) {
+    const allowed = user.allowedApplications ?? [];
+    if (!required.some((app) => allowed.includes(app))) {
       await this.recordDenial(user, required, 'roles_do_not_open_surface', request.ip);
       throw new ForbiddenException('Your roles cannot open this application surface.');
     }
@@ -59,7 +70,7 @@ export class ApplicationGuard implements CanActivate {
 
   private async recordDenial(
     user: { id: string; application: ApplicationKind; roles?: string[] },
-    required: ApplicationKind,
+    required: ApplicationKind[],
     reason: string,
     ip?: string,
   ) {
@@ -68,7 +79,9 @@ export class ApplicationGuard implements CanActivate {
     // event from the admin side; a WORKER_NATIVE session hitting an admin
     // route is an "admin access denied" event from the worker side.
     const action =
-      required === 'WORKER_NATIVE' ? 'WORKER_APP_ACCESS_DENIED' : 'ADMIN_APP_ACCESS_DENIED';
+      required.includes('WORKER_NATIVE') && !required.includes('ADMIN_WEB')
+        ? 'WORKER_APP_ACCESS_DENIED'
+        : 'ADMIN_APP_ACCESS_DENIED';
     try {
       await this.audit.log({
         actorUserId: user.id,

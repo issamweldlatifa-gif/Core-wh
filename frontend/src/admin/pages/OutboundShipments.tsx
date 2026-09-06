@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import client from '../../api/client';
+import { printLabel } from '../../terminal/print-label';
 
 /**
  * Outbound Shipments board (Admin Control Center).
@@ -102,7 +103,34 @@ export default function OutboundShipments() {
             <tbody>
               {rows.map((s) => (
                 <tr key={s.code}>
-                  <td className="mono">{s.code}</td>
+                  <td className="mono">
+                    {s.code}{' '}
+                    <button
+                      type="button"
+                      className="ac-linkbtn"
+                      title="Print the dispatch note (bordereau) — authoritative backend data only"
+                      onClick={() =>
+                        printLabel({
+                          kind: 'DISPATCH NOTE',
+                          code: s.code,
+                          bigLabel: s.order.externalCustomerReference,
+                          lines: [
+                            { k: 'ORDER', v: s.order.externalOrderReference },
+                            { k: 'CUSTOMER', v: s.order.externalCustomerReference },
+                            { k: 'BIN', v: s.container?.code ?? '—' },
+                            { k: 'PIECES', v: String(s._count.articles) },
+                            { k: 'STATUS', v: s.status },
+                            { k: 'CARRIER', v: s.carrier ?? 'INTERNAL' },
+                            { k: 'TRACKING', v: s.trackingNumber ?? '—' },
+                            { k: 'PACKED', v: new Date(s.packedAt).toLocaleString() },
+                            ...(s.shippedAt ? [{ k: 'SHIPPED', v: new Date(s.shippedAt).toLocaleString() }] : []),
+                          ],
+                        })
+                      }
+                    >
+                      print
+                    </button>
+                  </td>
                   <td className="mono">{s.order.externalOrderReference}</td>
                   <td>{s.order.externalCustomerReference}</td>
                   <td className="mono">{s.container?.code ?? '—'}</td>

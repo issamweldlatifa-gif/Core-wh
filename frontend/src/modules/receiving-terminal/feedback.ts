@@ -79,6 +79,18 @@ export function beepInfo() {
   tone(660, 0, 0.1, 0.12, 'sine');
 }
 
+/**
+ * Warning tone (attention, action needed but not an error) — e.g. a tote
+ * reaching capacity and being sealed for sorting. Always paired with a
+ * visual cue by the caller (never audio-only, §37).
+ */
+export function beepWarning() {
+  if (rateLimit(150)) return;
+  tone(520, 0, 0.12, 0.16, 'triangle');
+  tone(520, 0.18, 0.12, 0.16, 'triangle');
+  vibrate([60, 40, 60]);
+}
+
 /** Completion chime (two-tone up) when receiving closes cleanly. */
 export function beepDone() {
   if (rateLimit(150)) return;

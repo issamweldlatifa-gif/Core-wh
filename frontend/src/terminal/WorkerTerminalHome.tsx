@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useTerminalUi } from './WorkerShell';
-import { terminalApi, type TerminalAssignment } from './api';
+import { terminalApi, type TerminalAssignment, type WorkCount } from './api';
 
 /**
  * Worker Terminal home (spec §3).
@@ -27,6 +27,8 @@ export default function WorkerTerminalHome() {
   const [assign, setAssign] = useState<{ open: TerminalAssignment[]; recent: TerminalAssignment[] } | null>(null);
   const [assignLoaded, setAssignLoaded] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  // §34: live work counters (assigned to me / available on the floor / mine).
+  const [work, setWork] = useState<WorkCount[] | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -40,6 +42,14 @@ export default function WorkerTerminalHome() {
       })
       .finally(() => {
         if (alive) setAssignLoaded(true);
+      });
+    terminalApi
+      .work()
+      .then((d) => {
+        if (alive) setWork(d);
+      })
+      .catch(() => {
+        if (alive) setWork([]);
       });
     return () => {
       alive = false;
@@ -73,7 +83,7 @@ export default function WorkerTerminalHome() {
       await terminalApi.completeAssignment(a.id);
       setStatus({ text: `DONE — ${a.title}`, kind: 'ok' });
       setAssign((p) =>
-        p ? { open: p.open.filter((x) => x.id !== a.id), recent: [{ ...a, status: 'DONE' }, ...p.recent] } : p,
+        p ? { open: p.open.filter((x) => x.id !== a.id), recent: [{ ...a, status: 'COMPLETED' }, ...p.recent] } : p,
       );
     } catch {
       setStatus({ text: 'could not complete assigned task', kind: 'bad' });
@@ -135,6 +145,23 @@ export default function WorkerTerminalHome() {
         </section>
       )}
 
+      {work && work.length > 0 && (
+        <div className="wt-counters" aria-label="Work counters">
+          <div className="wt-counter wt-counter--warn">
+            <span className="wt-counter-label">ASSIGNED TO ME</span>
+            <span className="wt-counter-value">{work.reduce((n, w) => n + w.assigned, 0)}</span>
+          </div>
+          <div className="wt-counter">
+            <span className="wt-counter-label">AVAILABLE FLOOR WORK</span>
+            <span className="wt-counter-value">{work.reduce((n, w) => n + w.available, 0)}</span>
+          </div>
+          <div className="wt-counter wt-counter--ok">
+            <span className="wt-counter-label">STARTED BY ME</span>
+            <span className="wt-counter-value">{work.reduce((n, w) => n + (w.mine ?? 0), 0)}</span>
+          </div>
+        </div>
+      )}
+
       {tasks.length > 0 && (
         <div className="wt-tasks">
           {tasks.map((t) => {
@@ -144,6 +171,12 @@ export default function WorkerTerminalHome() {
               t.key === 'receiving' ? ctx?.activeSession?.code
               : t.key === 'putaway' ? ctx?.activePutaway?.code
               : undefined;
+            // Sub-actions (receiving tote) share their parent's route — render
+            // once per ROUTE, counters merged.
+            if (t.subtaskOf && tasks.some((p) => p.key === t.subtaskOf)) {
+              return null;
+            }
+            const counts = work?.find((w) => w.key === t.key);
             return (
               <button
                 key={t.key}
@@ -154,6 +187,19 @@ export default function WorkerTerminalHome() {
               >
                 <span className="wt-task-name">{t.label}</span>
                 <span className="wt-task-dept os-muted">{t.department}</span>
+                {counts && (counts.assigned > 0 || counts.available > 0 || (counts.mine ?? 0) > 0) ? (
+                  <span className="wt-task-counters">
+                    {counts.assigned > 0 && (
+                      <span className="wt-task-count"><b>{counts.assigned}</b><span className="os-muted">ASSIGNED</span></span>
+                    )}
+                    {counts.available > 0 && (
+                      <span className="wt-task-count"><b>{counts.available}</b><span className="os-muted">AVAILABLE</span></span>
+                    )}
+                    {(counts.mine ?? 0) > 0 && (
+                      <span className="wt-task-count"><b>{counts.mine}</b><span className="os-muted">MINE</span></span>
+                    )}
+                  </span>
+                ) : null}
                 {openCode ? (
                   <span className="os-tag os-tag--warn">IN PROGRESS · {openCode}</span>
                 ) : (

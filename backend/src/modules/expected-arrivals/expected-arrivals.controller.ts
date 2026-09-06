@@ -2,6 +2,7 @@ import { Body, Controller, Get, Ip, Param, Post, Query, Req } from '@nestjs/comm
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
+import { RequireApplication } from '../../common/decorators/require-application.decorator';
 import { ExpectedArrivalsService } from './expected-arrivals.service';
 
 class ChangeCategoryDto {
@@ -21,6 +22,7 @@ class ChangeCategoryDto {
 @ApiTags('Expected Arrivals')
 @ApiBearerAuth()
 @Controller('expected-arrivals')
+@RequireApplication('ADMIN_WEB')
 export class ExpectedArrivalsController {
   constructor(private readonly arrivals: ExpectedArrivalsService) {}
 

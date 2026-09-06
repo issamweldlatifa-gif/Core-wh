@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { AuditModule } from '../audit/audit.module';
+import { AssignmentsModule } from '../assignments/assignments.module';
 import { OperationsService } from './operations.service';
 import { StationsService } from './stations.service';
 import { CorrectionsService } from './corrections.service';
@@ -20,7 +21,7 @@ import {
  * (§7/§8), keeping ReceivingService the single writer for normal scanning.
  */
 @Module({
-  imports: [PrismaModule, AuditModule],
+  imports: [PrismaModule, AuditModule, AssignmentsModule],
   controllers: [TerminalController, StationsController, OperationsController],
   providers: [OperationsService, StationsService, CorrectionsService, TerminalService],
   exports: [StationsService, TerminalService],

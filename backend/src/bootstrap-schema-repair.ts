@@ -64,7 +64,12 @@ const PROBE_SQL = `
     (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'outbound_shipments' AND column_name = 'containerId')    AS ob_container,
     (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'outbound_shipments' AND column_name = 'carrier')        AS ob_carrier,
     (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'operational_containers' AND column_name = 'createdBy')   AS container_created_by,
-    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'operational_containers' AND column_name = 'orderId')     AS container_order
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'operational_containers' AND column_name = 'orderId')     AS container_order,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'worker_task_assignments' AND column_name = 'taskKey')       AS wta_task_key,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'worker_task_assignments' AND column_name = 'arrivalId')     AS wta_arrival,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'worker_task_assignments' AND column_name = 'stationId')     AS wta_station,
+    (SELECT COUNT(*) FROM information_schema.tables  WHERE table_schema = 'public' AND table_name = 'receiving_scan_events')      AS receiving_scan_events,
+    (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'warehouse_cartons' AND column_name = 'claimedById')         AS carton_claim
 `;
 
 /**
@@ -368,6 +373,81 @@ const REPAIR_STATEMENTS: string[] = [
   `DO $$ BEGIN ALTER TABLE "worker_task_assignments" ADD CONSTRAINT "worker_task_assignments_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
   `DO $$ BEGIN ALTER TABLE "worker_task_assignments" ADD CONSTRAINT "worker_task_assignments_completedById_fkey" FOREIGN KEY ("completedById") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
   `DO $$ BEGIN ALTER TABLE "worker_task_assignments" ADD CONSTRAINT "worker_task_assignments_cancelledById_fkey" FOREIGN KEY ("cancelledById") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  // ---- worker operational model (20260906120000) ---------------------------
+  // AssignmentStatus rebuild: OPEN/DONE (advisory) -> operational lifecycle.
+  `DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'AssignmentStatus') THEN
+    CREATE TYPE "AssignmentStatus" AS ENUM ('ASSIGNED', 'IN_PROGRESS', 'COMPLETED', 'COMPLETED_WITH_DISCREPANCY', 'BLOCKED', 'CANCELLED');
+  ELSE
+    IF EXISTS (SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+               WHERE t.typname = 'AssignmentStatus' AND e.enumlabel = 'OPEN') THEN
+      IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'AssignmentStatus_new') THEN
+        CREATE TYPE "AssignmentStatus_new" AS ENUM ('ASSIGNED', 'IN_PROGRESS', 'COMPLETED', 'COMPLETED_WITH_DISCREPANCY', 'BLOCKED', 'CANCELLED');
+      END IF;
+      EXECUTE 'ALTER TABLE "worker_task_assignments" ALTER COLUMN "status" DROP DEFAULT';
+      EXECUTE 'ALTER TABLE "worker_task_assignments" ALTER COLUMN "status" TYPE "AssignmentStatus_new" '
+           || 'USING (CASE "status"::text WHEN ''OPEN'' THEN ''ASSIGNED''::text WHEN ''DONE'' THEN ''COMPLETED''::text ELSE "status"::text END)::"AssignmentStatus_new"';
+      DROP TYPE "AssignmentStatus";
+      ALTER TYPE "AssignmentStatus_new" RENAME TO "AssignmentStatus";
+      EXECUTE 'ALTER TABLE "worker_task_assignments" ALTER COLUMN "status" SET DEFAULT ''ASSIGNED''::"AssignmentStatus"';
+    END IF;
+  END IF;
+END $$`,
+  `ALTER TYPE "AssignmentStatus" ADD VALUE IF NOT EXISTS 'IN_PROGRESS'`,
+  `ALTER TYPE "AssignmentStatus" ADD VALUE IF NOT EXISTS 'COMPLETED_WITH_DISCREPANCY'`,
+  `ALTER TYPE "AssignmentStatus" ADD VALUE IF NOT EXISTS 'BLOCKED'`,
+  `ALTER TABLE "worker_task_assignments" ADD COLUMN IF NOT EXISTS "taskKey" TEXT`,
+  `ALTER TABLE "worker_task_assignments" ADD COLUMN IF NOT EXISTS "arrivalId" TEXT`,
+  `ALTER TABLE "worker_task_assignments" ADD COLUMN IF NOT EXISTS "cartonId" TEXT`,
+  `ALTER TABLE "worker_task_assignments" ADD COLUMN IF NOT EXISTS "containerId" TEXT`,
+  `ALTER TABLE "worker_task_assignments" ADD COLUMN IF NOT EXISTS "outboundShipmentId" TEXT`,
+  `ALTER TABLE "worker_task_assignments" ADD COLUMN IF NOT EXISTS "orderId" TEXT`,
+  `ALTER TABLE "worker_task_assignments" ADD COLUMN IF NOT EXISTS "stationId" TEXT`,
+  `UPDATE "worker_task_assignments" a SET "arrivalId" = e.id FROM "expected_arrivals" e WHERE a."relatedType" = 'ARRIVAL' AND a."relatedCode" = e.code AND a."arrivalId" IS NULL`,
+  `UPDATE "worker_task_assignments" a SET "cartonId" = c.id FROM "warehouse_cartons" c WHERE a."relatedType" IN ('CARTON', 'SHIPMENT') AND (a."relatedCode" = c."externalCartonId" OR a."relatedCode" = c."qrCodeValue" OR a."relatedCode" = c."barcodeValue") AND a."cartonId" IS NULL`,
+  `UPDATE "worker_task_assignments" a SET "containerId" = o.id FROM "operational_containers" o WHERE a."relatedType" IN ('CONTAINER', 'BIN', 'TOTE') AND a."relatedCode" = o.code AND a."containerId" IS NULL`,
+  `UPDATE "worker_task_assignments" a SET "outboundShipmentId" = s.id FROM "outbound_shipments" s WHERE a."relatedType" IN ('OUTBOUND', 'SHIPMENT_OUT') AND a."relatedCode" = s.code AND a."outboundShipmentId" IS NULL`,
+  `DO $$ BEGIN ALTER TABLE "worker_task_assignments" ADD CONSTRAINT "worker_task_assignments_arrivalId_fkey" FOREIGN KEY ("arrivalId") REFERENCES "expected_arrivals"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  `DO $$ BEGIN ALTER TABLE "worker_task_assignments" ADD CONSTRAINT "worker_task_assignments_cartonId_fkey" FOREIGN KEY ("cartonId") REFERENCES "warehouse_cartons"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  `DO $$ BEGIN ALTER TABLE "worker_task_assignments" ADD CONSTRAINT "worker_task_assignments_containerId_fkey" FOREIGN KEY ("containerId") REFERENCES "operational_containers"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  `DO $$ BEGIN ALTER TABLE "worker_task_assignments" ADD CONSTRAINT "worker_task_assignments_outboundShipmentId_fkey" FOREIGN KEY ("outboundShipmentId") REFERENCES "outbound_shipments"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  `DO $$ BEGIN ALTER TABLE "worker_task_assignments" ADD CONSTRAINT "worker_task_assignments_orderId_fkey" FOREIGN KEY ("orderId") REFERENCES "warehouse_orders"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  `DO $$ BEGIN ALTER TABLE "worker_task_assignments" ADD CONSTRAINT "worker_task_assignments_stationId_fkey" FOREIGN KEY ("stationId") REFERENCES "stations"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  `CREATE INDEX IF NOT EXISTS "worker_task_assignments_taskKey_status_idx" ON "worker_task_assignments"("taskKey", "status")`,
+  `CREATE INDEX IF NOT EXISTS "worker_task_assignments_arrivalId_idx" ON "worker_task_assignments"("arrivalId")`,
+  `CREATE INDEX IF NOT EXISTS "worker_task_assignments_cartonId_idx" ON "worker_task_assignments"("cartonId")`,
+  `CREATE INDEX IF NOT EXISTS "worker_task_assignments_containerId_idx" ON "worker_task_assignments"("containerId")`,
+  `CREATE INDEX IF NOT EXISTS "worker_task_assignments_outboundShipmentId_idx" ON "worker_task_assignments"("outboundShipmentId")`,
+  `CREATE INDEX IF NOT EXISTS "worker_task_assignments_stationId_idx" ON "worker_task_assignments"("stationId")`,
+  // receiving_scan_events — C-4 idempotency ledger.
+  `CREATE TABLE IF NOT EXISTS "receiving_scan_events" (
+    "id" TEXT NOT NULL,
+    "sessionId" TEXT NOT NULL,
+    "operationId" TEXT NOT NULL,
+    "kind" TEXT NOT NULL,
+    "code" TEXT,
+    "quantity" INTEGER NOT NULL DEFAULT 1,
+    "source" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "receiving_scan_events_pkey" PRIMARY KEY ("id")
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "receiving_scan_events_operationId_key" ON "receiving_scan_events"("operationId")`,
+  `CREATE INDEX IF NOT EXISTS "receiving_scan_events_sessionId_idx" ON "receiving_scan_events"("sessionId")`,
+  `CREATE INDEX IF NOT EXISTS "receiving_scan_events_kind_idx" ON "receiving_scan_events"("kind")`,
+  `DO $$ BEGIN ALTER TABLE "receiving_scan_events" ADD CONSTRAINT "receiving_scan_events_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "receiving_sessions"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  // warehouse_cartons — C-6 soft putaway claim.
+  `ALTER TABLE "warehouse_cartons" ADD COLUMN IF NOT EXISTS "claimedById" TEXT`,
+  `ALTER TABLE "warehouse_cartons" ADD COLUMN IF NOT EXISTS "claimedAt" TIMESTAMP(3)`,
+  // stations.deviceId -> Device registry FK (C-8).
+  `UPDATE "stations" s SET "deviceId" = d.id FROM "devices" d WHERE s."deviceId" = d.code`,
+  `UPDATE "stations" SET "deviceId" = NULL WHERE "deviceId" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "devices" d WHERE d.id = "stations"."deviceId")`,
+  `DO $$ BEGIN ALTER TABLE "stations" ADD CONSTRAINT "stations_deviceId_fkey" FOREIGN KEY ("deviceId") REFERENCES "devices"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  // worker issue reporting + assignment lifecycle audit actions.
+  `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'WORKER_ISSUE_REPORTED'`,
+  `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'TASK_IN_PROGRESS'`,
+  // receiving tote lifecycle: full or manually closed -> READY_FOR_SORTING.
+  `ALTER TYPE "ContainerStatus" ADD VALUE IF NOT EXISTS 'READY_FOR_SORTING'`,
 ];
 
 export async function repairSchemaDriftIfNeeded(): Promise<void> {
@@ -414,6 +494,7 @@ export async function repairSchemaDriftIfNeeded(): Promise<void> {
       '20260903130000_container_capacity',
       '20260903140000_admin_data_void_control',
       '20260903150000_admin_worker_control_tasks',
+      '20260906120000_worker_operational_model',
     ]) {
       try {
         await prisma.$executeRawUnsafe(`

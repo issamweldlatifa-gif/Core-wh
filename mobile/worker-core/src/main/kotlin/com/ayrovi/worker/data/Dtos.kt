@@ -160,6 +160,10 @@ import kotlinx.serialization.json.JsonElement
     val externalProductCode: String? = null, val name: String? = null,
 )
 
+@Serializable data class ClosedContainer(
+    val ok: Boolean? = null, val code: String, val status: String? = null, val count: Int = 0,
+)
+
 @Serializable data class ArticleScanResult(
     val flash: FlashView? = null, val matched: Boolean = false, val receivingProductId: String? = null,
 )

@@ -1,4 +1,10 @@
 # AYROVI WAREHOUSE — FULL DISCOVERY & AUDIT REPORT
+
+> ---
+> **⚠ SUPERSEDED (2026-09-06):** for the worker operational model (workers,
+> roles, permissions, stations, tasks, assignments, worker terminal/app) this
+> audit is HISTORICAL. Authoritative: `docs/WORKER-OPERATIONAL-MODEL.md` and
+> `AYROVI_OPERATIONAL_MODEL_DISCOVERY.md`.
 **تقرير الاستكشاف والتدقيق الشامل — قراءة فقط (READ-ONLY)**
 
 - Repository: `https://github.com/issamweldlatifa-gif/Core-wh.git`

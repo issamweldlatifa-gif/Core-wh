@@ -189,7 +189,7 @@ export default function PutawayTask() {
       setStep('CARTON');
       await refreshQueue();
     } catch (e: any) {
-      const m = e?.response?.data?.message ?? 'Server error';
+      const m = e?.response?.data?.message ?? 'the request failed — try again';
       report('bad', Array.isArray(m) ? m.join(', ') : String(m));
     } finally {
       setBusy(false);

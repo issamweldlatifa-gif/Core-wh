@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { apiErrorMessage } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
-import { adminApi, WORKER_ROLE_OPTIONS, type WorkerRow, type WorkerTaskRow } from '../api';
+import { adminApi, TASK_CATALOG, WORKER_ROLE_OPTIONS, type StationRow, type WorkerRow, type WorkerTaskRow } from '../api';
 import { useAsync } from './useAsync';
 
 /**
@@ -282,8 +282,21 @@ function WorkerRowLine({
 
 /* ------------------------------------------------------- assigned registry -- */
 
+const ASSIGNMENT_STATUS_FILTERS = ['ASSIGNED', 'IN_PROGRESS', 'BLOCKED', 'COMPLETED', 'COMPLETED_WITH_DISCREPANCY', 'CANCELLED', 'ALL'];
+
+function assignmentTagClass(status: string): string {
+  switch (status) {
+    case 'ASSIGNED': return 'os-tag--warn';
+    case 'IN_PROGRESS': return 'os-tag--info';
+    case 'COMPLETED': return 'os-tag--ok';
+    case 'COMPLETED_WITH_DISCREPANCY': return 'os-tag--warn';
+    case 'BLOCKED': return 'os-tag--danger';
+    default: return 'os-tag--muted';
+  }
+}
+
 function TaskRegistry() {
-  const [filter, setFilter] = useState('OPEN');
+  const [filter, setFilter] = useState('ASSIGNED');
   const { data, loading, error, reload } = useAsync(
     () => adminApi.workerTasks(filter === 'ALL' ? {} : { status: filter }),
     [filter],
@@ -311,7 +324,7 @@ function TaskRegistry() {
       <div className="os-spread" style={{ marginBottom: 8 }}>
         <h2 className="os-card-title">Assigned task registry</h2>
         <select className="os-input os-select" value={filter} onChange={(e) => setFilter(e.target.value)}>
-          {['OPEN', 'ALL', 'DONE', 'CANCELLED'].map((s) => <option key={s} value={s}>{s}</option>)}
+          {ASSIGNMENT_STATUS_FILTERS.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
       </div>
       {flash && <div className={flash.ok ? 'ac-ok' : 'ac-error'}>{flash.text}</div>}
@@ -343,23 +356,26 @@ function TaskRegistry() {
                     : '—'}
                 </td>
                 <td>
-                  <span className={`os-tag ${t.status === 'OPEN' ? 'os-tag--warn' : t.status === 'DONE' ? 'os-tag--ok' : 'os-tag--muted'}`}>
+                  <span className={`os-tag ${assignmentTagClass(t.status)}`}>
                     {t.status}
                   </span>
+                  {t.taskKey && <div className="os-muted" style={{ fontSize: '0.72rem' }}>{t.taskKey}</div>}
                 </td>
                 <td className="os-muted">
                   {t.createdBy ? `${t.createdBy.name} (${t.createdBy.employeeCode})` : '—'}
                   <div style={{ fontSize: '0.75rem' }}>{new Date(t.createdAt).toLocaleString()}</div>
                 </td>
                 <td className="os-muted" style={{ fontSize: '0.82rem' }}>
-                  {t.status === 'DONE' && t.completedBy
-                    ? <>Done by {t.completedBy.employeeCode}{t.note ? `: ${t.note}` : ''}</>
+                  {(t.status === 'COMPLETED' || t.status === 'COMPLETED_WITH_DISCREPANCY') && t.completedBy
+                    ? <>Completed by {t.completedBy.employeeCode}{t.note ? `: ${t.note}` : ''}</>
                     : t.status === 'CANCELLED'
                       ? (t.worker?.status === 'DISABLED' ? 'worker removed' : 'cancelled by admin')
-                      : '—'}
+                      : t.status === 'BLOCKED'
+                        ? (t.note || 'blocked')
+                        : '—'}
                 </td>
                 <td>
-                  {t.status === 'OPEN' && (
+                  {(t.status === 'ASSIGNED' || t.status === 'IN_PROGRESS') && (
                     <button type="button" className="ac-linkbtn ac-linkbtn--danger" disabled={cancelId === t.id} onClick={() => void cancel(t)}>
                       cancel
                     </button>
@@ -438,63 +454,109 @@ function AddWorkerModal({ onDone, onClose }: { onDone: (m: string) => void; onCl
 
 /* --------------------------------------------------------- assign a task -- */
 
-const REF_TYPES = [
-  { v: '', label: 'no reference' },
-  { v: 'ARRIVAL', label: 'Arrival' },
-  { v: 'ORDER', label: 'Order' },
-  { v: 'CONTAINER', label: 'Container' },
-];
-
+/**
+ * OPERATIONAL ASSIGNMENT (§40): pick the TASK TYPE, the real ENTITY the work
+ * applies to (the backend resolves the code to the authoritative row), and
+ * optionally a station. The assignment lands in the worker's terminal
+ * immediately as ASSIGNED; the workflow services drive its lifecycle.
+ */
 function AssignTaskModal({ w, onDone, onClose }: { w: WorkerRow; onDone: (m: string) => void; onClose: () => void }) {
+  const [taskKey, setTaskKey] = useState<string>('receiving');
+  const [entityCode, setEntityCode] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [refType, setRefType] = useState('');
-  const [refCode, setRefCode] = useState('');
+  const [stationId, setStationId] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const stations = useAsync(() => adminApi.stations(), []).data ?? [];
 
-  const valid = title.trim().length >= 3;
+  const catalog = TASK_CATALOG.find((t) => t.key === taskKey) ?? null;
+  const placeholder =
+    catalog?.key === 'receiving' ? 'WAR-… (expected arrival code)'
+    : catalog?.key === 'putaway' ? 'CTN-… (carton id)'
+    : catalog?.key === 'shipping' ? 'OUT-… (outbound shipment code)'
+    : catalog?.key === 'packing' || catalog?.key === 'order-sorting' ? 'BIN-… (customer bin)'
+    : catalog?.key === 'sorting' ? 'RCN-… (receiving tote)'
+    : 'entity code';
+  // An entity code is required for entity-bound tasks; instruction-only
+  // assignments need a title instead.
+  const entityRequired = !!catalog;
+  const valid = entityRequired ? entityCode.trim().length >= 3 : title.trim().length >= 3;
 
   async function submit() {
     if (!valid || busy) return;
     setBusy(true); setError(null);
     try {
-      await adminApi.workerTaskCreate({
+      const res = await adminApi.workerTaskCreate({
         workerId: w.id,
-        title: title.trim(),
+        taskKey: catalog?.key,
+        title: title.trim() ? title.trim() : undefined,
         description: description.trim() ? description.trim() : undefined,
-        relatedType: refType || undefined,
-        relatedCode: refType && refCode.trim() ? refCode.trim() : undefined,
+        relatedType: catalog?.entity,
+        relatedCode: entityCode.trim() ? entityCode.trim().toUpperCase() : undefined,
+        stationId: stationId || null,
       });
-      onDone(`Task assigned to ${w.employeeCode} — it now appears in their terminal.`);
+      onDone(
+        `Task ${res.taskKey ?? ''} assigned to ${w.employeeCode} — status ${res.status}. It appears in their terminal immediately.`,
+      );
     } catch (e) { setError(apiErrorMessage(e)); setBusy(false); }
   }
+
+  const workerStations = stations.filter((s) => s.assignedWorker?.id === w.id);
+  const suggestedStation = workerStations[0];
 
   return (
     <div className="ac-modal" role="dialog" aria-modal="true">
       <div className="ac-modal-box">
         <h2 className="ac-modal-title">Assign task to {w.name}</h2>
-        <p className="ac-sub">{w.employeeCode} · {w.roles.join(', ')} — the task will appear at the top of the worker terminal and can be marked DONE there.</p>
+        <p className="ac-sub">
+          {w.employeeCode} · {w.roles.join(', ')} — the assignment appears immediately in the worker
+          terminal as ASSIGNED and follows the real workflow (IN_PROGRESS → COMPLETED).
+        </p>
 
-        <div>
-          <label className="os-label" htmlFor="at-title">Task title</label>
-          <input id="at-title" className="os-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Receive arrival X and verify contents" autoFocus />
-        </div>
-        <div>
-          <label className="os-label" htmlFor="at-desc">Details / instructions (optional)</label>
-          <textarea id="at-desc" className="os-input" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="e.g. call the supervisor before closing the gate" />
-        </div>
         <div className="os-grid2">
           <div>
-            <label className="os-label" htmlFor="at-ref">Reference type (optional)</label>
-            <select id="at-ref" className="os-input os-select" value={refType} onChange={(e) => setRefType(e.target.value)}>
-              {REF_TYPES.map((r) => <option key={r.v} value={r.v}>{r.label}</option>)}
+            <label className="os-label" htmlFor="at-task">Task type</label>
+            <select id="at-task" className="os-input os-select" value={taskKey} onChange={(e) => setTaskKey(e.target.value)}>
+              <option value="">— instruction only (no workflow link) —</option>
+              {TASK_CATALOG.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
             </select>
           </div>
           <div>
-            <label className="os-label" htmlFor="at-code">Reference code</label>
-            <input id="at-code" className="os-input" value={refCode} onChange={(e) => setRefCode(e.target.value)} placeholder="e.g. ARR-2026-0001" disabled={!refType} />
+            <label className="os-label" htmlFor="at-code">
+              Entity code {entityRequired ? '' : '(optional)'}
+            </label>
+            <input
+              id="at-code" className="os-input" value={entityCode}
+              onChange={(e) => setEntityCode(e.target.value)}
+              placeholder={placeholder} autoFocus={entityRequired}
+            />
           </div>
+        </div>
+
+        <div>
+          <label className="os-label" htmlFor="at-title">Title (optional — auto-generated from the entity)</label>
+          <input id="at-title" className="os-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Priority: verify before noon" />
+        </div>
+        <div>
+          <label className="os-label" htmlFor="at-desc">Instructions (optional)</label>
+          <textarea id="at-desc" className="os-input" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="e.g. call the supervisor before closing the gate" />
+        </div>
+        <div>
+          <label className="os-label" htmlFor="at-station">Station (optional)</label>
+          <select id="at-station" className="os-input os-select" value={stationId} onChange={(e) => setStationId(e.target.value)}>
+            <option value="">— none —</option>
+            {stations.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.code} · {s.name} ({s.department}){s.assignedWorker?.id === w.id ? ' — worker’s station' : ''}
+              </option>
+            ))}
+          </select>
+          {suggestedStation && stationId === '' && (
+            <div className="os-muted" style={{ fontSize: '0.78rem', marginTop: 4 }}>
+              Tip: {w.employeeCode} is assigned to {suggestedStation.code}.
+            </div>
+          )}
         </div>
 
         {error && <div className="ac-error">{error}</div>}
