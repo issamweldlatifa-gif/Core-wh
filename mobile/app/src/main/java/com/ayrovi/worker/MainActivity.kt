@@ -1,6 +1,8 @@
 package com.ayrovi.worker
 
 import android.os.Bundle
+import androidx.activity.SystemBarStyle
+import androidx.compose.ui.graphics.toArgb
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -14,7 +16,10 @@ class MainActivity : ComponentActivity() {
     private var container: AppContainer? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(TerminalTokens.background.toArgb()),
+            navigationBarStyle = SystemBarStyle.dark(TerminalTokens.background.toArgb()),
+        )
         container = runCatching { (application as AyroviWorkerApplication).container }.getOrNull()
         setContent {
             val dependencies = container

@@ -67,7 +67,9 @@ fun ReceivingScreen(
             TaskHeader(session.code, session.status.replace('_', ' '))
             Text("${session.arrival.code} · ${session.arrival.customerName ?: "Customer not supplied"}", style = MaterialTheme.typography.bodyLarge)
         }
-        StepIndicator(stepNumber(state.step), 7, state.step.name.replace('_', ' '))
+        if (state.step in setOf(ReceivingStep.PAUSED, ReceivingStep.RECONCILE) || state.session?.status == "CANCELLED") {
+            TaskStatus(state.session?.status?.takeIf { it == "CANCELLED" } ?: state.step.name, TerminalTone.WARNING)
+        } else StepIndicator(stepNumber(state.step), 7, state.step.name.replace('_', ' '))
         TaskInstruction(instruction(state.step), detail(state))
         if (state.busy) LoadingState("Waiting for warehouse server…")
         state.message?.let { OperationalMessageView(it) }

@@ -124,6 +124,7 @@ class ReceivingWorkflow(
         val result = mutate(MutationKind.IDENTIFY_CARTON, subject = scan.value) { operation ->
             gateway.scanCarton(session.id, scan.value, scan.scanType, operation.id, scan.source.name)
         }
+        if (result.status != "RECEIVING") return@run adoptSession(result)
         mutable.update { it.copy(session = result, carton = null, product = null) }
         val flash = result.flash
         when (flash?.kind) {
@@ -160,6 +161,7 @@ class ReceivingWorkflow(
                     }
                 }
             }
+            if (received.status != "RECEIVING") return@run adoptSession(received)
             mutable.update { it.copy(session = received) }
         }
         mutable.update { it.copy(step = ReceivingStep.TOTE, product = null, receipt = null,
@@ -291,7 +293,8 @@ class ReceivingWorkflow(
         val result = mutate(MutationKind.FLAG, subject = trimmed) {
             gateway.flagSession(session.id, trimmed, mutable.value.product?.scan?.value, mutable.value.carton?.code)
         }
-        mutable.update { it.copy(session = result, message = OperationalMessage("EXCEPTION REPORTED",
+        updateSession(result)
+        mutable.update { it.copy(message = OperationalMessage("EXCEPTION REPORTED",
             "The backend recorded your reason. No rejection, quarantine or restock decision has been made.", MessageTone.WARNING)) }
     }
 
@@ -300,7 +303,8 @@ class ReceivingWorkflow(
         if (reason.isBlank() || reason.length > 1_000) return@run notice("RESOLUTION REQUIRED", "Enter an actual resolution, not an empty approval.")
         if (mutable.value.session?.discrepancies?.none { it.id == id && it.status == "OPEN" } != false) return@run
         val result = mutate(MutationKind.RESOLVE, subject = id) { gateway.resolveDiscrepancy(id, reason.trim()) }
-        mutable.update { it.copy(session = result, message = OperationalMessage("EXCEPTION RESOLVED", reason.trim(), MessageTone.SUCCESS)) }
+        updateSession(result)
+        mutable.update { it.copy(message = OperationalMessage("EXCEPTION RESOLVED", reason.trim(), MessageTone.SUCCESS)) }
     }
 
     fun nextArrival() = run(readOnly = true) {
@@ -376,9 +380,15 @@ class ReceivingWorkflow(
             product = null, receipt = null, restoredReceipt = false, lastScanValue = null, loaded = true, scanEpoch = it.scanEpoch + 1) }
     }
 
+    private fun updateSession(session: ReceivingSession) {
+        if (session.status == "RECEIVING") mutable.update { it.copy(session = session) }
+        else adoptSession(session)
+    }
+
     private fun activeSession(): ReceivingSession? {
         val session = mutable.value.session ?: return null
         if (session.status != "RECEIVING") {
+            adoptSession(session)
             notice("SESSION NOT ACTIVE", "Resume a paused session before scanning. Closed sessions cannot accept work.")
             return null
         }

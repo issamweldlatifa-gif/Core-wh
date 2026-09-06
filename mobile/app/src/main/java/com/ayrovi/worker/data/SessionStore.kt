@@ -12,13 +12,13 @@ class SessionStore(context: Context, storageName: String = FILE) : SessionStorag
     // Previous releases could fall back to raw preferences in the same file. Purge credentials
     // even if Keystore initialization subsequently fails; do NOT import plaintext credentials.
     private val raw = context.applicationContext.getSharedPreferences(storageName, Context.MODE_PRIVATE)
-    private val legacyDevice = raw.getString(KEY_DEVICE, null)
     init {
         check(raw.edit().remove(KEY_ACCESS).remove(KEY_REFRESH).remove(KEY_EMPLOYEE).commit()) {
             "Legacy credentials could not be removed. Secure startup is blocked."
         }
         check(!raw.contains(KEY_PENDING)) { "Unrecognized recovery data requires supervisor reconciliation." }
     }
+    private val legacyDevice = raw.getString(KEY_DEVICE, null)
     private val prefs = EncryptedSharedPreferences.create(
         context.applicationContext, storageName,
         MasterKey.Builder(context.applicationContext).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),

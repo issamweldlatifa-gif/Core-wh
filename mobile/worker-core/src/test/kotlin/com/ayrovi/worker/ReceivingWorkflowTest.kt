@@ -71,6 +71,15 @@ class ReceivingWorkflowTest {
         assertEquals("RECEIVING", workflow.state.value.session!!.status)
         assertEquals(ReceivingStep.CARTON, workflow.state.value.step)
     }
+    @Test fun `server pause during carton identification immediately stops capture`() = runTest {
+        val backend = ReceivingBackend(); val workflow = workflow(backend); open(workflow)
+        backend.current = backend.current.copy(status = "PAUSED")
+        workflow.scan(ScanResult("CTN-001", ScanSource.EXTERNAL_SCANNER)); runCurrent()
+        assertEquals(ReceivingStep.PAUSED, workflow.state.value.step)
+        assertFalse(workflow.state.value.canScan)
+        workflow.confirmCarton(); runCurrent()
+        assertEquals(0, backend.receiveCartonCalls)
+    }
     @Test fun `rapid scans and double confirm never queue extra receipts`() = runTest {
         val backend = ReceivingBackend(); val workflow = workflow(backend); open(workflow)
         repeat(20) { workflow.scan(ScanResult("CTN-001", ScanSource.EXTERNAL_SCANNER)) }
