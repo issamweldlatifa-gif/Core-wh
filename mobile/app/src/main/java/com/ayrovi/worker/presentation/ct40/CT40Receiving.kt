@@ -44,6 +44,10 @@ internal fun CT40Receiving(
                     CT40DeviceVisual(view.feedback.phase, Modifier.height(illustrationSize))
                 }
                 ReceivingStatus(view, large = true)
+                // ARRIVAL gate (receiving audit): the server queue is the primary
+                // way into a task on every device — a CT40 operator must not have
+                // to scan a label that the system never prints. Same domain
+                // (arrivals + OpenArrival) the phone presentation already uses.
                 if (view.workflow.step == ReceivingStep.ARRIVAL && view.workflow.arrivals.isNotEmpty()) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xxs)) {
                         WorkerIcon(TerminalIcon.QUEUE, null, Modifier.size(TerminalTokens.iconSmall), TerminalTokens.instruction)
