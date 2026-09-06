@@ -43,6 +43,15 @@ class ReceivingWorkflowTest {
         assertEquals("QR", backend.cartonScanType)
         assertEquals("CAMERA", backend.cartonSource)
     }
+    @Test fun `unknown arrival preserves expected scanned and backend reason`() = runTest {
+        val backend = ReceivingBackend().apply { activeFailure = WorkerRepository.ApiException(404, "Expected arrival not found.") }
+        val workflow = workflow(backend)
+        workflow.scan(ScanResult("WAR-UNKNOWN", ScanSource.MANUAL)); runCurrent()
+        assertEquals("WAR-UNKNOWN", workflow.state.value.message!!.scanned)
+        assertEquals("AYROVI arrival code", workflow.state.value.message!!.expected)
+        assertEquals("Expected arrival not found.", workflow.state.value.message!!.detail)
+        assertEquals(0, backend.startCalls)
+    }
     @Test fun `confirmation calls real carton command and uses received event`() = runTest {
         val backend = ReceivingBackend(); val journal = MemoryJournal(); val workflow = workflow(backend, journal); open(workflow); carton(workflow)
         assertEquals(1, backend.receiveCartonCalls)
@@ -130,6 +139,35 @@ class ReceivingWorkflowTest {
         assertEquals(1, workflow.state.value.session!!.tally.receivedUnits)
         assertEquals(ReceivingStep.RESULT, workflow.state.value.step)
     }
+    @Test fun `confirmed receipt survives interruption until explicit operator acknowledgement`() = runTest {
+        val backend = ReceivingBackend(); val journal = MemoryJournal()
+        val first = workflow(backend, journal); open(first); carton(first); product(first)
+        first.confirmProduct(); runCurrent()
+        assertEquals("ART-00000001", journal.read()!!.confirmedReceipt!!.articleCode)
+        val restored = workflow(backend, journal)
+        assertEquals(ReceivingStep.RESULT, restored.state.value.step)
+        assertTrue(restored.state.value.restoredReceipt)
+        assertEquals("ART-00000001", restored.state.value.receipt!!.articleCode)
+        assertFalse(restored.state.value.canScan)
+        assertFalse(restored.state.value.canMutate)
+        assertTrue(restored.state.value.canAcknowledgeReceipt)
+        restored.confirmProduct(); restored.pause(); runCurrent()
+        assertEquals(1, backend.articleCalls)
+        restored.nextProduct(); runCurrent()
+        assertNull(journal.read())
+        assertEquals(ReceivingStep.CARTON, restored.state.value.step)
+        assertEquals(1, backend.articleCalls)
+    }
+    @Test fun `acknowledgement read failure retains recorded unit and never resubmits`() = runTest {
+        val backend = ReceivingBackend(); val journal = MemoryJournal()
+        val workflow = workflow(backend, journal); open(workflow); carton(workflow); product(workflow)
+        workflow.confirmProduct(); runCurrent()
+        backend.readFailure = TransportFailure(false)
+        workflow.nextProduct(); runCurrent()
+        assertNotNull(journal.read()!!.confirmedReceipt)
+        assertEquals(ReceivingStep.RESULT, workflow.state.value.step)
+        assertEquals(1, backend.articleCalls)
+    }
     @Test fun `zero negative fractional overflow and bulk quantities do not send any receipt`() = runTest {
         val backend = ReceivingBackend(); val workflow = workflow(backend); open(workflow); carton(workflow); product(workflow)
         for (quantity in listOf("0", "-1", "1.5", "", "999999999999999999999", "2", "100000")) {
@@ -212,12 +250,21 @@ class ReceivingWorkflowTest {
         assertEquals(ReceivingStep.RECONCILE, workflow.state.value.step)
         assertNotNull(journal.read())
     }
+    @Test fun `non-string article code cannot be persisted as receipt evidence`() = runTest {
+        val backend = ReceivingBackend().apply { articleReply = ArticleScanResult(
+            flash = FlashView(kind = "ARTICLE_RECEIVED", article = Json.parseToJsonElement("{\"code\":123}")), matched = true) }
+        val journal = MemoryJournal(); val workflow = workflow(backend, journal); open(workflow); carton(workflow); product(workflow)
+        workflow.confirmProduct(); runCurrent()
+        assertEquals(ReceivingStep.RECONCILE, workflow.state.value.step)
+        assertNull(journal.read()!!.confirmedReceipt)
+        assertNull(workflow.state.value.receipt)
+    }
     @Test fun `followup GET failure never repeats a confirmed receipt`() = runTest {
         val backend = ReceivingBackend(); val journal = MemoryJournal(); val workflow = workflow(backend, journal); open(workflow); carton(workflow); product(workflow)
         backend.readFailure = TransportFailure(false)
         workflow.confirmProduct(); runCurrent()
         assertNotNull(workflow.state.value.receipt)
-        assertNull(journal.read())
+        assertNotNull(journal.read()!!.confirmedReceipt)
         workflow.confirmProduct(); runCurrent()
         assertEquals(1, backend.articleCalls)
         backend.readFailure = null
@@ -258,7 +305,7 @@ class ReceivingWorkflowTest {
         assertEquals(0, backend.completionCalls)
         assertEquals("SUPERVISOR REQUIRED", workflow.state.value.message!!.title)
     }
-    @Test fun `authorized supervisor still uses real backend completion`() = runTest {
+    @Test fun `authorized supervisor delegates completion to the gateway`() = runTest {
         val backend = ReceivingBackend(); val workflow = workflow(backend, permissions = workerPermissions + "receiving.resolve_discrepancy"); open(workflow)
         workflow.reviewCompletion(); runCurrent(); workflow.complete(); runCurrent()
         assertEquals(1, backend.completionCalls)

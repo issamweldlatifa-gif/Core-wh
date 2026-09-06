@@ -246,6 +246,7 @@ fun TerminalTextInput(
 ) {
     OutlinedTextField(
         value = value, onValueChange = onValueChange, enabled = enabled, singleLine = singleLine,
+        maxLines = if (singleLine) 1 else 4,
         label = { Text(label, style = MaterialTheme.typography.labelMedium) },
         textStyle = MaterialTheme.typography.bodyLarge,
         visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
@@ -261,11 +262,16 @@ fun TerminalTextInput(
 @Composable
 fun ModalException(
     title: String, reason: String, onReason: (String) -> Unit,
-    onDismiss: () -> Unit, onConfirm: () -> Unit, enabled: Boolean, confirmLabel: String = "REPORT",
+    onDismiss: () -> Unit, onConfirm: () -> Unit, enabled: Boolean, confirmLabel: String = "REPORT", message: String? = null,
 ) {
     AlertDialog(onDismissRequest = onDismiss,
         title = { Text(title, style = MaterialTheme.typography.titleLarge) },
-        text = { TerminalTextInput("ACTUAL REASON", reason, onReason, enabled = enabled, singleLine = false) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
+                if (message != null) ErrorState("OPERATION NEEDS ATTENTION", message)
+                TerminalTextInput("ACTUAL REASON", reason, onReason, enabled = enabled, singleLine = false)
+            }
+        },
         confirmButton = { ConfirmAction(confirmLabel, onConfirm, enabled && reason.isNotBlank()) },
         dismissButton = { SecondaryAction("BACK", onDismiss) },
         shape = MaterialTheme.shapes.medium, containerColor = TerminalTokens.surface)

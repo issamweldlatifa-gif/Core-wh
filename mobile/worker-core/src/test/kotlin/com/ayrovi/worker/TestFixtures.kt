@@ -32,7 +32,7 @@ internal class MemoryJournal : MutationJournal {
     override fun read() = value
     override fun record(mutation: PendingMutation) {
         check(!failRecording) { "Storage unavailable" }
-        check(value == null)
+        check(value == null || value?.id == mutation.id)
         value = mutation
     }
     override fun clear(id: String) { if (value?.id == id) value = null }
@@ -50,6 +50,7 @@ internal class ReceivingBackend : ReceivingGateway {
     var articleFailure: Exception? = null
     var articleReply: ArticleScanResult? = null
     var readFailure: Exception? = null
+    var activeFailure: Exception? = null
     var unknownCarton = false
     var wrongShipment = false
     var tote = OpContainerDetail(code = "RCN-000001", type = "RECEIVING", status = "ACTIVE")
@@ -61,7 +62,7 @@ internal class ReceivingBackend : ReceivingGateway {
 
     override suspend fun arrivals(): List<ArrivalRow> { calls += "arrivals"; return listOf(ArrivalRow(id = "arrival", code = "WAR-001", customerName = "Test customer", cartons = 1, units = 2)) }
     override suspend fun receivingSession(sessionId: String): ReceivingSession { calls += "session"; readFailure?.let { throw it }; return current }
-    override suspend fun activeSession(arrivalIdOrCode: String): ReceivingSession? { calls += "active:$arrivalIdOrCode"; return active }
+    override suspend fun activeSession(arrivalIdOrCode: String): ReceivingSession? { calls += "active:$arrivalIdOrCode"; activeFailure?.let { throw it }; return active }
     override suspend fun startReceiving(arrivalIdOrCode: String): ReceivingSession { startCalls++; calls += "start"; active = current; return current }
     override suspend fun scanCarton(sessionId: String, code: String, scanType: String, operationId: String, source: String): ReceivingSession {
         calls += "scan-carton"; cartonSource = source; cartonScanType = scanType

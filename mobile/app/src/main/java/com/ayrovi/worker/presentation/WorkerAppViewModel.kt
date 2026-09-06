@@ -23,6 +23,7 @@ data class WorkerAppState(
     val identityVersion: Long? = null,
     val busy: Boolean = false,
     val verified: Boolean = false,
+    val storageLocked: Boolean = false,
     val me: MeResponse? = null,
     val context: TerminalContext? = null,
     val tasks: List<TerminalTask> = emptyList(),
@@ -37,6 +38,7 @@ class WorkerAppViewModel(private val session: WorkerSessionUseCase) : ViewModel(
     val connection = session.connection
     val deviceCode = session.deviceCode
     private var generation = 0L
+    private var explicitSignOut = false
     private var foreground = false
     private var monitor: Job? = null
 
@@ -45,7 +47,7 @@ class WorkerAppViewModel(private val session: WorkerSessionUseCase) : ViewModel(
             connection.collect { status ->
                 if (status == ConnectionState.AUTH_ERROR && !session.hasSession) expireSession()
                 if (status == ConnectionState.OFFLINE) mutable.update { it.copy(verified = false) }
-                if (status == ConnectionState.CHECKING && foreground && session.hasSession) refresh()
+                if (status == ConnectionState.CHECKING && foreground && !explicitSignOut && session.hasSession) refresh()
             }
         }
     }
@@ -54,7 +56,7 @@ class WorkerAppViewModel(private val session: WorkerSessionUseCase) : ViewModel(
         foreground = true
         monitor?.cancel()
         monitor = viewModelScope.launch {
-            while (isActive) { if (session.hasSession) refresh(); delay(30_000) }
+            while (isActive) { if (!explicitSignOut && session.hasSession) refresh(); delay(30_000) }
         }
     }
 
@@ -65,7 +67,7 @@ class WorkerAppViewModel(private val session: WorkerSessionUseCase) : ViewModel(
     }
 
     fun login(identifier: String, secret: String, pin: Boolean) {
-        if (mutable.value.busy) return
+        if (mutable.value.busy || mutable.value.storageLocked) return
         if (identifier.isBlank() || secret.isBlank()) {
             mutable.update { it.copy(message = OperationalMessage("SIGN-IN DETAILS REQUIRED", "Enter your employee code and password or PIN.")) }
             return
@@ -74,6 +76,7 @@ class WorkerAppViewModel(private val session: WorkerSessionUseCase) : ViewModel(
         viewModelScope.launch {
             try {
                 session.login(identifier, secret, pin)
+                explicitSignOut = false
                 mutable.update { it.copy(signedIn = true, loginGeneration = ++generation) }
                 loadContext()
             } catch (cancelled: CancellationException) { throw cancelled }
@@ -83,7 +86,7 @@ class WorkerAppViewModel(private val session: WorkerSessionUseCase) : ViewModel(
     }
 
     fun refresh() {
-        if (mutable.value.busy || !session.hasSession) return
+        if (mutable.value.busy || explicitSignOut || !session.hasSession) return
         mutable.update { it.copy(busy = true, verified = false, message = null) }
         viewModelScope.launch {
             try { loadContext() }
@@ -120,7 +123,9 @@ class WorkerAppViewModel(private val session: WorkerSessionUseCase) : ViewModel(
 
     fun logout() {
         if (mutable.value.busy) return
-        mutable.update { it.copy(busy = true, verified = false) }
+        explicitSignOut = true
+        // Hide worker/task data immediately, not after a potentially slow revocation request.
+        mutable.value = WorkerAppState(busy = true)
         viewModelScope.launch {
             try {
                 val revoked = session.logout()
@@ -128,7 +133,8 @@ class WorkerAppViewModel(private val session: WorkerSessionUseCase) : ViewModel(
                     "SIGNED OUT ON THIS DEVICE", "Server logout was not confirmed. Ask an administrator to revoke the previous session.", MessageTone.WARNING))
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) {
-                mutable.value = WorkerAppState(message = failure.toOperationalMessage())
+                mutable.value = WorkerAppState(storageLocked = true, message = OperationalMessage(
+                    "SECURE SIGN-OUT NOT CONFIRMED", "Stop using this device. Ask an administrator to revoke the session and repair secure storage before restarting or signing in."))
             }
         }
     }

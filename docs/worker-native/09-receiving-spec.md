@@ -18,7 +18,7 @@ Architecture: `ReceivingScreen → ReceivingViewModel → ReceivingWorkflow → 
 | TOTE / scan receiving tote | GET real container by code. | Must be RECEIVING + ACTIVE. Invalid type/status stays on this step; no stock POST. Tote provisioning stays in existing authorized tools. |
 | PRODUCT / scan product | Exact SKU → fresh session read and preview. | Preserve case/identity. A reference is not silently substituted for a SKU. Preview is not receipt. |
 | REVIEW_PRODUCT / verify unit | Product, expected/remaining server quantities, destination tote, quantity input, condition limitation. | One physical unit only. Empty/zero/negative/fraction/overflow/bulk values cannot dispatch. Explicit `CONFIRM 1 ARTICLE` required. |
-| RESULT / next action | Real `scan-article` response must identify an ArticleUnit and recognized result. | ARTICLE_RECEIVED or UNEXPECTED_ARTICLE. Unexpected can mean physically received with discrepancy, **not rejected**. Next product re-arms same-SKU scanning deliberately. |
+| RESULT / next action | Real `scan-article` response must identify an ArticleUnit and recognized result. | ARTICLE_RECEIVED or UNEXPECTED_ARTICLE. Unexpected can mean physically received with discrepancy, **not rejected**. The server result is durably retained; explicit acknowledgement/next unit re-arms same-SKU scanning deliberately. |
 | REVIEW_COMPLETE / review arrival | Fresh server tally and open exceptions. | Worker with variance cannot complete without resolution permission. Backend rechecks on POST complete. |
 | COMPLETE | Backend COMPLETED / COMPLETED_WITH_DISCREPANCY; CANCELLED separately identified. | Show recorded outcome; next arrival reloads server queue. Never equate cancellation with successful receipt. |
 | PAUSED | Explicit pause; no scan mutation while paused. | Explicit online resume; reload context and re-scan source/tote. Backend's permissive paused helper is not copied. |
@@ -48,7 +48,7 @@ An encrypted marker is committed **before** mutation dispatch. There is no seria
 - Start/pause/resume/resolve/complete: read recorded lifecycle/exception state, never blindly repeat.
 - Article receipt or flag: aggregate counts cannot identify that operation. Hold device/work, supervisor reconciles the physical unit and closes the server session; then reload. BC-01 should provide a reliable operation lookup.
 - Another worker cannot disclose/overwrite the previous worker's marker. Escalate through the controlled device-recovery procedure; no client role bypass or silent data clear.
-- After a confirmed receipt, a later GET failure does not cause a repeat POST. Refresh the server state and continue from the confirmed article.
+- After a confirmed receipt, persist its ArticleUnit/tote evidence before rendering success. A later GET failure or process interruption retains the recorded unit for explicit operator acknowledgement, without a new success beep or POST. Refresh and acknowledge physical placement before the next item.
 
 ## Acceptance scenarios
 

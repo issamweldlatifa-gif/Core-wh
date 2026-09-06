@@ -201,6 +201,31 @@ class WorkerTransportTest {
         assertEquals(device, store.deviceCode)
         assertEquals(1, server.requestCount)
     }
+    @Test fun `logout durably clears credentials before waiting for remote revocation`() = runBlocking {
+        val entered = CountDownLatch(1); val release = CountDownLatch(1)
+        var bearer: String? = null
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                bearer = request.getHeader("Authorization")
+                entered.countDown(); check(release.await(5, TimeUnit.SECONDS))
+                return MockResponse().setBody("{\"success\":true}")
+            }
+        }
+        val logout = async(Dispatchers.Default) { repository.logout() }
+        assertTrue(entered.await(5, TimeUnit.SECONDS))
+        assertFalse(store.hasSession())
+        assertEquals("Bearer old-access", bearer)
+        release.countDown()
+        assertTrue(logout.await())
+    }
+    @Test fun `unexpected redirect after a write is uncertain and never followed`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(302).setHeader("Location", "/api/v1/auth/me"))
+        val failure = assertFailsWith<WorkerRepository.ApiException> {
+            transport.request("POST", "/v1/fulfillment/receiving/sessions/s/scan-article", "{}")
+        }
+        assertTrue(failure.outcomeUnknown)
+        assertEquals(1, server.requestCount)
+    }
     @Test fun `path parameters cannot inject new path or query`() = runBlocking {
         server.enqueue(MockResponse().setBody("null"))
         repository.activeSession("A/B ?&é")

@@ -88,8 +88,12 @@ class HttpWorkerTransport internal constructor(
 
     override suspend fun request(method: String, path: String, body: String?, authenticated: Boolean): String {
         require(path.startsWith("/v1/") && !path.contains("#")) { "Only versioned worker API paths are supported." }
-        if (!networkPresent) throw TransportFailure(outcomeUnknown = false)
         var session = store.snapshot()
+        val logout = authenticated && method == "POST" && path == "/v1/auth/logout"
+        // Durable local sign-out BEFORE any suspension/dispatch. Process death or no network
+        // must not restore the previous worker. Retain only this captured bearer for revocation.
+        if (logout) store.clearIfIdentity(session.identityVersion)
+        if (!networkPresent) throw TransportFailure(outcomeUnknown = false)
         beginRequest()
         try {
             if (authenticated && session.tokens == null) throw WorkerRepository.ApiException(401, "Sign in to continue.")
@@ -98,7 +102,7 @@ class HttpWorkerTransport internal constructor(
                 session = refresh(session)
                 response = exchange(method, path, body, session.tokens?.accessToken)
             }
-            if (authenticated && store.snapshot().identityVersion != session.identityVersion) {
+            if (authenticated && !logout && store.snapshot().identityVersion != session.identityVersion) {
                 throw SessionChangedFailure(method != "GET" && response.status != 401 && response.status != 403)
             }
             if (response.status !in 200..299) {

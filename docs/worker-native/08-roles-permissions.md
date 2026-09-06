@@ -45,7 +45,7 @@ Do not alter seeds or grant roles to make a demo work. Provision separate stagin
 
 One application-scoped secure store/client. EncryptedSharedPreferences uses Android Keystore; storage initialization fails closed. Old raw access/refresh/employee entries are purged, **not imported** as credentials; a non-secret legacy device code is migrated only without conflicting identities. No plaintext fallback, password persistence, token logs, backup or cleartext HTTP.
 
-A token `version` implements CAS rotation; an `identityVersion` distinguishes a new login/logout from rotation within the same identity. Concurrent 401s use one refresh. Requests from a previous login cannot retry using a new worker's tokens; a late successful write remains ambiguous and its journal is retained. Logout clears the corresponding local identity even when remote revocation fails, preserves device identity/recovery marker, and warns when server revocation was unconfirmed.
+A token `version` implements CAS rotation; an `identityVersion` distinguishes a new login/logout from rotation within the same identity. Concurrent 401s use one refresh. Requests from a previous login cannot retry using a new worker's tokens; a late successful write remains ambiguous and its journal is retained. Logout clears the corresponding local identity before network dispatch (so process death cannot defer local sign-out), even when remote revocation fails, preserves device identity/recovery marker, and warns when server revocation was unconfirmed.
 
 Foreground/resume and periodic online context reads refresh permissions. Mutations stop while context is unverified. Network availability alone does not restore authority. Core guards do not replace backend guards.
 

@@ -22,7 +22,6 @@ enum class ReceivingStep {
 
 data class IdentifiedCarton(val id: String, val code: String, val source: ScanSource, val alreadyReceived: Boolean = false)
 data class ProductReview(val scan: ScanResult, val product: ProductRow?, val quantity: String = "1")
-data class ConfirmedReceipt(val articleCode: String, val sku: String, val toteCode: String, val withException: Boolean)
 
 data class ReceivingState(
     val step: ReceivingStep = ReceivingStep.ARRIVAL,
@@ -39,9 +38,11 @@ data class ReceivingState(
     val tote: OpContainerDetail? = null,
     val product: ProductReview? = null,
     val receipt: ConfirmedReceipt? = null,
+    val restoredReceipt: Boolean = false,
     val pending: PendingMutation? = null,
     val message: OperationalMessage? = null,
     val scanEpoch: Int = 0,
+    val lastScanValue: String? = null,
 ) {
     val canScan: Boolean get() = loaded && !storageBlocked && !busy && authorized && serverAvailable && pending == null && !authExpired &&
         step in setOf(ReceivingStep.ARRIVAL, ReceivingStep.CARTON, ReceivingStep.TOTE, ReceivingStep.PRODUCT)
@@ -49,6 +50,8 @@ data class ReceivingState(
     val hasVariance: Boolean get() = session?.tally?.let {
         it.openDiscrepancies > 0 || it.shortUnits > 0 || it.overageUnits > 0 || it.unexpectedProducts > 0 || it.missingCartons > 0
     } ?: true
+    val canAcknowledgeReceipt: Boolean get() = !busy && authorized && serverAvailable && !authExpired &&
+        !storageBlocked && step == ReceivingStep.RESULT && pending?.confirmedReceipt != null
     val canComplete: Boolean get() = canMutate && step == ReceivingStep.REVIEW_COMPLETE &&
         session?.status == "RECEIVING" && (!hasVariance || canResolve)
 }
@@ -96,8 +99,9 @@ class ReceivingWorkflow(
 
     fun scan(result: ScanResult) {
         if (!mutable.value.canScan) return
+        mutable.update { it.copy(lastScanValue = result.value) }
         when (mutable.value.step) {
-            ReceivingStep.ARRIVAL -> openArrival(result.value)
+            ReceivingStep.ARRIVAL -> openArrival(result.value, fromScanner = true)
             ReceivingStep.CARTON -> identifyCarton(result)
             ReceivingStep.TOTE -> selectTote(result.value)
             ReceivingStep.PRODUCT -> reviewProduct(result)
@@ -105,8 +109,9 @@ class ReceivingWorkflow(
         }
     }
 
-    fun openArrival(code: String) = run {
+    fun openArrival(code: String, fromScanner: Boolean = false) = run {
         if (mutable.value.step != ReceivingStep.ARRIVAL) return@run
+        if (!fromScanner) mutable.update { it.copy(lastScanValue = null) }
         val key = code.trim()
         if (key.isEmpty()) return@run notice("SCAN AN ARRIVAL", "Use the AYROVI arrival code, not a customer or shipment label.")
         val active = gateway.activeSession(key)
@@ -130,7 +135,7 @@ class ReceivingWorkflow(
                     message = OperationalMessage("CARTON IDENTIFIED", "Confirm that this carton has physically arrived. It has not been received yet.", MessageTone.INFO)) }
             }
             "DUPLICATE_CARTON" -> {
-                val code = (flash.carton as? JsonPrimitive)?.contentOrNull
+                val code = (flash.carton as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
                 if (code != null && result.receivedCartonEvents.any { it.cartonId == code && it.status == "RECEIVED" }) {
                     mutable.update { it.copy(step = ReceivingStep.CONFIRM_CARTON,
                         carton = IdentifiedCarton(code, code, scan.source, alreadyReceived = true),
@@ -198,30 +203,38 @@ class ReceivingWorkflow(
         val quantity = product.quantity.toIntOrNull()
         if (quantity == null || quantity <= 0) return@run notice("ENTER A VALID QUANTITY", "Use a positive whole number. No receipt was submitted.")
         if (quantity != 1) return@run notice("BULK RECEIPT NOT SUPPORTED", "The current backend accepts one article per request. Confirm one physical unit at a time; no partial bulk loop will be sent.")
-        val response = mutate(MutationKind.RECEIVE_ARTICLE, subject = product.scan.value, containerCode = tote.code) {
+        mutate(MutationKind.RECEIVE_ARTICLE, subject = product.scan.value, containerCode = tote.code,
+            receiptEvidence = { result: ArticleScanResult -> ConfirmedReceipt(
+                result.flash?.article.field("code")!!, product.scan.value, tote.code,
+                result.flash?.kind == "UNEXPECTED_ARTICLE" || !result.matched,
+            ) },
+        ) {
             gateway.scanArticleAtReceiving(session.id, product.scan.value, tote.code, mutable.value.carton?.code).also { result ->
                 if (result.flash?.kind !in setOf("ARTICLE_RECEIVED", "UNEXPECTED_ARTICLE") || result.flash?.article.field("code").isNullOrBlank()) {
                     throw ContractFailure("The backend did not confirm an article identity.")
                 }
             }
         }
-        val article = response.flash?.article.field("code")!!
-        val withException = response.flash?.kind == "UNEXPECTED_ARTICLE" || !response.matched
-        mutable.update { it.copy(step = ReceivingStep.RESULT,
-            receipt = ConfirmedReceipt(article, product.scan.value, tote.code, withException),
-            message = OperationalMessage(if (withException) "RECEIVED WITH EXCEPTION" else "ARTICLE RECEIVED",
-                "$article → ${tote.code}", if (withException) MessageTone.WARNING else MessageTone.SUCCESS)) }
+        val receipt = checkNotNull(mutable.value.pending?.confirmedReceipt)
+        mutable.update { it.copy(step = ReceivingStep.RESULT, restoredReceipt = false, receipt = receipt,
+            message = OperationalMessage(if (receipt.withException) "RECEIVED WITH EXCEPTION" else "ARTICLE RECEIVED",
+                "${receipt.articleCode} → ${receipt.toteCode}", if (receipt.withException) MessageTone.WARNING else MessageTone.SUCCESS)) }
         // A later read failure does not turn the already confirmed write into an unconfirmed receipt.
         val fresh = gateway.receivingSession(session.id)
         mutable.update { it.copy(session = fresh) }
     }
 
-    fun nextProduct() = run(readOnly = true) {
+    fun nextProduct() = run(readOnly = true, allowPending = true) {
+        val pending = mutable.value.pending
+        if (pending != null && pending.confirmedReceipt == null) return@run
+        if (mutable.value.storageBlocked) return@run
         if (mutable.value.step !in setOf(ReceivingStep.RESULT, ReceivingStep.REVIEW_PRODUCT, ReceivingStep.REVIEW_COMPLETE)) return@run
         val session = mutable.value.session ?: return@run
         val fresh = gateway.receivingSession(session.id)
+        // This explicit operator action acknowledges the PREVIOUS recorded unit. No POST/replay.
+        if (pending != null) { journal.clear(pending.id); mutable.update { it.copy(pending = null) } }
         if (fresh.status != "RECEIVING") return@run adoptSession(fresh)
-        mutable.update { it.copy(session = fresh, product = null, receipt = null,
+        mutable.update { it.copy(session = fresh, product = null, receipt = null, restoredReceipt = false,
             step = when {
                 fresh.tally.expectedCartons > 0 && it.carton == null -> ReceivingStep.CARTON
                 it.tote != null -> ReceivingStep.PRODUCT
@@ -294,7 +307,7 @@ class ReceivingWorkflow(
         if (mutable.value.session?.status !in closedStatuses) return@run
         val arrivals = gateway.arrivals()
         mutable.update { it.copy(step = ReceivingStep.ARRIVAL, session = null, carton = null, tote = null,
-            product = null, receipt = null, arrivals = arrivals, scanEpoch = it.scanEpoch + 1) }
+            product = null, receipt = null, lastScanValue = null, arrivals = arrivals, scanEpoch = it.scanEpoch + 1) }
     }
 
     fun refresh() = run(readOnly = true, allowPending = true) {
@@ -325,6 +338,12 @@ class ReceivingWorkflow(
             return
         }
         mutable.update { it.copy(session = session) }
+        pending.confirmedReceipt?.let { receipt ->
+            mutable.update { it.copy(step = ReceivingStep.RESULT, receipt = receipt, restoredReceipt = true,
+                message = OperationalMessage("PREVIOUS UNIT WAS RECORDED",
+                    "${receipt.articleCode} → ${receipt.toteCode}. Do not receive this unit again. Verify physical placement, then acknowledge it.", MessageTone.WARNING)) }
+            return
+        }
         val resolved = session.status in closedStatuses || when (pending.kind) {
             MutationKind.START -> true // A real active session was found; no second start is sent.
             MutationKind.IDENTIFY_CARTON -> true // Identification never commits physical stock; reload shows any exception.
@@ -354,7 +373,7 @@ class ReceivingWorkflow(
             else -> throw ContractFailure("Unknown receiving session state.")
         }
         mutable.update { it.copy(session = session, step = step, carton = null, tote = null,
-            product = null, receipt = null, loaded = true, scanEpoch = it.scanEpoch + 1) }
+            product = null, receipt = null, restoredReceipt = false, lastScanValue = null, loaded = true, scanEpoch = it.scanEpoch + 1) }
     }
 
     private fun activeSession(): ReceivingSession? {
@@ -372,6 +391,7 @@ class ReceivingWorkflow(
         subject: String? = null,
         arrivalCode: String? = mutable.value.session?.arrival?.code,
         containerCode: String? = null,
+        receiptEvidence: ((T) -> ConfirmedReceipt)? = null,
         action: suspend (PendingMutation) -> T,
     ): T {
         val operation = PendingMutation(newId(), workerId, kind, mutable.value.session?.id, arrivalCode, subject, containerCode, clock())
@@ -380,8 +400,15 @@ class ReceivingWorkflow(
         mutable.update { it.copy(pending = operation) }
         try {
             val result = action(operation)
-            journal.clear(operation.id)
-            mutable.update { it.copy(pending = null) }
+            val receipt = receiptEvidence?.invoke(result)
+            if (receipt != null) {
+                val confirmed = operation.copy(confirmedReceipt = receipt)
+                journal.record(confirmed) // Durable evidence BEFORE publishing a successful receipt.
+                mutable.update { it.copy(pending = confirmed) }
+            } else {
+                journal.clear(operation.id)
+                mutable.update { it.copy(pending = null) }
+            }
             return result
         } catch (failure: Exception) {
             val definiteRefusal = (failure is WorkerRepository.ApiException && !failure.outcomeUnknown) ||
@@ -413,9 +440,18 @@ class ReceivingWorkflow(
                     permissions = permissions - WorkerAccess.EXECUTE_RECEIVING
                     mutable.update { it.copy(authorized = false) }
                 }
-                mutable.update { it.copy(message = failure.toOperationalMessage(), authExpired = (failure is WorkerRepository.ApiException && failure.code == 401) || failure is SessionChangedFailure) }
+                val input = mutable.value.lastScanValue.takeIf { before.step in captureSteps || before.step == ReceivingStep.REVIEW_PRODUCT }
+                val message = failure.toOperationalMessage().let {
+                    if (input == null) it else it.copy(scanned = input, expected = when (before.step) {
+                        ReceivingStep.ARRIVAL -> "AYROVI arrival code"
+                        ReceivingStep.TOTE -> "ACTIVE RECEIVING tote"
+                        ReceivingStep.PRODUCT, ReceivingStep.REVIEW_PRODUCT -> "Product SKU for ${before.session?.code}"
+                        else -> "Carton for ${before.session?.arrival?.code}"
+                    })
+                }
+                mutable.update { it.copy(message = message, authExpired = (failure is WorkerRepository.ApiException && failure.code == 401) || failure is SessionChangedFailure) }
             } finally {
-                mutable.update { it.copy(busy = false, step = if (it.pending != null) ReceivingStep.RECONCILE else it.step) }
+                mutable.update { it.copy(busy = false, step = if (it.pending != null && it.pending.confirmedReceipt == null) ReceivingStep.RECONCILE else it.step) }
             }
         }
     }
@@ -435,10 +471,11 @@ class ReceivingWorkflow(
         session.discrepancies.firstOrNull { it.status == "OPEN" && it.type == session.flash?.kind }?.reason ?: fallback
 
     companion object {
+        private val captureSteps = setOf(ReceivingStep.ARRIVAL, ReceivingStep.CARTON, ReceivingStep.TOTE, ReceivingStep.PRODUCT)
         private val requiredPermissions = setOf(WorkerAccess.VIEW_RECEIVING, WorkerAccess.EXECUTE_RECEIVING)
         private val closedStatuses = setOf("COMPLETED", "COMPLETED_WITH_DISCREPANCY", "CANCELLED")
     }
 }
 
 private fun kotlinx.serialization.json.JsonElement?.field(key: String): String? =
-    ((this as? JsonObject)?.get(key) as? JsonPrimitive)?.contentOrNull
+    ((this as? JsonObject)?.get(key) as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull

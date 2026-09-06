@@ -22,7 +22,12 @@ data class PendingMutation(
     val subject: String? = null,
     val containerCode: String? = null,
     val createdAt: Long,
+    val confirmedReceipt: ConfirmedReceipt? = null,
 )
 
 @Serializable
 enum class MutationKind { START, IDENTIFY_CARTON, RECEIVE_CARTON, RECEIVE_ARTICLE, PAUSE, RESUME, FLAG, RESOLVE, COMPLETE }
+
+/** Backend receipt evidence, retained until the operator explicitly acknowledges the unit. */
+@Serializable
+data class ConfirmedReceipt(val articleCode: String, val sku: String, val toteCode: String, val withException: Boolean)

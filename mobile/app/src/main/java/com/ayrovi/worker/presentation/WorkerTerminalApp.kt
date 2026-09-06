@@ -86,12 +86,12 @@ private fun SignInScreen(state: WorkerAppState, deviceCode: String, connection: 
     TerminalShell(
         header = { TerminalHeader("WAREHOUSE TERMINAL", "SIGN-IN REQUIRED", null, connection) },
         footer = { TerminalFooter("AUTHORIZED WORKERS ONLY") {
-            PrimaryAction("SIGN IN", { val value = secret; secret = ""; onSignIn(employee, value, pin) }, !state.busy && employee.isNotBlank() && secret.isNotBlank())
+            PrimaryAction("SIGN IN", { val value = secret; secret = ""; onSignIn(employee, value, pin) }, !state.busy && !state.storageLocked && employee.isNotBlank() && secret.isNotBlank())
         } },
     ) {
         TaskInstruction("READY FOR YOUR SHIFT", "Sign in with your AYROVI employee code.")
         state.message?.let { OperationalMessageView(it) }
-        if (state.busy) LoadingState("Verifying worker and device…")
+        if (state.busy) LoadingState("Waiting for warehouse server…")
         TerminalTextInput("EMPLOYEE CODE", employee, { employee = it }, enabled = !state.busy)
         TerminalTextInput(if (pin) "PIN" else "PASSWORD", secret, { secret = it }, enabled = !state.busy,
             secret = true, keyboardType = if (pin) KeyboardType.NumberPassword else KeyboardType.Password)

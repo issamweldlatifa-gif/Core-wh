@@ -1,6 +1,6 @@
 # 15 · Verification and regression report
 
-Date: **2026-09-05**. Evidence below distinguishes executed tests, source review, authored tests and missing physical/live validation. A green JVM test is not a warehouse acceptance test.
+Date: **2026-09-06**. Evidence below distinguishes executed tests, source review, authored tests and missing physical/live validation. A green JVM test is not a warehouse acceptance test.
 
 ## Executed evidence
 
@@ -13,7 +13,7 @@ Date: **2026-09-05**. Evidence below distinguishes executed tests, source review
 | Local Android Gradle | **BLOCKED:** no JDK/Android SDK; `./gradlew --version` reports no JAVA_HOME/java. Official toolchain/CDN downloads failed TLS/network access; TLS verification was never disabled. |
 | Native JVM in GitHub CI, `cbbd21c` | **PASS: scanner-core 20; worker-core 54; zero failures/skips.** This run subsequently failed Android UI compilation. |
 | Android compile/lint/instrumentation APK at `12ef374` | **PASS** in CI run34000291129: 20 scanner + 60 core tests, debug APK, lint, and instrumentation APK compile. Later hardening requires final rerun. |
-| Instrumentation execution | **NOT RUN.** Seven Android UI/secure-storage tests authored. Optional manual CI dispatch denied by integration (403); GitHub reconnection/workflow access needed. |
+| Instrumentation execution | **NOT RUN.** Eight Android UI/secure-storage tests authored. Optional manual CI dispatch denied by integration (403); GitHub reconnection/workflow access needed. |
 | Real AYROVI API / PostgreSQL E2E | **NOT RUN.** No test endpoint/account/deployment/schema certification. No production stock mutation performed. |
 | Physical devices / pilot / cutover / retirement | **NOT RUN / NOT AUTHORIZED.** See 16–19. |
 
@@ -31,17 +31,17 @@ This does not install a functional local Prisma engine or prove database behavio
 
 - [Run 33999891566](https://github.com/issamweldlatifa-gif/Core-wh/actions/runs/33999891566), `e455c50`: Gradle script `java.net` shadowed by Gradle's Java extension. Fixed with an explicit URI import.
 - [Run 34000020763](https://github.com/issamweldlatifa-gif/Core-wh/actions/runs/34000020763), `cbbd21c`: 74 JVM tests passed. Android compiler identified missing SideEffect import and two cross-module nullable smart casts in the frozen UI. Minimal compatibility fixes applied, not a legacy redesign.
-- [Run 34000291129](https://github.com/issamweldlatifa-gif/Core-wh/actions/runs/34000291129), `12ef374`: **PASS**, 20 scanner + 60 core tests; Android debug APK, lint and test APK compile. APK produced as an Actions QA artifact; instrumentation execution was skipped. Additional transition/concurrency hardening is awaiting its final rerun.
+- [Run 34000291129](https://github.com/issamweldlatifa-gif/Core-wh/actions/runs/34000291129), `12ef374`: **PASS**, 20 scanner + 60 core tests; Android debug APK, lint and test APK compile. APK produced as an Actions QA artifact; instrumentation execution was skipped. Additional transition/concurrency hardening passed in run34000890864 (`0280d8c`). Final durable logout/receipt-acknowledgement changes await the next verification run.
 
 CI emits test counts/compiler/lint annotations accessible through the Checks API. Full reports/APK are controlled Actions artifacts. Direct artifact/log CDN retrieval from this sandbox can fail; an accessible annotation is not a substitute for a missing test category. No automatic canary release, gist publication, deployment or fleet update is part of this workflow.
 
 ## Authored native coverage
 
 - Existing scanner-core tests retained; new source-aware manager tests: sliding held-label suppression, rearm, cross-source duplicates, disabled/background input, held trigger across busy interval, exact case/unicode/GS1 separator, invalid/oversize input, QR/manual/source metadata, cancel/timeout/unavailable, capture ≠ receipt.
-- ReceivingWorkflow: actual queue/active-session recovery; identify ≠ accept; received event; pause/resume; rapid scan/tap guard; wrong/unknown/duplicate carton; invalid tote; SKU/reference distinction; review before receipt; one real article endpoint; invalid/bulk quantity blocked; unexpected article recorded with exception; persistent ambiguity; no aggregate inference/replay; server closure; worker isolation; storage failure; 403/401; malformed success; follow-up read failure; offline/permission changes; variance resolution and meaningful exception reason.
+- ReceivingWorkflow: actual queue/active-session recovery; identify ≠ accept; received event; pause/resume; rapid scan/tap guard; wrong/unknown/duplicate carton; invalid tote; SKU/reference distinction; review before receipt; one real article endpoint; invalid/bulk quantity blocked; unexpected article recorded with exception; persistent ambiguity; no aggregate inference/replay; durable confirmed result until operator acknowledgement; server closure; worker isolation; storage failure; 403/401; malformed success; follow-up read failure; offline/permission changes; variance resolution and meaningful exception reason.
 - Transport: HTTPS/config, exact login fields, array error reasons, single-flight refresh, logout/new-login/late-response races, no POST retry/redirect, offline preflight, unrecognized proxy response, local logout despite network failure, URL escaping and token redaction.
 - Policy/session: server task filtering, role label denial, wrong surface/worker context, no module-count fabrication, default-deny offline classification, token identity generation, no queue access without permissions, absent quantities fail contract decoding.
-- Android tests (authored, not executed): encrypted token/journal XML, stable identity + pending preservation on logout/reopen, purge of old plaintext credentials, stale CAS rejection, touch target/disabled state, expected/scanned error content and font scaling.
+- Android tests (authored, not executed): encrypted token/journal XML, stable identity + pending/confirmed-receipt preservation on logout/reopen, purge of old plaintext credentials, stale CAS rejection, touch target/disabled state, expected/scanned error content and font scaling.
 
 Fixtures/fake gateways exist **only in test source sets**. Production code has one real repository, no mock data or fake workflow service.
 

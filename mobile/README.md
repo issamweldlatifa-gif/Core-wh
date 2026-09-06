@@ -33,7 +33,7 @@ A debug APK is a QA artifact. Release builds are **not debug-signed**. Use the o
 - Carton identification is separate from physical confirmation.
 - Tote selection and one article per confirmed receipt use the real existing APIs.
 - There is **no atomic bulk article API**, formal condition/reject contract, or authorized offline receipt protocol. No client-side N-request bulk loop or silent POST retry is implemented.
-- An encrypted unresolved-mutation marker stops replay after network loss/process death. It is not an offline queue. A lost article receipt cannot be proved by aggregate totals; supervisor/server reconciliation is required.
+- An encrypted unresolved-mutation marker stops replay after network loss/process death; a confirmed article result is retained until explicit worker acknowledgement. It is not an offline queue. A lost article receipt cannot be proved by aggregate totals; supervisor/server reconciliation is required.
 - Other roles/workflows are not redesigned ahead of Receiving hardware acceptance. The queue explains that they remain in the approved legacy terminal for this pilot.
 
 ## Frozen native rollback

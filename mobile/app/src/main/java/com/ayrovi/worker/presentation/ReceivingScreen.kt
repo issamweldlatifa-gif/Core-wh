@@ -37,7 +37,7 @@ fun ReceivingScreen(
     BackHandler { if (!state.busy) onBack() }
     LaunchedEffect(state.authExpired) { if (state.authExpired) onAuthExpired() }
     LaunchedEffect(state.authorized) { if (state.loaded && !state.authorized && !state.authExpired) onVerifyConnection() }
-    LaunchedEffect(state.receipt?.articleCode) { if (state.receipt != null) FeedbackSounds.ok(androidContext) }
+    LaunchedEffect(state.receipt?.articleCode) { if (state.receipt != null && !state.restoredReceipt) FeedbackSounds.ok(androidContext) }
     LaunchedEffect(state.message?.title) {
         if (state.message?.title in setOf("EXCEPTION REPORTED", "EXCEPTION RESOLVED")) {
             exceptionDialog = false; resolveId = null; reason = ""
@@ -52,7 +52,7 @@ fun ReceivingScreen(
                 state.step == ReceivingStep.CONFIRM_CARTON -> ConfirmAction(
                     if (state.carton?.alreadyReceived == true) "USE RECEIVED CARTON" else "CONFIRM CARTON RECEIVED", workflow::confirmCarton, state.canMutate)
                 state.step == ReceivingStep.REVIEW_PRODUCT -> ConfirmAction("CONFIRM 1 ARTICLE", workflow::confirmProduct, state.canMutate)
-                state.step == ReceivingStep.RESULT -> PrimaryAction("NEXT PRODUCT", workflow::nextProduct, state.canMutate)
+                state.step == ReceivingStep.RESULT -> PrimaryAction("ACKNOWLEDGE UNIT · NEXT", workflow::nextProduct, state.canAcknowledgeReceipt)
                 state.step == ReceivingStep.REVIEW_COMPLETE -> ConfirmAction("COMPLETE ARRIVAL", workflow::complete, state.canComplete)
                 state.step == ReceivingStep.PAUSED -> PrimaryAction("RESUME RECEIVING", workflow::resume, state.canMutate)
                 state.step == ReceivingStep.COMPLETE -> PrimaryAction("NEXT ARRIVAL", workflow::nextArrival, state.canMutate)
@@ -173,6 +173,7 @@ fun ReceivingScreen(
         onConfirm = { val id = resolveId; if (id != null) workflow.resolveException(id, reason) else workflow.reportException(reason) },
         enabled = state.canMutate,
         confirmLabel = if (resolveId != null) "RESOLVE" else "REPORT",
+        message = state.message?.takeIf { it.tone == com.ayrovi.worker.domain.MessageTone.ERROR }?.detail,
     )
 }
 
@@ -196,7 +197,7 @@ private fun detail(state: ReceivingState) = when (state.step) {
     ReceivingStep.TOTE -> "Every received article goes into a real receiving tote."
     ReceivingStep.PRODUCT -> "Read the exact SKU on one physical unit."
     ReceivingStep.REVIEW_PRODUCT -> "Verify the product, quantity and destination before acceptance."
-    ReceivingStep.RESULT -> "Do not receive the same physical unit again."
+    ReceivingStep.RESULT -> "This unit is recorded. Verify physical placement in the tote, then acknowledge before handling another unit."
     else -> null
 }
 private fun stepNumber(step: ReceivingStep) = when (step) {
@@ -210,6 +211,7 @@ private fun stepNumber(step: ReceivingStep) = when (step) {
 }
 private fun footerInstruction(state: ReceivingState) = when {
     state.busy -> "WAIT FOR SERVER CONFIRMATION"
+    state.pending?.confirmedReceipt != null -> "ACKNOWLEDGE THE RECORDED UNIT"
     state.pending != null -> "RECONCILIATION REQUIRED"
     !state.serverAvailable -> "SERVER CONNECTION REQUIRED"
     else -> "NEXT ACTION"

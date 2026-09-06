@@ -2,7 +2,7 @@
 
 ## Decision
 
-Evolve **existing `mobile/`**. Keep application ID `com.ayrovi.worker`, one Activity/launcher. Kotlin + Android SDK + Compose; MVVM; coroutines/StateFlow; repository and use-case boundaries; explicit constructor injection. No WebView/PWA/second application. Manual dependency injection is intentional: a small `AppContainer` + ViewModel factories gives a single API client/session store without introducing a second container/framework.
+Evolve **existing `mobile/`**. Keep application ID `com.ayrovi.worker`, one single-task Activity/launcher. Kotlin + Android SDK + Compose; MVVM; coroutines/StateFlow; repository and use-case boundaries; explicit constructor injection. No WebView/PWA/second application. Manual dependency injection is intentional: a small `AppContainer` + ViewModel factories gives a single API client/session store without introducing a second container/framework.
 
 ```
 :app
@@ -45,6 +45,8 @@ A definitive 401 may be refreshed once before repeating the unauthorized request
 ONLINE means a backend request succeeded, not merely Wi-Fi present. SYNCING stays active until all concurrent requests finish, OFFLINE is unavailable network, SYNC ERROR is a transport/server failure (a malformed success is separately shown as a blocking contract error), AUTH ERROR requires sign-in, CHECKING has not yet verified backend. Connectivity callbacks may mark availability but cannot grant permissions.
 
 No receipt outbox is enabled: no approved backend replay protocol exists. A small encrypted **mutation journal** records an in-flight physical receipt before dispatch so process death/lost response cannot silently repeat it. It is **not a queued request** and has no auto-sync/replay method. Aggregate quantities cannot prove which physical unit was accepted. Without an operation lookup endpoint an unresolved article receipt blocks further receipt mutations; a supervisor must reconcile/close the server session. See BC-01.
+
+A successful article response is persisted as receipt evidence before success is rendered. It remains attached to the marker until the operator explicitly acknowledges physical placement/next unit. Recovery re-shows that recorded ArticleUnit without a new POST or success beep. This closes the response→UI/process-death gap; it is not an outbox or inferred receipt from tally. Logout clears local credentials before network revocation is attempted, while retaining this recovery evidence.
 
 ## Rollout / configuration
 

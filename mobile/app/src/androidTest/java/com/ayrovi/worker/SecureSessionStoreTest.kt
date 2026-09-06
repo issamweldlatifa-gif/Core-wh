@@ -60,6 +60,16 @@ class SecureSessionStoreTest {
         assertFalse(raw.contains("employee_code"))
         assertFalse(raw.contains("device_code"))
     }
+    @Test fun confirmedReceiptEvidenceSurvivesReopenUntilAcknowledged() {
+        val store = SessionStore(context, file)
+        val pending = PendingMutation("confirmed-operation", "test-worker", MutationKind.RECEIVE_ARTICLE, "session", createdAt = 1,
+            confirmedReceipt = ConfirmedReceipt("ART-TEST", "SKU-TEST", "RCN-TEST", false))
+        store.record(pending)
+        val restored = SessionStore(context, file)
+        assertEquals(pending, restored.read())
+        restored.clear(pending.id)
+        assertNull(SessionStore(context, file).read())
+    }
     @Test fun staleRefreshCannotRestoreASignedOutSession() {
         val store = SessionStore(context, file)
         val previous = store.snapshot()

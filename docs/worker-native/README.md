@@ -12,7 +12,7 @@ The existing Kotlin/Compose app in `mobile/` is being evolved—not replaced by 
 - Server-authorized work queue with actual Receiving arrival count—not the module readiness count.
 - One source-aware camera/Honeywell/DataWedge/manual scan pipeline, lifecycle/duplicate/cancel/timeout/unavailable handling.
 - Guided Receiving: actual arrival → identify/confirm carton → validate tote → product review → **one article per explicit confirmation** → server result → next unit → authorized completion/pause/exception actions.
-- Durable unresolved-write stop marker. No offline replay, optimistic stock counter or N-request bulk receipt loop.
+- Durable unresolved-write stop marker and confirmed receipt evidence retained until explicit worker acknowledgement. No offline replay, optimistic stock counter or N-request bulk receipt loop.
 - Controlled CI test/report/APK artifacts. No automatic canary publication, deployment or production signing.
 
 ## Still blocking production acceptance
