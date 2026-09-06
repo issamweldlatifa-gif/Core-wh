@@ -9,8 +9,8 @@ No production deployment, release, fleet update or stock operation was performed
 | Gate | Current decision |
 |---|---|
 | Source audit, endpoint contracts, extraction boundaries | Documented; source authority preserved. |
-| Native CI/test/lint | PASS: 91 JVM tests, APK build/lint/test APK compile at `b0771e8`; report15. |
-| Instrumentation / secure-storage and device upgrade | Eight cases compile but execution and physical upgrade remain pending. |
+| Native CI/test/lint | PASS: 106 JVM tests + 12 emulator tests, APK build/lint at `b86416c`; report15. |
+| Instrumentation / secure-storage and device upgrade | 12 emulator cases passed; physical CT40/managed-device upgrade remains pending. |
 | Backend BC-01…06 and source-matching schema deployment | BLOCKED / owner decisions and implementation required. |
 | Complete Receiving real API/DB/device validation | NOT RUN. |
 | Complete other critical workflows and role matrix | NOT IMPLEMENTED/VALIDATED. |

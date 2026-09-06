@@ -50,3 +50,9 @@ Block expansion if a trigger drops/repeats commands, counts diverge, wrong locat
 Backend missing condition/bulk/idempotency contracts constrain any Receiving pilot. Explicitly record that scope; do not mark the complete receiving acceptance path PASS when those cases cannot be performed.
 
 Hardware owner: **UNASSIGNED** · Execution date: **PENDING** · Warehouse acceptance: **NOT SIGNED** · Release approval: **NOT AUTHORIZED**.
+
+## v1.4.1 additional CT40 checks (physical: NOT RUN)
+
+Verify WHITE and BLACK modes on the actual CT40 under warehouse illumination, including system bars, glare, contrast, glove operation, 150–200% fonts and keyboard visibility. Confirm theme changes do not recreate/lose the task, scanner or pending receipt. Verify Carton → next carton, Produit selection with confirmed source/tote, bad carton then mode switch, closed tote revalidation, busy/offline/paused/expired states, acknowledgement/unknown-result holds and Back/task-action menu focus.
+
+Automated emulator UI/crypto checks now run on native push/PR builds. Their 720×1280 / density 320 configuration is a **360dp test viewport**, not a statement of CT40 hardware specifications. Native screenshots use clearly labelled UI TEST FIXTURE data; they are not live warehouse data or a physical acceptance certificate. See report15 for the executed outcome.

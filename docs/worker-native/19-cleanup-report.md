@@ -36,11 +36,15 @@ This is not a claim that the overall migration is complete. The legacy retention
 - [x] Backend-invalid legacy assumptions documented rather than copied as truth.
 - [x] Source/test/contract/plan/hardware evidence distinguished; limitations not labeled complete.
 - [x] All 19 reports present, relative links checked, single production repository/transport/scanner guards verified, whitespace diff clean.
-- [x] Final native source `b0771e8`: 91 JVM tests, APK build, lint and test APK compilation passed; recorded in report15.
-- [ ] Android instrumentation execution (eight cases compiled only).
+- [x] Current native source `b86416c`: 106 JVM tests, APK build, lint and test APK compilation passed; recorded in report15.
+- [x] Android instrumentation: 12 cases executed/passed on a narrow-viewport Android 30 emulator; physical acceptance remains separate.
 - [ ] Real backend/DB/role/hardware/pilot evidence accepted.
 - [ ] All requested critical workflows migrated.
 - [ ] Legacy retirement approved/executed and entire dependency/import/route graph cleaned.
 - [ ] Final production cutover/regression/monitoring sign-off.
 
 Standing governance remains **CLEAN FIRST — NO ACCUMULATION**: audit → design → implement → integrate → test → clean → document for each increment. Do not implement additional screens while Receiving physical acceptance is still blocked, and do not remove fallback/backend/Admin code just to make this checklist appear complete.
+
+## v1.4.1 increment
+
+Replaced the single graphite palette with shared WHITE/BLACK palettes; did not clone screens for each theme. Reused the existing Receiving state machine for Carton/Produit, with explicit source verification and no alternative repository/scanner path. Consolidated repeated scanner surfaces to one lifecycle-owned host and repeated task buttons to one menu. New appearance preferences contain no secrets. Backend/Admin/legacy source is not changed. Updated core and native UI tests; physical CT40 acceptance and final retirement remain gated.

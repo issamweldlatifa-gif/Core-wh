@@ -33,14 +33,14 @@ The repository's location hierarchy is Warehouse→Zone→Aisle→Rack→Level�
 
 | Family | Shared components |
 |---|---|
-| Shell | TerminalShell, TerminalHeader, TerminalFooter |
+| Shell / navigation | TerminalShell, TerminalHeader, TerminalFooter, TerminalModeSelector |
 | Task | TaskHeader, TaskNumber, TaskInstruction, TaskStatus |
 | Location | LocationBlock, LocationCode, LocationHierarchy |
 | Product | ProductBlock, ProductIdentity, SKUBlock, BarcodeDisplay |
 | Scanner | ScanZone, ScanStatus, ScanResult |
 | Quantity | QuantityDisplay, QuantityInput, QuantityStepper, NumericInput |
 | Progress | ProgressIndicator, StepIndicator |
-| Outcomes | SuccessState, ErrorState, WarningState, ExceptionState, LoadingState, EmptyState, ModalException |
+| Outcomes | SuccessState, ErrorState, WarningState, ExceptionState, LoadingState, EmptyState, ModalException, TerminalNotice |
 | Actions | PrimaryAction, SecondaryAction, DangerAction, ConfirmAction, RejectAction, RetryAction, PauseAction |
 | Connection | ConnectionStatus, SyncStatus, OfflineStatus |
 
@@ -64,7 +64,7 @@ Calculated contrast against each palette's actual card surface:
 | Error | 6.57:1 | 10.67:1 |
 | Card/control outline | 3.40:1 | 4.45:1 |
 
-Text exceeds4.5:1 and outlines exceed3:1. Android tests cover palette values/contrast, preference persistence, theme switching without stock mutation, sticky mode/back/primary controls and 150% fonts. Current execution evidence is in report15; calculations are not glare/warehouse/physical-device certification.
+Text exceeds 4.5:1 and outlines exceed 3:1. Android tests cover palette values/contrast, preference persistence, theme switching without stock mutation, sticky mode/back/primary controls and 150% fonts. Current execution evidence is in report15; calculations are not glare/warehouse/physical-device certification.
 
 ## Design acceptance (pending device evidence)
 

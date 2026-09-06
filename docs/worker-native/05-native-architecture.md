@@ -57,3 +57,9 @@ Use `-PworkerLegacyFallback=true` only to build the frozen rollback experience *
 ## Verification
 
 Core state-machine/transport tests run on JVM; scanner rules run in existing scanner-core; Android compile/lint and UI/instrumentation are distinct gates. Test fixtures live in test sources only. No production mock repository, fabricated task counts or static workflow data. Physical testing cannot be substituted by JVM/Compose/emulator evidence.
+
+## v1.4.1 UI boundary
+
+`TerminalPalette` owns both contrast modes; Compose reads composition-local colors and dispatches an appearance intent to `AppearanceViewModel`. `TerminalPreferences` persists only a WHITE/BLACK choice in its own non-sensitive file. Theme changes do not recreate the Activity or mutate/reinitialize Receiving. System bars follow the same palette.
+
+Carton/Produit selection is one `ReceivingWorkflow.selectMode` use-case command. The state separates the current carton preview from its confirmed source and checks server events/tote on product-lane entry. No stock POST belongs to mode selection or UI layout. One shared foreground scanner host stays mounted across Receiving steps and is disabled under task/exception menus. Existing auth/stock/recovery policies remain unchanged.

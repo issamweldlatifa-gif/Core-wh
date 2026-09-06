@@ -1,6 +1,6 @@
 # AYROVI Worker · Native Android migration dossier
 
-**Checkpoint: Receiving-first pilot. Full production migration is NOT COMPLETE.**
+**v1.4.1 pilot / CT40-oriented update:** white/black themes, one-tap Carton/Produit modes, compact cards and fixed task navigation. Full production migration is NOT COMPLETE.
 
 The existing Kotlin/Compose app in `mobile/` has been evolved for this pilot—not replaced by another app or a WebView. Application ID remains **`com.ayrovi.worker`**. The backend and shared Admin/web source are unchanged. Legacy Worker UI is frozen and retained behind explicit retirement gates.
 
@@ -25,11 +25,20 @@ Real-backend/DB/negative-permission validation, physical enterprise devices, war
 
 - Frontend: **107 tests passed**; unrelated baseline typecheck failure remains in `LiveBoard.tsx:38`.
 - Backend: **62 tests and Nest build passed**; no-engine Prisma type generation, not a live DB run.
-- Final native CI at `b0771e8`: **91 JVM tests (20 scanner + 71 core), Android build, lint and test APK compilation passed**. See [15](15-testing-report.md).
-- Android instrumentation: **eight tests compiled, not executed**. Manual workflow dispatch remains permission-restricted after GitHub reconnection; use an authorized Actions account or approved local Android environment.
+- Current native CI at `b86416c`: **106 JVM tests (20 scanner + 86 core), Android build/lint and 12 executed Android instrumentation tests passed**. See [15](15-testing-report.md).
+- Native UI/crypto execution: **12 tests passed** on an Android 30 emulator with a narrow 360dp viewport, both themes and 150% font scaling. This is not physical CT40 certification.
 - Physical hardware / production pilot / cutover / retirement: **NOT RUN / NOT AUTHORIZED**.
 
-**QA download:** [Receiving pilot APK artifact](https://github.com/issamweldlatifa-gif/Core-wh/actions/runs/34002636062/artifacts/9979997734) · [Successful build and reports](https://github.com/issamweldlatifa-gif/Core-wh/actions/runs/34002636062). Debug/QA artifact only, not a production release. Native source verified at `b0771e89e77c41d29c16a472ebd065b6dc9132a5`.
+**QA download:** [Receiving pilot APK artifact](https://github.com/issamweldlatifa-gif/Core-wh/actions/runs/34005745773/artifacts/9980922788) · [Successful build and reports](https://github.com/issamweldlatifa-gif/Core-wh/actions/runs/34005745773). Debug/QA artifact only, not a production release. Native source verified at `b86416c06056b7ad0ee240f8c56244f5004e144a`.
+
+## تجربة التحديث / Try this update
+
+1. In the header, tap **BLACK / WHITE** to switch contrast without restarting the task.
+2. In Receiving, tap **CARTON** to receive cartons continuously, or **PRODUIT** to enter the product lane. A required source carton and ACTIVE receiving tote still have to be verified.
+3. Use the header Back button and **TASK ACTIONS** menu; camera/manual fallbacks are kept together and manual entry expands on demand.
+4. Existing stock/permission/recovery rules remain in the shared core/backend, not in theme/layout code. Never clear an unresolved receipt to switch modes.
+
+Use an approved QA device/backend. Do not clear operational app data to bypass a signing/update error. Test real CT40 glare, keyboard, buttons and scanner profile before approving rollout.
 
 ## The nineteen deliverables
 
@@ -59,4 +68,4 @@ Real-backend/DB/negative-permission validation, physical enterprise devices, war
 
 See [`mobile/README.md`](../../mobile/README.md) for JDK17/SDK35, HTTPS environment configuration and test/build commands. Register approved test workers/devices through existing Admin tools; no credentials in chat or Git.
 
-Execute instrumentation and real API/DB verification, resolve the required backend contract work, and execute the Receiving physical/API acceptance gate **before expanding new workflow screens or retiring legacy code**. Standing discipline: **CLEAN FIRST — NO ACCUMULATION**.
+Execute real API/DB and physical CT40 verification, resolve the required backend contract work, and execute the Receiving physical/API acceptance gate **before expanding new workflow screens or retiring legacy code**. Standing discipline: **CLEAN FIRST — NO ACCUMULATION**.
