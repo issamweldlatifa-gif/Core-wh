@@ -1,10 +1,12 @@
 # 06 · AYROVI Industrial Terminal Design System
 
+**Current device-aware revision:** compact two-line identity header; icon-tile Work Queue; a touch-first Phone page and a distinct scanner-first CT40 page. Phone retains WHITE/BLACK; CT40 defaults to INDUSTRIAL (`#0E1419` background, `#18232D` surface, `#1D2A35` raised, `#536575` border, `#F4F7FA` text, `#B7C2CC` secondary, `#8BD7F5` scanner accent, green/red/amber states). Existing user display preferences are respected. The older v1.4 notes below are historical context where superseded.
+
 Implementation owner: `mobile/design-system`. Independent AYROVI identity, no Zebra/Honeywell logo, assets, exact palette or copied UI. The provided written hierarchy, not an unattached image, guides the design.
 
 ## Visual language
 
-**v1.4.1 pilot / CT40-oriented update:** two centrally owned contrast modes: WHITE (`#FFFFFF` background) and BLACK (`#000000` background). No blue-grey page backdrop. Flat 4dp cards, clear outlines, restrained semantic scan/status accents and monochrome primary actions. One header button switches themes without recreating the Activity, ViewModels or active receipt. Non-sensitive display preferences persist independently from encrypted auth/recovery data.
+**v1.4.1 pilot / CT40-oriented update:** two centrally owned contrast modes: WHITE (`#FFFFFF` background) and BLACK (`#000000` background). No blue-grey Phone page backdrop; CT40 has its deliberate industrial palette. Flat 4dp cards, clear outlines, restrained semantic scan/status accents and monochrome primary actions. One header button switches themes without recreating the Activity, ViewModels or active receipt. Non-sensitive display preferences persist independently from encrypted auth/recovery data.
 
 Tokens remain centralized in `TerminalTheme.kt`:
 - spacing 4/8/12/16/24/32dp; handheld body/panel padding12dp;
@@ -69,3 +71,9 @@ Text exceeds 4.5:1 and outlines exceed 3:1. Android tests cover palette values/c
 ## Design acceptance (pending device evidence)
 
 360dp-class handheld; 200% text; long SKU/name; landscape if device supports it; IME visible; bright/low light; gloves and one hand; TalkBack focus/order; status announcements; no color-only meaning; no hidden primary action under system bars/keyboard. Contrast/token review and screenshot tests are not substitutes for physical warehouse usability.
+
+## Current icon/indicator system
+
+One semantic `TerminalIcon` API maps to 23 small Material Icons Outlined vectors, with pinned upstream commit and Apache-2.0 license in `mobile/design-system/licenses/`. Active Worker headers, queue, scan controls and feedback use this family, not emoji. CT40DeviceVisual is a separate functional device schematic with imager window/side triggers, not a photo or another icon pack. READY is neutral white on dark; SCANNING/VALIDATING is light with a small scan animation, SUCCESS green, ERROR red, WARNING/OFFLINE amber/red. State meaning also has an icon, text and optional centralized sound.
+
+CT40 scan/status/navigation fit the normal first viewport; long review content and large-font modes may use limited internal scrolling. The mode is detected from existing device identity, not viewport size. Compact headers are bounded by a 100dp default-font test, and 56/64dp touch actions remain. See the A–O device-aware report and report15 for exact executed evidence rather than assuming hardware acceptance.

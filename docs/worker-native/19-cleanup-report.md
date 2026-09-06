@@ -36,8 +36,8 @@ This is not a claim that the overall migration is complete. The legacy retention
 - [x] Backend-invalid legacy assumptions documented rather than copied as truth.
 - [x] Source/test/contract/plan/hardware evidence distinguished; limitations not labeled complete.
 - [x] All 19 reports present, relative links checked, single production repository/transport/scanner guards verified, whitespace diff clean.
-- [x] Current native source `b86416c`: 106 JVM tests, APK build, lint and test APK compilation passed; recorded in report15.
-- [x] Android instrumentation: 12 cases executed/passed on a narrow-viewport Android 30 emulator; physical acceptance remains separate.
+- [x] Current native source `c657be7`: 123 JVM tests, APK build, lint and test APK compilation passed; recorded in report15.
+- [x] Android instrumentation: 19 cases executed/passed on a narrow-viewport Android 30 emulator; physical acceptance remains separate.
 - [ ] Real backend/DB/role/hardware/pilot evidence accepted.
 - [ ] All requested critical workflows migrated.
 - [ ] Legacy retirement approved/executed and entire dependency/import/route graph cleaned.
@@ -48,3 +48,7 @@ Standing governance remains **CLEAN FIRST — NO ACCUMULATION**: audit → desig
 ## v1.4.1 increment
 
 Replaced the single graphite palette with shared WHITE/BLACK palettes; did not clone screens for each theme. Reused the existing Receiving state machine for Carton/Produit, with explicit source verification and no alternative repository/scanner path. Consolidated repeated scanner surfaces to one lifecycle-owned host and repeated task buttons to one menu. New appearance preferences contain no secrets. Backend/Admin/legacy source is not changed. Updated core and native UI tests; physical CT40 acceptance and final retirement remain gated.
+
+## v1.5 · Device-aware cleanup
+
+Removed obsolete native ReceivingStation/ToteStation implementations and route entries; removed the unused native totals-only receiveProduct method. Replaced TerminalScanInput with the common ScannerCaptureHost. PhoneReceiving/CT40Receiving are presentation-only, with one shared workflow, feedback controller and scanner. Refined the existing Honeywell detector in place, not a duplicate screen-width detector. Replaced production status/queue glyphs with one licensed vector family; refactored existing audio to one non-blocking service with a compatibility delegate only for other frozen screens. Worker-facing migration/technical messages are removed from the active app. Backend/Admin/web production code is retained; this is targeted Receiving replacement, not full retirement authorization.

@@ -56,3 +56,7 @@ Hardware owner: **UNASSIGNED** · Execution date: **PENDING** · Warehouse accep
 Verify WHITE and BLACK modes on the actual CT40 under warehouse illumination, including system bars, glare, contrast, glove operation, 150–200% fonts and keyboard visibility. Confirm theme changes do not recreate/lose the task, scanner or pending receipt. Verify Carton → next carton, Produit selection with confirmed source/tote, bad carton then mode switch, closed tote revalidation, busy/offline/paused/expired states, acknowledgement/unknown-result holds and Back/task-action menu focus.
 
 Automated emulator UI/crypto checks now run on native push/PR builds. Their 720×1280 / density 320 configuration is a **360dp test viewport**, not a statement of CT40 hardware specifications. Native screenshots use clearly labelled UI TEST FIXTURE data; they are not live warehouse data or a physical acceptance certificate. See report15 for the executed outcome.
+
+## Device-aware update evidence
+
+Phone/CT40 renderers and the existing Honeywell intent adapter were exercised by native emulator tests, including synthetic broadcast-driven receiving through completion. Nineteen Android cases passed; ten fixture screenshots were collected. This does not change the **NOT RUN** physical results above. Actual trigger-down/claim acknowledgement, scanner profile/decoder tones, display/gloves, live station assignment and DB stock effects still require the target CT40. Full A–O report: [device-aware-receiving-report.md](device-aware-receiving-report.md).

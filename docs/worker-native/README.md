@@ -1,6 +1,6 @@
 # AYROVI Worker · Native Android migration dossier
 
-**v1.4.1 pilot / CT40-oriented update:** white/black themes, one-tap Carton/Produit modes, compact cards and fixed task navigation. Full production migration is NOT COMPLETE.
+**v1.5.0 device-aware Receiving:** PHONE touch-first and CT40 scanner-first, automatically selected by the existing Honeywell device identification. One shared business workflow. Full production migration/physical warehouse acceptance is NOT COMPLETE.
 
 The existing Kotlin/Compose app in `mobile/` has been evolved for this pilot—not replaced by another app or a WebView. Application ID remains **`com.ayrovi.worker`**. The backend and shared Admin/web source are unchanged. Legacy Worker UI is frozen and retained behind explicit retirement gates.
 
@@ -25,20 +25,23 @@ Real-backend/DB/negative-permission validation, physical enterprise devices, war
 
 - Frontend: **107 tests passed**; unrelated baseline typecheck failure remains in `LiveBoard.tsx:38`.
 - Backend: **62 tests and Nest build passed**; no-engine Prisma type generation, not a live DB run.
-- Current native CI at `b86416c`: **106 JVM tests (20 scanner + 86 core), Android build/lint and 12 executed Android instrumentation tests passed**. See [15](15-testing-report.md).
-- Native UI/crypto execution: **12 tests passed** on an Android 30 emulator with a narrow 360dp viewport, both themes and 150% font scaling. This is not physical CT40 certification.
+- Current native CI at `c657be7`: **123 JVM tests (20 scanner + 103 core), Android build/lint and 19 executed Android instrumentation tests passed**. See [15](15-testing-report.md).
+- Native UI/crypto execution: **19 tests passed** on an Android 30 emulator with a narrow 360dp viewport, both themes and 150% font scaling. This is not physical CT40 certification.
 - Physical hardware / production pilot / cutover / retirement: **NOT RUN / NOT AUTHORIZED**.
 
-**QA download:** [Receiving pilot APK artifact](https://github.com/issamweldlatifa-gif/Core-wh/actions/runs/34005745773/artifacts/9980922788) · [Successful build and reports](https://github.com/issamweldlatifa-gif/Core-wh/actions/runs/34005745773). Debug/QA artifact only, not a production release. Native source verified at `b86416c06056b7ad0ee240f8c56244f5004e144a`.
+**QA download:** [Receiving pilot APK artifact](https://github.com/issamweldlatifa-gif/Core-wh/actions/runs/34008673849/artifacts/9981821576) · [Successful build and reports](https://github.com/issamweldlatifa-gif/Core-wh/actions/runs/34008673849). Debug/QA artifact only, not a production release. Native source verified at `c657be7d9572c66b2e24b7660779099b5d6a52c6`.
 
-## تجربة التحديث / Try this update
+## Current update / التقرير المطلوب
 
-1. In the header, tap **BLACK / WHITE** to switch contrast without restarting the task.
-2. In Receiving, tap **CARTON** to receive cartons continuously, or **PRODUIT** to enter the product lane. A required source carton and ACTIVE receiving tote still have to be verified.
-3. Use the header Back button and **TASK ACTIONS** menu; camera/manual fallbacks are kept together and manual entry expands on demand.
-4. Existing stock/permission/recovery rules remain in the shared core/backend, not in theme/layout code. Never clear an unresolved receipt to switch modes.
+[Full A–O device-aware Receiving report](device-aware-receiving-report.md) · [Native UI screenshots and test results](https://github.com/issamweldlatifa-gif/Core-wh/actions/runs/34008673849/artifacts/9981898482). Screenshots use labelled fixtures, not live warehouse data.
 
-Use an approved QA device/backend. Do not clear operational app data to bypass a signing/update error. Test real CT40 glare, keyboard, buttons and scanner profile before approving rollout.
+- PHONE: primary software scan, existing camera engine and manual fallback; compact worker/station header and touch navigation.
+- CT40: dedicated internal device illustration, large ready/validation/success/error state, real Honeywell side trigger as primary input, minimal touch controls. No viewport-based detection or fake software trigger.
+- One Receiving core, shared scanner/feedback/audio, safe confirmations/acknowledgement and no automatic stock replay. Old native Receiving/Tote implementations removed; backend/Admin/web services remain.
+- Work Queue uses Material Outlined icon tiles and only actual Receiving counts. Unsupported permitted workflows are disabled without developer messages; unknown counts are not fabricated zeros.
+- Settings expose worker/station identity and display preference; operational screens no longer show migration/API/debug copy.
+
+Use an approved QA device/backend. Do not clear operational app data to bypass a signing/update error. Physical CT40 triggers, sound, glare, firmware and live stock/permission behavior still need acceptance.
 
 ## The nineteen deliverables
 

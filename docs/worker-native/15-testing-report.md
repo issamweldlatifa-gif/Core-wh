@@ -1,8 +1,8 @@
 # 15 · Verification and regression report
 
-**v1.4.1 update verified:** WHITE/BLACK themes, CT40-oriented navigation and one-tap Carton/Produit modes. **106 JVM tests and 12 Android instrumentation tests passed**, plus APK build/lint. Emulator evidence is separate from physical warehouse acceptance.
+**v1.5.0 device-aware update verified:** distinct Phone/CT40 presentations, reused device detection, centralized audio/feedback and icon queue. **123 JVM tests and 19 Android instrumentation tests passed**, plus APK build/lint. Emulator evidence is separate from physical warehouse acceptance.
 
-Date: **2026-09-06**. Latest verified native source: **`b86416c06056b7ad0ee240f8c56244f5004e144a`** on `arena/01a073df-core-wh`. Subsequent dossier-only edits do not change this tested source.
+Date: **2026-09-06**. Latest verified native source: **`c657be7d9572c66b2e24b7660779099b5d6a52c6`** on `arena/01a073df-core-wh`. Subsequent dossier-only edits do not change this tested source.
 
 **Native build is green. Warehouse/production acceptance is not complete.** Executed tests, source review, authored tests and missing physical/live validation are separate evidence categories.
 
@@ -11,11 +11,11 @@ Date: **2026-09-06**. Latest verified native source: **`b86416c06056b7ad0ee240f8
 | Check | Result / scope |
 |---|---|
 | Native `:scanner-core:test` | **PASS: 20 tests, 0 failures, 0 skipped.** |
-| Native `:worker-core:test` | **PASS: 86 tests, 0 failures, 0 skipped.** |
+| Native `:worker-core:test` | **PASS: 103 tests, 0 failures, 0 skipped.** |
 | Native `:app:assembleDebug` | **PASS.** Kotlin/Compose Android QA APK built and uploaded. |
 | Native `:app:lintDebug` | **PASS.** No claim that physical accessibility/device ergonomics passed. |
-| Native `:app:assembleDebugAndroidTest` | **PASS.** Twelve instrumentation cases compile and execute in the emulator job. |
-| Android instrumentation execution | **PASS: 12 tests, 0 failures, 0 skipped**, Android 30 emulator, Google APIs/x86_64, 720×1280/density 320 (360dp viewport). Automatic push/PR test execution is configured; manual-dispatch permissions are not required for that CI trigger. |
+| Native `:app:assembleDebugAndroidTest` | **PASS.** Nineteen instrumentation cases compile and execute in the emulator job. |
+| Android instrumentation execution | **PASS: 19 tests, 0 failures, 0 skipped**, Android 30 emulator, Google APIs/x86_64, 720×1280/density 320 (360dp viewport). Automatic push/PR test execution is configured; manual-dispatch permissions are not required for that CI trigger. |
 | Frontend `npm test -- --maxWorkers=2` | **PASS: 10 files / 107 tests** on frozen source. Unit/scanner coverage, not browser→backend E2E. |
 | Frontend `npm run typecheck` | **FAIL, pre-existing:** `src/admin/pages/LiveBoard.tsx:38`, `AuthContextValue.token` does not exist. No passing frontend build claimed. |
 | Backend `npm test -- --runInBand` | **PASS: 9 suites / 62 tests** after Prisma client type generation. Mocks/unit tests, no live PostgreSQL integration. |
@@ -26,17 +26,17 @@ Date: **2026-09-06**. Latest verified native source: **`b86416c06056b7ad0ee240f8
 
 ## Final native CI and artifact
 
-[Successful run 34005745773](https://github.com/issamweldlatifa-gif/Core-wh/actions/runs/34005745773), source `b86416c`, executed:
+[Successful run 34008673849](https://github.com/issamweldlatifa-gif/Core-wh/actions/runs/34008673849), source `c657be7`, executed:
 
 ```sh
 ./gradlew :scanner-core:test :worker-core:test :app:assembleDebug :app:lintDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace --console=plain
 ```
 
-- **106 JVM tests passed**; native build/lint/test-APK compilation passed. The subsequent emulator job executed `:app:connectedDebugAndroidTest`: **12 tests passed**.
-- [Receiving pilot QA APK artifact](https://github.com/issamweldlatifa-gif/Core-wh/actions/runs/34005745773/artifacts/9980922788): `ayrovi-worker-receiving-pilot-b86416c06056b7ad0ee240f8c56244f5004e144a`.
-- [Verification reports artifact](https://github.com/issamweldlatifa-gif/Core-wh/actions/runs/34005745773/artifacts/9980922292).
-- Actions **artifact archive** digest: `sha256:c61ce38b09e2d78db4291552d08b5d10c789f2cccc87bda55a8223e89217fe49`. This is the ZIP/archive digest, **not** an independently measured APK hash or signing certificate.
-- [Executed emulator results](https://github.com/issamweldlatifa-gif/Core-wh/actions/runs/34005745773/artifacts/9981007340). UI screenshots are synthetic fixture captures, not live warehouse data. Artifact download into the sandbox still fails (Azure CDN EOF), so no local screenshot visual review or APK installation is claimed. Counts/results were verified through Actions/Checks APIs.
+- **123 JVM tests passed**; native build/lint/test-APK compilation passed. The subsequent emulator job executed `:app:connectedDebugAndroidTest`: **19 tests passed**.
+- [Receiving pilot QA APK artifact](https://github.com/issamweldlatifa-gif/Core-wh/actions/runs/34008673849/artifacts/9981821576): `ayrovi-worker-receiving-pilot-c657be7d9572c66b2e24b7660779099b5d6a52c6`.
+- [Verification reports artifact](https://github.com/issamweldlatifa-gif/Core-wh/actions/runs/34008673849/artifacts/9981821154).
+- Actions **artifact archive** digest: `sha256:0e692d2a102dae6295946fbeebca1c2862087f81819b2f3fa60fc6d90da11149`. This is the ZIP/archive digest, **not** an independently measured APK hash or signing certificate.
+- [Executed emulator results](https://github.com/issamweldlatifa-gif/Core-wh/actions/runs/34008673849/artifacts/9981898482). **10 native UI screenshots were collected.** They are synthetic fixture captures, not live warehouse data. Artifact download into the sandbox still fails (Azure CDN EOF), so no local screenshot visual review or APK installation is claimed. Counts/results were verified through Actions/Checks APIs.
 - CI reports a Node20 action-runtime deprecation warning; the affected actions were forced onto Node24 and this run passed. Review/update/pin the release toolchain before production qualification.
 
 Artifacts are debug/QA outputs, not release signing or permission for a fleet update. No automatic canary release, gist publication, deployment or production rollout is part of this workflow.
@@ -54,6 +54,8 @@ Artifacts are debug/QA outputs, not release signing or permission for a fleet up
 | `b0771e8` / [34002636062](https://github.com/issamweldlatifa-gif/Core-wh/actions/runs/34002636062) | **v1.4.0 PASS: 91 JVM tests**; one-shot request bodies also prevent internal HTTP503 follow-up replay. |
 | `b86416c` / [34005745773](https://github.com/issamweldlatifa-gif/Core-wh/actions/runs/34005745773) | **v1.4.1 PASS: 106 JVM + 12 Android emulator tests**, build/lint/test-APK; WHITE/BLACK and Carton/Produit. |
 
+Latest device-aware run [34008673849](https://github.com/issamweldlatifa-gif/Core-wh/actions/runs/34008673849) verified source `c657be7` with **123 JVM + 19 Android tests**, APK/lint and 10 fixture screenshots. Earlier failed builds exposed operator-import/nullable-cross-module/test-assertion compilation issues, corrected before this run.
+
 Historical v1.4.0 manual dispatch was permission-restricted. For this UI update the existing CI workflow now runs emulator checks automatically after a successful native build on push/PR. That job actually ran and passed; it is not a physical-device test or deployment.
 
 ## Native coverage
@@ -63,8 +65,13 @@ Historical v1.4.0 manual dispatch was permission-restricted. For this UI update 
 - Confirmed receipt recovery: persist the server's ArticleUnit/tote evidence before rendering success, restore it without another POST/success beep, and require explicit worker acknowledgement before the next unit. A failed acknowledgement read retains the evidence.
 - Transport: HTTPS/config, exact login contract, error arrays, single-flight refresh, logout/new-login/late-response races, durable local sign-out before remote revocation, no automatic POST connection/redirect/**503 Retry-After:0** replay, offline preflight, safe proxy/server error handling, URL escaping and token redaction.
 - Session/policy: server task filtering, role-label denial, wrong surface/worker identity, no module-count fabrication, default-deny offline classification, token identity generations, no Receiving queue read without permissions, missing quantities fail contract decoding.
-- Twelve Android cases (**executed/passed on emulator**): the previous eight UI/secure-storage cases, plus both-palette contrast, appearance persistence isolated from auth, theme/mode switching in the same Receiving ViewModel with zero stock writes, and narrow-viewport navigation at 150% font scaling. Tests label their data UI TEST FIXTURE.
+- The initial twelve Android cases (retained regression coverage): the previous eight UI/secure-storage cases, plus both-palette contrast, appearance persistence isolated from auth, theme/mode switching in the same Receiving ViewModel with zero stock writes, and narrow-viewport navigation at 150% font scaling. Tests label their data UI TEST FIXTURE.
 - Fifteen additional core mode cases cover continuous cartons, product prerequisites, preview/source separation, draft discard, reused/closed tote, removed/rejected source, busy/offline/revoked/paused/closed states, acknowledged/unknown/other-worker holds, read failure and duplicate cartons.
+
+- Current device-aware additions: detector model/fallback cases; Phone versus CT40 at the same viewport; compact-header bounds and large-font CT40 navigation; compact queue/real badges/disabled availability; synthetic Honeywell broadcast → core → validation → feedback/audio-port → confirmations → completion. Total **19 Android cases executed/passed**.
+- A full JVM scan-to-completion journey uses the **production WorkerRepository and HTTP transport** against a local contract test server; this is distinct from an unperformed live AYROVI DB test. Shared feedback, sound-failure/mute/DND policy, held-duplicate throttling, background behavior, automatic simple-error return, business versus network refusal and real queue-count policies are covered.
+
+Complete A–O detail: [Device-aware Receiving report](device-aware-receiving-report.md).
 
 Fixtures/fake gateways exist **only in test source sets**. Production code has one real repository, not a demo backend or simulated task data.
 
