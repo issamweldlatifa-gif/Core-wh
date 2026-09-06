@@ -61,8 +61,8 @@ describe('Isolated 90-unit operational validation', () => {
       roleIds.push(role.id);
       const user = await prisma.user.create({ data: { name: `TEST ${name}`, employeeCode: `${tag}-${name}`, passwordHash: await hash(password, 4),
         roles: { create: { roleId: role.id } } } }); people.push(user);
-      const device = await prisma.device.create({ data: { code: `${tag}-${name}-DEV`, name: `TEST ${name}`, assignedWorkerId: user.id } }); deviceIds.push(device.id);
-      const station = await prisma.station.create({ data: { code: `${tag}-${name}-ST`, name: `TEST ${name}`, department,
+      const device = await prisma.device.create({ data: { code: `${tag}-${name}-DEV`.toUpperCase(), name: `TEST ${name}`, assignedWorkerId: user.id } }); deviceIds.push(device.id);
+      const station = await prisma.station.create({ data: { code: `${tag}-${name}-ST`.toUpperCase(), name: `TEST ${name}`, department,
         warehouseId: warehouse.id, assignedWorkerId: user.id, deviceId: device.id } }); stationIds.push(station.id);
       tokens[name] = (await request(app.getHttpServer()).post('/api/v1/auth/login').send({ identifier: user.employeeCode, secret: password,
         app: 'WORKER_NATIVE', deviceId: device.code }).expect(201)).body.accessToken;
