@@ -1,5 +1,7 @@
 # AYROVI Worker · Native Android migration dossier
 
+**Latest operational/release checkpoint:** [AYROVI_FINAL_RELEASE_REPORT.md](../../AYROVI_FINAL_RELEASE_REPORT.md). Version1.5.1-rc1/build45 integrates the approved upstream operational model and targeted hardening. The full automatic assigned chain, managed Release signing and Render deployment verification remain **NOT READY**; the historical device-aware evidence below is retained.
+
 **v1.5.0 device-aware Receiving:** PHONE touch-first and CT40 scanner-first, automatically selected by the existing Honeywell device identification. One shared business workflow. Full production migration/physical warehouse acceptance is NOT COMPLETE.
 
 The existing Kotlin/Compose app in `mobile/` has been evolved for this pilot—not replaced by another app or a WebView. Application ID remains **`com.ayrovi.worker`**. The backend and shared Admin/web source are unchanged. Legacy Worker UI is frozen and retained behind explicit retirement gates.

@@ -113,3 +113,11 @@ Date: 2026-09-06 · audited source: `e11339b` · branch: `arena/01a073df-core-wh
 [MISSING] A distinct, configured product-placement-to-container stage, full customer-card completion lock, complete stage-wide issue lifecycle, shipping verification binding and real-world pilot/release sign-off remain. Upstream claims are source documentation, not a substitute for execution evidence.
 
 [RECOMMENDATION] Integrate the already-approved upstream model first, reconcile conflicts without restoring old native Receiving logic, then validate/fix the actual security/data-integrity findings. Preserve absent owner/configuration/release prerequisites as explicit BLOCKED/NO-GO rather than inventing workers/rules or bypassing release signing/deployment verification.
+
+## 14. Implementation/validation checkpoint
+
+[FACT] Approved upstream model was merged into the fixed session branch, keeping native shared-core Phone/CT40 code. No second assignment engine was created. Fixes target the actual completion bypass/actor scoping/transaction synchronization, auth refresh identity/hash/CAS, health status, seed/boot safety, live Admin authentication and native operationId/capacity/count compatibility.
+
+[FACT] Production demo seeding is now forbidden; explicit test/demo mode is required outside production and credentials are not printed. Existing admin credentials are not reset/elevated by seed. Boot no longer runs automatic migration ledger/db-push repairs or silently ignores schema failures. No production data was deleted as a cleanup shortcut.
+
+[PARTIAL] The isolated90-unit PostgreSQL/HTTP stock path passed. [MISSING] Automatic Placement handoff/next-container routing/full downstream native/verified shipping remain blockers. [UNKNOWN] Render actual service binding/deployed commit/logs/health and signed Release distribution. Final outcome is NOT READY; see the named validation/readiness/pilot/go-live/release reports.
