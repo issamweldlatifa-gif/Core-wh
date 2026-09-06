@@ -33,7 +33,8 @@ internal fun TerminalPhase.icon() = when (this) {
 @Composable
 internal fun ReceivingStatus(view: ReceivingPresentation, large: Boolean) {
     val feedback = view.feedback
-    val color = feedback.phase.tone().color()
+    val color = if (feedback.phase in setOf(TerminalPhase.READY, TerminalPhase.SCANNING, TerminalPhase.VALIDATING, TerminalPhase.WAITING))
+        TerminalTokens.text else feedback.phase.tone().color()
     Column(Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }.testTag("RECEIVING_FEEDBACK"),
         horizontalAlignment = if (large) Alignment.CenterHorizontally else Alignment.Start,
         verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {

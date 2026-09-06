@@ -14,7 +14,8 @@ class ScannerService(context: Context, val coordinator: ScanCoordinator) {
     val hasHardware: Boolean get() = HoneywellScanner.isHoneywellDevice() || ZebraDataWedgeScanner.isZebraDevice()
 
     private var started = false
-    fun initialize() = Unit
+    private var initialized = false
+    fun initialize() { if (!initialized) { coordinator.manager.setEnabled(false); initialized = true } }
     fun isAvailable(): Boolean = started && (!HoneywellScanner.isHoneywellDevice() || honeywell.isActive)
     fun start() {
         try { honeywell.start(); zebra.start(); started = true }

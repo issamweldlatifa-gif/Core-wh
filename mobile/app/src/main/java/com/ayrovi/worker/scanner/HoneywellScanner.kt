@@ -46,8 +46,7 @@ class HoneywellScanner(
         val r = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 if (intent?.action !in setOf(ACTION_BARCODE_READ, "com.ayrovi.worker.action.BARCODE")) return
-                val value = extractBarcode(intent) ?: return
-                onBarcode(value)
+                onBarcode(extractBarcode(intent).orEmpty())
             }
         }
         val filter = IntentFilter().apply {

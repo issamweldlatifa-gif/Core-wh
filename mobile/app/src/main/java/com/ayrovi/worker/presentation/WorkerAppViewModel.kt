@@ -103,7 +103,8 @@ class WorkerAppViewModel(private val session: WorkerSessionUseCase, private val 
     private suspend fun loadContext() {
         val previous = mutable.value.receivingArrivals
         val verified = session.loadContext()
-        if (foreground && previous != null && verified.receivingArrivalCount != null && verified.receivingArrivalCount > previous) runCatching { audio.notification() }
+        val incoming = verified.receivingArrivalCount
+        if (foreground && previous != null && incoming != null && incoming > previous) runCatching { audio.notification() }
         mutable.update { it.copy(
             signedIn = true, me = verified.me, context = verified.context, tasks = verified.tasks,
             assignments = verified.assignments, receivingArrivals = verified.receivingArrivalCount,

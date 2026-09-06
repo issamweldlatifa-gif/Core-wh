@@ -49,14 +49,14 @@ internal fun CT40Receiving(
                         capture.preview(Modifier.fillMaxWidth().height(TerminalTokens.scanPreview))
                         SecondaryAction("CANCEL CAMERA", capture.cancel)
                     }
-                    view.captureVisible -> {
+                    view.captureVisible && !view.feedback.transient -> {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
                             WorkerIcon(TerminalIcon.SCANNER, null, Modifier.size(TerminalTokens.iconSmall))
                             Text(view.target, style = MaterialTheme.typography.labelLarge)
                             Text("· CODE", style = MaterialTheme.typography.labelMedium, color = TerminalTokens.muted)
                         }
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(if (enabled) "Use the side trigger" else "Wait before scanning", style = MaterialTheme.typography.bodyMedium,
+                            Text(if (!enabled) "Wait before scanning" else if (capture.hardwareAvailable) "Use the side trigger" else "Use manual entry", style = MaterialTheme.typography.bodyMedium,
                                 color = TerminalTokens.muted, modifier = Modifier.weight(1f))
                             TextButton(capture.manual, Modifier.heightIn(min = TerminalTokens.touch), enabled) {
                                 WorkerIcon(TerminalIcon.MANUAL, null, Modifier.size(TerminalTokens.iconSmall))
