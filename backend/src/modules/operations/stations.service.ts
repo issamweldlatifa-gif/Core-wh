@@ -43,6 +43,8 @@ export class StationsService {
       orderBy: [{ department: 'asc' }, { code: 'asc' }],
       include: {
         assignedWorker: { select: { id: true, name: true, employeeCode: true } },
+        // Master Order §11: station↔zone is admin-visible configuration.
+        zone: { select: { id: true, code: true, warehouseId: true } },
       },
     });
   }
@@ -50,7 +52,10 @@ export class StationsService {
   async findOne(id: string) {
     const station = await this.prisma.station.findFirst({
       where: { OR: [{ id }, { code: id.toUpperCase() }] },
-      include: { assignedWorker: { select: { id: true, name: true, employeeCode: true } } },
+      include: {
+        assignedWorker: { select: { id: true, name: true, employeeCode: true } },
+        zone: { select: { id: true, code: true, warehouseId: true } },
+      },
     });
     if (!station) throw new NotFoundException('Station not found.');
     return station;
@@ -94,7 +99,15 @@ export class StationsService {
 
   async update(
     id: string,
-    input: { name?: string; capabilities?: StationCapability[]; deviceId?: string | null },
+    input: {
+      name?: string;
+      capabilities?: StationCapability[];
+      deviceId?: string | null;
+      /** Master Order §11: admin configures the station's department. */
+      department?: string;
+      /** Master Order §11: admin configures the zone a station sits in (required for STAGING). */
+      zoneId?: string | null;
+    },
     actor: StationActor,
   ) {
     const station = await this.findOne(id);
@@ -110,6 +123,20 @@ export class StationsService {
       }
       data.deviceId = input.deviceId;
     }
+    if (input.department !== undefined) {
+      const departments = ['RECEIVING', 'SORTING', 'PUTAWAY', 'PACKING', 'INVENTORY', 'DISPATCH', 'STAGING'];
+      if (!departments.includes(input.department)) {
+        throw new BadRequestException(`department must be one of: ${departments.join(', ')}`);
+      }
+      data.department = input.department as never;
+    }
+    if (input.zoneId !== undefined) {
+      if (input.zoneId) {
+        const zone = await this.prisma.zone.findUnique({ where: { id: input.zoneId } });
+        if (!zone) throw new NotFoundException(`Zone "${input.zoneId}" not found.`);
+      }
+      data.zoneId = input.zoneId;
+    }
 
     const saved = await this.prisma.station.update({ where: { id: station.id }, data });
     await this.audit.log({
@@ -118,7 +145,15 @@ export class StationsService {
       entityType: 'station',
       entityId: station.id,
       ipAddress: actor.ip,
-      metadata: { code: saved.code },
+      metadata: {
+        code: saved.code,
+        changed: {
+          name: input.name !== undefined,
+          department: input.department !== undefined ? input.department : null,
+          zoneId: input.zoneId !== undefined ? input.zoneId : null,
+          deviceId: input.deviceId !== undefined ? input.deviceId : null,
+        },
+      },
     });
     return saved;
   }

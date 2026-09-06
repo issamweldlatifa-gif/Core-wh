@@ -3,6 +3,8 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AssignmentsService } from '../assignments/assignments.service';
+import { TaskDispatchService } from '../assignments/dispatch.service';
+import { codeMatches, normalizeScan, OPERATIONAL_ERRORS } from '../../common/scan-normalizer';
 
 const RCV_PREFIX = 'RCV-';
 const RCV_START = 200;
@@ -59,6 +61,7 @@ export class ReceivingService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly assignments: AssignmentsService,
+    private readonly dispatch: TaskDispatchService,
   ) {}
 
   // ---------- helpers ----------
@@ -175,8 +178,10 @@ export class ReceivingService {
   async scanCarton(sessionId: string, code: string, scanType: 'QR' | 'BARCODE' | 'MANUAL', actor: ReceivingActor, operationId?: string, source: ScanSource = 'MANUAL') {
     const session = await this.requireActiveSession(sessionId);
     await this.assignments.assertOperationalAccess(actor.id, 'receiving', { arrivalId: session.arrivalId });
-    const term = code.trim();
-    if (!term) throw new BadRequestException('Scan code is required.');
+    // Single normalization boundary (Order §24): CT40 / Phone / Web all go
+    // through the same comparison before any lookup.
+    const term = normalizeScan(code);
+    if (!term) throw new BadRequestException(OPERATIONAL_ERRORS.cartonUnknown);
 
     // Idempotency: same physical operation processed once.
     if (operationId) {
@@ -184,15 +189,16 @@ export class ReceivingService {
       if (dup) return this.sessionDetail(sessionId);
     }
 
-    // Search cartons: by external id / qr / barcode / reference, across ANY shipment.
+    // Search cartons: by external id / qr / barcode / reference, across ANY
+    // shipment — case-insensitive at the boundary (stored values untouched).
+    const matches = codeMatches(term, ['externalCartonId', 'qrCodeValue', 'barcodeValue', 'cartonReference']);
     const carton = await this.prisma.warehouseCarton.findFirst({
-      where: { OR: [
-        { externalCartonId: term }, { qrCodeValue: term }, { barcodeValue: term }, { cartonReference: term },
-      ] },
+      where: { OR: matches },
       include: { shipment: { include: { expectedArrival: true } } },
     });
 
-    // Unknown carton -> flag, do not attach.
+    // Unknown carton -> flag, do not attach (worker gets an actionable
+    // message, the technical detail stays in audit).
     if (!carton) {
       await this.prisma.$transaction(async (tx) => {
         const rc = await tx.receivingCarton.create({ data: {
@@ -206,7 +212,9 @@ export class ReceivingService {
         await this.audit.log({ actorUserId: actor.id, action: 'UNKNOWN_CARTON' as never, entityType: 'receiving_carton',
           entityId: rc.id, metadata: { code: term, scanType } }, tx);
       });
-      return this.sessionDetail(sessionId, { flash: { kind: 'UNKNOWN_CARTON', code: term } });
+      return this.sessionDetail(sessionId, {
+        flash: { kind: 'UNKNOWN_CARTON', code: term, message: OPERATIONAL_ERRORS.cartonUnknown },
+      });
     }
 
     // Carton belongs to a different ARRIVAL -> wrong shipment (C-12: an
@@ -226,7 +234,12 @@ export class ReceivingService {
         await this.audit.log({ actorUserId: actor.id, action: 'WRONG_SHIPMENT' as never, entityType: 'receiving_carton',
           entityId: rc.id, metadata: { carton: carton.externalCartonId, shipment: carton.shipment.code } }, tx);
       });
-      return this.sessionDetail(sessionId, { flash: { kind: 'WRONG_SHIPMENT', carton: carton.externalCartonId, shipment: carton.shipment.code } });
+      return this.sessionDetail(sessionId, {
+        flash: {
+          kind: 'WRONG_SHIPMENT', carton: carton.externalCartonId, shipment: carton.shipment.code,
+          message: `${OPERATIONAL_ERRORS.cartonWrongShipment} (${carton.shipment.code})`,
+        },
+      });
     }
 
     // Already received in this session -> duplicate, do not double count.
@@ -260,15 +273,18 @@ export class ReceivingService {
   async receiveCarton(sessionId: string, cartonExternalId: string, actor: ReceivingActor, operationId?: string, source: ScanSource = 'MANUAL') {
     const session = await this.requireActiveSession(sessionId);
     await this.assignments.assertOperationalAccess(actor.id, 'receiving', { arrivalId: session.arrivalId });
+    const term = normalizeScan(cartonExternalId);
+    if (!term) throw new BadRequestException(OPERATIONAL_ERRORS.cartonUnknown);
+    const matches = codeMatches(term, ['externalCartonId', 'qrCodeValue', 'barcodeValue', 'cartonReference']);
     const carton = await this.prisma.warehouseCarton.findFirst({
-      where: { OR: [{ externalCartonId: cartonExternalId }, { qrCodeValue: cartonExternalId }, { id: cartonExternalId }] },
+      where: { OR: matches },
       include: { shipment: true },
     });
-    if (!carton) throw new NotFoundException('Carton not found.');
+    if (!carton) throw new NotFoundException(OPERATIONAL_ERRORS.cartonUnknown);
     // C-12: validate against the session's ARRIVAL (all of its shipments),
     // not a single bound shipment.
     if (carton.shipment?.arrivalId !== session.arrivalId) {
-      throw new ConflictException('Carton belongs to a different arrival.');
+      throw new ConflictException(OPERATIONAL_ERRORS.cartonWrongShipment);
     }
 
     if (operationId) {
@@ -299,8 +315,8 @@ export class ReceivingService {
     const session = await this.requireActiveSession(sessionId);
     await this.assignments.assertOperationalAccess(actor.id, 'receiving', { arrivalId: session.arrivalId });
     const qty = Math.max(1, Math.floor(Number(quantity) || 1));
-    const term = (sku || '').trim();
-    if (!term) throw new BadRequestException('SKU/reference is required.');
+    const term = normalizeScan(sku);
+    if (!term) throw new BadRequestException(OPERATIONAL_ERRORS.productNotMatched);
 
     // C-4 idempotency: a client operationId (device-generated, stable across
     // retries) is processed exactly once. Replays return the current session
@@ -311,8 +327,16 @@ export class ReceivingService {
       if (dup) throw new ConflictException('This operation was already applied to another session.');
     }
 
+    // Case-insensitive line match on SKU OR reference (Order §24): the
+    // stored line value is authoritative, the scan only looks it up.
     const line = await this.prisma.receivingProduct.findFirst({
-      where: { receivingSessionId: sessionId, sku: term },
+      where: {
+        receivingSessionId: sessionId,
+        OR: [
+          { sku: { equals: term, mode: 'insensitive' } },
+          { reference: { equals: term, mode: 'insensitive' } },
+        ],
+      },
     });
 
     if (!line) {
@@ -335,7 +359,9 @@ export class ReceivingService {
         await this.audit.log({ actorUserId: actor.id, action: 'UNEXPECTED_PRODUCT' as never, entityType: 'receiving_product',
           entityId: rp.id, metadata: { sku: term, quantity: qty, source, operationId: operationId ?? null } }, tx);
       });
-      return this.sessionDetail(sessionId, { flash: { kind: 'UNEXPECTED_PRODUCT', sku: term } });
+      return this.sessionDetail(sessionId, {
+        flash: { kind: 'UNEXPECTED_PRODUCT', sku: term, message: OPERATIONAL_ERRORS.productNotMatched },
+      });
     }
 
     const expectedLine = line!;
@@ -462,6 +488,15 @@ export class ReceivingService {
         metadata: { finalStatus: arrivalStatus, tally, workerId: actor.id, stationId: session.stationId, previousState: session.status },
       }, tx);
       await this.assignments.receivingCompleted(session.arrivalId, hasOpenDiscrepancies, session.code, actor.id, tx);
+    }).then(() => {
+      // Master Order §9: RECEIVING COMPLETED → the container/placement task
+      // for each tote of the session is auto-created for the next worker.
+      // (Staging a tote later hands the work to the sorting task.)
+      return this.dispatch.onReceivingCompleted(
+        { id: session.id, code: session.code, arrivalId: session.arrivalId },
+        actor.id,
+        { reason: `receiving ${session.code} completed` },
+      );
     });
     return this.sessionDetail(sessionId);
   }

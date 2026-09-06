@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma, PrismaClient } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { TaskDispatchService } from '../assignments/dispatch.service';
 import { CustomerArrivalCardEventDto } from '../../integrations/crm/dto/customer-arrival-card.dto';
 
 const WAR_PREFIX = 'WAR-';
@@ -27,6 +28,7 @@ export class ExpectedArrivalsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly dispatch: TaskDispatchService,
   ) {}
 
   /**
@@ -224,6 +226,15 @@ export class ExpectedArrivalsService {
           tx,
         );
       }
+
+      // Master Order §3: a NEW arrival (idempotent replays never reach this
+      // point) automatically gets a Receiving task dispatched to an eligible
+      // worker — no manual recreation by Admin. Atomic with the insert.
+      await this.dispatch.dispatch(
+        'receiving',
+        { arrivalId: record.id, entityCode: record.code },
+        { db: tx, reason: `CRM arrival card ${cardId} processed` },
+      );
 
       return record;
     });
