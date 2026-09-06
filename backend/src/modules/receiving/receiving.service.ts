@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { AssignmentsService } from '../assignments/assignments.service';
 
 const RCV_PREFIX = 'RCV-';
 const RCV_START = 200;
@@ -57,6 +58,7 @@ export class ReceivingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly assignments: AssignmentsService,
   ) {}
 
   // ---------- helpers ----------
@@ -164,7 +166,12 @@ export class ReceivingService {
         metadata: { session: code, arrival: arrival.code, shipment: primaryShipment?.code ?? null },
       }, tx);
       return session;
-    }).then((s) => this.sessionDetail(s.id));
+    }).then(async (s) => {
+      // Operational assignment lifecycle (backend-driven): any ASSIGNED task
+      // on this arrival moves to IN_PROGRESS.
+      await this.assignments.receivingStarted(arrival.id, s.code, actor.id).catch(() => 0);
+      return this.sessionDetail(s.id);
+    });
   }
 
   // ---------- scan / identify carton ----------
@@ -204,8 +211,10 @@ export class ReceivingService {
       return this.sessionDetail(sessionId, { flash: { kind: 'UNKNOWN_CARTON', code: term } });
     }
 
-    // Carton belongs to a different shipment/arrival -> wrong shipment.
-    if (session.shipmentId && carton.shipmentId !== session.shipmentId) {
+    // Carton belongs to a different ARRIVAL -> wrong shipment (C-12: an
+    // arrival may carry SEVERAL shipments — the check is the arrival, never
+    // a single primary shipment).
+    if (carton.shipment.arrivalId !== session.arrivalId) {
       await this.prisma.$transaction(async (tx) => {
         const rc = await tx.receivingCarton.create({ data: {
           receivingSessionId: sessionId, cartonId: carton.id, scannedCode: term, scanType, source,
@@ -257,8 +266,10 @@ export class ReceivingService {
       include: { shipment: true },
     });
     if (!carton) throw new NotFoundException('Carton not found.');
-    if (session.shipmentId && carton.shipmentId !== session.shipmentId) {
-      throw new ConflictException('Carton belongs to a different shipment.');
+    // C-12: validate against the session's ARRIVAL (all of its shipments),
+    // not a single bound shipment.
+    if (carton.shipment?.arrivalId !== session.arrivalId) {
+      throw new ConflictException('Carton belongs to a different arrival.');
     }
 
     if (operationId) {
@@ -285,11 +296,20 @@ export class ReceivingService {
   }
 
   // ---------- product scan / receive units ----------
-  async receiveProduct(sessionId: string, sku: string, quantity: number, actor: ReceivingActor, source: ScanSource = 'MANUAL') {
+  async receiveProduct(sessionId: string, sku: string, quantity: number, actor: ReceivingActor, source: ScanSource = 'MANUAL', operationId?: string) {
     const session = await this.requireActiveSession(sessionId);
     const qty = Math.max(1, Math.floor(Number(quantity) || 1));
     const term = (sku || '').trim();
     if (!term) throw new BadRequestException('SKU/reference is required.');
+
+    // C-4 idempotency: a client operationId (device-generated, stable across
+    // retries) is processed exactly once. Replays return the current session
+    // state without creating a second observation.
+    if (operationId) {
+      const dup = await this.prisma.receivingScanEvent.findUnique({ where: { operationId } });
+      if (dup && dup.sessionId === sessionId) return this.sessionDetail(sessionId);
+      if (dup) throw new ConflictException('This operation was already applied to another session.');
+    }
 
     const line = await this.prisma.receivingProduct.findFirst({
       where: { receivingSessionId: sessionId, sku: term },
@@ -302,13 +322,18 @@ export class ReceivingService {
           receivingSessionId: sessionId, sku: term, expectedQuantity: 0, receivedQuantity: qty,
           difference: qty, status: 'UNEXPECTED',
         } });
+        if (operationId) {
+          await tx.receivingScanEvent.create({ data: {
+            sessionId, operationId, kind: 'PRODUCT', code: term, quantity: qty, source,
+          } });
+        }
         await tx.receivingDiscrepancy.create({ data: {
           receivingSessionId: sessionId, receivingProductId: rp.id, type: 'UNEXPECTED_PRODUCT',
           expectedQuantity: 0, actualQuantity: qty, difference: qty,
           reason: `Unexpected SKU ${term} (+${qty})`, status: 'OPEN', createdBy: actor.id,
         } });
         await this.audit.log({ actorUserId: actor.id, action: 'UNEXPECTED_PRODUCT' as never, entityType: 'receiving_product',
-          entityId: rp.id, metadata: { sku: term, quantity: qty, source } }, tx);
+          entityId: rp.id, metadata: { sku: term, quantity: qty, source, operationId: operationId ?? null } }, tx);
       });
       return this.sessionDetail(sessionId, { flash: { kind: 'UNEXPECTED_PRODUCT', sku: term } });
     }
@@ -326,6 +351,11 @@ export class ReceivingService {
         where: { id: expectedLine.id },
         data: { receivedQuantity: received, difference, status: status as any },
       });
+      if (operationId) {
+        await tx.receivingScanEvent.create({ data: {
+          sessionId, operationId, kind: 'PRODUCT', code: term, quantity: qty, source,
+        } });
+      }
 
       if (updated.status === 'OVERAGE' && expectedLine.status !== 'OVERAGE') {
         await tx.receivingDiscrepancy.create({ data: {
@@ -426,6 +456,9 @@ export class ReceivingService {
         metadata: { finalStatus: arrivalStatus, tally },
       }, tx);
     });
+    // Operational assignment lifecycle: assignment(s) on this arrival close
+    // as COMPLETED / COMPLETED_WITH_DISCREPANCY, mirroring the session.
+    await this.assignments.receivingCompleted(session.arrivalId, hasOpenDiscrepancies, session.code, actor.id).catch(() => 0);
     return this.sessionDetail(sessionId);
   }
 

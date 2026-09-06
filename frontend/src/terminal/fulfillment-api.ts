@@ -73,9 +73,13 @@ export const fulfillmentApi = {
     client.get<OpContainer[]>(`${v1}/containers`, { params }).then((r) => r.data),
   container: (code: string) => client.get(`${v1}/containers/${encodeURIComponent(code)}`).then((r) => r.data),
 
-  // receiving article scan
-  scanArticle: (sessionId: string, body: { sku: string; containerCode: string; cartonCode?: string }) =>
+  // receiving article scan (idempotent per unit via operationId — C-4)
+  scanArticle: (sessionId: string, body: { sku: string; containerCode: string; cartonCode?: string; operationId?: string }) =>
     client.post(`${v1}/receiving/sessions/${sessionId}/scan-article`, body).then((r) => r.data),
+
+  // manual tote close at ANY count (§21) — becomes READY_FOR_SORTING
+  closeContainer: (code: string) =>
+    client.post<{ ok: true; code: string; status: string; count: number }>(`${v1}/containers/${encodeURIComponent(code)}/close`, {}).then((r) => r.data),
 
   // sorting + storage
   sortingScan: (articleCode: string) =>

@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { terminalApi, type TerminalContext } from './api';
+import ReportIssue from './ReportIssue';
 
 /**
  * Worker Operating System shell (spec §4/§5).
@@ -18,7 +19,7 @@ interface TerminalUi {
   ctx: TerminalContext | null;
   reload: () => Promise<void>;
   /** Terminal-wide status line shown in the footer (§5). */
-  setStatus: (s: { text: string; kind?: 'ok' | 'bad' | 'info' } | null) => void;
+  setStatus: (s: { text: string; kind?: 'ok' | 'bad' | 'info' | 'warn' } | null) => void;
   setLastAction: (s: string | null) => void;
 }
 
@@ -36,7 +37,7 @@ export default function WorkerShell() {
 
   const [ctx, setCtx] = useState<TerminalContext | null>(null);
   const [ctxLoading, setCtxLoading] = useState(true);
-  const [status, setStatus] = useState<{ text: string; kind?: 'ok' | 'bad' | 'info' } | null>(null);
+  const [status, setStatus] = useState<{ text: string; kind?: 'ok' | 'bad' | 'info' | 'warn' } | null>(null);
   const [lastAction, setLastAction] = useState<string | null>(null);
   const [online, setOnline] = useState(navigator.onLine);
 
@@ -101,6 +102,13 @@ export default function WorkerShell() {
           <span className={`os-tag ${online ? 'os-tag--ok' : 'os-tag--err'}`}>
             {online ? 'ONLINE' : 'OFFLINE'}
           </span>
+          {/* §41/C-16: REPORT ISSUE is reachable from EVERY operational
+              screen — mounted once in the shell, not per task. */}
+          <ReportIssue
+            taskKey={task?.key ?? null}
+            sessionCode={ctx?.activeSession?.code ?? null}
+            getSessionId={() => ctx?.activeSession?.id}
+          />
         </div>
 
         {/* Full-bleed operational work area (§5). */}

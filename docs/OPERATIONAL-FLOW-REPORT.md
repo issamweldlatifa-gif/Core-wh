@@ -1,5 +1,10 @@
 # EXECUTION REPORT — Operational Warehouse Flow
 
+> ---
+> **⚠ PARTIALLY SUPERSEDED (2026-09-06):** the assignment/task/worker sections
+> are historical. Authoritative for the worker operational model:
+> `docs/WORKER-OPERATIONAL-MODEL.md`.
+
 Commit: `e1d579d` (pushed to `master`, on top of `7312aea`)
 Verification: 38/38 unit tests · 85/85 e2e tests (incl. new 15-case flow matrix) · backend + frontend builds green · full chain exercised live over HTTP (login → CRM card → order → receive → tote → sort → store → bin → pack → ship → trace).
 

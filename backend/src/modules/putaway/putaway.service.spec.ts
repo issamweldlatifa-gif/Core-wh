@@ -55,7 +55,7 @@ describe('PutawayService', () => {
     it('rejects an unknown carton without throwing', async () => {
       const prisma = makePrisma();
       prisma.warehouseCarton.findFirst.mockResolvedValue(null);
-      const svc = new PutawayService(prisma, audit, categoriesStub);
+      const svc = new PutawayService(prisma, audit, categoriesStub, { cartonStored: async () => 0 } as never);
 
       await expect(svc.scanCarton('CTN-NOPE')).resolves.toEqual({
         kind: 'UNKNOWN_CARTON', code: 'CTN-NOPE',
@@ -68,7 +68,7 @@ describe('PutawayService', () => {
         id: 'c1', externalCartonId: 'CTN-1', status: 'EXPECTED',
         currentLocation: null, shipment: null,
       });
-      const svc = new PutawayService(prisma, audit, categoriesStub);
+      const svc = new PutawayService(prisma, audit, categoriesStub, { cartonStored: async () => 0 } as never);
 
       const flash = await svc.scanCarton('CTN-1');
       expect(flash.kind).toBe('CARTON_NOT_RECEIVED');
@@ -80,7 +80,7 @@ describe('PutawayService', () => {
         id: 'c1', externalCartonId: 'CTN-1', status: 'RECEIVED',
         currentLocation: null, shipment: null,
       });
-      const svc = new PutawayService(prisma, audit, categoriesStub);
+      const svc = new PutawayService(prisma, audit, categoriesStub, { cartonStored: async () => 0 } as never);
 
       const flash = await svc.scanCarton('CTN-1');
       expect(flash.kind).toBe('CARTON_READY');
@@ -93,7 +93,7 @@ describe('PutawayService', () => {
       prisma.location.findFirst.mockResolvedValue({
         id: 'l1', locationCode: 'A-01', locationType: 'STORAGE', status: 'BLOCKED',
       });
-      const svc = new PutawayService(prisma, audit, categoriesStub);
+      const svc = new PutawayService(prisma, audit, categoriesStub, { cartonStored: async () => 0 } as never);
 
       await expect(svc.scanLocation('A-01')).resolves.toMatchObject({
         kind: 'LOCATION_UNAVAILABLE', status: 'BLOCKED',
@@ -105,7 +105,7 @@ describe('PutawayService', () => {
       prisma.location.findFirst.mockResolvedValue({
         id: 'l1', locationCode: 'A-01', locationType: 'STORAGE', status: 'ACTIVE',
       });
-      const svc = new PutawayService(prisma, audit, categoriesStub);
+      const svc = new PutawayService(prisma, audit, categoriesStub, { cartonStored: async () => 0 } as never);
 
       await svc.scanLocation('a-01');
       const where = prisma.location.findFirst.mock.calls[0][0].where;
@@ -127,7 +127,7 @@ describe('PutawayService', () => {
       prisma._tx.warehouseCarton.findUnique.mockResolvedValue({
         id: 'carton-1', externalCartonId: 'CTN-1', ...cartonState,
       });
-      const svc = new PutawayService(prisma, audit, categoriesStub);
+      const svc = new PutawayService(prisma, audit, categoriesStub, { cartonStored: async () => 0 } as never);
       // detail() is exercised separately; stub it to keep these tests focused.
       jest.spyOn(svc, 'detail').mockResolvedValue({} as any);
       return { prisma, svc };
@@ -136,7 +136,7 @@ describe('PutawayService', () => {
     it('refuses to write into a session that is not active', async () => {
       const prisma = makePrisma();
       prisma.putawaySession.findUnique.mockResolvedValue({ id: 's1', status: 'COMPLETED' });
-      const svc = new PutawayService(prisma, audit, categoriesStub);
+      const svc = new PutawayService(prisma, audit, categoriesStub, { cartonStored: async () => 0 } as never);
 
       await expect(
         svc.place('s1', { cartonCode: 'CTN-1', locationCode: 'A-01' }, ACTOR),
@@ -185,7 +185,7 @@ describe('PutawayService', () => {
       const prisma = makePrisma();
       prisma.putawaySession.findUnique.mockResolvedValue({ id: 's1', status: 'ACTIVE' });
       prisma.warehouseCarton.findFirst.mockResolvedValue(null); // unknown carton
-      const svc = new PutawayService(prisma, audit, categoriesStub);
+      const svc = new PutawayService(prisma, audit, categoriesStub, { cartonStored: async () => 0 } as never);
 
       const res: any = await svc.place('s1', { cartonCode: 'NOPE', locationCode: 'A-01' }, ACTOR);
 

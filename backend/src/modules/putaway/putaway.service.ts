@@ -8,6 +8,7 @@ import { Prisma, ScanSource } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CategoriesService } from '../categories/categories.service';
+import { AssignmentsService, CARTON_CLAIM_TTL_MS } from '../assignments/assignments.service';
 
 /**
  * Putaway / stowing — move RECEIVED cartons onto real storage locations.
@@ -50,6 +51,7 @@ export class PutawayService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly categories: CategoriesService,
+    private readonly assignments: AssignmentsService,
   ) {}
 
   private async genCode(tx: Prisma.TransactionClient) {
@@ -116,9 +118,16 @@ export class PutawayService {
    * Cartons that are received but not yet on a shelf — the actual work queue.
    * This is what makes the screen useful: the worker sees what is left.
    */
-  async queue(limit = 50) {
+  async queue(limit = 50, workerId?: string) {
+    const claimCutoff = new Date(Date.now() - CARTON_CLAIM_TTL_MS);
     const cartons = await this.prisma.warehouseCarton.findMany({
-      where: { status: 'RECEIVED', currentLocationId: null },
+      where: {
+        status: 'RECEIVED',
+        currentLocationId: null,
+        // C-6 coordination: hide cartons another worker claimed recently
+        // (soft claim, TTL-bounded). Own claims stay visible as "mine".
+        OR: [{ claimedById: null }, { claimedAt: { lt: claimCutoff } }, ...(workerId ? [{ claimedById: workerId }] : [])],
+      },
       orderBy: { receivedAt: 'asc' },
       take: Math.min(limit, 200),
       include: {
@@ -165,6 +174,9 @@ export class PutawayService {
           shipmentCode: c.shipment?.code ?? null,
           arrivalCode: c.shipment?.expectedArrival?.code ?? null,
           customerName: c.shipment?.expectedArrival?.customerName ?? null,
+          // Soft claim state (C-6): mine / other worker (fresh claims only).
+          claimedByMe: !!workerId && c.claimedById === workerId && !!c.claimedAt && c.claimedAt >= claimCutoff,
+          claimedAt: c.claimedAt,
           // Distinct categories of the arrival (kept for compatibility).
           categories: Array.from(new Set(items.map((i) => i.category ?? 'UNKNOWN'))),
           // Per-line classification for display.
@@ -183,6 +195,45 @@ export class PutawayService {
         };
       }),
     );
+  }
+
+  /**
+   * C-6 soft claim: a worker picking a carton from the queue marks it as
+   * theirs for the TTL window so two workers are not sent to the same
+   * carton. The claim never blocks the physical flow (it expires and any
+   * worker may still stow the carton) — it is coordination, not authority.
+   */
+  async claimCarton(code: string, actor: PutawayActor) {
+    const carton = await this.prisma.warehouseCarton.findFirst({
+      where: { OR: [{ externalCartonId: code }, { qrCodeValue: code }, { barcodeValue: code }, { id: code }] },
+    });
+    if (!carton) throw new NotFoundException(`Carton "${code}" not found.`);
+    if (carton.status !== 'RECEIVED' || carton.currentLocationId) {
+      throw new ConflictException(`Carton ${carton.externalCartonId} is not awaiting putaway.`);
+    }
+    const cutoff = new Date(Date.now() - CARTON_CLAIM_TTL_MS);
+    if (carton.claimedById && carton.claimedById !== actor.id && carton.claimedAt && carton.claimedAt >= cutoff) {
+      throw new ConflictException(`Carton ${carton.externalCartonId} is being handled by another worker.`);
+    }
+    await this.prisma.warehouseCarton.update({
+      where: { id: carton.id },
+      data: { claimedById: actor.id, claimedAt: new Date() },
+    });
+    return { ok: true, carton: carton.externalCartonId, claimedAt: new Date().toISOString() };
+  }
+
+  /** Release my claim (worker changed their mind before stowing). */
+  async releaseCarton(code: string, actor: PutawayActor) {
+    const carton = await this.prisma.warehouseCarton.findFirst({
+      where: { OR: [{ externalCartonId: code }, { qrCodeValue: code }, { barcodeValue: code }, { id: code }] },
+    });
+    if (!carton) throw new NotFoundException(`Carton "${code}" not found.`);
+    if (carton.claimedById !== actor.id) throw new ConflictException('You did not claim this carton.');
+    await this.prisma.warehouseCarton.update({
+      where: { id: carton.id },
+      data: { claimedById: null, claimedAt: null },
+    });
+    return { ok: true, carton: carton.externalCartonId };
   }
 
   async detail(id: string) {
@@ -359,6 +410,9 @@ export class PutawayService {
           currentLocationId: location.id,
           storedAt: new Date(),
           status: 'STORED',
+          // Stowed cartons leave the claimable pool (C-6).
+          claimedById: null,
+          claimedAt: null,
         },
       });
 
@@ -379,6 +433,9 @@ export class PutawayService {
           moved: result.moved,
         },
       });
+
+      // Operational assignment lifecycle: putaway tasks on this carton complete.
+      await this.assignments.cartonStored(cartonId, actor.id).catch(() => 0);
 
       // Sorting traceability: record which destination the CONFIGURED
       // category mapping resolved to at placement time, alongside the zone

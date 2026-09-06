@@ -105,7 +105,7 @@ export default function OrderSortingTask() {
       setStep('ARTICLE');
       await refreshBins();
     } catch (e: any) {
-      const m = e?.response?.data?.message ?? 'Server error';
+      const m = e?.response?.data?.message ?? 'the request failed — try again';
       report('bad', Array.isArray(m) ? m.join(', ') : String(m));
       push(String(Array.isArray(m) ? m.join(', ') : m), 'bad');
     } finally {

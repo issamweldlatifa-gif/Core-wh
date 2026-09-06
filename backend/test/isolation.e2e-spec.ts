@@ -184,6 +184,74 @@ describe('Strict Admin/Worker isolation (HTTP)', () => {
     expect(keys).toContain('receiving');
   });
 
+  // ------------------------------- 2b. C-3: EVERY worker surface is explicit
+  // The previously surface-neutral worker controllers now declare their
+  // application. This block proves the declaration exists and bites.
+
+  it('C-3 — Admin session on /receiving (declared WORKER_NATIVE) → 403', async () => {
+    const adminSession = await login(adminCode, PWD, 'ADMIN_WEB').expect(201);
+    await request(app.getHttpServer())
+      .get('/api/v1/receiving/arrivals')
+      .set('Authorization', `Bearer ${adminSession.body.accessToken}`)
+      .expect(403);
+  });
+
+  it('C-3 — Admin session on /putaway (declared WORKER_NATIVE) → 403', async () => {
+    const adminSession = await login(adminCode, PWD, 'ADMIN_WEB').expect(201);
+    await request(app.getHttpServer())
+      .get('/api/v1/putaway/queue')
+      .set('Authorization', `Bearer ${adminSession.body.accessToken}`)
+      .expect(403);
+  });
+
+  it('C-3 — Worker session on the admin-only /expected-arrivals surface → 403', async () => {
+    await request(app.getHttpServer())
+      .get('/api/v1/expected-arrivals')
+      .set('Authorization', `Bearer ${workerToken}`)
+      .expect(403);
+  });
+
+  it('C-3 — Worker session on the admin-only /orders surface → 403', async () => {
+    await request(app.getHttpServer())
+      .get('/api/v1/orders')
+      .set('Authorization', `Bearer ${workerToken}`)
+      .expect(403);
+  });
+
+  it('C-3 — Worker session on the admin-only /shipments surface → 403', async () => {
+    await request(app.getHttpServer())
+      .get('/api/v1/shipments')
+      .set('Authorization', `Bearer ${workerToken}`)
+      .expect(403);
+  });
+
+  it('C-3 — /terminal/issues is reachable by a worker session (REPORT ISSUE, §41)', async () => {
+    // Validation failure path: proves routing + surface without needing a
+    // session row (400 BadRequest — not 403/404).
+    await request(app.getHttpServer())
+      .post('/api/v1/terminal/issues')
+      .set('Authorization', `Bearer ${workerToken}`)
+      .send({ type: 'SHORTAGE', description: '' })
+      .expect(400);
+  });
+
+  it('C-3 — /terminal/work counters are worker-only (admin session → 403)', async () => {
+    const adminSession = await login(adminCode, PWD, 'ADMIN_WEB').expect(201);
+    await request(app.getHttpServer())
+      .get('/api/v1/terminal/work')
+      .set('Authorization', `Bearer ${adminSession.body.accessToken}`)
+      .expect(403);
+  });
+
+  it('C-5 — shipping task/flow needs the shipping permission (worker without it → 403 on ship scan)', async () => {
+    // The seeded isolation worker has no shipping.execute permission; the
+    // dual-surface /fulfillment controller must still enforce permissions.
+    await request(app.getHttpServer())
+      .get('/api/v1/fulfillment/shipping/shipments/OUT-000001')
+      .set('Authorization', `Bearer ${workerToken}`)
+      .expect(403);
+  });
+
   // ---------------------------------------------- 3. device binding & revoke
   it('rejects an unregistered device at worker login (DEVICE_REJECTED)', async () => {
     await login(workerCode, PWD, 'WORKER_NATIVE', 'NO-SUCH-DEVICE').expect(403);

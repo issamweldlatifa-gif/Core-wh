@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
+import { RequireApplication } from '../../common/decorators/require-application.decorator';
 import { ReceivingService } from './receiving.service';
 
 /**
@@ -11,6 +12,7 @@ import { ReceivingService } from './receiving.service';
 @ApiTags('Receiving')
 @ApiBearerAuth()
 @Controller('receiving')
+@RequireApplication('WORKER_NATIVE')
 export class ReceivingController {
   constructor(private readonly receiving: ReceivingService) {}
 
@@ -85,13 +87,13 @@ export class ReceivingController {
 
   @Post('sessions/:id/receive-product')
   @RequirePermissions('receiving.execute')
-  @ApiOperation({ summary: 'Scan/receive product units against the Expected Arrival lines.' })
+  @ApiOperation({ summary: 'Scan/receive product units against the Expected Arrival lines (idempotent via operationId).' })
   receiveProduct(
     @Param('id') id: string,
-    @Body() body: { sku: string; quantity?: number; source?: 'CAMERA' | 'EXTERNAL_SCANNER' | 'MANUAL' },
+    @Body() body: { sku: string; quantity?: number; source?: 'CAMERA' | 'EXTERNAL_SCANNER' | 'MANUAL'; operationId?: string },
     @Req() req: any,
   ) {
-    return this.receiving.receiveProduct(id, body.sku, body.quantity ?? 1, this.actor(req), body.source);
+    return this.receiving.receiveProduct(id, body.sku, body.quantity ?? 1, this.actor(req), body.source, body.operationId);
   }
 
   @Post('sessions/:id/pause')

@@ -137,6 +137,8 @@ export interface WorkerTaskRow {
   id: string;
   title: string;
   description: string | null;
+  /** Operational task registry key (receiving/putaway/packing/...) or null. */
+  taskKey: string | null;
   relatedType: string | null;
   relatedCode: string | null;
   status: string;
@@ -147,13 +149,42 @@ export interface WorkerTaskRow {
   worker: { id: string; name: string; employeeCode: string; status: string } | null;
   createdBy: { id: string; name: string; employeeCode: string } | null;
   completedBy: { id: string; name: string; employeeCode: string } | null;
+  /** Authoritative operational entity links (null when not applicable). */
+  entity?: {
+    arrival: { id: string; code: string; status: string } | null;
+    carton: { id: string; code: string; status: string } | null;
+    container: { id: string; code: string; status: string; type: string } | null;
+    outbound: { id: string; code: string; status: string } | null;
+    order: { id: string; code: string; status: string } | null;
+  } | null;
+  station?: { id: string; code: string; name: string } | null;
 }
+
+/**
+ * Operational task catalog for the Admin assignment UI (§40).
+ * Mirrors backend TASK_REGISTRY — the BACKEND validates the key and resolves
+ * the entity; this list only drives the dropdown.
+ */
+export const TASK_CATALOG = [
+  { key: 'receiving', label: 'Receiving — verify arrival (WAR-)', entity: 'ARRIVAL' },
+  { key: 'putaway', label: 'Putaway — stow carton (CTN-)', entity: 'CARTON' },
+  { key: 'sorting', label: 'Sorting — articles to zones (RCN-)', entity: 'CONTAINER' },
+  { key: 'order-sorting', label: 'Order Sorting — customer bins (BIN-)', entity: 'CONTAINER' },
+  { key: 'packing', label: 'Packing — pack bin (BIN-)', entity: 'CONTAINER' },
+  { key: 'shipping', label: 'Shipping — dispatch (OUT-)', entity: 'OUTBOUND' },
+] as const;
 
 /** Worker roles that can be created/assigned from the Worker Control page. */
 export const WORKER_ROLE_OPTIONS = [
-  { name: 'INBOUND_WORKER', label: 'Inbound / Receiving' },
-  { name: 'PICKER', label: 'Picker / Sorting' },
-  { name: 'PACKER', label: 'Packer / Packing' },
+  { name: 'RECEIVING_WORKER', label: 'Receiving Worker' },
+  { name: 'SORTING_WORKER', label: 'Sorting Worker' },
+  { name: 'PUTAWAY_WORKER', label: 'Putaway Worker' },
+  { name: 'PACKING_WORKER', label: 'Packing Worker' },
+  { name: 'SHIPPING_WORKER', label: 'Shipping Worker' },
+  // Compatibility / legacy roles (kept — never deleted without migration).
+  { name: 'INBOUND_WORKER', label: 'Inbound (compatibility)' },
+  { name: 'PICKER', label: 'Picker (legacy)' },
+  { name: 'PACKER', label: 'Packer (legacy)' },
 ];
 
 export interface WorkerDetail {
@@ -331,12 +362,24 @@ export const adminApi = {
     client.post(`/v1/operations/workers/${id}/unblock`, {}).then((r) => r.data),
   removeWorker: (id: string, reason: string) =>
     client.post(`/v1/operations/workers/${id}/remove`, { reason }).then((r) => r.data),
-  workerTasks: (params?: { workerId?: string; status?: string }) =>
-    client.get<WorkerTaskRow[]>('/v1/operations/worker-tasks', { params }).then((r) => r.data),
-  workerTaskCreate: (d: { workerId: string; title: string; description?: string; relatedType?: string; relatedCode?: string }) =>
-    client.post<{ ok: true; id: string; status: string }>('/v1/operations/worker-tasks', d).then((r) => r.data),
+  workerTasks: (params?: { workerId?: string; status?: string; taskKey?: string }) =>
+    client.get<WorkerTaskRow[]>('/v1/operations/assignments', { params }).then((r) => r.data),
+  workerTaskCreate: (d: {
+    workerId: string;
+    taskKey?: string;
+    title?: string;
+    description?: string;
+    relatedType?: string;
+    relatedCode?: string;
+    stationId?: string | null;
+  }) =>
+    client.post<{ ok: true; id: string; status: string; taskKey: string | null }>('/v1/operations/assignments', d).then((r) => r.data),
   workerTaskCancel: (id: string, reason?: string) =>
-    client.post(`/v1/operations/worker-tasks/${id}/cancel`, { reason }).then((r) => r.data),
+    client.post(`/v1/operations/assignments/${id}/cancel`, { reason }).then((r) => r.data),
+  workerTaskBlock: (id: string, reason?: string) =>
+    client.post(`/v1/operations/assignments/${id}/block`, { reason }).then((r) => r.data),
+  workerTaskUnblock: (id: string) =>
+    client.post(`/v1/operations/assignments/${id}/unblock`, {}).then((r) => r.data),
   session: (id: string) => client.get<SessionDetail>(`/v1/operations/sessions/${id}`).then((r) => r.data),
   exceptions: (status = 'OPEN') =>
     client.get<ExceptionRow[]>('/v1/operations/exceptions', { params: { status } }).then((r) => r.data),

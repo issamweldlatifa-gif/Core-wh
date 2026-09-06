@@ -1,5 +1,10 @@
 # AYROVI — Native Worker App: Architecture Audit & Master Execution Plan
 
+> ---
+> **⚠ PARTIALLY SUPERSEDED (2026-09-06):** the assignment/task/worker sections
+> are historical. Authoritative for the worker operational model:
+> `docs/WORKER-OPERATIONAL-MODEL.md`.
+
 > Status: **v1 draft — engineering baseline** (produced from a full code review of the
 > current repository, commit `58b94d3` + indicators `09989c3`).
 > This document implements **P0.1 (Architecture audit)** of Order #1 and the planning

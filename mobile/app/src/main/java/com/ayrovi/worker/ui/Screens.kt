@@ -345,7 +345,7 @@ private fun StationTabs(
         NavigationBarItem(
             selected = active == null,
             onClick = { onSelect(null, null) },
-            icon = { Text("⌂", fontSize = 18.sp) },
+            icon = { Text("H", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
             label = { Text("HOME", fontSize = 9.sp) },
         )
         // Show only permitted tasks; map key to short label
@@ -834,20 +834,24 @@ private fun HomeScreen(
 
 @Composable
 private fun StationTile(key: StationKey, task: TerminalTask, active: Boolean, onClick: () -> Unit) {
+    // §34: compact industrial ICONS — monospace letter badges, no emojis.
     val (icon, question, color) = when (key) {
-        StationKey.RECEIVING -> Triple("📦", "What am I receiving?", Green)
-        StationKey.RECEIVING_CONTAINER -> Triple("🗑", "Which tote am I filling?", Blue)
-        StationKey.CUSTOMER_SORTING -> Triple("↗", "Where does this article go?", Amber)
-        StationKey.CUSTOMER_BIN -> Triple("🗂", "Is this the correct bin?", Amber)
-        StationKey.PACKING -> Triple("📮", "Which items are still missing?", Blue)
-        StationKey.SHIPPING -> Triple("🚚", "Which shipment am I confirming?", Green)
-        StationKey.ARCHIVE_TRACE -> Triple("🔍", "What happened to this item?", Dim)
+        StationKey.RECEIVING -> Triple("RCV", "What am I receiving?", Green)
+        StationKey.RECEIVING_CONTAINER -> Triple("TOT", "Which tote am I filling?", Blue)
+        StationKey.CUSTOMER_SORTING -> Triple("SRT", "Where does this article go?", Amber)
+        StationKey.CUSTOMER_BIN -> Triple("BIN", "Is this the correct bin?", Amber)
+        StationKey.PACKING -> Triple("PKC", "Which items are still missing?", Blue)
+        StationKey.SHIPPING -> Triple("SHP", "Which shipment am I confirming?", Green)
+        StationKey.ARCHIVE_TRACE -> Triple("TRC", "What happened to this item?", Dim)
     }
     Card(colors = CardDefaults.cardColors(containerColor = Theme.surface),
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), onClick = onClick) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(44.dp).background(color.copy(alpha = 0.12f), CircleShape),
-                contentAlignment = Alignment.Center) { Text(icon, fontSize = 22.sp) }
+                contentAlignment = Alignment.Center) {
+                    Text(icon, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace, letterSpacing = 1.sp)
+                }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -927,17 +931,29 @@ private fun ReceivingStation(
         if (s == null) return@onScan
         busy = true; error = null
         try {
-            val updated = repo.scanCarton(s.id, value, "BARCODE", UUID.randomUUID().toString(), "EXTERNAL_SCANNER")
+            // C-1: scan-carton only IDENTIFIES the carton — the backend does
+            // NOT commit a receipt there. Success ("CARTON RECEIVED") may only
+            // be shown AFTER the explicit receive-carton commit returns.
+            var updated = repo.scanCarton(s.id, value, "BARCODE", UUID.randomUUID().toString(), "EXTERNAL_SCANNER")
             session = updated
             when (updated.flash?.kind) {
-                "CARTON_RECEIVED", "CARTON_IDENTIFIED", "CARTON_CONFIRMED" -> {
+                "CARTON_IDENTIFIED", "CARTON_RECEIVED", "CARTON_CONFIRMED" -> {
                     val cid = jsonString(updated.flash!!.carton, "externalCartonId")
                         ?: jsonString(updated.flash!!.carton, "code")
                         ?: jsonString(updated.flash!!.carton, "qrCodeValue")
                         ?: value
-                    fb = Feedback(FeedbackKind.OK, "CARTON RECEIVED",
-                        "$cid  ·  ${updated.tally.receivedCartons}/${updated.tally.expectedCartons} cartons")
-                    onStatus("ACCEPTED", FeedbackKind.OK); onLastAction("carton $cid received")
+                    // Commit the receipt BEFORE claiming success (C-1). The
+                    // operationId makes the commit idempotent on retries.
+                    updated = repo.receiveCarton(s.id, cid, UUID.randomUUID().toString(), "EXTERNAL_SCANNER")
+                    session = updated
+                    val f = updated.flash?.kind
+                    if (f == "DUPLICATE_CARTON") {
+                        fb = Feedback(FeedbackKind.BAD, "ALREADY RECEIVED", cid); onStatus("REJECTED", FeedbackKind.BAD)
+                    } else {
+                        fb = Feedback(FeedbackKind.OK, "CARTON RECEIVED",
+                            "$cid  ·  ${updated.tally.receivedCartons}/${updated.tally.expectedCartons} cartons")
+                        onStatus("ACCEPTED", FeedbackKind.OK); onLastAction("carton $cid received")
+                    }
                 }
                 "UNKNOWN_CARTON" -> { fb = Feedback(FeedbackKind.BAD, "UNKNOWN CARTON", value); onStatus("REJECTED", FeedbackKind.BAD) }
                 "WRONG_SHIPMENT" -> { fb = Feedback(FeedbackKind.BAD, "WRONG SHIPMENT", value); onStatus("REJECTED", FeedbackKind.BAD) }
@@ -995,6 +1011,8 @@ private fun ReceivingStation(
         FlashBar(fb, { fb = null }, onAccepted)
         BigScanHero("SCAN CARTON", "Point the CT40 trigger at the carton barcode.",
             statusLabel = s.status.uppercase(), statusColor = if (s.status == "PAUSED") Amber else Green,
+            // C-2: the label mirrors the BACKEND session status verbatim
+            // (RECEIVING / PAUSED / COMPLETED...) — never a local fiction.
             cameraOn = camOn)
         CameraToggle(camOn, setCam, coord, enabled = !busy && s.status != "PAUSED")
         Spacer(Modifier.height(10.dp))
@@ -1016,7 +1034,7 @@ private fun ReceivingStation(
         Spacer(Modifier.height(10.dp))
         Section("SESSION")
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            if (s.status == "ACTIVE") {
+            if (s.status == "RECEIVING" || s.status == "ACTIVE") {
                 OutlinedButton(onClick = {
                     scope.launch { busy = true; try { session = repo.pauseSession(s.id) } catch (e: Exception) { fb = Feedback(FeedbackKind.BAD, "ERROR", e.message) } finally { busy = false } }
                 }, modifier = Modifier.weight(1f), enabled = !busy) { Text("PAUSE") }
@@ -1033,7 +1051,7 @@ private fun ReceivingStation(
                         onStatus("DONE", FeedbackKind.OK); onLastAction("session ${done.code} complete")
                     } catch (e: Exception) { fb = Feedback(FeedbackKind.BAD, "CANNOT COMPLETE", e.message) } finally { busy = false }
                 }
-            }, modifier = Modifier.weight(1f), enabled = !busy && (s.status == "ACTIVE" || s.status == "PAUSED")) {
+            }, modifier = Modifier.weight(1f), enabled = !busy && (s.status == "RECEIVING" || s.status == "ACTIVE" || s.status == "PAUSED")) {
                 Text("COMPLETE")
             }
         }
@@ -1098,7 +1116,14 @@ private fun ToteStation(
         // Scan article into tote
         busy = true
         try {
-            val r = repo.scanArticleAtReceiving(s.id, value, tote!!)
+            val r = repo.scanArticleAtReceiving(s.id, value, tote!!, null, UUID.randomUUID().toString())
+            // C-4: a replayed operationId is NOT a new article — do not
+            // count it locally and say so honestly.
+            if (r.flash?.kind == "DUPLICATE_OPERATION") {
+                fb = Feedback(FeedbackKind.INFO, "ALREADY COUNTED — NOT REPEATED", value)
+                onStatus("DUPLICATE", FeedbackKind.INFO)
+                return@onScan
+            }
             articlesCount += 1
             if (r.matched) {
                 val sku = r.flash?.sku ?: value
@@ -1186,8 +1211,24 @@ private fun ToteStation(
             ManualEntry("SKU / REFERENCE", manualSku, { manualSku = it }, { v -> scope.launch { onScan(v) } },
                 enabled = !busy)
             Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = { tote = null; articlesCount = 0 }, modifier = Modifier.fillMaxWidth()) {
-                Text("CHANGE TOTE")
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                // §21: close the tote NOW at any count — the backend seals it
+                // (READY_FOR_SORTING) and it moves to the sorting step.
+                OutlinedButton(onClick = {
+                    scope.launch {
+                        busy = true
+                        try {
+                            val closed = repo.closeContainer(tote!!)
+                            fb = Feedback(FeedbackKind.INFO, "TOTE ${closed.code} CLOSED AT ${closed.count}", "READY FOR SORTING")
+                            onLastAction("tote ${closed.code} closed at ${closed.count}")
+                            tote = null; articlesCount = 0
+                        } catch (e: Exception) { fb = Feedback(FeedbackKind.BAD, "CANNOT CLOSE TOTE", e.message) }
+                        finally { busy = false }
+                    }
+                }, enabled = !busy, modifier = Modifier.weight(1f)) { Text("CLOSE TOTE") }
+                OutlinedButton(onClick = { tote = null; articlesCount = 0 }, enabled = !busy, modifier = Modifier.weight(1f)) {
+                    Text("CHANGE TOTE")
+            }
             }
         }
     }

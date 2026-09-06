@@ -182,6 +182,9 @@ enum AuditAction {
   CATEGORY_NEEDS_REVIEW
   CATEGORY_MANUALLY_CHANGED
   SORTING_DESTINATION_SELECTED
+  // Worker operational model — worker-side issue reporting + assignment lifecycle.
+  WORKER_ISSUE_REPORTED
+  TASK_IN_PROGRESS
   // Placeholders for later phases (NOT implemented in Phase 0/1).
   ITEM_RECEIVED
   ITEM_STORED
@@ -221,15 +224,19 @@ enum ApiClientStatus {
 // merely IDENTIFIES the user; it is NOT a permission. Permissions are
 // defined on Roles, never on the code.
 // =====================================================================
-// COMMAND #3 — Worker Control: admin task assignments.
-// A concrete instruction an admin attaches to ONE worker (e.g. "receive
-// arrival WAR-..."). The worker sees OPEN assignments in the terminal and
-// closes them with a note; the admin sees all of them in Workers control.
+// WORKER OPERATIONAL MODEL — the assignment layer is now linked to the
+// real operational entities (arrival/carton/container/outbound/order)
+// and carries the operational lifecycle below. `relatedType/relatedCode`
+// remain as a display-compatible echo of the authoritative FK link
+// (and for ad-hoc OTHER references that have no table).
 // =====================================================================
 enum AssignmentStatus {
-  OPEN
-  DONE
-  CANCELLED
+  ASSIGNED // admin attached the task to a worker (entry state)
+  IN_PROGRESS // the linked workflow session is open
+  COMPLETED // linked workflow (or worker) finished it cleanly
+  COMPLETED_WITH_DISCREPANCY // finished, but the workflow closed with discrepancies
+  BLOCKED // admin/worker flagged it as not executable for now
+  CANCELLED // admin cancelled it (kept for audit)
 }
 
 model WorkerTaskAssignment {
@@ -238,9 +245,11 @@ model WorkerTaskAssignment {
   worker        User             @relation("WorkerAssignments", fields: [workerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   title         String
   description   String?
-  relatedType   String? // ARRIVAL | SHIPMENT | ORDER | STATION | OTHER
+  relatedType   String? // ARRIVAL | SHIPMENT | ORDER | STATION | OTHER (echo of the FK below when one exists)
   relatedCode   String?
-  status        AssignmentStatus @default(OPEN)
+  /// Task registry key (receiving | putaway | sorting | order-sorting | packing | shipping).
+  taskKey       String?
+  status        AssignmentStatus @default(ASSIGNED)
   createdById   String?
   createdBy     User?            @relation("AssignmentCreator", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
   note          String? // worker's completion note
@@ -251,11 +260,38 @@ model WorkerTaskAssignment {
   cancelledBy   User?   @relation("AssignmentCancelled", fields: [cancelledById], references: [id], onDelete: SetNull, onUpdate: Cascade)
   cancelledAt   DateTime?
   cancelReason  String?
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
+
+  // ---- authoritative operational-entity links (all optional: an
+  // assignment may be a plain instruction with no entity) -----------------
+  /// Receiving task → ExpectedArrival (WAR-…).
+  arrivalId           String?
+  arrival             ExpectedArrival? @relation("AssignmentArrival", fields: [arrivalId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  /// Putaway task → WarehouseCarton (CTN-…).
+  cartonId            String?
+  carton              WarehouseCarton? @relation("AssignmentCarton", fields: [cartonId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  /// Packing / order-sorting task → OperationalContainer (RCN-/BIN-…).
+  containerId         String?
+  container           OperationalContainer? @relation("AssignmentContainer", fields: [containerId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  /// Shipping task → OutboundShipment (OUT-…).
+  outboundShipmentId  String?
+  outboundShipment    OutboundShipment? @relation("AssignmentOutbound", fields: [outboundShipmentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  /// Order workload → WarehouseOrder.
+  orderId             String?
+  order               WarehouseOrder? @relation("AssignmentOrder", fields: [orderId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  /// Where the work should happen, when the admin pinned it.
+  stationId           String?
+  station             Station? @relation("AssignmentStation", fields: [stationId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
 
   @@index([workerId, status])
   @@index([status])
+  @@index([taskKey, status])
+  @@index([arrivalId])
+  @@index([cartonId])
+  @@index([containerId])
+  @@index([outboundShipmentId])
   @@map("worker_task_assignments")
 }
 
@@ -406,6 +442,7 @@ model Device {
   assignedWorker   User?    @relation("DeviceWorker", fields: [assignedWorkerId], references: [id], onDelete: SetNull)
 
   sessions Session[]
+  stations Station[] @relation("StationDevice")
 
   @@index([status])
   @@index([assignedWorkerId])
@@ -767,6 +804,7 @@ model WarehouseOrder {
   updatedAt                 DateTime             @updatedAt
 
   items OrderItem[]
+  taskAssignments   WorkerTaskAssignment[] @relation("AssignmentOrder")
   // Operational flow back-relations (fulfilment).
   containers        OperationalContainer[]
   articleUnits      ArticleUnit[]
@@ -970,6 +1008,7 @@ model ExpectedArrival {
   items             ExpectedArrivalItem[]
   shipments         WarehouseShipment[]
   receivingSessions ReceivingSession[]
+  taskAssignments   WorkerTaskAssignment[] @relation("AssignmentArrival")
 
   @@index([status])
   @@index([customerId])
@@ -1095,6 +1134,7 @@ enum ContainerType {
 
 enum ContainerStatus {
   ACTIVE
+  READY_FOR_SORTING // receiving tote full (capacity) or manually closed — no longer accepts articles
   READY_FOR_PACKING // customer bin holds every article of its order
   PACKED // contents packed into an outbound shipment
   CLOSED // released after ship / emptied; kept for audit trail
@@ -1143,6 +1183,7 @@ model OperationalContainer {
 
   articles          ArticleUnit[]
   outboundShipments OutboundShipment[]
+  taskAssignments   WorkerTaskAssignment[] @relation("AssignmentContainer")
 
   @@index([type, status])
   @@index([orderId])
@@ -1233,6 +1274,7 @@ model OutboundShipment {
   shippedAt DateTime?
 
   articles ArticleUnit[]
+  taskAssignments WorkerTaskAssignment[] @relation("AssignmentOutbound")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1352,6 +1394,12 @@ model WarehouseCarton {
   receivedAt DateTime?
   receivedBy String?
 
+  /// Soft putaway claim (C-6): worker currently walking this carton to a
+  /// shelf. Ephemeral (service clears it on placement / after a TTL) — kept
+  /// as a plain worker id, intentionally not an FK.
+  claimedById String?
+  claimedAt   DateTime?
+
   /// Where the carton physically is now. NULL until Putaway stows it (D-46).
   /// Restrict: a location that still holds stock cannot be deleted.
   currentLocationId String?
@@ -1364,6 +1412,7 @@ model WarehouseCarton {
   receivingCartons ReceivingCarton[]
   placements       CartonPlacement[]
   articleUnits     ArticleUnit[] // pieces scanned OUT of this carton at receiving
+  taskAssignments  WorkerTaskAssignment[] @relation("AssignmentCarton")
 
   @@index([shipmentId])
   @@index([status])
@@ -1408,6 +1457,7 @@ model ReceivingSession {
   updatedAt DateTime @updatedAt
 
   cartons       ReceivingCarton[]
+  scanEvents    ReceivingScanEvent[]
   products      ReceivingProduct[]
   discrepancies ReceivingDiscrepancy[]
   corrections   OperationCorrection[]
@@ -1445,6 +1495,32 @@ model ReceivingCarton {
   @@index([receivingSessionId])
   @@index([cartonId])
   @@map("receiving_cartons")
+}
+
+/// Append-only record of EVERY unit-level scan (product receive + article
+/// into tote). Guarantees idempotency for receive-product / scan-article:
+/// a retried HTTP call with the same client `operationId` is recognised
+/// here and NEVER double-counted (fix C-4). Carton scans are already
+/// idempotent via `receiving_cartons.operationId`.
+model ReceivingScanEvent {
+  id          String           @id @default(uuid())
+  sessionId   String
+  session     ReceivingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  /// Client-generated idempotency key (one physical scan = one key).
+  operationId String  @unique
+  /// PRODUCT (receive-product) | ARTICLE (scan-article into a tote).
+  kind        String
+  /// The SKU/reference scanned.
+  code        String?
+  quantity    Int     @default(1)
+  source      String?
+
+  createdAt DateTime @default(now())
+
+  @@index([sessionId])
+  @@index([kind])
+  @@map("receiving_scan_events")
 }
 
 model ReceivingProduct {
@@ -1629,7 +1705,11 @@ model Station {
   assignedWorkerId String?
   assignedWorker   User?   @relation("StationWorker", fields: [assignedWorkerId], references: [id], onDelete: SetNull)
 
+  /// Registered worker device at this position. REAL relation to the Device
+  /// registry (C-8) — the column previously held a free-text device code;
+  /// the migration maps existing codes to their registry rows.
   deviceId     String?
+  device       Device?             @relation("StationDevice", fields: [deviceId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   capabilities StationCapability[] @default([])
 
   warehouseId String?
@@ -1642,6 +1722,7 @@ model Station {
   sessions        ReceivingSession[]   @relation("StationSessions")
   workerSessions  Session[]            @relation("SessionStation")
   putawaySessions PutawaySession[]     @relation("StationPutawaySessions")
+  taskAssignments WorkerTaskAssignment[] @relation("AssignmentStation")
 
   @@index([department])
   @@index([status])

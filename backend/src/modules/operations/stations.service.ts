@@ -98,10 +98,18 @@ export class StationsService {
     actor: StationActor,
   ) {
     const station = await this.findOne(id);
-    const data: Prisma.StationUpdateInput = {};
+    // Unchecked variant: the station's Device link is expressed through the
+    // deviceId FK (C-8 made Device a real relation; the FK stays the input).
+    const data: Prisma.StationUncheckedUpdateInput = {};
     if (input.name !== undefined) data.name = input.name.trim();
     if (input.capabilities !== undefined) data.capabilities = input.capabilities;
-    if (input.deviceId !== undefined) data.deviceId = input.deviceId;
+    if (input.deviceId !== undefined) {
+      if (input.deviceId) {
+        const device = await this.prisma.device.findUnique({ where: { id: input.deviceId } });
+        if (!device) throw new NotFoundException(`Device "${input.deviceId}" not found.`);
+      }
+      data.deviceId = input.deviceId;
+    }
 
     const saved = await this.prisma.station.update({ where: { id: station.id }, data });
     await this.audit.log({
