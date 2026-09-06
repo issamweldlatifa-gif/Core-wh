@@ -25,6 +25,8 @@ object WorkerMessages {
         unknown -> OperationalMessage("RECEIPT NOT CONFIRMED", "Do not receive this item again. Check the connection and ask your supervisor.")
         code == 401 -> OperationalMessage("SIGN IN REQUIRED", "Your session has ended. Sign in again to continue.")
         code == 403 -> OperationalMessage("ACTION NOT ALLOWED", reason(raw, "Ask your supervisor to check your access or assignment."))
+        code == 404 && raw.contains("Expected arrival not found", ignoreCase = true) ->
+            OperationalMessage("ARRIVAL NOT FOUND", "This arrival is not available. Select an Arrival from the queue or scan its WAR- code.")
         code == 404 -> OperationalMessage("NOT FOUND", reason(raw, "Check the label and scan again."))
         code == 409 -> OperationalMessage("CANNOT CONTINUE", reason(raw, "This task has changed. Refresh it or ask your supervisor."))
         code == 429 -> OperationalMessage("PLEASE WAIT", "Wait a moment before trying again.", MessageTone.WARNING)

@@ -150,11 +150,17 @@ class ReceivingWorkflow(
         if (!fromScanner) mutable.update { it.copy(lastScanValue = null) }
         val key = code.trim()
         if (key.isEmpty()) return@run notice("SCAN AN ARRIVAL", "Use the AYROVI arrival code, not a customer or shipment label.")
+        if (fromScanner && !isArrivalScanCode(key)) {
+            return@run notice("NOT AN ARRIVAL CODE", "This is not an Arrival code. Select an Arrival from the queue or scan a WAR- code.", scanned = key, expected = "AYROVI arrival code")
+        }
         val active = gateway.activeSession(key)
         val session = active ?: mutate(MutationKind.START, arrivalCode = key) { gateway.startReceiving(key) }
         adoptSession(session)
         if (session.status == "RECEIVING") signal(MessageTone.SUCCESS, "ARRIVAL FOUND", "Continue with the next scan.", session.arrival.code ?: key)
     }
+
+    private fun isArrivalScanCode(key: String): Boolean =
+        key.length >= 4 && key.regionMatches(0, "WAR-", 0, 4, ignoreCase = true)
 
     private fun identifyCarton(scan: ScanResult) = run {
         val session = activeSession() ?: return@run

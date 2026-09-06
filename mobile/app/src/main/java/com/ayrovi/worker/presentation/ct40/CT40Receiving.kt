@@ -44,6 +44,19 @@ internal fun CT40Receiving(
                     CT40DeviceVisual(view.feedback.phase, Modifier.height(illustrationSize))
                 }
                 ReceivingStatus(view, large = true)
+                if (view.workflow.step == ReceivingStep.ARRIVAL && view.workflow.arrivals.isNotEmpty()) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xxs)) {
+                        WorkerIcon(TerminalIcon.QUEUE, null, Modifier.size(TerminalTokens.iconSmall), TerminalTokens.instruction)
+                        Text("WAITING ARRIVALS", style = MaterialTheme.typography.labelLarge)
+                    }
+                    view.workflow.arrivals.take(20).forEach { arrival ->
+                        val arrivalCode = arrival.code ?: arrival.id.orEmpty()
+                        val label = listOfNotNull(arrivalCode, arrival.customerName?.take(24)).joinToString(" · ")
+                        SecondaryAction(label, { send(ReceivingIntent.OpenArrival(arrivalCode)) }, view.workflow.canMutate)
+                    }
+                    if (view.workflow.arrivals.size > 20)
+                        Text("Scan the arrival label to open other waiting arrivals.", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)
+                }
                 when {
                     view.emptyQueue -> WorkerIcon(TerminalIcon.QUEUE, null, Modifier.size(TerminalTokens.stateIcon), TerminalTokens.muted)
                     view.captureVisible && capture.manualOpen -> ManualScan(capture, enabled)
