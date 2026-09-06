@@ -62,7 +62,9 @@ class DeviceAwareReceivingTest {
         compose.onNodeWithText("USE CAMERA").assertDoesNotExist()
         compose.onNodeWithText("Use the side trigger").assertIsDisplayed()
         compose.onNodeWithText("MANUAL CODE").assertIsDisplayed()
-        compose.onNodeWithTag("CT40_HEADER").assertHeightIsAtMost(100.dp)
+        val headerHeight = compose.onNodeWithTag("CT40_HEADER").fetchSemanticsNode().boundsInRoot.height
+        val density = InstrumentationRegistry.getInstrumentation().targetContext.resources.displayMetrics.density
+        assertTrue("Compact CT40 header must fit within 100dp", headerHeight <= 100f * density)
         saveNativeScreenshot(compose, "ct40-arrival-ready")
     }
     @Test fun ct40SyntheticHardwareJourneyValidatesThenConfirmsThroughOneCore() {

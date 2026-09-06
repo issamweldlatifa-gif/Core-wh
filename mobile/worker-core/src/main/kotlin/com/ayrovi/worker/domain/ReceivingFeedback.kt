@@ -135,7 +135,9 @@ class ReceivingFeedbackController(
                 work.authExpired || connection == ConnectionState.AUTH_ERROR -> TerminalFeedback(TerminalPhase.ERROR, "SIGN IN REQUIRED", "Your session has ended.")
                 !work.busy && (work.storageBlocked || (work.pending != null && work.pending.confirmedReceipt == null)) -> TerminalFeedback(TerminalPhase.WARNING,
                     "SUPERVISOR REQUIRED", "Do not receive this item again. Ask your supervisor to check the receipt.")
-                !work.authorized -> TerminalFeedback(TerminalPhase.WARNING, "ACCESS REQUIRED", "Ask your supervisor to check your assignment.")
+                !work.authorized -> TerminalFeedback(TerminalPhase.ERROR,
+                    work.message?.title ?: "ACCESS REQUIRED",
+                    WorkerMessages.reason(work.message?.detail, "Ask your supervisor to check your assignment."), work.message?.scanned)
                 connection in setOf(ConnectionState.OFFLINE, ConnectionState.SYNC_ERROR) -> TerminalFeedback(TerminalPhase.OFFLINE,
                     "CONNECTION UNAVAILABLE", "Receiving is stopped. Reconnect to continue.")
                 !work.serverAvailable -> TerminalFeedback(TerminalPhase.WAITING, "CHECKING CONNECTION", "Please wait.")

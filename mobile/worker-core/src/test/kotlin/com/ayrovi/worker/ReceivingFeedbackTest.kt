@@ -100,6 +100,24 @@ class ReceivingFeedbackTest {
         advanceTimeBy(2_000); runCurrent()
         assertEquals(TerminalPhase.OFFLINE, online.feedback.state.value.feedback.phase)
     }
+    @Test fun `station business refusal stays red and distinct from a connection problem`() = runTest {
+        val h = setup(ReceivingBackend().apply { activeFailure = WorkerRepository.ApiException(403, "Arrival not assigned to this station.") })
+        h.flow.scan(ScanResult("WAR-001", ScanSource.EXTERNAL_SCANNER)); runCurrent()
+        assertEquals(TerminalPhase.ERROR, h.feedback.state.value.feedback.phase)
+        assertEquals("Arrival not assigned to this station.", h.feedback.state.value.feedback.detail)
+        assertFalse(h.flow.state.value.canScan)
+        advanceTimeBy(1_101); runCurrent()
+        assertEquals(TerminalPhase.ERROR, h.feedback.state.value.feedback.phase)
+    }
+    @Test fun `network recovery returns to readiness only after fresh authority`() = runTest {
+        val h = setup()
+        h.flow.updateAccess(permissions, false); h.feedback.setConnection(ConnectionState.OFFLINE); runCurrent()
+        assertEquals(TerminalPhase.OFFLINE, h.feedback.state.value.feedback.phase)
+        h.feedback.setConnection(ConnectionState.CHECKING); runCurrent()
+        assertEquals(TerminalPhase.WAITING, h.feedback.state.value.feedback.phase)
+        h.feedback.setConnection(ConnectionState.ONLINE); h.flow.updateAccess(permissions, true); runCurrent()
+        assertEquals(TerminalPhase.READY, h.feedback.state.value.feedback.phase)
+    }
     @Test fun `background feedback is not replayed or sounded on return`() = runTest {
         val h = setup(); h.feedback.setForeground(false)
         h.flow.scan(ScanResult("WAR-001", ScanSource.EXTERNAL_SCANNER)); runCurrent()

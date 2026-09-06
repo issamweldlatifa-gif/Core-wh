@@ -111,20 +111,21 @@ def main() -> int:
             lineno = m.group(2) or m.group(4)
             col = m.group(3) or m.group(5)
             msg = m.group(6) or ""
-            errors.append((fpath, lineno, col, msg))
+            errors.append((fpath, lineno, col, msg, "warning" if s.startswith("w:") else "error"))
             continue
         # Javac form: file.kt:12: error: message
         m2 = re.match(r"^(.+?):(\d+):(?:\s*error|\s*warning):\s*(.*)$", s)
         if m2 and (".kt" in m2.group(1) or ".java" in m2.group(1) or ".kts" in m2.group(1)):
-            errors.append((m2.group(1), m2.group(2), None, m2.group(3)))
+            errors.append((m2.group(1), m2.group(2), None, m2.group(3), "warning" if "warning:" in s else "error"))
 
-    print(f"=== found {len(errors)} compiler errors ===")
+    errors.sort(key=lambda item: item[4] != "error")
+    print(f"=== found {len(errors)} compiler diagnostics ===")
     emitted = 0
-    for fpath, lineno, col, msg in errors[:80]:
+    for fpath, lineno, col, msg, level in errors[:80]:
         rel = to_rel(fpath)
         col_attr = f",col={col}" if col else ""
         safe = msg.replace("%", "%25").replace("\r", "").replace("\n", " ")
-        print(f"::error file={rel},line={lineno}{col_attr}::{safe}")
+        print(f"::{level} file={rel},line={lineno}{col_attr}::{safe}")
         print(f"E {rel}:{lineno}: {msg}")
         emitted += 1
 

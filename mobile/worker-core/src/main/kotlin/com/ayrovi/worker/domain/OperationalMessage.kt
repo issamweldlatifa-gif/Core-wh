@@ -15,7 +15,7 @@ data class OperationalMessage(
 
 /** The single worker-safe boundary. Technical API exceptions remain available to diagnostics, not UI. */
 object WorkerMessages {
-    private val technical = Regex("(?i)(https?://|<[^>]+>|\\b(?:prisma|sql|exception|stacktrace|stack trace|jwt|bearer|token|dto|http|api|backend|undefined|null|permission\\(s\\))\\b|\\w+\\.(?:execute|view|manage|resolve_discrepancy)|\\bat [\\w.]+\\()")
+    private val technical = Regex("(?i)(https?://|<[^>]+>|\\b(?:prisma|sql|exception|stacktrace|stack trace|jwt|bearer|token|dto|http|api|backend|worker_native|admin_web|statuscode|undefined|null|permission\\(s\\))\\b|\\w+\\.(?:execute|view|manage|resolve_discrepancy)|\\bat [\\w.]+\\()")
     fun reason(raw: String?, fallback: String): String {
         val text = raw.orEmpty().trim()
         if (text.isBlank() || text.length > 350 || technical.containsMatchIn(text)) return fallback
