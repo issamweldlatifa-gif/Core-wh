@@ -151,6 +151,9 @@ class ReceivingWorkflow(
 
     private fun identifyCarton(scan: ScanResult) = run {
         val session = activeSession() ?: return@run
+        // A newly presented carton supersedes the physical source intent, even when invalid.
+        // Never let switching to Produit silently fall back to an older confirmed carton.
+        mutable.update { it.copy(sourceCarton = null, carton = null) }
         val result = mutate(MutationKind.IDENTIFY_CARTON, subject = scan.value) { operation ->
             gateway.scanCarton(session.id, scan.value, scan.scanType, operation.id, scan.source.name)
         }

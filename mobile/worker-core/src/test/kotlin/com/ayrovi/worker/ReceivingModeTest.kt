@@ -108,6 +108,17 @@ class ReceivingModeTest {
         assertNull(flow.state.value.sourceCarton)
         assertEquals(0, backend.articleCalls)
     }
+    @Test fun `a rejected new carton cannot fall back to an older source when selecting products`() = runTest {
+        val backend = ReceivingBackend(); val flow = create(backend); open(flow); carton(flow)
+        backend.wrongShipment = true
+        flow.scan(ScanResult("CTN-OTHER", ScanSource.EXTERNAL_SCANNER)); runCurrent()
+        assertNull(flow.state.value.sourceCarton)
+        flow.selectMode(ReceivingMode.PRODUCTS); runCurrent()
+        assertEquals(ReceivingStep.CARTON, flow.state.value.step)
+        assertNull(flow.state.value.sourceCarton)
+        assertEquals(0, backend.articleCalls)
+        assertEquals(1, backend.receiveCartonCalls)
+    }
     @Test fun `rapid mode taps during a scan do not enqueue a transition`() = runTest {
         val backend = ReceivingBackend(); val flow = create(backend); open(flow)
         flow.scan(ScanResult("CTN-001", ScanSource.MANUAL))
