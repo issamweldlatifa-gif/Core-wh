@@ -22,6 +22,7 @@ dotenv.config({ path: path.join(__dirname, '..', '..', '.env') }); // repo root 
 
 import { PrismaClient, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { seedPolicy } from '../src/modules/system/seed-policy';
 
 const prisma = new PrismaClient();
 
@@ -404,6 +405,7 @@ async function migrateLegacyPermissions(permId: Record<string, string>) {
 }
 
 async function main() {
+  const policy = seedPolicy(process.env);
   console.log('Seeding permissions...');
   const permByKey: Record<string, string> = {};
   for (const p of PERMISSIONS) {
@@ -450,24 +452,12 @@ async function main() {
     console.log('Creating initial SUPER_ADMIN...');
     const sudo = await prisma.role.findUnique({ where: { name: 'SUPER_ADMIN' } });
     const hash = await bcrypt.hash(adminPass, 12);
-    const admin = await prisma.user.upsert({
-      where: { employeeCode: adminCode },
-      update: {
-        name: 'System Administrator',
-        passwordHash: hash,
-        credentialMode: 'PASSWORD',
-        status: 'ACTIVE',
-      },
-      create: {
-        name: 'System Administrator',
-        employeeCode: adminCode,
-        email: adminCode,
-        passwordHash: hash,
-        credentialMode: 'PASSWORD',
-        status: 'ACTIVE',
-      },
+    const existingAdmin = await prisma.user.findUnique({ where: { employeeCode: adminCode } });
+    const admin = existingAdmin ?? await prisma.user.create({
+      data: { name: 'System Administrator', employeeCode: adminCode, email: adminCode,
+        passwordHash: hash, credentialMode: 'PASSWORD', status: 'ACTIVE' },
     });
-    if (sudo) {
+    if (sudo && !existingAdmin) {
       await prisma.userRole.upsert({
         where: { userId_roleId: { userId: admin.id, roleId: sudo.id } },
         update: {},
@@ -528,7 +518,7 @@ async function main() {
     }
     console.log('  + TEST/SEED physical structure created (TUN-MAIN: SHOES, CLOTHING).');
   };
-  await seed();
+  if (policy.demo) await seed();
 
   // ------------------------------------------------------------------
   // CATEGORY MASTER — the APPROVED §3 taxonomy (Master Blueprint). This is
@@ -563,7 +553,7 @@ async function main() {
     // seeded categories to their same-named TUN-MAIN zones. Pure data — the
     // sorting workflow only ever reads CategoryZoneMapping.
     const wh = await prisma.warehouse.findUnique({ where: { code: 'TUN-MAIN' } });
-    if (wh) {
+    if (wh && policy.demo) {
       for (const code of ['SHOES', 'CLOTHING']) {
         const category = await prisma.categoryMaster.findUnique({ where: { code } });
         const zone = await prisma.zone.findUnique({ where: { warehouseId_code: { warehouseId: wh.id, code } } });
@@ -576,7 +566,7 @@ async function main() {
         }
       }
     }
-    console.log('  + Category Master seeded with the approved §3 taxonomy (+ TEST zone mappings).');
+    console.log('  + Category Master initialized; existing configuration preserved.');
   };
   await taxonomySeed();
 
@@ -610,14 +600,14 @@ async function main() {
     // A receiving worker: proves a worker lands in the Terminal, never in the
     // Admin dashboard, and that permissions are enforced by the backend.
     const workerCode = process.env.SEED_WORKER_CODE ?? 'WORKER001';
-    const workerPass = process.env.SEED_WORKER_PASSWORD ?? 'Worker!2024';
+    const workerPass = process.env.SEED_WORKER_PASSWORD!;
     const inbound = await prisma.role.findUnique({ where: { name: 'INBOUND_WORKER' } });
     const hash = await bcrypt.hash(workerPass, 12);
     const worker = await prisma.user.upsert({
       where: { employeeCode: workerCode },
-      update: { name: 'Ahmed Ben Salah', passwordHash: hash, credentialMode: 'PASSWORD', status: 'ACTIVE' },
+      update: { name: 'TEST RECEIVING WORKER', passwordHash: hash, credentialMode: 'PASSWORD', status: 'ACTIVE' },
       create: {
-        name: 'Ahmed Ben Salah',
+        name: 'TEST RECEIVING WORKER',
         employeeCode: workerCode,
         email: workerCode,
         passwordHash: hash,
@@ -650,9 +640,9 @@ async function main() {
       where: { code: 'ST-REC-01' },
       data: { assignedWorkerId: worker.id },
     });
-    console.log(`  + WAREHOUSE OS stations + worker "${workerCode}" (password "${workerPass}").`);
+    console.log('  + Explicit demo stations and worker initialized (credentials are not logged).');
   };
-  await osSeed();
+  if (policy.demo) await osSeed();
 
   console.log('Seed complete.');
 }

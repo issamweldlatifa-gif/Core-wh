@@ -155,9 +155,21 @@ jobs:
         shell: bash
         run: |
           set +e
-          npx jest --config ./test/jest-e2e.json test/isolation.e2e-spec.ts test/warehouse-volume.e2e-spec.ts --runInBand > /tmp/e2e.log 2>&1
+          mkdir -p test-results
+          npx jest --config ./test/jest-e2e.json test/isolation.e2e-spec.ts test/warehouse-volume.e2e-spec.ts --runInBand --json --outputFile=test-results/backend-e2e-results.json > /tmp/e2e.log 2>&1
           code=$?
           echo "E2E_EXIT=$code"
+          python3 - <<'PYREPORT'
+          import json, pathlib
+          result = pathlib.Path('test-results/backend-e2e-results.json')
+          if result.exists():
+              r = json.loads(result.read_text())
+              print(f"::notice::PostgreSQL HTTP tests: {r['numPassedTests']} passed, {r['numFailedTests']} failed, {r['numPendingTests']} pending")
+          observation = pathlib.Path('test-results/warehouse-volume-observations.json')
+          if observation.exists():
+              for key, value in json.loads(observation.read_text()).get('observations', {}).items():
+                  print(f"::notice::{key}: {value}")
+          PYREPORT
           if [ "$code" -ne 0 ]; then
             python3 -c 'import sys; ls=open("/tmp/e2e.log",errors="replace").read().splitlines(); start=next((i for i,l in enumerate(ls) if l.startswith("  ● ")), None); sel=ls[start:start+110] if start is not None else ls[-90:]; print("::error::"+"\n".join(sel).replace("%","%25").replace("\r","").replace("\n","%0A"))'
           fi

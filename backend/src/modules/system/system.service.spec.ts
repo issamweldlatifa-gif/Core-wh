@@ -17,3 +17,18 @@ describe('Production health', () => {
     expect(await service.health()).toMatchObject({ status: 'ok', database: 'up' });
   });
 });
+
+import { seedPolicy } from './seed-policy';
+describe('Production bootstrap data', () => {
+  it('does not create demo workers or stations by default', () => {
+    expect(seedPolicy({ NODE_ENV: 'production' }).demo).toBe(false);
+    expect(seedPolicy({}).demo).toBe(false);
+  });
+  it('rejects demo data in production before database writes', () => {
+    expect(() => seedPolicy({ NODE_ENV: 'production', AYROVI_SEED_DEMO: 'true', SEED_WORKER_PASSWORD: 'test-only' })).toThrow('forbidden');
+  });
+  it('requires explicit test credential configuration for demo seed', () => {
+    expect(() => seedPolicy({ AYROVI_SEED_DEMO: 'true' })).toThrow('requires');
+    expect(seedPolicy({ NODE_ENV: 'test', AYROVI_SEED_DEMO: 'true', SEED_WORKER_PASSWORD: 'test-only' }).demo).toBe(true);
+  });
+});
