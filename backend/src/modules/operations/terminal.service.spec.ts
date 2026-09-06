@@ -55,7 +55,10 @@ describe('TerminalService.context routing', () => {
       ),
     } as never;
 
-    const service = new TerminalService(prisma, stations);
+    const service = new TerminalService(prisma, stations, {
+      myAssignments: jest.fn(),
+      completeAssignment: jest.fn(),
+    } as never);
     const user = {
       id: WORKER,
       permissions: opts.permissions ?? ['receiving.execute', 'stowing.execute'],
@@ -97,10 +100,10 @@ describe('TerminalService.context routing', () => {
 
     const ctx = await service.context(user);
 
-    // Several ready tasks are permitted (receiving + sorting + putaway), so
-    // the default would be the home grid; the open putaway session must
-    // override that.
-    expect(ctx.readyTaskCount).toBe(3);
+    // Several ready tasks are permitted (receiving + its tote sub-action +
+    // sorting + putaway), so the default would be the home grid; the open
+    // putaway session must override that.
+    expect(ctx.readyTaskCount).toBe(4);
     expect(ctx.home).toBe('/terminal/putaway');
   });
 
@@ -114,7 +117,9 @@ describe('TerminalService.context routing', () => {
     const ctx = await service.context(user);
 
     expect(ctx.resume).toBeNull();
-    expect(ctx.readyTaskCount).toBe(1);
+    // receiving + its tote sub-action share ONE route, so the terminal still
+    // opens straight into Receiving (routing counts DISTINCT paths).
+    expect(ctx.readyTaskCount).toBe(2);
     expect(ctx.home).toBe('/terminal/receiving');
   });
 
@@ -124,7 +129,7 @@ describe('TerminalService.context routing', () => {
     const ctx = await service.context(user);
 
     expect(ctx.home).toBe('/terminal');
-    expect(ctx.readyTaskCount).toBe(3);
+    expect(ctx.readyTaskCount).toBe(4);
   });
 
   it('never routes a worker without task permissions into another workspace', async () => {

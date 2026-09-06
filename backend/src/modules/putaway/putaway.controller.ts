@@ -28,9 +28,9 @@ export class PutawayController {
 
   @Get('queue')
   @RequirePermissions('stowing.view')
-  @ApiOperation({ summary: 'Cartons received but not yet stored (work queue).' })
-  queue(@Query('limit') limit?: string) {
-    return this.putaway.queue(limit ? Number(limit) : 50);
+  @ApiOperation({ summary: 'Cartons received but not yet stored (work queue; other workers\' fresh claims hidden).' })
+  queue(@Req() req: any, @Query('limit') limit?: string) {
+    return this.putaway.queue(limit ? Number(limit) : 50, this.actor(req).id);
   }
 
   @Get('sessions/active')
@@ -52,6 +52,20 @@ export class PutawayController {
   @ApiOperation({ summary: 'Start (or resume) a putaway session.' })
   start(@Body() body: StartPutawayDto, @Req() req: any) {
     return this.putaway.start(this.actor(req), body ?? {});
+  }
+
+  @Post('cartons/:code/claim')
+  @RequirePermissions('stowing.execute')
+  @ApiOperation({ summary: 'Soft-claim a carton for putaway (C-6 coordination, TTL-bounded).' })
+  claim(@Param('code') code: string, @Req() req: any) {
+    return this.putaway.claimCarton(code, this.actor(req));
+  }
+
+  @Post('cartons/:code/release')
+  @RequirePermissions('stowing.execute')
+  @ApiOperation({ summary: 'Release my putaway claim on a carton.' })
+  release(@Param('code') code: string, @Req() req: any) {
+    return this.putaway.releaseCarton(code, this.actor(req));
   }
 
   @Post('scan-carton')

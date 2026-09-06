@@ -141,3 +141,70 @@
   .wt-top { padding: 6px 12px; }
   .wt-foot { padding: 5px 12px; }
 }
+
+/* ---------------------------------------------------------- REPORT ISSUE -- */
+/* §41/C-16: always reachable from the shell strip, on every screen.        */
+.wt-issue-btn {
+  margin-left: auto;
+  padding: 0.35rem 0.9rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--os-danger, #b3261e);
+  background: transparent;
+  border: 1px solid var(--os-danger, #b3261e);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.wt-issue-btn:hover { background: rgba(179, 38, 30, 0.08); }
+
+.wt-issue-panel {
+  position: fixed;
+  top: 3.2rem;
+  right: 0.6rem;
+  z-index: 60;
+  width: min(420px, calc(100vw - 1.2rem));
+  padding: 0.9rem 1rem 1rem;
+  background: var(--os-surface, #fff);
+  border: 1px solid var(--os-border, #d0d4da);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.wt-issue-head { display: flex; align-items: center; gap: 0.5rem; }
+.wt-issue-title { font-weight: 800; letter-spacing: 0.08em; font-size: 0.85rem; }
+.wt-issue-close {
+  margin-left: auto;
+  border: 0;
+  background: none;
+  font-size: 1rem;
+  cursor: pointer;
+  color: inherit;
+}
+.wt-issue-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.3rem; }
+.wt-issue-error { color: var(--os-danger, #b3261e); font-size: 0.8rem; font-weight: 600; }
+.wt-issue-ok { color: var(--os-ok, #1b7f3b); font-size: 0.8rem; font-weight: 700; }
+
+/* ------------------------------------------------- worker home counters -- */
+/* §34: compact industrial counters (no emojis). */
+.wt-counters { display: flex; gap: 0.8rem; flex-wrap: wrap; }
+.wt-counter {
+  min-width: 8.5rem;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid var(--os-border, #d0d4da);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.wt-counter-label { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em; }
+.wt-counter-value { font-size: 1.5rem; font-weight: 800; line-height: 1; }
+.wt-counter--ok .wt-counter-value { color: var(--os-ok, #1b7f3b); }
+.wt-counter--warn .wt-counter-value { color: var(--os-warn, #9a6700); }
+
+.wt-task-counters { display: flex; gap: 1.1rem; margin-top: 0.45rem; }
+.wt-task-count { display: flex; flex-direction: column; }
+.wt-task-count b { font-size: 1.15rem; line-height: 1.1; }
+.wt-task-count span { font-size: 0.62rem; font-weight: 700; letter-spacing: 0.07em; }

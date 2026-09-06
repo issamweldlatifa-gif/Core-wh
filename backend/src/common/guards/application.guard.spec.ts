@@ -48,18 +48,34 @@ describe('ApplicationGuard (strict Admin/Worker surface boundary)', () => {
   });
 
   it('rejects an ADMIN_WEB session calling a WORKER_NATIVE endpoint', async () => {
-    const { guard, context } = ctxWith(adminUser, 'WORKER_NATIVE');
+    const { guard, context } = ctxWith(adminUser, ['WORKER_NATIVE']);
     await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
   });
 
   it('rejects a WORKER_NATIVE session calling an ADMIN_WEB endpoint', async () => {
-    const { guard, context } = ctxWith(workerUser, 'ADMIN_WEB');
+    const { guard, context } = ctxWith(workerUser, ['ADMIN_WEB']);
     await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
   });
 
   it('allows a worker session on its own WORKER_NATIVE endpoint', async () => {
-    const { guard, context } = ctxWith(workerUser, 'WORKER_NATIVE');
+    const { guard, context } = ctxWith(workerUser, ['WORKER_NATIVE']);
     await expect(guard.canActivate(context)).resolves.toBe(true);
+  });
+
+  it('allows a worker session on a declared DUAL surface (worker side)', async () => {
+    // e.g. /fulfillment — workers scan there; admins read traceability there.
+    const { guard, context } = ctxWith(workerUser, ['WORKER_NATIVE', 'ADMIN_WEB']);
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+  });
+
+  it('allows an admin session on a declared DUAL surface (admin side)', async () => {
+    const { guard, context } = ctxWith(adminUser, ['WORKER_NATIVE', 'ADMIN_WEB']);
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+  });
+
+  it('rejects on a dual surface when the roles open NEITHER declared surface', async () => {
+    const { guard, context } = ctxWith({ ...adminUser, allowedApplications: [] } as any, ['WORKER_NATIVE', 'ADMIN_WEB']);
+    await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
   });
 
   it('rejects when the session surface matches but roles cannot open it', async () => {
@@ -69,7 +85,7 @@ describe('ApplicationGuard (strict Admin/Worker surface boundary)', () => {
       ...workerUser,
       allowedApplications: ['ADMIN_WEB'],
     };
-    const { guard, context } = ctxWith(weird, 'WORKER_NATIVE');
+    const { guard, context } = ctxWith(weird, ['WORKER_NATIVE']);
     await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
   });
 });

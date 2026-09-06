@@ -6,6 +6,8 @@ import { OperationsService } from './operations.service';
 import { StationsService } from './stations.service';
 import { CorrectionsService } from './corrections.service';
 import { TerminalService } from './terminal.service';
+import { AssignmentsService, WORKER_ISSUE_TYPES } from '../assignments/assignments.service';
+import { TASK_REGISTRY } from './task-registry';
 import { RequireApplication } from '../../common/decorators/require-application.decorator';
 
 /**
@@ -34,7 +36,10 @@ function actorOf(req: any) {
 @Controller('terminal')
 @RequireApplication('WORKER_NATIVE')
 export class TerminalController {
-  constructor(private readonly terminal: TerminalService) {}
+  constructor(
+    private readonly terminal: TerminalService,
+    private readonly assignmentsSvc: AssignmentsService,
+  ) {}
 
   @Get('context')
   @ApiOperation({ summary: 'Resolve worker identity, permitted tasks, station and active session.' })
@@ -54,6 +59,41 @@ export class TerminalController {
   @ApiOperation({ summary: 'Mark one of my assigned tasks as done (with optional note).' })
   completeAssignment(@Param('id') id: string, @Body() body: { note?: string }, @Req() req: any) {
     return this.terminal.completeAssignment(actorOf(req).id, id, body?.note);
+  }
+
+  @Get('work')
+  @ApiOperation({ summary: 'Work availability counters per permitted task (backend truth only).' })
+  work(@Req() req: any) {
+    const a = actorOf(req);
+    return this.assignmentsSvc.workCounts({ id: a.id, permissions: a.permissions });
+  }
+
+  @Get('tasks')
+  @ApiOperation({ summary: 'Task catalog visible to this worker (permission-filtered).' })
+  tasks(@Req() req: any) {
+    const a = actorOf(req);
+    return TASK_REGISTRY.filter((t) => a.permissions.includes(t.permission));
+  }
+
+  @Post('issues')
+  @ApiOperation({ summary: 'REPORT ISSUE from any operational screen (audited; opens a discrepancy when a session is given).' })
+  reportIssue(
+    @Body()
+    body: { type: string; description: string; taskKey?: string; sessionId?: string; entityCode?: string },
+    @Req() req: any,
+  ) {
+    const user = req.user ?? {};
+    return this.assignmentsSvc.reportIssue(body, {
+      id: String(user.id ?? user.sub ?? 'unknown'),
+      ip: req.ip ?? undefined,
+      stationId: user.stationId ?? null,
+    });
+  }
+
+  @Get('issue-types')
+  @ApiOperation({ summary: 'Allowed worker issue types.' })
+  issueTypes() {
+    return { types: WORKER_ISSUE_TYPES };
   }
 }
 
@@ -132,6 +172,7 @@ export class OperationsController {
   constructor(
     private readonly ops: OperationsService,
     private readonly correctionsSvc: CorrectionsService,
+    private readonly assignmentsSvc: AssignmentsService,
   ) {}
 
   @Get('overview')
@@ -307,22 +348,76 @@ export class OperationsController {
   }
 
   // ---- Worker task assignments (admin side) ---------------------------------
+  // Canonical surface: /operations/assignments (taskKey + entity + station,
+  // §40). The older /operations/worker-tasks routes below remain as thin
+  // aliases over the same service so existing Admin screens keep working.
+
+  @Get('assignments')
+  @RequirePermissions('users.manage')
+  @ApiOperation({ summary: 'List worker task assignments (filter by worker/status/task).' })
+  @ApiQuery({ name: 'workerId', required: false })
+  @ApiQuery({ name: 'status', required: false })
+  @ApiQuery({ name: 'taskKey', required: false })
+  assignments(@Query('workerId') workerId?: string, @Query('status') status?: string, @Query('taskKey') taskKey?: string) {
+    return this.assignmentsSvc.list({ workerId, status, taskKey });
+  }
+
+  @Post('assignments')
+  @RequirePermissions('users.manage')
+  @ApiOperation({ summary: 'Assign a task to a worker: task type + real entity code + optional station.' })
+  assignmentCreate(
+    @Body()
+    body: {
+      workerId: string;
+      taskKey?: string;
+      title?: string;
+      description?: string;
+      relatedType?: string;
+      relatedCode?: string;
+      stationId?: string | null;
+    },
+    @Req() req: any,
+  ) {
+    return this.assignmentsSvc.create(body, actorOf(req));
+  }
+
+  @Post('assignments/:id/cancel')
+  @RequirePermissions('users.manage')
+  @ApiOperation({ summary: 'Cancel an assignment (with optional reason).' })
+  assignmentCancel(@Param('id') id: string, @Body() body: { reason?: string }, @Req() req: any) {
+    return this.assignmentsSvc.cancel(id, actorOf(req), body?.reason);
+  }
+
+  @Post('assignments/:id/block')
+  @RequirePermissions('users.manage')
+  @ApiOperation({ summary: 'Flag an assignment as BLOCKED (reason kept).' })
+  assignmentBlock(@Param('id') id: string, @Body() body: { reason?: string }, @Req() req: any) {
+    return this.assignmentsSvc.setBlocked(id, true, actorOf(req), body?.reason);
+  }
+
+  @Post('assignments/:id/unblock')
+  @RequirePermissions('users.manage')
+  @ApiOperation({ summary: 'Return a BLOCKED assignment to ASSIGNED.' })
+  assignmentUnblock(@Param('id') id: string, @Req() req: any) {
+    return this.assignmentsSvc.setBlocked(id, false, actorOf(req));
+  }
 
   @Get('worker-tasks')
   @RequirePermissions('users.manage')
-  @ApiOperation({ summary: 'List worker task assignments (optionally filtered).' })
+  @ApiOperation({ summary: 'List worker task assignments (legacy alias).' })
   @ApiQuery({ name: 'workerId', required: false })
   @ApiQuery({ name: 'status', required: false })
-  workerTasks(@Query('workerId') workerId?: string, @Query('status') status?: string) {
-    return this.ops.workerTasksList(workerId, status);
+  @ApiQuery({ name: 'taskKey', required: false })
+  workerTasks(@Query('workerId') workerId?: string, @Query('status') status?: string, @Query('taskKey') taskKey?: string) {
+    return this.ops.workerTasksList(workerId, status, taskKey);
   }
 
   @Post('worker-tasks')
   @RequirePermissions('users.manage')
-  @ApiOperation({ summary: 'Assign a specific task to a worker.' })
+  @ApiOperation({ summary: 'Assign a specific task to a worker (legacy alias).' })
   workerTaskCreate(
     @Body()
-    body: { workerId: string; title: string; description?: string; relatedType?: string; relatedCode?: string },
+    body: { workerId: string; title?: string; description?: string; taskKey?: string; relatedType?: string; relatedCode?: string; stationId?: string | null },
     @Req() req: any,
   ) {
     return this.ops.workerTaskCreate(body, actorOf(req));
@@ -330,7 +425,7 @@ export class OperationsController {
 
   @Post('worker-tasks/:id/cancel')
   @RequirePermissions('users.manage')
-  @ApiOperation({ summary: 'Cancel an open assigned task (with optional reason).' })
+  @ApiOperation({ summary: 'Cancel an open assigned task (legacy alias).' })
   workerTaskCancel(@Param('id') id: string, @Body() body: { reason?: string }, @Req() req: any) {
     return this.ops.workerTaskCancel(id, actorOf(req), body?.reason);
   }

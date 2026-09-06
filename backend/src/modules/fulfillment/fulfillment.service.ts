@@ -9,6 +9,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CategoriesService } from '../categories/categories.service';
+import { AssignmentsService } from '../assignments/assignments.service';
 
 /**
  * OPERATIONAL WAREHOUSE FLOW (Blueprint §6, §27 + Execute order).
@@ -70,6 +71,7 @@ export class FulfillmentService {
     private readonly audit: AuditService,
     private readonly categories: CategoriesService,
     private readonly events: EventEmitter2,
+    private readonly assignments: AssignmentsService,
   ) {}
 
   // ------------------------------------------------------------------
@@ -208,7 +210,7 @@ export class FulfillmentService {
    */
   async scanArticleAtReceiving(
     sessionId: string,
-    input: { sku: string; containerCode: string; cartonCode?: string | null },
+    input: { sku: string; containerCode: string; cartonCode?: string | null; operationId?: string },
     actor: FulfillmentActor,
   ) {
     const sku = (input.sku || '').trim();
@@ -221,6 +223,16 @@ export class FulfillmentService {
     if (!session) throw new NotFoundException('Receiving session not found.');
     if (session.status !== 'RECEIVING') {
       throw new ConflictException('This receiving session is not active.');
+    }
+
+    // C-4 idempotency: the same client operationId is applied exactly once.
+    // A replay answers with a DUPLICATE flash — never a second ArticleUnit.
+    if (input.operationId) {
+      const dup = await this.prisma.receivingScanEvent.findUnique({ where: { operationId: input.operationId } });
+      if (dup) {
+        if (dup.sessionId !== sessionId) throw new ConflictException('This operation was already applied to another session.');
+        return { flash: { kind: 'DUPLICATE_OPERATION', operationId: input.operationId }, matched: true, replay: true, receivingProductId: null };
+      }
     }
 
     const container = await this.prisma.operationalContainer.findUnique({
@@ -300,6 +312,12 @@ export class FulfillmentService {
         ? await tx.expectedArrivalItem.findUnique({ where: { id: line.arrivalItemId } })
         : null;
 
+      if (input.operationId) {
+        await tx.receivingScanEvent.create({ data: {
+          sessionId, operationId: input.operationId, kind: 'ARTICLE', code: sku, quantity: 1,
+        } });
+      }
+
       const code = await this.genArticleCode(tx);
       const article = await tx.articleUnit.create({
         data: {
@@ -336,6 +354,33 @@ export class FulfillmentService {
         tx,
       );
 
+      // Container counter n/capacity (§20–21). At capacity the tote
+      // auto-closes: it no longer accepts articles and is visibly ready for
+      // the sorting step. Manual CLOSE (no minimum) is a separate endpoint.
+      const inContainer = await tx.articleUnit.count({
+        where: { containerId: container.id, status: 'IN_CONTAINER' },
+      });
+      const capacity = container.capacity ?? 50;
+      const containerFull = inContainer >= capacity;
+      if (containerFull) {
+        await tx.operationalContainer.update({
+          where: { id: container.id },
+          data: { status: 'READY_FOR_SORTING' },
+        });
+        await this.audit.log(
+          {
+            actorUserId: actor.id,
+            action: 'CONTAINER_CLOSED' as never,
+            entityType: 'operational_container',
+            entityId: container.id,
+            ipAddress: actor.ip ?? null,
+            metadata: { container: container.code, reason: 'capacity reached', count: inContainer, capacity },
+          },
+          tx,
+        );
+        this.events.emit('container.full', { container: container.code, count: inContainer, t: Date.now() });
+      }
+
       return {
         flash: {
           kind: matched ? 'ARTICLE_RECEIVED' : 'UNEXPECTED_ARTICLE',
@@ -345,11 +390,55 @@ export class FulfillmentService {
             categoryStatus: article.categoryStatus,
           },
           container: container.code,
+          containerCount: inContainer,
+          containerCapacity: capacity,
+          containerFull,
         },
         matched,
         receivingProductId: lineId,
       };
     });
+  }
+
+  /**
+   * Manual container CLOSE (§21): a receiving tote can be closed at ANY
+   * count — there is no mandatory minimum. Closed = READY_FOR_SORTING: the
+   * tote stops accepting articles and moves to the sorting step.
+   */
+  async closeContainer(containerCode: string, actor: FulfillmentActor) {
+    const container = await this.prisma.operationalContainer.findUnique({
+      where: { code: containerCode.trim().toUpperCase() },
+      include: { _count: { select: { articles: { where: { status: 'IN_CONTAINER' } } } } },
+    });
+    if (!container) throw new NotFoundException('Container not found.');
+    if (container.status !== 'ACTIVE') {
+      throw new ConflictException(`Container ${container.code} is already ${container.status}.`);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.operationalContainer.update({
+        where: { id: container.id },
+        data: { status: 'READY_FOR_SORTING' },
+      });
+      await this.audit.log(
+        {
+          actorUserId: actor.id,
+          action: 'CONTAINER_CLOSED' as never,
+          entityType: 'operational_container',
+          entityId: container.id,
+          ipAddress: actor.ip ?? null,
+          metadata: {
+            container: container.code,
+            reason: 'closed manually',
+            count: container._count.articles,
+            capacity: container.capacity,
+          },
+        },
+        tx,
+      );
+    });
+    this.events.emit('container.closed', { container: container.code, t: Date.now() });
+    return { ok: true, code: container.code, status: 'READY_FOR_SORTING' as const, count: container._count.articles };
   }
 
   // ------------------------------------------------------------------
@@ -721,6 +810,10 @@ export class FulfillmentService {
           labelValue: code, // internal label/QR — printed at the bench
         },
       };
+    }).then(async (r) => {
+      // Operational assignment lifecycle: packing tasks on this bin complete.
+      await this.assignments.containerPacked(bin.id, actor.id).catch(() => 0);
+      return r;
     });
   }
 
@@ -799,6 +892,10 @@ export class FulfillmentService {
       );
       this.events.emit('shipped', { shipment: shipment.code, actor: actor.id, t: Date.now() });
       return { flash: { kind: 'SHIPPED', shipment: shipment.code } };
+    }).then(async (r) => {
+      // Operational assignment lifecycle: shipping tasks on this outbound complete.
+      await this.assignments.outboundShipped(shipment.id, actor.id).catch(() => 0);
+      return r;
     });
   }
 

@@ -6,7 +6,7 @@ import {
   freshOperationId,
   type ScanSource,
 } from '../modules/receiving-terminal/scan-source';
-import { beepSuccess, beepError, beepInfo, beepDone } from '../modules/receiving-terminal/feedback';
+import { beepSuccess, beepError, beepInfo, beepDone, beepWarning } from '../modules/receiving-terminal/feedback';
 import { cleanCode } from '../modules/receiving-terminal/validate';
 import { buildScanContext, type ScanContext } from '../modules/receiving-terminal/scan-context';
 import { stationHas } from './api';
@@ -55,7 +55,7 @@ export default function ReceivingTask() {
   const [manual, setManual] = useState('');
   const [productSku, setProductSku] = useState('');
   const [productQty, setProductQty] = useState('1');
-  const [log, setLog] = useState<Array<{ t: string; text: string; kind: 'ok' | 'bad' | 'info' }>>([]);
+  const [log, setLog] = useState<Array<{ t: string; text: string; kind: 'ok' | 'bad' | 'info' | 'warn' }>>([]);
   /**
    * OPERATIONAL CONTAINER (tote) — where every scanned article physically
    * goes: products NEVER return to the source carton. When a tote is active
@@ -75,7 +75,7 @@ export default function ReceivingTask() {
 
   const ocrAllowed = stationHas(ctx?.station ?? null, 'OCR');
 
-  const push = useCallback((text: string, kind: 'ok' | 'bad' | 'info') => {
+  const push = useCallback((text: string, kind: 'ok' | 'bad' | 'info' | 'warn') => {
     setLog((l) => [{ t: new Date().toLocaleTimeString(), text, kind }, ...l].slice(0, 40));
     setLastAction(text);
   }, [setLastAction]);
@@ -126,11 +126,12 @@ export default function ReceivingTask() {
   );
 
   /** Single place where an outcome is surfaced: banner + sound (§26/§27). */
-  const report = useCallback((kind: 'ok' | 'bad' | 'info', text: string) => {
+  const report = useCallback((kind: 'ok' | 'bad' | 'info' | 'warn', text: string) => {
     setOutcome({ kind, text, token: Date.now() });
-    setStatus({ text: kind === 'ok' ? 'ACCEPTED' : kind === 'bad' ? 'NOT ACCEPTED' : 'READY', kind });
+    setStatus({ text: kind === 'ok' ? 'ACCEPTED' : kind === 'bad' ? 'NOT ACCEPTED' : kind === 'warn' ? 'ATTENTION' : 'READY', kind });
     if (kind === 'ok') beepSuccess();
     else if (kind === 'bad') beepError();
+    else if (kind === 'warn') beepWarning();
     else beepInfo();
   }, [setStatus]);
 
@@ -216,7 +217,7 @@ export default function ReceivingTask() {
       report('bad', `${value} — ${why}`);
       push(`${value} rejected: ${why}`, 'bad');
     } catch (e: any) {
-      const m = e?.response?.data?.message ?? 'Server error';
+      const m = e?.response?.data?.message ?? 'the request failed — try again';
       report('bad', Array.isArray(m) ? m.join(', ') : String(m));
       push(`error on ${value}`, 'bad');
     } finally {
@@ -240,22 +241,44 @@ export default function ReceivingTask() {
       // physically goes INTO the container (never back into the carton).
       if (tote) {
         let lastFlash: any = null;
+        let fullAtEnd = false;
+        let countAtEnd = 0;
+        let capacity = 0;
         for (let i = 0; i < n; i += 1) {
+          if (fullAtEnd) break; // tote hit capacity mid-loop — stop honestly
           const res = await fulfillmentApi.scanArticle(session.id, {
             sku: value,
             containerCode: tote.code,
+            operationId: freshOperationId(), // C-4: one idempotent operation per unit
           });
           lastFlash = res.flash;
+          fullAtEnd = !!res.flash?.containerFull;
+          countAtEnd = res.flash?.containerCount ?? countAtEnd;
+          capacity = res.flash?.containerCapacity ?? capacity;
         }
         const s = await api.session(session.id);
         setSession(s);
+        if (lastFlash?.kind === 'DUPLICATE_OPERATION') {
+          // C-4: replayed operation — the backend already counted it.
+          report('info', `${value} — ALREADY COUNTED, NOT REPEATED`);
+          push(`article ${value} duplicate operation — ignored`, 'info');
+          await refreshTotes();
+          return;
+        }
         if (lastFlash?.kind === 'UNEXPECTED_ARTICLE') {
           report('bad', `${value} — NOT ON EXPECTED LIST → EXCEPTION (in ${tote.code})`);
           push(`article ${value} unexpected — exception recorded, placed in ${tote.code}`, 'bad');
         } else {
           const t = s.tally;
-          report('ok', `${lastFlash?.article?.code ?? value} → ${tote.code} · units ${t?.receivedUnits ?? 0}/${t?.expectedUnits ?? 0}`);
-          push(`article ${value} ×${n} → ${tote.code}`, 'ok');
+          const counter = capacity ? ` · TOTE ${countAtEnd}/${capacity}` : '';
+          report('ok', `${lastFlash?.article?.code ?? value} → ${tote.code}${counter} · units ${t?.receivedUnits ?? 0}/${t?.expectedUnits ?? 0}`);
+          push(`article ${value} → ${tote.code}${counter}`, 'ok');
+        }
+        if (fullAtEnd) {
+          // Backend committed the auto-close (status READY_FOR_SORTING).
+          report('info', `TOTE ${tote.code} FULL ${countAtEnd}/${capacity} — SEALED FOR SORTING. START A NEW TOTE.`);
+          push(`tote ${tote.code} full — closed for sorting`, 'info');
+          setTote(null);
         }
         await refreshTotes();
         return;
@@ -272,7 +295,7 @@ export default function ReceivingTask() {
         push(`product ${value} +${n} received`, 'ok');
       }
     } catch (e: any) {
-      const m = e?.response?.data?.message ?? 'Server error';
+      const m = e?.response?.data?.message ?? 'the request failed — try again';
       report('bad', Array.isArray(m) ? m.join(', ') : String(m));
       push(`error on ${value}`, 'bad');
     } finally {
@@ -488,6 +511,25 @@ export default function ReceivingTask() {
               <>
                 <span className="os-tag os-tag--ok">{tote.code}</span>
                 <span className="os-muted">scanned articles go into this tote</span>
+                <button
+                  className="os-btn"
+                  disabled={busy}
+                  title="Close this tote now (any count — §21) — it moves to sorting"
+                  onClick={async () => {
+                    try {
+                      const res = await fulfillmentApi.closeContainer(tote.code);
+                      report('info', `TOTE ${res.code} CLOSED AT ${res.count} — READY FOR SORTING`);
+                      push(`tote ${res.code} closed at ${res.count} — ready for sorting`, 'info');
+                      setTote(null);
+                      await refreshTotes();
+                    } catch (e: any) {
+                      const m = e?.response?.data?.message ?? 'close failed';
+                      report('bad', Array.isArray(m) ? m.join(', ') : String(m));
+                    }
+                  }}
+                >
+                  CLOSE TOTE
+                </button>
                 <button className="os-btn" disabled={busy} onClick={() => setTote(null)}>RELEASE</button>
               </>
             ) : (
@@ -514,7 +556,7 @@ export default function ReceivingTask() {
                 >
                   + NEW TOTE
                 </button>
-                <span className="os-muted">no tote: units are only tallied (legacy mode)</span>
+                <span className="os-muted">no tote selected — units are tallied without article tracking</span>
               </>
             )}
           </div>

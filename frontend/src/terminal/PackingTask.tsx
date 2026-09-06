@@ -50,7 +50,7 @@ export default function PackingTask() {
           ? `${v.bin.code} — ${v.order.customer} — COMPLETE, VERIFY & PACK`
           : `${v.bin.code} — ORDER INCOMPLETE`);
     } catch (e: any) {
-      const m = e?.response?.data?.message ?? 'Server error';
+      const m = e?.response?.data?.message ?? 'the request failed — try again';
       report('bad', Array.isArray(m) ? m.join(', ') : String(m));
       setView(null);
     } finally {

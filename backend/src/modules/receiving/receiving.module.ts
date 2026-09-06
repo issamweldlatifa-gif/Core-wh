@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
 import { PrismaModule } from '../../prisma/prisma.module';
+import { AssignmentsModule } from '../assignments/assignments.module';
 import { ReceivingService } from './receiving.service';
 import { ReceivingController } from './receiving.controller';
 
@@ -11,7 +12,7 @@ import { ReceivingController } from './receiving.controller';
  * discrepancies) without ever mutating the expected data.
  */
 @Module({
-  imports: [PrismaModule, AuditModule],
+  imports: [PrismaModule, AuditModule, AssignmentsModule],
   controllers: [ReceivingController],
   providers: [ReceivingService],
   exports: [ReceivingService],

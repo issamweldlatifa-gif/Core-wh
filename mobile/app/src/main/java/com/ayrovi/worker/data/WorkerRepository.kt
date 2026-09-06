@@ -146,10 +146,18 @@ class WorkerRepository(private val store: SessionStore) {
         return json.decodeFromString(OpContainer.serializer(), post("/v1/fulfillment/containers", "{${parts.joinToString(",")}}"))
     }
 
-    suspend fun scanArticleAtReceiving(sessionId: String, sku: String, containerCode: String, cartonCode: String? = null): ArticleScanResult {
+    /** Manual tote close at ANY count (§21) — backend moves it to READY_FOR_SORTING. */
+    suspend fun closeContainer(code: String): ClosedContainer =
+        json.decodeFromString(ClosedContainer.serializer(),
+            post("/v1/fulfillment/containers/${urlEncode(code)}/close", "{}"))
+
+    suspend fun scanArticleAtReceiving(sessionId: String, sku: String, containerCode: String, cartonCode: String? = null, operationId: String? = null): ArticleScanResult {
         val body = buildString {
             append("""{"sku":${jq(sku)},"containerCode":${jq(containerCode)}""")
             if (cartonCode != null) append(""","cartonCode":${jq(cartonCode)}""")
+            // C-4: one client operationId per physical scan — the backend
+            // ledger dedupes retries and never double-counts a unit.
+            if (operationId != null) append(""","operationId":${jq(operationId)}""")
             append("}")
         }
         return json.decodeFromString(

@@ -31,26 +31,26 @@ export class ApplicationGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const required = this.reflector.getAllAndOverride<ApplicationKind>(
+    const required = this.reflector.getAllAndOverride<ApplicationKind[]>(
       APPLICATION_KEY,
       [context.getHandler(), context.getClass()],
     );
-    if (!required) return true;
+    if (!required || required.length === 0) return true;
 
     const request = context.switchToHttp().getRequest<RequestWithUser>();
     const user = request.user;
     if (!user) {
       throw new ForbiddenException('Access denied.');
     }
-    if (user.application !== required) {
+    if (!required.includes(user.application)) {
       await this.recordDenial(user, required, 'application_mismatch', request.ip);
+      const label = required.map((r) => (r === 'WORKER_NATIVE' ? 'Worker' : 'Admin')).join(' or ');
       throw new ForbiddenException(
-        `This endpoint is reserved for the ${
-          required === 'WORKER_NATIVE' ? 'Worker' : 'Admin'
-        } application; this session is ${user.application}.`,
+        `This endpoint is reserved for the ${label} application; this session is ${user.application}.`,
       );
     }
-    if (!(user.allowedApplications ?? []).includes(required)) {
+    const allowed = user.allowedApplications ?? [];
+    if (!required.some((app) => allowed.includes(app))) {
       await this.recordDenial(user, required, 'roles_do_not_open_surface', request.ip);
       throw new ForbiddenException('Your roles cannot open this application surface.');
     }
@@ -59,7 +59,7 @@ export class ApplicationGuard implements CanActivate {
 
   private async recordDenial(
     user: { id: string; application: ApplicationKind; roles?: string[] },
-    required: ApplicationKind,
+    required: ApplicationKind[],
     reason: string,
     ip?: string,
   ) {
@@ -68,7 +68,9 @@ export class ApplicationGuard implements CanActivate {
     // event from the admin side; a WORKER_NATIVE session hitting an admin
     // route is an "admin access denied" event from the worker side.
     const action =
-      required === 'WORKER_NATIVE' ? 'WORKER_APP_ACCESS_DENIED' : 'ADMIN_APP_ACCESS_DENIED';
+      required.includes('WORKER_NATIVE') && !required.includes('ADMIN_WEB')
+        ? 'WORKER_APP_ACCESS_DENIED'
+        : 'ADMIN_APP_ACCESS_DENIED';
     try {
       await this.audit.log({
         actorUserId: user.id,

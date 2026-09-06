@@ -90,7 +90,8 @@ const NATIVE_FORMATS = [
 ];
 
 export interface ScanOutcome {
-  kind: 'ok' | 'bad' | 'info';
+  /** 'warn' = attention needed (not an error), e.g. tote sealed at capacity. */
+  kind: 'ok' | 'bad' | 'info' | 'warn';
   text: string;
   token: number;
 }

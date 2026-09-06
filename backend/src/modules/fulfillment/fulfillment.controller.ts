@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
+import { RequireApplication } from '../../common/decorators/require-application.decorator';
 import { FulfillmentService } from './fulfillment.service';
 
 /**
@@ -12,6 +13,9 @@ import { FulfillmentService } from './fulfillment.service';
 @ApiTags('Fulfillment')
 @ApiBearerAuth()
 @Controller('fulfillment')
+// Dual surface: the Worker Terminal scans here; the Admin traceability board
+// reads containers/shipments here (C-3 — explicit, no longer implicit).
+@RequireApplication('WORKER_NATIVE', 'ADMIN_WEB')
 export class FulfillmentController {
   constructor(private readonly fulfillment: FulfillmentService) {}
 
@@ -46,6 +50,13 @@ export class FulfillmentController {
     return this.fulfillment.containerDetail(code);
   }
 
+  @Post('containers/:code/close')
+  @RequirePermissions('receiving.execute')
+  @ApiOperation({ summary: 'Manually close a receiving tote at ANY count (no minimum) — it becomes READY_FOR_SORTING.' })
+  closeContainer(@Param('code') code: string, @Req() req: any) {
+    return this.fulfillment.closeContainer(code, this.actor(req));
+  }
+
   // ---- 1+2. receiving article scan ----------------------------------------
 
   @Post('receiving/sessions/:sessionId/scan-article')
@@ -56,7 +67,7 @@ export class FulfillmentController {
   })
   scanArticle(
     @Param('sessionId') sessionId: string,
-    @Body() body: { sku: string; containerCode: string; cartonCode?: string },
+    @Body() body: { sku: string; containerCode: string; cartonCode?: string; operationId?: string },
     @Req() req: any,
   ) {
     return this.fulfillment.scanArticleAtReceiving(sessionId, body, this.actor(req));

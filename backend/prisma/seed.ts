@@ -223,7 +223,13 @@ const ROLES: Array<{
   },
   {
     name: 'INBOUND_WORKER',
-    description: 'Warehouse floor worker for inbound (receiving/stowing).',
+    // COMPATIBILITY ROLE (worker operational model §3): superseded by the
+    // granular RECEIVING_WORKER / PUTAWAY_WORKER / SORTING_WORKER roles.
+    // Kept — never renamed or deleted without migration analysis — so
+    // existing users keep their access; new workers should get the granular
+    // roles. Permission set intentionally matches RECEIVING + PUTAWAY +
+    // SORTING so behavior is unchanged for legacy accounts.
+    description: 'COMPATIBILITY: legacy inbound worker (receiving/sorting/putaway). Prefer RECEIVING_WORKER / SORTING_WORKER / PUTAWAY_WORKER.',
     isSystem: true,
     applicationClass: 'OPERATIONAL',
     permissions: [
@@ -237,6 +243,70 @@ const ROLES: Array<{
       // Admin Control Center aggregate views (§2/§46). Station visibility is
       // limited to their own, served by /terminal/context.
       'stations.view',
+    ],
+  },
+  // ---- Worker operational model (§3/§4): granular floor roles ------------
+  // One role per operational department; multi-role assignment is allowed.
+  // None of them carry operations.view (§4) — admin oversight stays admin.
+  {
+    name: 'RECEIVING_WORKER',
+    description: 'Receiving dock worker: verify cartons and products against expected arrivals (task: receiving).',
+    isSystem: true,
+    applicationClass: 'OPERATIONAL',
+    permissions: [
+      ...ALL_STRUCT_VIEW,
+      ...VIEW_KEYS('inventory'),
+      ...PHASE2_VIEW,
+      ...VIEW_KEYS('receiving'), ...EXECUTE_KEYS('receiving'),
+      'expected_arrivals.view', 'shipments.view',
+    ],
+  },
+  {
+    name: 'SORTING_WORKER',
+    description: 'Sorting worker: sort articles from totes to configured zones (task: sorting).',
+    isSystem: true,
+    applicationClass: 'OPERATIONAL',
+    permissions: [
+      ...ALL_STRUCT_VIEW,
+      ...VIEW_KEYS('inventory'),
+      ...PHASE2_VIEW,
+      ...VIEW_KEYS('stowing'), ...EXECUTE_KEYS('stowing'),
+    ],
+  },
+  {
+    name: 'PUTAWAY_WORKER',
+    description: 'Putaway worker: stow received cartons onto storage locations (task: putaway).',
+    isSystem: true,
+    applicationClass: 'OPERATIONAL',
+    permissions: [
+      ...ALL_STRUCT_VIEW,
+      ...VIEW_KEYS('inventory'),
+      ...PHASE2_VIEW,
+      ...VIEW_KEYS('stowing'), ...EXECUTE_KEYS('stowing'),
+    ],
+  },
+  {
+    name: 'PACKING_WORKER',
+    description: 'Packing bench worker: pack customer bins into outbound shipments (task: packing).',
+    isSystem: true,
+    applicationClass: 'OPERATIONAL',
+    permissions: [
+      ...ALL_STRUCT_VIEW,
+      ...VIEW_KEYS('inventory'),
+      ...PHASE2_VIEW,
+      ...VIEW_KEYS('packing'), ...EXECUTE_KEYS('packing'),
+    ],
+  },
+  {
+    name: 'SHIPPING_WORKER',
+    description: 'Dispatch worker: scan outbound shipments and dispatch them (task: shipping). Fixes C-5.',
+    isSystem: true,
+    applicationClass: 'OPERATIONAL',
+    permissions: [
+      ...ALL_STRUCT_VIEW,
+      ...VIEW_KEYS('inventory'),
+      ...PHASE2_VIEW,
+      ...VIEW_KEYS('shipping'), ...EXECUTE_KEYS('shipping'),
     ],
   },
   {
@@ -561,6 +631,19 @@ async function main() {
         update: {},
         create: { userId: worker.id, roleId: inbound.id },
       });
+    }
+    // Worker operational model (§3): the seeded worker also carries the new
+    // granular roles so the operational task matrix is exercised end-to-end
+    // (INBOUND_WORKER stays attached for compatibility).
+    for (const roleName of ['RECEIVING_WORKER', 'SORTING_WORKER', 'PUTAWAY_WORKER']) {
+      const role = await prisma.role.findUnique({ where: { name: roleName } });
+      if (role) {
+        await prisma.userRole.upsert({
+          where: { userId_roleId: { userId: worker.id, roleId: role.id } },
+          update: {},
+          create: { userId: worker.id, roleId: role.id },
+        });
+      }
     }
     // Put the worker at a receiving station so the terminal shows a station.
     await prisma.station.update({

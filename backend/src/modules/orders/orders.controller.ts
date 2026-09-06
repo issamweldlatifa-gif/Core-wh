@@ -1,6 +1,7 @@
 import { Get, Controller, Param, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
+import { RequireApplication } from '../../common/decorators/require-application.decorator';
 import { OrdersService } from './orders.service';
 
 /**
@@ -12,6 +13,7 @@ import { OrdersService } from './orders.service';
 @ApiTags('Orders')
 @ApiBearerAuth()
 @Controller('orders')
+@RequireApplication('ADMIN_WEB')
 export class OrdersController {
   constructor(private readonly orders: OrdersService) {}
 

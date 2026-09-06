@@ -134,3 +134,10 @@
 .rt-qty::-webkit-outer-spin-button,
 .rt-qty::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .rt-qty { -moz-appearance: textfield; appearance: textfield; }
+
+/* Attention (not an error): tote sealed at capacity, supervisor needed. */
+.rt-outcome--warn {
+  color: #8a5a00;
+  border: 1px solid #d9a300;
+  background: #fff7e0;
+}
