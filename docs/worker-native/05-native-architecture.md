@@ -38,7 +38,7 @@ The frozen `ui/Screens.kt` remains a build-time rollback/reference. It reuses th
 
 One authenticated transport, one serialization definition per API, pinned dependencies. HTTPS environment configuration only in production. No request/body/token logging. Close every response. Disable automatic connection retries and redirects for the shared client. Single-flight refresh compares token and login identity generations so late failures cannot erase a new login or resurrect a signed-out session.
 
-A definitive 401 may be refreshed once before repeating the unauthorized request. A network failure/5xx after a mutation is **outcome unknown**, not a safe retry. No generic POST retry policy. Validate endpoint/response shape; a missing success discriminator is not success.
+A definitive 401 may be refreshed once before repeating the unauthorized request. A network failure/5xx after a mutation is **outcome unknown**, not a safe retry. No generic POST retry policy. Write bodies are explicitly one-shot so OkHttp cannot follow up a 503 Retry-After response by silently replaying a mutation; the separately controlled definite-401 refresh creates a new request. Validate endpoint/response shape; a missing success discriminator is not success.
 
 ## Connection and recovery
 

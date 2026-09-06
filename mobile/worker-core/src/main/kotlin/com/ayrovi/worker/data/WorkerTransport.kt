@@ -20,6 +20,8 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
+import okio.BufferedSink
 import okhttp3.RequestBody.Companion.toRequestBody
 
 /** API reachability is distinct from Android having a network interface. */
@@ -183,7 +185,18 @@ class HttpWorkerTransport internal constructor(
             require(url.host == base.host && url.port == base.port && url.scheme == base.scheme)
             val builder = Request.Builder().url(url).header("Accept", "application/json")
             if (method == "GET") builder.get()
-            else builder.method(method, (body ?: "{}").toRequestBody(media))
+            else {
+                val payload = (body ?: "{}").toRequestBody(media)
+                // retryOnConnectionFailure(false) alone does not cover every HTTP follow-up
+                // (e.g. 503 Retry-After: 0). Never let OkHttp replay a write body internally.
+                val oneShot = object : RequestBody() {
+                    override fun contentType() = payload.contentType()
+                    override fun contentLength() = payload.contentLength()
+                    override fun isOneShot() = true
+                    override fun writeTo(sink: BufferedSink) = payload.writeTo(sink)
+                }
+                builder.method(method, oneShot)
+            }
             access?.let { builder.header("Authorization", "Bearer $it") }
             client.newCall(builder.build()).execute().use { response ->
                 Response(response.code, response.body?.string().orEmpty())

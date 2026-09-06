@@ -173,6 +173,16 @@ class WorkerTransportTest {
         assertTrue(failure.outcomeUnknown)
         assertEquals(1, server.requestCount)
     }
+    @Test fun `503 Retry-After zero cannot make OkHttp replay a mutation`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(503).setHeader("Retry-After", "0"))
+        server.enqueue(MockResponse().setBody("{}"))
+        val failure = assertFailsWith<WorkerRepository.ApiException> {
+            transport.request("POST", "/v1/fulfillment/receiving/sessions/s/scan-article", "{}")
+        }
+        assertEquals(503, failure.code)
+        assertTrue(failure.outcomeUnknown)
+        assertEquals(1, server.requestCount)
+    }
     @Test fun `offline preflight proves nothing was dispatched`() = runBlocking {
         transport.networkAvailable(false)
         val failure = assertFailsWith<TransportFailure> { transport.request("POST", "/v1/fulfillment/receiving/sessions/s/scan-article", "{}") }
