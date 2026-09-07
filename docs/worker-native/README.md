@@ -68,6 +68,7 @@ Use an approved QA device/backend. Do not clear operational app data to bypass a
 | 17 | [Production cutover](17-production-cutover.md) | NO-GO; controlled pilot, signing, monitoring and rollback runbook. |
 | 18 | [Legacy retirement](18-legacy-retirement.md) | Not authorized; retained scope and proof required for removal. |
 | 19 | [Cleanup report](19-cleanup-report.md) | Increment consolidation; final retirement cleanup still blocked. |
+| 20 | [Directed OCR](20-directed-ocr.md) | SKU template + ML Kit text engine with operator review; accuracy trials pending. |
 
 ## Build / next gate
 

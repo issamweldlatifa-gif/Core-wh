@@ -35,6 +35,7 @@ fun ReceivingScreen(
     var details by remember { mutableStateOf(false) }
     var resolve by remember { mutableStateOf<String?>(null) }
     var cameraRequested by remember { mutableStateOf(false) }
+    var ocrRequested by remember { mutableStateOf(false) }
     var reason by remember { mutableStateOf("") }
     fun overlay(menuOpen: Boolean = menu, problemOpen: Boolean = problem, detailOpen: Boolean = details, resolution: String? = resolve) {
         model.setOverlay(menuOpen || problemOpen || detailOpen || resolution != null)
@@ -70,6 +71,9 @@ fun ReceivingScreen(
     LaunchedEffect(cameraRequested) {
         if (cameraRequested && model.captureAllowed) { capture.camera(); cameraRequested = false }
     }
+    LaunchedEffect(ocrRequested) {
+        if (ocrRequested && model.captureAllowed) { capture.ocr(); ocrRequested = false }
+    }
     when (device) {
         WorkerDevice.CT40 -> CT40Receiving(view, capture, model.captureAllowed, worker, station, connection,
             model::send, onBack, openMenu, settings, refresh)
@@ -90,6 +94,9 @@ fun ReceivingScreen(
                 RetryAction({ menu = false; overlay(menuOpen = false); refresh() }, !state.busy, "REFRESH TASK")
                 if (device == WorkerDevice.CT40) SecondaryAction("CAMERA FALLBACK", {
                     menu = false; overlay(menuOpen = false); cameraRequested = true
+                }, state.canScan)
+                if (device == WorkerDevice.CT40) SecondaryAction("READ LABEL (OCR)", {
+                    menu = false; overlay(menuOpen = false); ocrRequested = true
                 }, state.canScan)
             }
         }, confirmButton = { SecondaryAction("BACK", { menu = false; overlay(menuOpen = false) }) },

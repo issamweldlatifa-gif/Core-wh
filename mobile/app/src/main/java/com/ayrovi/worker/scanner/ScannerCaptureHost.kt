@@ -20,13 +20,23 @@ class ScannerCapture(
     val manualOpen: Boolean,
     val manualCode: String,
     val hardwareAvailable: Boolean,
+    val ocrOpen: Boolean,
+    val ocrText: String,
+    val ocrSuggestion: DirectedOcrResult?,
+    val ocrError: String?,
+    val ocrCameraOpen: Boolean,
     val softwareScan: () -> Unit,
     val camera: () -> Unit,
     val manual: () -> Unit,
     val setCode: (String) -> Unit,
     val submit: () -> Unit,
+    val ocr: () -> Unit,
+    val setOcrText: (String) -> Unit,
+    val submitOcr: () -> Unit,
+    val ocrCamera: () -> Unit,
     val cancel: () -> Unit,
     val preview: @Composable (Modifier) -> Unit,
+    val ocrPreview: @Composable (Modifier) -> Unit,
 )
 
 @Composable
@@ -39,14 +49,25 @@ fun rememberScannerCapture(manager: ScannerManager, enabled: Boolean, contextKey
     var camera by remember { mutableStateOf(false) }
     var manual by remember { mutableStateOf(false) }
     var code by remember { mutableStateOf("") }
+    var ocrOpen by remember { mutableStateOf(false) }
+    var ocrText by remember { mutableStateOf("") }
+    var ocrSuggestion by remember { mutableStateOf<DirectedOcrResult?>(null) }
+    var ocrError by remember { mutableStateOf<String?>(null) }
+    val ocrReader = remember { DirectedOcr() }
+    var ocrCameraOpen by remember { mutableStateOf(false) }
+    var ocrCameraPending by remember { mutableStateOf(false) }
     var permissionGranted by remember { mutableStateOf(false) }
     var resumed by remember { mutableStateOf(lifecycle.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
     var hardwareAvailable by remember { mutableStateOf(false) }
     var trigger by remember { mutableIntStateOf(0) }
     val coordinator = remember(manager) {
         ScanCoordinator({ _, _, _ -> }, {}, manager, onResult = { result ->
-            camera = false; code = ""
+            camera = false; code = ""; ocrOpen = false; ocrText = ""; ocrSuggestion = null; ocrError = null
             if (latestEnabled.value) latestScan.value(result)
+        }, onOcrReview = { block, result ->
+            // First useful engine read fills the review field and stops the
+            // camera; the operator still reviews and confirms the code.
+            ocrText = block.take(2048); ocrSuggestion = result; ocrError = null; ocrCameraOpen = false
         })
     }
     val service = remember(coordinator) { ScannerService(context, coordinator) }
@@ -55,18 +76,29 @@ fun rememberScannerCapture(manager: ScannerManager, enabled: Boolean, contextKey
     }
     fun openCamera() {
         if (!enabled || !resumed) return
-        manual = false; focus.clearFocus()
+        manual = false; ocrOpen = false; focus.clearFocus()
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             camera = true; manager.beginScan(); trigger++
         } else permission.launch(Manifest.permission.CAMERA)
     }
-    LaunchedEffect(permissionGranted, resumed, enabled) {
-        if (permissionGranted && resumed && enabled) { permissionGranted = false; camera = true; manager.beginScan(); trigger++ }
+    fun openOcrCamera() {
+        if (!enabled || !resumed) return
+        camera = false; manual = false; focus.clearFocus()
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            ocrCameraOpen = true; manager.beginScan(); trigger++
+        } else { ocrCameraPending = true; permission.launch(Manifest.permission.CAMERA) }
     }
-    LaunchedEffect(enabled, resumed) { if (!enabled || !resumed) camera = false }
-    LaunchedEffect(contextKey) { camera = false; code = ""; permissionGranted = false }
+    LaunchedEffect(permissionGranted, resumed, enabled) {
+        if (permissionGranted && resumed && enabled) {
+            permissionGranted = false
+            if (ocrCameraPending) { ocrCameraPending = false; ocrCameraOpen = true } else { camera = true }
+            manager.beginScan(); trigger++
+        }
+    }
+    LaunchedEffect(enabled, resumed) { if (!enabled || !resumed) { camera = false; ocrCameraOpen = false } }
+    LaunchedEffect(contextKey) { camera = false; code = ""; permissionGranted = false; ocrOpen = false; ocrText = ""; ocrSuggestion = null; ocrError = null; ocrCameraOpen = false; ocrCameraPending = false }
     LaunchedEffect(trigger) {
-        if (trigger > 0) { delay(10_000); manager.timeout(); if (manager.state.value.status == ScannerStatus.TIMEOUT) camera = false }
+        if (trigger > 0) { delay(10_000); manager.timeout(); if (manager.state.value.status == ScannerStatus.TIMEOUT) { camera = false; ocrCameraOpen = false } }
     }
     DisposableEffect(lifecycle, service) {
         service.initialize()
@@ -79,13 +111,29 @@ fun rememberScannerCapture(manager: ScannerManager, enabled: Boolean, contextKey
         if (resumed) { service.start(); hardwareAvailable = service.isAvailable() }
         onDispose { lifecycle.lifecycle.removeObserver(observer); manager.setEnabled(false); service.stop() }
     }
-    return ScannerCapture(camera, manual, code, hardwareAvailable, softwareScan = {
+    return ScannerCapture(camera, manual, code, hardwareAvailable, ocrOpen, ocrText, ocrSuggestion, ocrError, ocrCameraOpen, softwareScan = {
         if (enabled && resumed) {
             if (service.supportsSoftwareTrigger && service.softwareTrigger()) { manager.beginScan(); trigger++ }
             else openCamera() // phone software scan uses the SAME real CameraX/ML Kit adapter
         }
-    }, camera = ::openCamera, manual = { camera = false; permissionGranted = false; manual = !manual; if (!manual) focus.clearFocus() },
+    }, camera = ::openCamera, manual = { camera = false; ocrOpen = false; permissionGranted = false; manual = !manual; if (!manual) focus.clearFocus() },
         setCode = { code = it.take(1025) }, submit = {
             if (enabled && resumed) coordinator.onScanned(code, false, ScanSource.MANUAL.name)
-        }, cancel = { camera = false; manual = false; manager.cancel() }, preview = { modifier -> CameraScanner(false, coordinator, modifier) })
+        }, ocr = { camera = false; manual = false; permissionGranted = false; ocrCameraOpen = false; ocrOpen = !ocrOpen; ocrError = null; if (!ocrOpen) focus.clearFocus() },
+        // OCR text entry accepts multi-line blocks (pasted label reads): the
+        // template extracts the SKU line, so newlines never reach the scan
+        // guard — only the extracted single-line token is submitted.
+        setOcrText = { ocrText = it.take(2048); ocrError = null; ocrSuggestion = if (ocrText.isBlank()) null else ocrReader.read(ocrText) },
+        submitOcr = {
+            if (enabled && resumed) {
+                val reading = ocrReader.read(ocrText)
+                ocrSuggestion = reading
+                val confirmed = reading.confirmedByOperator()
+                if (confirmed.candidate == null) ocrError = "No SKU found in this text — edit it or re-scan the label"
+                else { ocrError = null; coordinator.onOcrConfirmed(confirmed) }
+            }
+        }, ocrCamera = { if (ocrCameraOpen) { ocrCameraOpen = false; manager.cancel() } else openOcrCamera() },
+        cancel = { camera = false; manual = false; ocrOpen = false; ocrCameraOpen = false; manager.cancel() },
+        preview = { modifier -> CameraScanner(false, coordinator, modifier) },
+        ocrPreview = { modifier -> TextOcrScanner(coordinator, modifier) })
 }
