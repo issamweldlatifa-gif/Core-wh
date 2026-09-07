@@ -6,12 +6,13 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-enum class ScanSource { CAMERA, EXTERNAL_SCANNER, MANUAL }
+enum class ScanSource { CAMERA, EXTERNAL_SCANNER, MANUAL, OCR }
 enum class ScanSymbology { BARCODE, QR, UNKNOWN }
 
 data class ScanResult(val value: String, val source: ScanSource, val symbology: ScanSymbology = ScanSymbology.UNKNOWN) {
     val scanType: String get() = when {
         source == ScanSource.MANUAL -> "MANUAL"
+        source == ScanSource.OCR -> "OCR" // operator-confirmed OCR reading (existing OCR pipeline)
         symbology == ScanSymbology.QR -> "QR"
         else -> "BARCODE"
     }

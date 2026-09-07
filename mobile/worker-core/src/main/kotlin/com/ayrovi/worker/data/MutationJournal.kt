@@ -20,14 +20,9 @@ data class PendingMutation(
     val sessionId: String? = null,
     val arrivalCode: String? = null,
     val subject: String? = null,
-    val containerCode: String? = null,
     val createdAt: Long,
-    val confirmedReceipt: ConfirmedReceipt? = null,
 )
 
+/** The marker's id doubles as the backend idempotency key (operationId) for card confirmations. */
 @Serializable
-enum class MutationKind { START, IDENTIFY_CARTON, RECEIVE_CARTON, RECEIVE_ARTICLE, PAUSE, RESUME, FLAG, RESOLVE, COMPLETE }
-
-/** Backend receipt evidence, retained until the operator explicitly acknowledges the unit. */
-@Serializable
-data class ConfirmedReceipt(val articleCode: String, val sku: String, val toteCode: String, val withException: Boolean, val containerFull: Boolean = false)
+enum class MutationKind { START, CONFIRM_PRODUCT, CONFIRM_CARTON, REPORT_MISMATCH, PAUSE, RESUME, FLAG, RESOLVE, COMPLETE }

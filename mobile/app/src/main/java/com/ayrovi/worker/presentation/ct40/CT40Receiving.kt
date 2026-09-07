@@ -37,7 +37,7 @@ internal fun CT40Receiving(
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = TerminalTokens.xs, vertical = TerminalTokens.xxs),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
                 if (!view.emptyQueue) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(TerminalTokens.xxs)) {
-                    view.step?.let { StepIndicator(it, 7, "RECEIVING") }
+                    view.step?.let { StepIndicator(it, 5, "RECEIVING") }
                     Text(view.instruction, style = MaterialTheme.typography.headlineMedium)
                 }
                 if (view.captureVisible && !capture.manualOpen && !capture.cameraOpen && !view.emptyQueue) {

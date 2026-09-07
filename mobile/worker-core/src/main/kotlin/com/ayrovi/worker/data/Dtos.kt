@@ -76,27 +76,45 @@ import kotlinx.serialization.json.JsonElement
     val tracking: String? = null, val cartons: Int? = null,
 )
 
-// ---------------- RECEIVING ----------------
+// ---------------- RECEIVING (card-based, device-side matching) ----------------
+// The CRM pushes two INDEPENDENT card types: PRODUCT CARDS (Customer Arrival
+// Card) and CARTON CARDS (Shipment Card). They are downloaded with the session
+// and matched on the device; they are never merged or modified here.
 @Serializable data class DetailArrival(
     val id: String? = null, val code: String? = null, val externalArrivalId: String? = null,
     val customerName: String? = null, val customerId: String? = null,
     val storeName: String? = null, val status: String? = null,
 )
-@Serializable data class CartonRow(
-    val id: String? = null, val externalCartonId: String? = null, val reference: String? = null,
-    val qrCodeValue: String? = null, val barcodeValue: String? = null,
-    val cartonNumber: Int? = null, val totalCartons: Int? = null, val status: String? = null,
-    val weight: Double? = null, val weightUnit: String? = null,
+@Serializable data class ShipmentRef(
+    val id: String? = null, val code: String? = null, val externalShipmentId: String? = null,
+    val carrierName: String? = null, val carrierCode: String? = null, val trackingNumber: String? = null,
+    val senderName: String? = null, val senderCompany: String? = null, val shippedAt: String? = null,
+    val totalCartons: Int? = null, val totalProducts: Int? = null, val totalUnits: Int? = null,
 )
-@Serializable data class CartonEvent(
-    val id: String? = null, val code: String? = null, val scanType: String? = null, val source: String? = null,
-    val status: String? = null, val cartonId: String? = null, val receivedAt: String? = null,
-)
-@Serializable data class ProductRow(
+/** PRODUCT CARD (Customer Arrival Card line) — expected data for the PRODUIT lane. */
+@Serializable data class ProductCard(
     val id: String? = null, val sku: String? = null, val reference: String? = null,
     val productName: String? = null, val category: String? = null, val subcategory: String? = null,
-    val categoryStatus: String? = null, val expected: Int, val received: Int,
-    val remaining: Int, val difference: Int, val status: String? = null,
+    val categoryStatus: String? = null,
+    val expected: Int = 0, val received: Int = 0, val remaining: Int = 0,
+    val status: String? = null,
+    /** Normalized (uppercased) comparison keys for device-side matching. */
+    val identifiers: List<String> = emptyList(),
+)
+@Serializable data class CartonDimensions(
+    val length: Double? = null, val width: Double? = null, val height: Double? = null, val unit: String? = null,
+)
+/** CARTON CARD (Shipment Card carton) — expected data for the CARTON lane. */
+@Serializable data class CartonCard(
+    val id: String? = null, val externalCartonId: String? = null, val reference: String? = null,
+    val qrCodeValue: String? = null, val barcodeValue: String? = null,
+    val cartonNumber: Int = 0, val totalCartons: Int = 0,
+    /** Shipment-level card data carried by every carton card of the shipment. */
+    val trackingNumber: String? = null, val senderName: String? = null, val shippedAt: String? = null,
+    val weight: Double? = null, val weightUnit: String? = null, val dimensions: CartonDimensions? = null,
+    val status: String? = null,
+    /** Normalized (uppercased) comparison keys for device-side matching. */
+    val identifiers: List<String> = emptyList(),
 )
 @Serializable data class DiscrepancyRow(
     val id: String? = null, val type: String? = null, val status: String? = null, val reason: String? = null,
@@ -112,9 +130,10 @@ import kotlinx.serialization.json.JsonElement
 )
 @Serializable data class FlashView(
     val kind: String? = null, val code: String? = null, val message: String? = null,
+    val cardType: String? = null,
     val shipment: JsonElement? = null, val arrival: JsonElement? = null,
     val sku: String? = null, val expected: Int? = null, val received: Int? = null,
-    val carton: JsonElement? = null, val article: JsonElement? = null,
+    val carton: JsonElement? = null, val cartons: JsonElement? = null, val article: JsonElement? = null,
     val container: String? = null, val location: String? = null,
     val bin: String? = null, val customer: String? = null,
     val containerCount: Int? = null, val containerCapacity: Int? = null, val containerFull: Boolean = false,
@@ -124,9 +143,9 @@ import kotlinx.serialization.json.JsonElement
     val pausedAt: String? = null, val completedAt: String? = null,
     val deviceType: String? = null, val deviceName: String? = null, val scanSource: String? = null,
     val arrival: DetailArrival = DetailArrival(),
-    val cartons: List<CartonRow> = emptyList(),
-    val receivedCartonEvents: List<CartonEvent> = emptyList(),
-    val products: List<ProductRow> = emptyList(),
+    val shipment: ShipmentRef? = null,
+    val productCards: List<ProductCard> = emptyList(),
+    val cartonCards: List<CartonCard> = emptyList(),
     val discrepancies: List<DiscrepancyRow> = emptyList(),
     val tally: ReceivingTally,
     val flash: FlashView? = null,
@@ -172,10 +191,6 @@ import kotlinx.serialization.json.JsonElement
 
 @Serializable data class ClosedContainer(
     val ok: Boolean? = null, val code: String, val status: String? = null, val count: Int = 0,
-)
-
-@Serializable data class ArticleScanResult(
-    val flash: FlashView? = null, val matched: Boolean = false, val receivingProductId: String? = null,
 )
 
 // Sorting

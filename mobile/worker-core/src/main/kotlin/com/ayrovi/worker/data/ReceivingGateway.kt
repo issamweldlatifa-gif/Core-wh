@@ -1,15 +1,38 @@
 package com.ayrovi.worker.data
 
-/** Existing backend contract, implemented once by WorkerRepository; no UI/network dependency. */
+/**
+ * Card-based receiving contract (device-side matching rebuild), implemented once by
+ * WorkerRepository; no UI/network dependency.
+ *
+ * The device matches the scanned identifier against its expected card data FIRST
+ * (CardMatcher); these confirm endpoints are the backend's FINAL validation,
+ * persistence, state update, duplicate/conflict protection and the worker
+ * activity log. A mismatch never confirms and is logged as a failure.
+ */
 interface ReceivingGateway {
     suspend fun arrivals(): List<ArrivalRow>
     suspend fun receivingSession(sessionId: String): ReceivingSession
     suspend fun activeSession(arrivalIdOrCode: String): ReceivingSession?
     suspend fun startReceiving(arrivalIdOrCode: String): ReceivingSession
-    suspend fun scanCarton(sessionId: String, code: String, scanType: String, operationId: String, source: String): ReceivingSession
-    suspend fun receiveCarton(sessionId: String, cartonId: String, operationId: String, source: String): ReceivingSession
-    suspend fun container(code: String): OpContainerDetail
-    suspend fun scanArticleAtReceiving(sessionId: String, sku: String, containerCode: String, cartonCode: String? = null, operationId: String? = null): ArticleScanResult
+
+    /** PRODUIT lane: confirm a PRODUCT card matched on the device (QR / barcode / OCR SKU / reference). */
+    suspend fun confirmProduct(
+        sessionId: String, identifier: String, identifierType: String, quantity: Int,
+        operationId: String, source: String, startedAt: String? = null,
+    ): ReceivingSession
+
+    /** CARTON lane: confirm a CARTON card matched on the device (carton ref / QR / barcode / tracking). */
+    suspend fun confirmCarton(
+        sessionId: String, identifier: String, identifierType: String,
+        operationId: String, source: String, startedAt: String? = null,
+    ): ReceivingSession
+
+    /** Device-side MISMATCH: log the failure; nothing is confirmed, nothing completes. */
+    suspend fun reportMismatch(
+        sessionId: String, cardType: String, identifier: String,
+        identifierType: String, source: String, startedAt: String? = null,
+    ): ReceivingSession
+
     suspend fun pauseSession(sessionId: String): ReceivingSession
     suspend fun resumeSession(sessionId: String): ReceivingSession
     suspend fun completeSession(sessionId: String): ReceivingSession

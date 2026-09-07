@@ -29,7 +29,7 @@ internal fun PhoneReceiving(
     ) {
         Column(Modifier.fillMaxWidth().testTag("PHONE_RECEIVING"), verticalArrangement = Arrangement.spacedBy(TerminalTokens.md)) {
             if (!view.emptyQueue) {
-                view.step?.let { StepIndicator(it, 7, "RECEIVING") }
+                view.step?.let { StepIndicator(it, 5, "RECEIVING") }
                 TaskInstruction(view.instruction)
             }
             if (view.workflow.session != null) view.workflow.session?.let { Text(it.arrival.code ?: it.code, style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted) }

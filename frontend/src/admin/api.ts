@@ -295,6 +295,44 @@ export interface TaskRow {
   open: number | null;
 }
 
+/**
+ * RECEIVING WORKER report row — the worker activity log written by the
+ * card-based receiving flow (device-side matching + backend confirmation).
+ * Who / What / When / Product-or-Carton / Identifier / Result / Device /
+ * Duration — every column is real data from the ReceivingWorkerLog row.
+ */
+export interface ReceivingWorkerRow {
+  id: string;
+  // Who
+  worker: string | null;
+  workerId: string | null;
+  workerCode: string | null;
+  // What task / where
+  task: string | null;
+  arrival: string | null;
+  session: string | null;
+  // Which card (PRODUCT CARD vs CARTON CARD — independent card types)
+  card: string | null;
+  cardType: 'PRODUCT' | 'CARTON';
+  // The operation + identifier
+  operation: 'CONFIRM' | 'SCAN_REJECT' | 'DUPLICATE_REJECT' | string;
+  identifierType: 'QR' | 'BARCODE' | 'OCR' | 'MANUAL' | string;
+  identifierValue: string;
+  source: string;
+  // Result of the matching / operation
+  result: 'MATCH' | 'MISMATCH' | 'DUPLICATE' | 'AMBIGUOUS';
+  // When (date + time split for the report columns)
+  at: string;
+  date: string;
+  time: string;
+  // Duration of the physical operation (device scan start -> server verdict)
+  durationMs: number;
+  // Device
+  device: string | null;
+  deviceName: string | null;
+  createdAt: string;
+}
+
 export interface ContainerRow {
   id: string; code: string; type: 'RECEIVING' | 'CUSTOMER'; status: string;
   label: string | null;
@@ -430,6 +468,16 @@ export const adminApi = {
   // Operational containers (COMMAND #1 FINAL §08/§12).
   receivingContainers: () =>
     client.get<ContainerBoardRow[]>('/v1/operations/receiving-containers').then((r) => r.data),
+  /**
+   * Receiving Worker report (card-based receiving rebuild): who did what
+   * (card type / identifier / result) when, on which device, in how long.
+   */
+  receivingWorkers: (params?: {
+    workerId?: string;
+    cardType?: 'PRODUCT' | 'CARTON';
+    result?: 'MATCH' | 'MISMATCH' | 'DUPLICATE' | 'AMBIGUOUS';
+    limit?: number;
+  }) => client.get<ReceivingWorkerRow[]>('/v1/operations/receiving-workers', { params }).then((r) => r.data),
   customerBins: () =>
     client.get<ContainerBoardRow[]>('/v1/operations/customer-bins').then((r) => r.data),
   container: (code: string) =>

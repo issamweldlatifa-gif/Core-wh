@@ -28,7 +28,7 @@ class SecureSessionStoreTest {
         val device = store.deviceCode
         store.replace(store.snapshot().version, AuthTokens("test-access", "test-refresh"), newLogin = true)
         store.employeeCode = "test-worker"
-        val pending = PendingMutation("operation", "test-worker", MutationKind.RECEIVE_ARTICLE, "session", subject = "SKU", createdAt = 1)
+        val pending = PendingMutation("operation", "test-worker", MutationKind.CONFIRM_PRODUCT, "session", subject = "SKU", createdAt = 1)
         store.record(pending)
         store.clear()
         val restored = SessionStore(context, file)
@@ -40,7 +40,7 @@ class SecureSessionStoreTest {
     @Test fun credentialsAndMutationAreNotWrittenAsPlaintext() {
         val store = SessionStore(context, file)
         store.replace(store.snapshot().version, AuthTokens("sensitive-test-access", "sensitive-test-refresh"), newLogin = true)
-        store.record(PendingMutation("sensitive-operation-marker", "worker", MutationKind.RECEIVE_ARTICLE, createdAt = 1))
+        store.record(PendingMutation("sensitive-operation-marker", "worker", MutationKind.CONFIRM_PRODUCT, createdAt = 1))
         val xml = File(context.applicationInfo.dataDir, "shared_prefs/$file.xml").readText()
         assertFalse(xml.contains("sensitive-test-access"))
         assertFalse(xml.contains("sensitive-test-refresh"))
@@ -60,10 +60,9 @@ class SecureSessionStoreTest {
         assertFalse(raw.contains("employee_code"))
         assertFalse(raw.contains("device_code"))
     }
-    @Test fun confirmedReceiptEvidenceSurvivesReopenUntilAcknowledged() {
+    @Test fun pendingCardConfirmationMarkerSurvivesReopenUntilReconciled() {
         val store = SessionStore(context, file)
-        val pending = PendingMutation("confirmed-operation", "test-worker", MutationKind.RECEIVE_ARTICLE, "session", createdAt = 1,
-            confirmedReceipt = ConfirmedReceipt("ART-TEST", "SKU-TEST", "RCN-TEST", false))
+        val pending = PendingMutation("pending-operation", "test-worker", MutationKind.CONFIRM_PRODUCT, "session", "WAR-TEST", "SKU-TEST", createdAt = 1)
         store.record(pending)
         val restored = SessionStore(context, file)
         assertEquals(pending, restored.read())

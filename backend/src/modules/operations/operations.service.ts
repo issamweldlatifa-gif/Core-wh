@@ -50,6 +50,7 @@ const OPS_AUDIT_ACTIONS = [
   'RECEIVING_RESUMED',
   'RECEIVING_COMPLETED',
   'RECEIVING_COMPLETED_WITH_DISCREPANCY',
+  'CARD_ALREADY_COMPLETED',
   'CARTON_SCANNED',
   'CARTON_RECEIVED',
   'CARTON_MANUAL_ENTRY',
@@ -1002,6 +1003,76 @@ export class OperationsService {
       include: { actor: { select: { id: true, name: true, employeeCode: true } } },
     });
     return rows.map((r) => this.toActivityEvent(r as never));
+  }
+
+  /**
+   * Receiving Worker report (Admin): every worker card operation from the
+   * device-side-matching receiving rebuild. Answers Who / What / When /
+   * Product-or-Carton / Identifier / Result / Device / Duration in one row.
+   * Worker identity is resolved from the user table when the worker still
+   * exists; otherwise the snapshotted workerName is used (history is never
+   * destroyed by a user leaving the system).
+   */
+  async receivingWorkerReport(filters: {
+    workerId?: string;
+    cardType?: 'PRODUCT' | 'CARTON';
+    result?: 'MATCH' | 'MISMATCH' | 'DUPLICATE' | 'AMBIGUOUS';
+    limit?: number;
+  }) {
+    const take = Math.min(Math.max(1, Math.floor(filters.limit ?? 200)), 500);
+    const logs = await this.prisma.receivingWorkerLog.findMany({
+      where: {
+        workerId: filters.workerId || undefined,
+        cardType: filters.cardType || undefined,
+        result: filters.result || undefined,
+      },
+      orderBy: { endedAt: 'desc' },
+      take,
+    });
+    if (logs.length === 0) return [];
+    const ids = Array.from(new Set(logs.map((l) => l.workerId).filter(Boolean))) as string[];
+    const users = new Map<string, { name: string; employeeCode: string | null }>();
+    if (ids.length > 0) {
+      const rows = await this.prisma.user.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, name: true, employeeCode: true },
+      });
+      for (const u of rows) users.set(u.id, { name: u.name, employeeCode: u.employeeCode });
+    }
+    return logs.map((l) => {
+      const u = l.workerId ? users.get(l.workerId) : undefined;
+      return {
+        id: l.id,
+        // Who
+        worker: u?.name ?? l.workerName ?? null,
+        workerId: l.workerId ?? null,
+        workerCode: u?.employeeCode ?? null,
+        // What task / where
+        task: l.taskKey,
+        arrival: l.arrivalCode,
+        session: l.sessionCode,
+        // Which card
+        card: l.cardRef,
+        cardType: l.cardType,
+        // The operation + identifier
+        operation: l.operation,
+        identifierType: l.identifierType,
+        identifierValue: l.identifierValue,
+        source: l.source,
+        // Result
+        result: l.result,
+        // When (date + time split for the report columns)
+        at: l.endedAt ?? l.createdAt,
+        date: new Date(l.endedAt ?? l.createdAt).toISOString().slice(0, 10),
+        time: new Date(l.endedAt ?? l.createdAt).toISOString().slice(11, 19),
+        // Duration of the physical operation (device scan start -> server verdict)
+        durationMs: l.durationMs,
+        // Device
+        device: l.deviceType ?? null,
+        deviceName: l.deviceName ?? null,
+        createdAt: l.createdAt,
+      };
+    });
   }
 
   // =====================================================================

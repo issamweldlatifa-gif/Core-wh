@@ -220,6 +220,27 @@ export class OperationsController {
     return this.ops.containersBoard({ type: 'RECEIVING', take: 100 });
   }
 
+  @Get('receiving-workers')
+  @RequirePermissions('operations.view')
+  @ApiOperation({ summary: 'Receiving Worker report: who did what (card type / identifier / result) when, on which device, in how long.' })
+  @ApiQuery({ name: 'workerId', required: false })
+  @ApiQuery({ name: 'cardType', required: false, enum: ['PRODUCT', 'CARTON'] })
+  @ApiQuery({ name: 'result', required: false, enum: ['MATCH', 'MISMATCH', 'DUPLICATE', 'AMBIGUOUS'] })
+  @ApiQuery({ name: 'limit', required: false })
+  receivingWorkers(
+    @Query('workerId') workerId?: string,
+    @Query('cardType') cardType?: 'PRODUCT' | 'CARTON',
+    @Query('result') result?: 'MATCH' | 'MISMATCH' | 'DUPLICATE' | 'AMBIGUOUS',
+    @Query('limit') limit?: string,
+  ) {
+    return this.ops.receivingWorkerReport({
+      workerId: workerId || undefined,
+      cardType: cardType || undefined,
+      result: result || undefined,
+      limit: limit ? Number(limit) : 200,
+    });
+  }
+
   @Get('customer-bins')
   @RequirePermissions('operations.view')
   @ApiOperation({ summary: 'Customer Bins board with expected/count, customer, order.' })

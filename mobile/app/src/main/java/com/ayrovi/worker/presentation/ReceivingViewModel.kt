@@ -17,14 +17,10 @@ import kotlinx.coroutines.launch
 sealed interface ReceivingIntent {
     data class SelectMode(val mode: ReceivingMode) : ReceivingIntent
     data class OpenArrival(val code: String) : ReceivingIntent
-    data class Quantity(val value: String) : ReceivingIntent
     data class ReportProblem(val reason: String) : ReceivingIntent
     data class ResolveProblem(val id: String, val reason: String) : ReceivingIntent
-    data object ConfirmCarton : ReceivingIntent
-    data object ConfirmProduct : ReceivingIntent
-    data object NextProduct : ReceivingIntent
-    data object ChangeSource : ReceivingIntent
-    data object ChangeTote : ReceivingIntent
+    data object ConfirmCard : ReceivingIntent
+    data object ContinueScanning : ReceivingIntent
     data object Pause : ReceivingIntent
     data object Resume : ReceivingIntent
     data object ReviewCompletion : ReceivingIntent
@@ -65,18 +61,14 @@ class ReceivingViewModel(
 
     fun send(intent: ReceivingIntent) {
         // Only explicit operator re-arm, never an automatic backend step transition.
-        if (!state.value.busy && intent in setOf(ReceivingIntent.NextProduct, ReceivingIntent.NextArrival)) scanner.rearm()
+        if (!state.value.busy && intent in setOf(ReceivingIntent.ContinueScanning, ReceivingIntent.NextArrival)) scanner.rearm()
         when (intent) {
             is ReceivingIntent.SelectMode -> { if (state.value.canSelectMode) scanner.rearm(); workflow.selectMode(intent.mode) }
             is ReceivingIntent.OpenArrival -> workflow.openArrival(intent.code)
-            is ReceivingIntent.Quantity -> workflow.setQuantity(intent.value)
             is ReceivingIntent.ReportProblem -> workflow.reportException(intent.reason)
             is ReceivingIntent.ResolveProblem -> workflow.resolveException(intent.id, intent.reason)
-            ReceivingIntent.ConfirmCarton -> workflow.confirmCarton()
-            ReceivingIntent.ConfirmProduct -> workflow.confirmProduct()
-            ReceivingIntent.NextProduct -> workflow.nextProduct()
-            ReceivingIntent.ChangeSource -> workflow.changeCarton()
-            ReceivingIntent.ChangeTote -> workflow.changeTote()
+            ReceivingIntent.ConfirmCard -> workflow.confirmCard()
+            ReceivingIntent.ContinueScanning -> workflow.continueScanning()
             ReceivingIntent.Pause -> workflow.pause()
             ReceivingIntent.Resume -> workflow.resume()
             ReceivingIntent.ReviewCompletion -> workflow.reviewCompletion()
