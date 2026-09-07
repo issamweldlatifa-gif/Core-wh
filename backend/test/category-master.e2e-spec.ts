@@ -88,7 +88,7 @@ describe('FINAL PHASE — Category Master + sorting mapping', () => {
   beforeAll(async () => {
     prisma = new PrismaClient();
     arrivals = new ExpectedArrivalsService(prisma as any, captureAudit);
-    receiving = new ReceivingService(prisma as any, captureAudit, new AssignmentsService(prisma as any, captureAudit));
+    receiving = new ReceivingService(prisma as any, captureAudit, new AssignmentsService(prisma as any, captureAudit), { onReceivingCompleted: async () => {} } as any);
     categories = new CategoriesService(prisma as any, captureAudit);
     putaway = new PutawayService(prisma as any, captureAudit, categories, new AssignmentsService(prisma as any, captureAudit));
 
@@ -268,7 +268,7 @@ describe('FINAL PHASE — Category Master + sorting mapping', () => {
     // Receive the carton so it enters the sorting/putaway queue.
     const arrival = await (prisma as any).expectedArrival.findUnique({ where: { customerArrivalCardId: `card:${tag}:ok` } });
     const session = await (prisma as any).receivingSession.findFirst({ where: { arrivalId: arrival.id, status: 'RECEIVING' } });
-    await receiving.receiveCarton(session.id, `CTN-${tag}-ok-1`, actor as any, `op-${tag}-1`);
+    await receiving.confirmCarton(session.id, { identifier: `CTN-${tag}-ok-1`, identifierType: 'MANUAL', source: 'MANUAL', operationId: `op-${tag}-1` }, actor as any);
 
     const queue = await putaway.queue(200);
     const mine: any = queue.find((c: any) => c.externalCartonId === `CTN-${tag}-ok-1`);
@@ -285,7 +285,7 @@ describe('FINAL PHASE — Category Master + sorting mapping', () => {
     await attachShipment(`card:${tag}:unknown`, 'unknown', 1);
     const arrival = await (prisma as any).expectedArrival.findUnique({ where: { customerArrivalCardId: `card:${tag}:unknown` } });
     const session = await receiving.start(arrival.id, actor as any);
-    await receiving.receiveCarton(session.id, `CTN-${tag}-unknown-1`, actor as any, `op-${tag}-2`);
+    await receiving.confirmCarton(session.id, { identifier: `CTN-${tag}-unknown-1`, identifierType: 'MANUAL', source: 'MANUAL', operationId: `op-${tag}-2` }, actor as any);
 
     const queue = await putaway.queue(200);
     const mine: any = queue.find((c: any) => c.externalCartonId === `CTN-${tag}-unknown-1`);

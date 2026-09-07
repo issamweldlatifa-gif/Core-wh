@@ -307,7 +307,7 @@ describe('PARTIE 2 — Workforce Operating Model', () => {
     const prismaSvc = prisma;
     const noAudit = { log: async () => {} } as any;
     const arrivals = new ExpectedArrivalsService(prisma as any, noAudit);
-    const receiving = new ReceivingService(prisma as any, noAudit, new AssignmentsService(prisma as any, noAudit));
+    const receiving = new ReceivingService(prisma as any, noAudit, new AssignmentsService(prisma as any, noAudit), { onReceivingCompleted: async () => {} } as any);
     const categories = new CategoriesService(prisma as any, noAudit);
     const fulfillment = new FulfillmentService(prisma as any, noAudit, categories, new EventEmitter2(), new AssignmentsService(prisma as any, noAudit));
     const principal = { kind: 'static' as const, id: null, name: 'e2e-p2', idempotencyKey: null };

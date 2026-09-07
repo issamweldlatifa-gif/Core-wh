@@ -45,7 +45,7 @@ describe('CURRENT CARD + CATEGORY', () => {
   beforeAll(async () => {
     prisma = new PrismaClient();
     arrivals = new ExpectedArrivalsService(prisma as any, noAudit);
-    receiving = new ReceivingService(prisma as any, noAudit, new AssignmentsService(prisma as any, noAudit));
+    receiving = new ReceivingService(prisma as any, noAudit, new AssignmentsService(prisma as any, noAudit), { onReceivingCompleted: async () => {} } as any);
     putaway = new PutawayService(prisma as any, noAudit, new CategoriesService(prisma as any, noAudit), new AssignmentsService(prisma as any, noAudit));
   });
 
@@ -186,12 +186,12 @@ describe('CURRENT CARD + CATEGORY', () => {
     const arrival = await (prisma as any).expectedArrival.findUnique({ where: { customerArrivalCardId: `card:${tag}:with` } });
     const session = await (prisma as any).receivingSession.findFirst({ where: { arrivalId: arrival.id, status: 'RECEIVING' } });
 
-    const first = await receiving.receiveCarton(session.id, `CTN-${tag}-with-1`, actor as any, `op-${tag}-1`);
+    const first = await receiving.confirmCarton(session.id, { identifier: `CTN-${tag}-with-1`, identifierType: 'MANUAL', source: 'MANUAL', operationId: `op-${tag}-1` }, actor as any);
     expect(first.tally.receivedCartons).toBe(1);
 
     // Same carton again -> DUPLICATE flash, count unchanged.
-    const dup = await receiving.scanCarton(session.id, `CTN-${tag}-with-1`, 'MANUAL', actor as any, `op-${tag}-2`);
-    expect(dup.flash?.kind).toBe('DUPLICATE_CARTON');
+    const dup = await receiving.confirmCarton(session.id, { identifier: `CTN-${tag}-with-1`, identifierType: 'MANUAL', source: 'MANUAL', operationId: `op-${tag}-2` }, actor as any);
+    expect(dup.flash?.kind).toBe('CARD_ALREADY_COMPLETE');
     expect(dup.tally.receivedCartons).toBe(1);
   });
 
@@ -208,7 +208,7 @@ describe('CURRENT CARD + CATEGORY', () => {
   it('legacy carton appears in the queue with UNKNOWN category', async () => {
     const arrival = await (prisma as any).expectedArrival.findUnique({ where: { customerArrivalCardId: `card:${tag}:legacy` } });
     const session = await (prisma as any).receivingSession.findFirst({ where: { arrivalId: arrival.id, status: 'RECEIVING' } });
-    await receiving.receiveCarton(session.id, `CTN-${tag}-legacy-1`, actor as any, `op-${tag}-3`);
+    await receiving.confirmCarton(session.id, { identifier: `CTN-${tag}-legacy-1`, identifierType: 'MANUAL', source: 'MANUAL', operationId: `op-${tag}-3` }, actor as any);
 
     const queue = await putaway.queue(200);
     const mine = queue.find((c: any) => c.externalCartonId === `CTN-${tag}-legacy-1`);

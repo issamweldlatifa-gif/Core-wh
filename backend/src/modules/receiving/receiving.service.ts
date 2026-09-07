@@ -53,6 +53,12 @@ function parseDate(value: string | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+const SCAN_SOURCES = ['CAMERA', 'EXTERNAL_SCANNER', 'MANUAL'] as const;
+/** The DB enum only knows 3 sources; unknown/missing input degrades to MANUAL (never a failed scan). */
+function scanSourceOf(source: string | undefined): typeof SCAN_SOURCES[number] {
+  return SCAN_SOURCES.find((s) => s === (source ?? '').trim().toUpperCase()) ?? 'MANUAL';
+}
+
 /**
  * Station the worker is physically standing at (§13).
  *
@@ -558,7 +564,7 @@ export class ReceivingService {
     await this.prisma.$transaction(async (tx) => {
       const rc = await tx.receivingCarton.create({ data: {
         receivingSessionId: sessionId, cartonId: carton.id, scannedCode: ref,
-        scanType: identifierType as never, source, status: 'RECEIVED',
+        scanType: identifierType as never, source: scanSourceOf(source), status: 'RECEIVED',
         receivedBy: actor.id, receivedAt: new Date(), operationId: input.operationId ?? null,
       } });
       await tx.warehouseCarton.update({ where: { id: carton.id }, data: { status: 'RECEIVED', receivedAt: new Date(), receivedBy: actor.id } });

@@ -85,7 +85,7 @@ class WorkerRepository(
 
     override suspend fun confirmProduct(
         sessionId: String, identifier: String, identifierType: String, quantity: Int,
-        operationId: String, source: String, startedAt: String? = null,
+        operationId: String, source: String, startedAt: String?,
     ): ReceivingSession {
         val body = buildString {
             append("{\"identifier\":").append(jq(identifier))
@@ -102,7 +102,7 @@ class WorkerRepository(
 
     override suspend fun confirmCarton(
         sessionId: String, identifier: String, identifierType: String,
-        operationId: String, source: String, startedAt: String? = null,
+        operationId: String, source: String, startedAt: String?,
     ): ReceivingSession {
         val body = buildString {
             append("{\"identifier\":").append(jq(identifier))
@@ -118,7 +118,7 @@ class WorkerRepository(
 
     override suspend fun reportMismatch(
         sessionId: String, cardType: String, identifier: String,
-        identifierType: String, source: String, startedAt: String? = null,
+        identifierType: String, source: String, startedAt: String?,
     ): ReceivingSession {
         val body = buildString {
             append("{\"cardType\":").append(jq(cardType))

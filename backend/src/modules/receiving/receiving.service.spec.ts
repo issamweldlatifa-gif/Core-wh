@@ -46,7 +46,7 @@ const SESSION_ROW = {
 const ACTOR = { id: 'w-1', name: 'Worker One', canResolveDiscrepancy: false, ip: '10.0.0.1' };
 
 /** Session row as returned by prisma (relations included). */
-function fullSession() {
+function fullSession(): any {
   const a = baseArrival();
   return {
     ...SESSION_ROW,
