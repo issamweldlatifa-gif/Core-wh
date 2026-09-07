@@ -8,7 +8,7 @@ class ScanCoordinator(
     private val onResult: ((ScanResult) -> Unit)? = null,
     private val onOcrReview: ((block: String, result: DirectedOcrResult) -> Unit)? = null,
 ) {
-    fun onOcrBlock(block: String, template: OcrTemplate = SkuTemplate) {
+    fun onOcrBlock(block: String, template: OcrTemplate = CompactSkuTemplate) {
         // Live engine text is NEVER submitted here: readings that contain a
         // candidate go to the review UI, and the operator still confirms
         // every code. Blocks without a candidate keep scanning silently.

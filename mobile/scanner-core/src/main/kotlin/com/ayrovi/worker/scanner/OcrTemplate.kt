@@ -55,3 +55,34 @@ object SkuTemplate : OcrTemplate {
         }.let { (it * 100).toInt() / 100.0 }
     }
 }
+
+/**
+ * Strict product-SKU template for the warehouse's compact code shape:
+ *
+ *     `s` + one letter + 1..20 digits        e.g. sb25092090066487374, sz123
+ *
+ * This is the shape the operator reads off a label and matches against an
+ * expected card line, so the template is deliberately STRICT: it accepts only
+ * that exact shape and rejects everything else (quantities, bare words,
+ * segmented warehouse codes, merged garbage). Strictness is what lets an OCR
+ * read become a confident, local match instead of a per-scan "not found".
+ *
+ * Comparison is case-insensitive (the OCR normalizer uppercases reads and the
+ * matcher compares case-insensitively), so `SB25092090066487374` reads are
+ * accepted too — a floor scan must not fail on case.
+ */
+object CompactSkuTemplate : OcrTemplate {
+    override val id: String = "COMPACT_SKU"
+    override val label: String = "Product SKU"
+    override val hint: String = "Point at the product SKU line"
+
+    /** `s` + one letter + 1..20 digits, case-insensitive. */
+    private val compactSku = Regex("(?i)^s[a-z][0-9]{1,20}$")
+
+    override fun score(token: String, baseConfidence: Double): Double? {
+        if (!compactSku.matches(token)) return null
+        // Shape is exact, so a high floor confidence that stays under 1.0: OCR
+        // is still a suggestion that must be confirmed / server-verified.
+        return ((baseConfidence + 0.10).coerceAtMost(0.97) * 100).toInt() / 100.0
+    }
+}

@@ -30,7 +30,7 @@ data class DirectedOcrResult(
  * quantity is rejected outright) instead of one merged noisy string.
  */
 class DirectedOcr(
-    private val template: OcrTemplate = SkuTemplate,
+    private val template: OcrTemplate = CompactSkuTemplate,
     private val normalizer: OcrNormalizer = OcrNormalizer(),
     private val minConfidence: Double = 0.8,
 ) {
