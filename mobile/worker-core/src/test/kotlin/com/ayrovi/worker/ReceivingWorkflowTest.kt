@@ -136,7 +136,7 @@ class ReceivingWorkflowTest {
         assertEquals(1, flow.state.value.session!!.productCards.single().remaining)
     }
 
-    @Test fun `wrong product identifier is a device mismatch: logged, never confirmed`() = runTest {
+    @Test fun `wrong product identifier is a device mismatch, logged and never confirmed`() = runTest {
         val backend = ReceivingBackend(); val flow = workflow(backend); open(flow); toProduct(flow)
         flow.scan(ScanResult("SKU-NOPE", ScanSource.EXTERNAL_SCANNER)); runCurrent()
         assertEquals(ReceivingStep.PRODUCT, flow.state.value.step)
@@ -218,7 +218,7 @@ class ReceivingWorkflowTest {
         assertEquals(ReceivingStep.CARTON, flow.state.value.step)
     }
 
-    @Test fun `wrong carton identifier is a device mismatch: logged, never confirmed`() = runTest {
+    @Test fun `wrong carton identifier is a device mismatch, logged and never confirmed`() = runTest {
         val backend = ReceivingBackend(); val flow = workflow(backend); open(flow)
         flow.scan(ScanResult("CTN-NOPE", ScanSource.MANUAL)); runCurrent()
         assertEquals(ReceivingStep.CARTON, flow.state.value.step)
@@ -258,7 +258,7 @@ class ReceivingWorkflowTest {
         assertEquals(ReceivingStep.CARTON, flow.state.value.step)
     }
 
-    @Test fun `multiple cards stay independent: each card confirmed on its own lane`() = runTest {
+    @Test fun `multiple cards stay independent, each card confirmed on its own lane`() = runTest {
         val backend = ReceivingBackend().apply {
             current = current.copy(
                 productCards = current.productCards.map { it.copy(expected = 1, remaining = 1) } +
@@ -484,7 +484,7 @@ class ReceivingWorkflowTest {
         assertEquals("EXCEPTION REPORTED", flow.state.value.message!!.title)
     }
 
-    @Test fun `worker cannot resolve discrepancies; supervisor can`() = runTest {
+    @Test fun `worker cannot resolve discrepancies but supervisor can`() = runTest {
         val backend = ReceivingBackend().apply {
             current = current.copy(discrepancies = listOf(DiscrepancyRow(id = "d1", type = "OVERAGE", status = "OPEN", reason = "Overage on SKU-1")))
         }
