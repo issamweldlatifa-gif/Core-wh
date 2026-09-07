@@ -8,7 +8,6 @@ import com.ayrovi.worker.domain.AudioFeedback
 import com.ayrovi.worker.domain.HomeStep
 import com.ayrovi.worker.domain.MessageTone
 import com.ayrovi.worker.domain.ReceivingHomeWorkflow
-import com.ayrovi.worker.feedback.ReceivingNotifier
 import com.ayrovi.worker.scanner.ScanResult
 import com.ayrovi.worker.scanner.ScannerManager
 import kotlinx.coroutines.launch
@@ -31,7 +30,6 @@ class ReceivingHomeViewModel(
     workerId: String,
     permissions: Set<String>,
     private val audio: AudioFeedback = AudioFeedback.Silent,
-    private val notifier: ReceivingNotifier? = null,
 ) : ViewModel() {
     val workflow = ReceivingHomeWorkflow(gateway, workerId, permissions, viewModelScope)
     val state = workflow.state
@@ -45,19 +43,14 @@ class ReceivingHomeViewModel(
             workflow.events.collect { event ->
                 runCatching {
                     when (event.tone) {
+                        // SUCCESS/ERROR/WARNING play only while THIS screen is
+                        // foregrounded. Newly dispatched cards are announced by
+                        // the whole-app WorkerAppViewModel (audio + tray on any
+                        // screen); Receiving itself only updates its live feed.
                         MessageTone.SUCCESS -> if (foreground) audio.success()
                         MessageTone.ERROR -> if (foreground) audio.error()
                         MessageTone.WARNING -> if (foreground) audio.warning()
-                        MessageTone.INFO -> {
-                            // A newly dispatched card: in-app sound + a device
-                            // tray notification (works on phone and CT40), so a
-                            // worker discovers a card WITHOUT opening Receiving.
-                            audio.notification()
-                            when (event.title) {
-                                "NEW PRODUCT CARD" -> notifier?.newCard(product = true, count = state.value.home?.productCardsPending ?: 1)
-                                "NEW CARTON CARD" -> notifier?.newCard(product = false, count = state.value.home?.cartonCardsPending ?: 1)
-                            }
-                        }
+                        MessageTone.INFO -> Unit
                     }
                 }
             }

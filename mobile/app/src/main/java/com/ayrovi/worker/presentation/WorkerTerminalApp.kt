@@ -34,10 +34,21 @@ internal fun <T : ViewModel> factory(create: () -> T): ViewModelProvider.Factory
     @Suppress("UNCHECKED_CAST") override fun <V : ViewModel> create(modelClass: Class<V>): V = create() as V
 }
 
-/** The new lane contains no repository calls or business rules in Compose. */
+/**
+ * The new lane contains no repository calls or business rules in Compose.
+ * @param openReceivingRequest monotonic signal (see MainActivity): when it is
+ *        raised the app opens RECEIVING home once the worker is signed in —
+ *        this is the destination of a Receiving card tray notification.
+ */
 @Composable
-fun WorkerTerminalApp(container: AppContainer, onThemeChanged: (TerminalThemeMode) -> Unit = {}) {
-    val model: WorkerAppViewModel = viewModel(factory = factory { WorkerAppViewModel(container.workerSession, container.audio) })
+fun WorkerTerminalApp(
+    container: AppContainer,
+    onThemeChanged: (TerminalThemeMode) -> Unit = {},
+    openReceivingRequest: Long = 0L,
+) {
+    val model: WorkerAppViewModel = viewModel(
+        factory = factory { WorkerAppViewModel(container.workerSession, container.audio, container.notifier) },
+    )
     val appearance: AppearanceViewModel = viewModel(factory = factory { AppearanceViewModel(container.appearance) })
     val theme by appearance.theme.collectAsStateWithLifecycle()
     val themeWarning by appearance.warning.collectAsStateWithLifecycle()
@@ -49,6 +60,12 @@ fun WorkerTerminalApp(container: AppContainer, onThemeChanged: (TerminalThemeMod
     val owner = LocalLifecycleOwner.current
     var showSettings by remember { mutableStateOf(false) }
     var route by rememberSaveable { mutableStateOf(TerminalRoute.QUEUE) }
+    // One-shot "a notification asked us to open RECEIVING" latch. Kept pending
+    // until the worker is signed in, so a tap never opens a half-signed-in UI.
+    var pendingOpenReceiving by remember { mutableStateOf(false) }
+    LaunchedEffect(openReceivingRequest) {
+        if (openReceivingRequest > 0) pendingOpenReceiving = true
+    }
     DisposableEffect(owner, model) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -61,7 +78,15 @@ fun WorkerTerminalApp(container: AppContainer, onThemeChanged: (TerminalThemeMod
         if (owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) model.onForeground()
         onDispose { owner.lifecycle.removeObserver(observer); model.onBackground() }
     }
-    LaunchedEffect(state.signedIn, state.loginGeneration) { if (!state.signedIn) route = TerminalRoute.QUEUE }
+    LaunchedEffect(state.signedIn, state.loginGeneration) {
+        if (!state.signedIn) { route = TerminalRoute.QUEUE; pendingOpenReceiving = false }
+    }
+    LaunchedEffect(state.signedIn, pendingOpenReceiving) {
+        if (state.signedIn && pendingOpenReceiving) {
+            pendingOpenReceiving = false
+            route = TerminalRoute.RECEIVING
+        }
+    }
     LaunchedEffect(state.tasks) {
         if (route == TerminalRoute.RECEIVING && state.me != null && state.tasks.none { it.key == "receiving" }) route = TerminalRoute.QUEUE
     }
@@ -75,7 +100,7 @@ fun WorkerTerminalApp(container: AppContainer, onThemeChanged: (TerminalThemeMod
             // tiles, live counters and lane-specific scanners.
             val receiving: ReceivingHomeViewModel = viewModel(
                 key = "receiving-home-$workerId-${state.loginGeneration}",
-                factory = factory { ReceivingHomeViewModel(container.repository, workerId, state.me!!.permissions.toSet(), container.audio, container.notifier) },
+                factory = factory { ReceivingHomeViewModel(container.repository, workerId, state.me!!.permissions.toSet(), container.audio) },
             )
             val available = state.verified && connection !in setOf(ConnectionState.OFFLINE, ConnectionState.AUTH_ERROR, ConnectionState.SYNC_ERROR)
             LaunchedEffect(state.me?.permissions, available, connection) {

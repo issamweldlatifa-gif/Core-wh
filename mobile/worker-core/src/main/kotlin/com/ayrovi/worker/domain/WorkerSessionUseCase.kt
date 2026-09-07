@@ -1,6 +1,7 @@
 package com.ayrovi.worker.domain
 
 import com.ayrovi.worker.data.*
+import kotlinx.coroutines.CancellationException
 
 /** Backend-verified operational identity and queue, independent of Android/Compose lifecycle. */
 data class WorkerContextSnapshot(
@@ -11,6 +12,15 @@ data class WorkerContextSnapshot(
     val receivingArrivalCount: Int?,
     val identityVersion: Long,
     val workCounts: List<WorkCount> = emptyList(),
+    /**
+     * Live per-lane pending counters from GET /receiving/home, refreshed on
+     * every context poll when this worker holds receiving access. They power
+     * the whole-app "new card" tray notification on ANY screen (Home queue
+     * included), not only while the Receiving screen is open. Null when the
+     * worker has no receiving access or the feed was unavailable on this poll.
+     */
+    val receivingProductPending: Int? = null,
+    val receivingCartonPending: Int? = null,
 )
 
 class WorkerSessionUseCase(private val repository: WorkerRepository, private val store: SessionStorage) {
@@ -32,8 +42,28 @@ class WorkerSessionUseCase(private val repository: WorkerRepository, private val
         val counts = repository.workCounts()
         val count = if (WorkerAccess.VIEW_RECEIVING in me.permissions && WorkerAccess.EXECUTE_RECEIVING in me.permissions)
             repository.arrivals().size else null
+        // Per-lane card counters for the whole-app new-card notification. Read
+        // alone so a transient feed failure never blocks the rest of the context.
+        val canWatchCards = WorkerAccess.VIEW_RECEIVING in me.permissions && WorkerAccess.EXECUTE_RECEIVING in me.permissions
+        val home: ReceivingHome? = if (!canWatchCards) null else try {
+            repository.receivingHome()
+        } catch (cancelled: CancellationException) {
+            throw cancelled // never swallow cancellation in a coroutine
+        } catch (failure: Exception) {
+            null // feed unavailable on this poll; retried on the next one
+        }
         if (store.snapshot().identityVersion != identity) throw SessionChangedFailure(false)
-        return WorkerContextSnapshot(me, context, WorkerAccess.permittedTasks(me, context), assignments, count, identity, counts)
+        return WorkerContextSnapshot(
+            me = me,
+            context = context,
+            tasks = WorkerAccess.permittedTasks(me, context),
+            assignments = assignments,
+            receivingArrivalCount = count,
+            identityVersion = identity,
+            workCounts = counts,
+            receivingProductPending = home?.productCardsPending,
+            receivingCartonPending = home?.cartonCardsPending,
+        )
     }
 
     suspend fun completeAssignment(id: String): AssignmentsResponse {

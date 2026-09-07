@@ -9,6 +9,7 @@ import com.ayrovi.worker.domain.WorkerSessionUseCase
 import com.ayrovi.worker.domain.AudioFeedback
 import com.ayrovi.worker.domain.WorkerQueuePolicy
 import com.ayrovi.worker.domain.toOperationalMessage
+import com.ayrovi.worker.feedback.ReceivingNotifier
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -33,11 +34,18 @@ data class WorkerAppState(
     val receivingArrivals: Int? = null,
     val workCounts: List<WorkCount> = emptyList(),
     val message: OperationalMessage? = null,
+    /** Live per-lane pending counters from the whole-app poll (see loadContext). */
+    val receivingProductPending: Int? = null,
+    val receivingCartonPending: Int? = null,
 ) {
     val queueItems get() = WorkerQueuePolicy.items(tasks, receivingArrivals, workCounts)
 }
 
-class WorkerAppViewModel(private val session: WorkerSessionUseCase, private val audio: AudioFeedback = AudioFeedback.Silent) : ViewModel() {
+class WorkerAppViewModel(
+    private val session: WorkerSessionUseCase,
+    private val audio: AudioFeedback = AudioFeedback.Silent,
+    private val notifier: ReceivingNotifier? = null,
+) : ViewModel() {
     private val mutable = MutableStateFlow(WorkerAppState(signedIn = session.hasSession))
     val state = mutable.asStateFlow()
     val connection = session.connection
@@ -103,13 +111,33 @@ class WorkerAppViewModel(private val session: WorkerSessionUseCase, private val 
 
     private suspend fun loadContext() {
         val previous = mutable.value.receivingArrivals
+        val previousProduct = mutable.value.receivingProductPending
+        val previousCarton = mutable.value.receivingCartonPending
         val verified = session.loadContext()
         val incoming = verified.receivingArrivalCount
-        if (foreground && previous != null && incoming != null && incoming > previous) runCatching { audio.notification() }
+        if (foreground) {
+            val newProduct = verified.receivingProductPending
+            val newCarton = verified.receivingCartonPending
+            val productArrived = previousProduct != null && newProduct != null && newProduct > previousProduct
+            val cartonArrived = previousCarton != null && newCarton != null && newCarton > previousCarton
+            if (productArrived || cartonArrived) {
+                // A newly dispatched card: ONE tray notification + sound, from
+                // any screen (Receiving Home, the work queue, wherever). This is
+                // the single notifier owner — ReceivingHomeViewModel only plays
+                // scan sounds, so a card is never announced twice.
+                runCatching { audio.notification() }
+                if (productArrived) notifier?.newCard(product = true, count = newProduct)
+                if (cartonArrived) notifier?.newCard(product = false, count = newCarton)
+            } else if (previous != null && incoming != null && incoming > previous) {
+                runCatching { audio.notification() }
+            }
+        }
         mutable.update { it.copy(
             signedIn = true, me = verified.me, context = verified.context, tasks = verified.tasks,
             assignments = verified.assignments, receivingArrivals = verified.receivingArrivalCount, workCounts = verified.workCounts,
             identityVersion = verified.identityVersion, verified = foreground, message = null,
+            receivingProductPending = verified.receivingProductPending,
+            receivingCartonPending = verified.receivingCartonPending,
         ) }
     }
 

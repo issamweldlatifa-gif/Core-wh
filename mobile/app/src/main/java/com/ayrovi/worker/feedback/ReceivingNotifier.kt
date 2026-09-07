@@ -49,8 +49,11 @@ class ReceivingNotifier(private val context: Context) {
         val title = if (product) "New Product Card received" else "New Carton Card received"
         val body = if (product) "$count product card(s) waiting to receive." else "$count carton card(s) waiting to receive."
         runCatching {
+            // Tapping the notification opens the app straight into RECEIVING
+            // HOME (the worker's receiving context), not the plain work queue.
             val intent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra(MainActivity.EXTRA_OPEN_RECEIVING, true)
             }
             val pending = PendingIntent.getActivity(
                 context, if (product) 1001 else 1002, intent,
