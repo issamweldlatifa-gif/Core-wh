@@ -917,4 +917,306 @@ export class ReceivingService {
     });
     return s ? this.sessionDetail(s.id) : null;
   }
+
+  // ==================================================================
+  // RECEIVING HOME — the automatic-dispatch worker feed.
+  //
+  // The CRM pushes PRODUCT cards (Customer Arrival Card) and CARTON cards
+  // (Shipment Card) into the Admin Web; the backend auto-dispatches the
+  // receiving work to the eligible worker (TaskDispatchService, called when
+  // the card arrives). The worker never picks an arrival, never presses
+  // "send": RECEIVING opens this HOME feed, which already contains the
+  // cards the worker is expected to process. Scanning a physical product /
+  // carton matches the identifier against ALL available cards of that lane
+  // on the device; the backend only re-validates against the same scope.
+  // ==================================================================
+
+  /** Arrivals that belong to THIS worker's receiving scope (floor policy + assignments). */
+  private async workerArrivals(workerId: string) {
+    const open = await this.prisma.expectedArrival.findMany({
+      where: { status: { in: ['EXPECTED', 'RECEIVING', 'PAUSED'] } },
+      orderBy: { receivedViaApiAt: 'asc' },
+      include: { shipments: { include: { cartons: true } } },
+    });
+    const scoped: typeof open = [];
+    for (const a of open) {
+      // Floor policy: arrivals the worker is assigned to are always in
+      // scope; arrivals with NO receiving assignment rows at all are open
+      // floor work (any receiving worker) — same rule
+      // assertOperationalAccess enforces at write time.
+      const rows = await this.prisma.workerTaskAssignment.findMany({
+        where: { taskKey: 'receiving', arrivalId: a.id, status: { not: 'CANCELLED' } },
+        select: { workerId: true, status: true },
+      });
+      const own = rows.some(
+        (r) => r.workerId === workerId && ['ASSIGNED', 'IN_PROGRESS'].includes(r.status),
+      );
+      if (rows.length === 0 || own) scoped.push(a);
+    }
+    return scoped;
+  }
+
+  /**
+   * Ensure an open, RECEIVING-status session exists for the arrival, scoped
+   * to this worker. Sessions are the backend's persistence unit; they are
+   * created automatically here so the worker flow has NO arrival/session
+   * picker. One open session per arrival (idempotent).
+   */
+  private async ensureWorkerSession(arrivalId: string, actor: ReceivingActor): Promise<string> {
+    const existing = await this.prisma.receivingSession.findFirst({
+      where: { arrivalId, status: { in: ['RECEIVING', 'PAUSED'] } },
+      orderBy: { startedAt: 'desc' },
+    });
+    if (existing) {
+      if (existing.status === 'PAUSED') {
+        await this.prisma.$transaction(async (tx) => {
+          await tx.receivingSession.update({ where: { id: existing.id }, data: { status: 'RECEIVING', resumedAt: new Date() } });
+          await tx.expectedArrival.update({ where: { id: arrivalId }, data: { status: 'RECEIVING' } });
+          await this.audit.log({ actorUserId: actor.id, action: 'RECEIVING_RESUMED' as never, entityType: 'receiving_session', entityId: existing.id }, tx);
+        });
+      }
+      return existing.id;
+    }
+    const detail = await this.start(arrivalId, actor, { deviceType: 'WORKER_APP', deviceName: actor.name ?? null });
+    return detail.id;
+  }
+
+  /**
+   * RECEIVING HOME payload:
+   *  - productCards: every available (not fully received) PRODUCT card
+   *    across the worker's arrivals (device-side matching corpus)
+   *  - cartonCards: every available (not RECEIVED) CARTON card
+   *  - counters: productCardsPending / cartonCardsPending = the live HOME tiles
+   *  - lists carry the reference/identifier of each card so the worker can
+   *    SEE what arrived (information only — cards are never chosen manually).
+   */
+  async workerHome(workerId: string, actor: ReceivingActor) {
+    const arrivals = await this.workerArrivals(workerId);
+
+    // Sessions seed the ReceivingProduct rows; an arrival without a session
+    // contributes product cards straight from its expected items.
+    const productRows = await this.prisma.receivingProduct.findMany({
+      where: { session: { arrivalId: { in: arrivals.map((a) => a.id) } } },
+      include: { session: { select: { arrivalId: true } } },
+    });
+    // One effective product card per arrivalId+sku/reference.
+    const productAgg = new Map<string, (typeof productRows)[number]>();
+    for (const p of productRows) {
+      const key = `${p.session.arrivalId}::${p.sku ?? ''}::${p.reference ?? ''}`;
+      const prev = productAgg.get(key);
+      if (!prev || (p.receivedQuantity > prev.receivedQuantity)) productAgg.set(key, p);
+    }
+
+    const productCards: ProductCard[] = [];
+    const seenProduct = new Set<string>();
+    const productList: Array<{ arrivalCode: string; reference: string | null; label: string | null; remaining: number }> = [];
+    for (const a of arrivals) {
+      const forArrival = [...productAgg.values()].filter((p) => p.session.arrivalId === a.id);
+      if (forArrival.length > 0) {
+        for (const p of forArrival) {
+          const remaining = Math.max(0, p.expectedQuantity - p.receivedQuantity);
+          const key = `${a.id}::${p.sku ?? ''}::${p.reference ?? ''}`;
+          if (seenProduct.has(key) || remaining <= 0) continue;
+          seenProduct.add(key);
+          productCards.push({
+            id: p.id, sku: p.sku, reference: p.reference, productName: p.productName,
+            category: p.category ?? null, subcategory: p.subcategory ?? null,
+            categoryStatus: p.categoryStatus ?? 'NEEDS_REVIEW',
+            expected: p.expectedQuantity, received: p.receivedQuantity, remaining,
+            status: p.status, identifiers: cardIdentifiers([p.sku, p.reference]),
+          });
+          productList.push({ arrivalCode: a.code, reference: p.sku ?? p.reference, label: p.productName, remaining });
+        }
+      } else {
+        // No session yet: expected items ARE the product cards. Aggregate by
+        // normalized (sku | reference) exactly like session seeding, so lines
+        // sharing a SKU are ONE card with the summed quantity (not N cards).
+        const lines = new Map<string, { sku: string | null; reference: string | null; productName: string | null; qty: number; category: string | null; subcategory: string | null; categoryStatus: string }>();
+        for (const it of a.items) {
+          const key = (it.sku || it.reference || '').trim();
+          if (!key) continue; // identifier-less line becomes NEEDS_REVIEW at session start
+          const sku = it.sku?.trim() || null;
+          const ref = it.reference?.trim() || null;
+          const lineKey = `${sku ?? ''}::${ref ?? ''}`;
+          const prev = lines.get(lineKey);
+          if (prev) { prev.qty += Math.max(1, it.quantity || 1); }
+          else lines.set(lineKey, { sku, reference: ref, productName: it.productName, qty: Math.max(1, it.quantity || 1), category: it.category ?? null, subcategory: it.subcategory ?? null, categoryStatus: (it as any).categoryStatus ?? 'NEEDS_REVIEW' });
+        }
+        for (const line of lines.values()) {
+          const key = `${a.id}::${line.sku ?? ''}::${line.reference ?? ''}`;
+          if (seenProduct.has(key)) continue;
+          seenProduct.add(key);
+          productCards.push({
+            id: `item-${a.id}-${line.sku ?? line.reference}`, sku: line.sku, reference: line.reference, productName: line.productName,
+            category: line.category, subcategory: line.subcategory,
+            categoryStatus: line.categoryStatus as any,
+            expected: line.qty, received: 0, remaining: line.qty,
+            status: 'EXPECTED', identifiers: cardIdentifiers([line.sku, line.reference]),
+          });
+          productList.push({ arrivalCode: a.code, reference: line.sku ?? line.reference, label: line.productName, remaining: line.qty });
+        }
+      }
+    }
+
+    const cartonCards: CartonCard[] = [];
+    const cartonList: Array<{ arrivalCode: string; reference: string; tracking: string | null; remaining: number }> = [];
+    for (const a of arrivals) {
+      for (const s of a.shipments) {
+        for (const c of s.cartons) {
+          if (c.status === 'RECEIVED' || c.status === 'VOIDED') continue;
+          cartonCards.push({
+            id: c.id, externalCartonId: c.externalCartonId, reference: c.cartonReference,
+            qrCodeValue: c.qrCodeValue, barcodeValue: c.barcodeValue,
+            cartonNumber: c.cartonNumber, totalCartons: c.totalCartons,
+            trackingNumber: s.trackingNumber ?? null, senderName: s.senderName ?? null,
+            shippedAt: s.shippedAt ? new Date(s.shippedAt).toISOString() : null,
+            weight: c.weight, weightUnit: c.weightUnit,
+            dimensions: c.length != null || c.width != null || c.height != null
+              ? { length: c.length, width: c.width, height: c.height, unit: c.dimensionUnit ?? null } : null,
+            status: c.status,
+            identifiers: cardIdentifiers([c.externalCartonId, c.cartonReference, c.qrCodeValue, c.barcodeValue, s.trackingNumber]),
+          });
+          cartonList.push({ arrivalCode: a.code, reference: c.externalCartonId, tracking: s.trackingNumber ?? null, remaining: 1 });
+        }
+      }
+    }
+
+    return {
+      productCards,
+      cartonCards,
+      productCardsPending: productCards.length,
+      cartonCardsPending: cartonCards.length,
+      // Visible lists (information only — matching is automatic by scan).
+      productList,
+      cartonList,
+      arrivals: arrivals.map((a) => ({ id: a.id, code: a.code, customerName: a.customerName })),
+      worker: { id: actor.id, name: actor.name ?? null },
+    };
+  }
+
+  /** Find the arrival in the worker's scope whose product card matches the term. */
+  private async findProductArrival(workerId: string, term: string) {
+    const arrivals = await this.workerArrivals(workerId);
+    // Prefer arrivals that already have a session (ReceivingProduct rows),
+    // then fall back to expected-item matches for arrivals not yet opened.
+    const withSession = await this.prisma.receivingProduct.findFirst({
+      where: {
+        OR: [{ sku: { equals: term, mode: 'insensitive' } }, { reference: { equals: term, mode: 'insensitive' } }],
+        session: { arrivalId: { in: arrivals.map((a) => a.id) } },
+      },
+      include: { session: { select: { arrivalId: true } } },
+    });
+    if (withSession) return arrivals.find((a) => a.id === withSession.session.arrivalId) ?? null;
+    const item = await this.prisma.expectedArrivalItem.findFirst({
+      where: {
+        OR: [{ sku: { equals: term, mode: 'insensitive' } }, { reference: { equals: term, mode: 'insensitive' } }],
+        arrivalId: { in: arrivals.map((a) => a.id) },
+      },
+      select: { arrivalId: true },
+    });
+    return item ? arrivals.find((a) => a.id === item.arrivalId) ?? null : null;
+  }
+
+  /** Find the arrival in the worker's scope whose carton card matches the term (carton id/ref/QR/barcode/tracking). */
+  private async findCartonArrival(workerId: string, term: string) {
+    const arrivals = await this.workerArrivals(workerId);
+    const arrivalIds = arrivals.map((a) => a.id);
+    const carton = await this.prisma.warehouseCarton.findFirst({
+      where: {
+        OR: [
+          { externalCartonId: { equals: term, mode: 'insensitive' } },
+          { cartonReference: { equals: term, mode: 'insensitive' } },
+          { qrCodeValue: { equals: term, mode: 'insensitive' } },
+          { barcodeValue: { equals: term, mode: 'insensitive' } },
+        ],
+        shipment: { arrivalId: { in: arrivalIds } },
+      },
+      include: { shipment: { select: { arrivalId: true, trackingNumber: true } } },
+    });
+    if (carton) return { arrival: arrivals.find((a) => a.id === carton.shipment.arrivalId) ?? null, tracked: false as const };
+    const tracked = await this.prisma.warehouseShipment.findFirst({
+      where: { trackingNumber: { equals: term, mode: 'insensitive' }, arrivalId: { in: arrivalIds } },
+      select: { arrivalId: true },
+    });
+    if (tracked) return { arrival: arrivals.find((a) => a.id === tracked.arrivalId) ?? null, tracked: true as const };
+    return { arrival: null, tracked: false as const };
+  }
+
+  /**
+   * HOME PRODUCT scan: the device matched a product across ALL its available
+   * product cards. The backend resolves the owning arrival, ensures its
+   * session exists, then runs the authoritative product confirmation.
+   */
+  async homeConfirmProduct(input: ProductConfirmInput, actor: ReceivingActor) {
+    const term = normalizeScan(input.identifier);
+    if (!term) throw new BadRequestException(OPERATIONAL_ERRORS.productNotMatched);
+    const arrival = await this.findProductArrival(actor.id, term);
+    if (!arrival) {
+      // MISMATCH with no owning arrival: nothing to confirm. Logged as a
+      // terminal-level failure via the most recent open session if one
+      // exists, otherwise returned as a plain verdict (no state changes).
+      return { ok: false as const, flash: { kind: 'MISMATCH', cardType: 'PRODUCT', code: term, message: OPERATIONAL_ERRORS.productNotMatched }, home: await this.workerHome(actor.id, actor) };
+    }
+    await this.assignments.assertOperationalAccess(actor.id, 'receiving', { arrivalId: arrival.id });
+    const sessionId = await this.ensureWorkerSession(arrival.id, actor);
+    const detail = await this.confirmProduct(sessionId, input, actor);
+    return { ok: true as const, sessionId, flash: detail.flash, home: await this.workerHome(actor.id, actor) };
+  }
+
+  /**
+   * HOME CARTON scan: the device matched a carton across ALL its available
+   * carton cards (carton id / ref / QR / barcode / tracking). The backend
+   * resolves the owning arrival, ensures its session, then runs the
+   * authoritative carton confirmation (tracking ambiguity included).
+   */
+  async homeConfirmCarton(input: CardConfirmInput, actor: ReceivingActor) {
+    const term = normalizeScan(input.identifier);
+    if (!term) throw new BadRequestException(OPERATIONAL_ERRORS.cartonUnknown);
+    const found = await this.findCartonArrival(actor.id, term);
+    if (!found.arrival) {
+      return { ok: false as const, flash: { kind: 'MISMATCH', cardType: 'CARTON', code: term, message: OPERATIONAL_ERRORS.cartonUnknown }, home: await this.workerHome(actor.id, actor) };
+    }
+    await this.assignments.assertOperationalAccess(actor.id, 'receiving', { arrivalId: found.arrival.id });
+    const sessionId = await this.ensureWorkerSession(found.arrival.id, actor);
+    const detail = await this.confirmCarton(sessionId, input, actor);
+    return { ok: true as const, sessionId, flash: detail.flash, home: await this.workerHome(actor.id, actor) };
+  }
+
+  /**
+   * HOME device-side MISMATCH: the device found NO card in the lane and
+   * already told the operator. The backend only logs the failure. It is
+   * attributed to the worker's most recent open receiving session when one
+   * exists (so the Admin "Receiving Worker" report keeps a device/actor/
+   * duration row); otherwise the failure is audited without a session row.
+   */
+  async homeMismatch(input: MismatchInput, actor: ReceivingActor) {
+    const term = normalizeScan(input.identifier);
+    if (!term) throw new BadRequestException('An identifier value is required.');
+    const cardType: CardType = input.cardType === 'CARTON' ? 'CARTON' : 'PRODUCT';
+    const identifierType = (input.identifierType ?? 'MANUAL') as IdentifierType;
+    const source = input.source ?? 'MANUAL';
+    const startedAt = parseDate(input.startedAt);
+
+    const session = await this.prisma.receivingSession.findFirst({
+      where: { startedBy: actor.id, status: { in: ['RECEIVING', 'PAUSED'] } },
+      orderBy: { startedAt: 'desc' },
+    });
+    if (session) {
+      const detail = await this.reportMismatch(session.id, input, actor);
+      return { ok: true as const, sessionId: session.id, flash: detail.flash, home: await this.workerHome(actor.id, actor) };
+    }
+    // No open session: audit-only failure (nothing confirmed, nothing completed).
+    await this.audit.log({
+      actorUserId: actor.id,
+      action: (cardType === 'PRODUCT' ? 'UNEXPECTED_PRODUCT' : 'UNKNOWN_CARTON') as never,
+      entityType: 'receiving_home', entityId: null, ipAddress: actor.ip ?? null,
+      metadata: { identifier: term, identifierType, source, cardType, deviceMismatch: true } as never,
+    });
+    return {
+      ok: true as const, sessionId: null,
+      flash: { kind: 'MISMATCH', cardType, code: term,
+        message: cardType === 'PRODUCT' ? OPERATIONAL_ERRORS.productNotMatched : OPERATIONAL_ERRORS.cartonUnknown },
+      home: await this.workerHome(actor.id, actor),
+    };
+  }
 }

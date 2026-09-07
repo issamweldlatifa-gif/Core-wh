@@ -1,0 +1,311 @@
+package com.ayrovi.worker.presentation
+
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ayrovi.worker.design.*
+import com.ayrovi.worker.domain.HomeStep
+import com.ayrovi.worker.domain.MessageTone
+import com.ayrovi.worker.domain.OperationalMessage
+import com.ayrovi.worker.scanner.ScannerCapture
+import com.ayrovi.worker.scanner.WorkerDevice
+import com.ayrovi.worker.scanner.rememberScannerCapture
+
+/**
+ * RECEIVING HOME (card-based receiving rebuild).
+ *
+ *   ┌──────── PRODUIT ────────┐   ┌──────── CARTON ────────┐
+ *   │ Cards: N      [ SCAN ]  │   │ Cards: N     [ SCAN ]  │
+ *   └─────────────────────────┘   └────────────────────────┘
+ *
+ * RECEIVING never opens the scanner directly. Each SCAN opens a
+ * lane-specific scanner (PRODUCT scanner → product cards only; CARTON
+ * scanner → carton cards only). The lists are information only — the worker
+ * never picks a card; the scan matches it automatically on the device.
+ *
+ * Shared by Phone and CT40: same components, state and intents; the
+ * `industrial` flag only compacts spacing/typography (existing convention).
+ * The CT40 physical trigger fires the ACTIVE scanner — the lane determines
+ * which matcher is used, so a product lane trigger can never match a carton.
+ */
+@Composable
+fun ReceivingHomeScreen(
+    model: ReceivingHomeViewModel,
+    worker: String,
+    station: String?,
+    connection: String,
+    onBack: () -> Unit,
+    onAuthExpired: () -> Unit,
+    device: WorkerDevice = WorkerDevice.PHONE,
+    onToggleTheme: (() -> Unit)? = null,
+) {
+    val state by model.state.collectAsStateWithLifecycle()
+    val industrial = device == WorkerDevice.CT40
+    val owner = LocalLifecycleOwner.current
+    var settings by remember { mutableStateOf(false) }
+
+    DisposableEffect(owner, model) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> model.setForeground(true)
+                Lifecycle.Event.ON_PAUSE -> model.setForeground(false)
+                else -> Unit
+            }
+        }
+        owner.lifecycle.addObserver(observer)
+        model.setForeground(owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+        onDispose { owner.lifecycle.removeObserver(observer); model.setForeground(false) }
+    }
+
+    LaunchedEffect(state.authExpired) { if (state.authExpired) onAuthExpired() }
+
+    val lane = when (state.step) {
+        HomeStep.PRODUCT_SCAN, HomeStep.REVIEW_PRODUCT -> "PRODUCT"
+        HomeStep.CARTON_SCAN, HomeStep.REVIEW_CARTON -> "CARTON"
+        else -> null
+    }
+    val capture = rememberScannerCapture(
+        model.scanner, model.captureAllowed,
+        "home:${state.step}:${state.scanEpoch}", model::onScan,
+    )
+
+    TerminalShell(
+        header = { TerminalHeader("RECEIVING", worker, station, connection, industrial = industrial, onBack = onBack, onSettings = { settings = true }) },
+        footer = {
+            TerminalFooter(if (state.busy) "PLEASE WAIT" else "") {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+                    SecondaryAction(if (lane != null) "BACK TO RECEIVING" else "BACK", {
+                        if (lane != null) model.send(ReceivingHomeIntent.BackHome) else onBack()
+                    }, !state.busy, Modifier.weight(1f))
+                    when {
+                        state.step == HomeStep.REVIEW_PRODUCT ->
+                            PrimaryAction("CONFIRM PRODUCT", { model.send(ReceivingHomeIntent.Confirm) }, state.canConfirm, Modifier.weight(1f))
+                        state.step == HomeStep.REVIEW_CARTON ->
+                            PrimaryAction("CONFIRM CARTON", { model.send(ReceivingHomeIntent.Confirm) }, state.canConfirm, Modifier.weight(1f))
+                        else -> SecondaryAction("REFRESH", { model.send(ReceivingHomeIntent.Refresh) }, !state.busy, Modifier.weight(1f))
+                    }
+                }
+            }
+        },
+        scrollKey = state.step,
+    ) {
+        when {
+            !state.loaded -> LoadingState("OPENING RECEIVING…")
+            lane == "PRODUCT" -> ProductLane(state, capture, model.captureAllowed)
+            lane == "CARTON" -> CartonLane(state, capture, model.captureAllowed)
+            else -> HomeDashboard(state, industrial,
+                openProduct = { model.send(ReceivingHomeIntent.OpenProduct) },
+                openCarton = { model.send(ReceivingHomeIntent.OpenCarton) })
+        }
+        if (settings) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { settings = false },
+                title = { Text("RECEIVING SETTINGS") },
+                text = { Column(verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+                    Text(worker, style = MaterialTheme.typography.titleMedium)
+                    Text(station ?: "No station assigned")
+                    onToggleTheme?.let { SecondaryAction("CHANGE DISPLAY", it) }
+                } },
+                confirmButton = { SecondaryAction("CLOSE", { settings = false }) },
+            )
+        }
+    }
+}
+
+/** RECEIVING HOME — the two lane tiles + counters + the visible card lists. */
+@Composable
+private fun HomeDashboard(
+    state: com.ayrovi.worker.domain.ReceivingHomeState,
+    industrial: Boolean,
+    openProduct: () -> Unit,
+    openCarton: () -> Unit,
+) {
+    val home = state.home
+    Column(Modifier.fillMaxWidth().testTag("RECEIVING_HOME"), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
+        if (!industrial) Text("RECEIVING HOME", style = MaterialTheme.typography.titleLarge)
+        state.message?.let { OperationalMessageViewHome(it) }
+
+        // The two independent lanes — PRODUIT and CARTON.
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+            HomeTile("PRODUIT", home?.productCardsPending ?: 0, TerminalIcon.RECEIVING,
+                state.canMutate, industrial, Modifier.weight(1f).testTag("HOME_PRODUIT_TILE"))
+            HomeTile("CARTON", home?.cartonCardsPending ?: 0, TerminalIcon.PUTAWAY,
+                state.canMutate, industrial, Modifier.weight(1f).testTag("HOME_CARTON_TILE"))
+        }
+
+        // One dedicated scanner per lane — strict separation.
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+            PrimaryAction("SCAN PRODUIT", openProduct, state.canMutate, Modifier.weight(1f).testTag("OPEN_PRODUCT"))
+            PrimaryAction("SCAN CARTON", openCarton, state.canMutate, Modifier.weight(1f).testTag("OPEN_CARTON"))
+        }
+
+        HomeCardLists(state)
+    }
+}
+
+/** PRODUIT lane: scanner area + device match/review. Product matching ONLY. */
+@Composable
+private fun ProductLane(state: com.ayrovi.worker.domain.ReceivingHomeState, capture: ScannerCapture, enabled: Boolean) {
+    Column(Modifier.fillMaxWidth().testTag("PRODUCT_SCANNER"), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
+        TaskInstruction("PRODUCT SCANNER", "Scan a product QR / barcode, or read the SKU or reference with OCR.")
+        state.message?.let { OperationalMessageViewHome(it) }
+        if (state.step == HomeStep.REVIEW_PRODUCT) {
+            state.productReview?.let { review ->
+                TerminalPanel("MATCHED PRODUCT CARD") {
+                    ProductBlock(review.card.productName, review.card.sku ?: review.card.reference ?: review.scan.value)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
+                        QuantityDisplay("EXPECTED", review.card.expected.toString(), Modifier.weight(1f))
+                        QuantityDisplay("RECEIVED", review.card.received.toString(), Modifier.weight(1f))
+                        QuantityDisplay("REMAINING", review.card.remaining.toString(), Modifier.weight(1f))
+                    }
+                    Text("Scanned: ${review.scan.value} · ${review.scan.scanType}", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)
+                    Text("Confirm one physical unit against this product card.", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        } else {
+            ScannerArea(capture, enabled)
+        }
+    }
+}
+
+/** CARTON lane: scanner area + device match/review. Carton matching ONLY. */
+@Composable
+private fun CartonLane(state: com.ayrovi.worker.domain.ReceivingHomeState, capture: ScannerCapture, enabled: Boolean) {
+    Column(Modifier.fillMaxWidth().testTag("CARTON_SCANNER"), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
+        TaskInstruction("CARTON SCANNER", "Scan a carton QR / barcode, carton reference or the shipment tracking number.")
+        state.message?.let { OperationalMessageViewHome(it) }
+        if (state.step == HomeStep.REVIEW_CARTON) {
+            state.cartonReview?.let { review ->
+                TerminalPanel("MATCHED CARTON CARD") {
+                    LocationBlock(review.card.externalCartonId ?: review.scan.value, label = "CARTON TO RECEIVE")
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
+                        QuantityDisplay("MATCHED ON", review.matchedOn, Modifier.weight(1f))
+                        QuantityDisplay("CARTON", "${review.card.cartonNumber}/${review.card.totalCartons}", Modifier.weight(1f))
+                    }
+                    review.card.trackingNumber?.let { Text("TRACKING · $it", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted) }
+                    Text("Scanned: ${review.scan.value} · ${review.scan.scanType}", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)
+                    Text("Confirm records this carton as received. It cannot be counted twice.", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        } else {
+            ScannerArea(capture, enabled)
+        }
+    }
+}
+
+/** Scanner/camera + OCR + manual entry — the EXISTING capture stack, unchanged. */
+@Composable
+private fun ScannerArea(capture: ScannerCapture, enabled: Boolean) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+        when {
+            capture.manualOpen -> ManualScan(capture, enabled)
+            capture.cameraOpen -> {
+                capture.preview(Modifier.fillMaxWidth().height(TerminalTokens.scanPreview))
+                SecondaryAction("CANCEL SCAN", capture.cancel, enabled)
+            }
+            capture.ocrOpen -> OcrScan(capture, enabled)
+            else -> {
+                Box(Modifier.fillMaxWidth().height(TerminalTokens.stateIcon), contentAlignment = Alignment.Center) {
+                    WorkerIcon(TerminalIcon.SCANNER, "Scanner", Modifier.size(TerminalTokens.stateIcon), TerminalTokens.instruction)
+                }
+                PrimaryAction("SOFTWARE SCAN", capture.softwareScan, enabled)
+                SecondaryAction("USE CAMERA", capture.camera, enabled)
+                SecondaryAction("MANUAL CODE", capture.manual, enabled)
+                SecondaryAction("READ LABEL TEXT (OCR)", capture.ocr, enabled)
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeTile(
+    label: String, count: Int, icon: TerminalIcon, enabled: Boolean, industrial: Boolean, modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        color = TerminalTokens.surface,
+        shape = MaterialTheme.shapes.medium,
+        border = BorderStroke(TerminalTokens.stroke, if (enabled) TerminalTokens.border else TerminalTokens.muted),
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(if (industrial) TerminalTokens.sm else TerminalTokens.md),
+            verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+                WorkerIcon(icon, label, Modifier.size(TerminalTokens.workflowIcon), TerminalTokens.primary)
+                Text(label, style = MaterialTheme.typography.titleLarge, letterSpacing = 2.sp)
+            }
+            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+                Text(count.toString(), style = MaterialTheme.typography.displaySmall.copy(fontFamily = FontFamily.Monospace), color = TerminalTokens.primary)
+                Text("CARDS", style = MaterialTheme.typography.labelMedium, color = TerminalTokens.muted)
+            }
+        }
+    }
+}
+
+/** Read-only enumeration of the waiting cards (information only — never a picker). */
+@Composable
+private fun HomeCardLists(state: com.ayrovi.worker.domain.ReceivingHomeState) {
+    val home = state.home ?: return
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
+        CardListBlock("PRODUIT — ${home.productCardsPending} CARDS",
+            emptyText = if (home.productCardsPending == 0) "No product cards waiting." else null) {
+            home.productList.take(50).forEachIndexed { i, row ->
+                CardRow("#${i + 1}", row.reference ?: "—", listOfNotNull(row.label, row.arrivalCode).joinToString(" · "))
+            }
+        }
+        CardListBlock("CARTON — ${home.cartonCardsPending} CARDS",
+            emptyText = if (home.cartonCardsPending == 0) "No carton cards waiting." else null) {
+            home.cartonList.take(50).forEachIndexed { i, row ->
+                CardRow("#${i + 1}", row.reference, listOfNotNull(row.tracking?.let { "TRK $it" }, row.arrivalCode).joinToString(" · "))
+            }
+        }
+    }
+}
+
+@Composable
+private fun CardListBlock(title: String, emptyText: String?, rows: @Composable () -> Unit) {
+    TerminalPanel(title) {
+        if (emptyText != null) {
+            Text(emptyText, style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(TerminalTokens.xxs)) { rows() }
+        }
+    }
+}
+
+@Composable
+private fun CardRow(number: String, reference: String, meta: String) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+        Text(number, style = MaterialTheme.typography.labelMedium, color = TerminalTokens.muted,
+            fontFamily = FontFamily.Monospace, modifier = Modifier.width(36.dp))
+        Text(reference, style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace), modifier = Modifier.weight(1f))
+        Text(meta, style = MaterialTheme.typography.labelSmall, color = TerminalTokens.muted,
+            modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+    }
+}
+
+@Composable
+internal fun OperationalMessageViewHome(message: OperationalMessage) {
+    when (message.tone) {
+        MessageTone.ERROR -> ErrorState(message.title, message.detail, message.expected, message.scanned)
+        MessageTone.WARNING -> WarningState(message.title, message.detail + (message.scanned?.let { "\nScanned: $it" } ?: ""))
+        MessageTone.SUCCESS -> TerminalNotice(message.title, message.detail, TerminalTone.SUCCESS)
+        MessageTone.INFO -> TerminalNotice(message.title, message.detail, TerminalTone.INSTRUCTION)
+    }
+}

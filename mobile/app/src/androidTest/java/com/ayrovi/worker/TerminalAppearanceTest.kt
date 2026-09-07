@@ -1,27 +1,22 @@
 package com.ayrovi.worker
 
 import android.content.Context
-import android.graphics.Bitmap
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.ayrovi.worker.data.*
 import com.ayrovi.worker.design.*
-import com.ayrovi.worker.presentation.ReceivingScreen
-import com.ayrovi.worker.presentation.ReceivingViewModel
-import java.io.File
+import com.ayrovi.worker.presentation.ReceivingHomeScreen
+import com.ayrovi.worker.presentation.ReceivingHomeViewModel
+import com.ayrovi.worker.scanner.WorkerDevice
 import java.util.UUID
 import org.junit.Assert.*
 import org.junit.Rule
@@ -61,56 +56,61 @@ class TerminalAppearanceTest {
         } finally { context.deleteSharedPreferences(file) }
     }
 
-    @Test fun whiteBlackToggleAndModeControlsKeepTheSameWorkflow() {
+    @Test fun receivingHomeShowsBothLanesWithCountersAndOpensProductScanner() {
         val backend = ReceivingUiGateway()
-        val model = ReceivingViewModel(backend, EmptyJournal, "worker", setOf("receiving.view", "receiving.execute"))
+        val model = ReceivingHomeViewModel(backend, "worker", setOf("receiving.view", "receiving.execute"))
         var mode by mutableStateOf(TerminalThemeMode.WHITE)
         var observedBackground: Color? = null
         compose.setContent {
-            LaunchedEffect(Unit) { model.activate(setOf("receiving.view", "receiving.execute"), true, "session") }
+            LaunchedEffect(Unit) { model.activate(setOf("receiving.view", "receiving.execute"), true) }
             Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
                 AyroviTerminalTheme(mode, onToggleTheme = { mode = mode.next() }) {
                     observedBackground = TerminalTokens.background
-                    ReceivingScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {}, {}, onToggleTheme = { mode = mode.next() })
+                    ReceivingHomeScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {},
+                        device = WorkerDevice.PHONE, onToggleTheme = { mode = mode.next() })
                 }
             }
         }
+        // RECEIVING opens the HOME (not the scanner) with the two lane tiles + live counters.
         compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
-        compose.onNodeWithText("CARTON").assertIsSelected().assertHeightIsAtLeast(TerminalTokens.touch)
-        compose.onNodeWithContentDescription("Back to work queue").assertIsDisplayed().assertHeightIsAtLeast(TerminalTokens.touch)
-        saveScreenshot("receiving-white")
+        compose.onNodeWithTag("RECEIVING_HOME").assertExists()
+        compose.onNodeWithText("PRODUIT").assertIsDisplayed()
+        compose.onNodeWithText("CARTON").assertIsDisplayed()
+        compose.onNodeWithText("1").assertIsDisplayed() // one product card + one carton card
+        compose.onNodeWithTag("OPEN_PRODUCT").assertHeightIsAtLeast(TerminalTokens.touch)
+        compose.onNodeWithTag("OPEN_CARTON").assertHeightIsAtLeast(TerminalTokens.touch)
+        saveScreenshot("receiving-home-white")
         compose.onNodeWithContentDescription("Worker and settings").performClick()
         compose.onNodeWithText("CHANGE DISPLAY").performClick()
         compose.runOnIdle { assertEquals(Color.Black, observedBackground) }
         compose.onNodeWithText("CLOSE").performClick()
-        saveScreenshot("receiving-black")
-        compose.onNodeWithText("PRODUIT").performClick()
-        compose.waitUntil(10_000) { model.state.value.mode == com.ayrovi.worker.domain.ReceivingMode.PRODUCTS && !model.state.value.busy }
-        compose.onNodeWithText("PRODUIT").assertIsSelected()
-        compose.onNodeWithText("SCAN PRODUCT").assertExists()
-        compose.runOnIdle { assertEquals(0, backend.writes); assertEquals("session", model.state.value.session!!.id) }
-        saveScreenshot("receiving-product-mode-black")
+        // PRODUIT SCAN opens the PRODUCT scanner only (no carton matching).
+        compose.onNodeWithTag("OPEN_PRODUCT").performClick()
+        compose.waitUntil(10_000) { model.state.value.step == com.ayrovi.worker.domain.HomeStep.PRODUCT_SCAN }
+        compose.onNodeWithTag("PRODUCT_SCANNER").assertExists()
+        compose.onNodeWithText("PRODUCT SCANNER").assertIsDisplayed()
+        saveScreenshot("receiving-product-scanner-black")
     }
 
-    @Test fun handheldAtLargeFontKeepsModeBackAndPrimaryActionReachable() {
-        val model = ReceivingViewModel(ReceivingUiGateway(), EmptyJournal, "worker", setOf("receiving.view", "receiving.execute"))
+    @Test fun cartonScanOpensDedicatedCartonScannerAtLargeFont() {
+        val model = ReceivingHomeViewModel(ReceivingUiGateway(), "worker", setOf("receiving.view", "receiving.execute"))
         compose.setContent {
-            LaunchedEffect(Unit) { model.activate(setOf("receiving.view", "receiving.execute"), true, "session") }
+            LaunchedEffect(Unit) { model.activate(setOf("receiving.view", "receiving.execute"), true) }
             CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, fontScale = 1.5f)) {
                 Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
                     AyroviTerminalTheme(TerminalThemeMode.WHITE, onToggleTheme = {}) {
-                        ReceivingScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {}, {})
+                        ReceivingHomeScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {})
                     }
                 }
             }
         }
         compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
-        compose.onNodeWithText("CARTON").assertIsDisplayed().assertHeightIsAtLeast(TerminalTokens.touch)
-        compose.onNodeWithText("PRODUIT").assertIsDisplayed().assertHeightIsAtLeast(TerminalTokens.touch)
-        compose.onNodeWithContentDescription("Back to work queue").assertIsDisplayed()
-        compose.onNodeWithText("TASK ACTIONS").assertIsDisplayed().assertHeightIsAtLeast(TerminalTokens.touch)
-        compose.onNodeWithText("SOFTWARE SCAN").performScrollTo().assertHeightIsAtLeast(TerminalTokens.primaryTouch)
-        saveScreenshot("receiving-white-large-font")
+        compose.onNodeWithTag("OPEN_CARTON").performScrollTo().assertHeightIsAtLeast(TerminalTokens.touch)
+        compose.onNodeWithTag("OPEN_CARTON").performClick()
+        compose.waitUntil(10_000) { model.state.value.step == com.ayrovi.worker.domain.HomeStep.CARTON_SCAN }
+        compose.onNodeWithTag("CARTON_SCANNER").assertExists()
+        compose.onNodeWithText("CARTON SCANNER").assertIsDisplayed()
+        saveScreenshot("receiving-carton-scanner-large-font")
     }
 
     private fun saveScreenshot(name: String) = saveNativeScreenshot(compose, name)
@@ -118,11 +118,4 @@ class TerminalAppearanceTest {
         val first = a.luminance(); val second = b.luminance()
         return (maxOf(first, second) + .05f) / (minOf(first, second) + .05f)
     }
-
-    private object EmptyJournal : MutationJournal {
-        override fun read(): PendingMutation? = null
-        override fun record(mutation: PendingMutation) = error("UI appearance tests must not dispatch writes")
-        override fun clear(id: String) = Unit
-    }
-
 }

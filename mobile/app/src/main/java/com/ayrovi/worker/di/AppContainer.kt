@@ -6,6 +6,7 @@ import com.ayrovi.worker.BuildConfig
 import com.ayrovi.worker.scanner.HoneywellScanner
 import com.ayrovi.worker.scanner.WorkerDevice
 import com.ayrovi.worker.feedback.AndroidAudioFeedback
+import com.ayrovi.worker.feedback.ReceivingNotifier
 import com.ayrovi.worker.design.TerminalThemeMode
 import com.ayrovi.worker.data.TerminalPreferences
 import com.ayrovi.worker.data.SessionStore
@@ -15,6 +16,7 @@ import com.ayrovi.worker.data.WorkerRepository
 class AppContainer(context: Context) {
     val device = runCatching { HoneywellScanner.presentationMode() }.getOrDefault(WorkerDevice.PHONE)
     val audio = AndroidAudioFeedback.get(context.applicationContext)
+    val notifier = ReceivingNotifier(context.applicationContext)
     val sessions = SessionStore(context.applicationContext)
     init { check(sessions.deviceCode.isNotBlank()) { "Secure device identity is unavailable." } }
     val repository = WorkerRepository(sessions, BuildConfig.API_BASE_URL)

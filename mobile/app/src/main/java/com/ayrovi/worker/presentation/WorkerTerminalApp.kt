@@ -70,16 +70,19 @@ fun WorkerTerminalApp(container: AppContainer, onThemeChanged: (TerminalThemeMod
             SignInScreen(state, model.deviceCode, connection.name, model::login, container.device)
         } else if (route == TerminalRoute.RECEIVING && state.me?.user?.id != null) {
             val workerId = state.me!!.user!!.id!!
-            val receiving: ReceivingViewModel = viewModel(
-                key = "receiving-$workerId-${state.loginGeneration}",
-                factory = factory { ReceivingViewModel(container.repository, container.sessions, workerId, state.me!!.permissions.toSet(), container.audio) },
+            // RECEIVING HOME (card-based rebuild): RECEIVING never opens the
+            // scanner directly — it opens the home with PRODUIT / CARTON
+            // tiles, live counters and lane-specific scanners.
+            val receiving: ReceivingHomeViewModel = viewModel(
+                key = "receiving-home-$workerId-${state.loginGeneration}",
+                factory = factory { ReceivingHomeViewModel(container.repository, workerId, state.me!!.permissions.toSet(), container.audio, container.notifier) },
             )
             val available = state.verified && connection !in setOf(ConnectionState.OFFLINE, ConnectionState.AUTH_ERROR, ConnectionState.SYNC_ERROR)
             LaunchedEffect(state.me?.permissions, available, connection) {
-                receiving.activate(state.me!!.permissions.toSet(), available, state.context?.activeSession?.id, connection)
+                receiving.activate(state.me!!.permissions.toSet(), available, connection)
             }
-            ReceivingScreen(receiving, workerLabel(state), stationLabel(state), connection.name,
-                onBack = { route = TerminalRoute.QUEUE; model.refresh() }, onVerifyConnection = model::refresh, onAuthExpired = model::expireSession,
+            ReceivingHomeScreen(receiving, workerLabel(state), stationLabel(state), connection.name,
+                onBack = { route = TerminalRoute.QUEUE; model.refresh() }, onAuthExpired = model::expireSession,
                 device = container.device, onToggleTheme = appearance::toggleTheme)
         } else {
             WorkerWorkQueue(state, container.device, connection.name, workerLabel(state), stationLabel(state),
