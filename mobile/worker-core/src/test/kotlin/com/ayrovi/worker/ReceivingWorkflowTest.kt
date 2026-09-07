@@ -296,9 +296,9 @@ class ReceivingWorkflowTest {
     // ============================ MODES / LANES ============================
     @Test fun `produit and carton are real workflow entries and never write`() = runTest {
         val backend = ReceivingBackend(); val flow = workflow(backend); open(flow)
-        toProduct(flow)
+        toProduct(flow) // lane switch re-reads the session (read-only) — never a write
         assertEquals(ReceivingStep.PRODUCT, flow.state.value.step)
-        assertEquals(listOf("arrivals", "active:WAR-001", "start"), backend.calls)
+        assertEquals(listOf("arrivals", "active:WAR-001", "start", "session"), backend.calls)
         toCarton(flow)
         assertEquals(ReceivingStep.CARTON, flow.state.value.step)
         assertEquals(0, backend.productCalls)
@@ -363,11 +363,27 @@ class ReceivingWorkflowTest {
         assertEquals(ReceivingStep.CARTON, flow.state.value.step)
     }
 
-    @Test fun `server pause during a scan immediately stops capture`() = runTest {
+    @Test fun `a server-side pause is detected on the next confirm and stops capture`() = runTest {
+        val backend = ReceivingBackend(); val flow = workflow(backend); open(flow)
+        backend.current = backend.current.copy(status = "PAUSED") // paused from another device / admin
+        flow.scan(ScanResult("CTN-001", ScanSource.EXTERNAL_SCANNER)); runCurrent()
+        // Device-side preview stays local; the backend is the final authority.
+        assertEquals(ReceivingStep.REVIEW_CARTON, flow.state.value.step)
+        flow.confirmCard(); runCurrent()
+        assertEquals(ReceivingStep.PAUSED, flow.state.value.step)
+        assertFalse(flow.state.value.canScan)
+        assertEquals(1, backend.cartonCalls) // the refused write was attempted exactly once
+    }
+
+    @Test fun `a locally observed pause rejects scans without any request`() = runTest {
         val backend = ReceivingBackend(); val flow = workflow(backend); open(flow)
         backend.current = backend.current.copy(status = "PAUSED")
+        flow.refresh(); runCurrent()
+        assertEquals(ReceivingStep.PAUSED, flow.state.value.step)
+        val calls = backend.calls.size
         flow.scan(ScanResult("CTN-001", ScanSource.EXTERNAL_SCANNER)); runCurrent()
         assertEquals(ReceivingStep.PAUSED, flow.state.value.step)
+        assertEquals(calls, backend.calls.size)
         assertFalse(flow.state.value.canScan)
     }
 

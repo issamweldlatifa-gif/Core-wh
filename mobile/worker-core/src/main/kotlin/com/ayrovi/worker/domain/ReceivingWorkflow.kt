@@ -372,6 +372,23 @@ class ReceivingWorkflow(
             lastScanValue = null, arrivals = arrivals, scanEpoch = it.scanEpoch + 1) }
     }
 
+    /**
+     * After a DEFINITE backend refusal the write is known not applied, so a
+     * single read brings the terminal back to server truth (an external pause
+     * or closure adopted here stops capture immediately). Uncertain failures
+     * never do this — the journal marker stays for reconciliation.
+     */
+    private fun resyncAfterRefusal() {
+        if (mutable.value.pending != null) return
+        val id = mutable.value.session?.id ?: return
+        scope.launch {
+            runCatching { gateway.receivingSession(id) }.onSuccess { fresh ->
+                if (fresh.status != mutable.value.session?.status) adoptSession(fresh)
+                else mutable.update { it.copy(session = fresh) }
+            }
+        }
+    }
+
     fun refresh() = run(readOnly = true, allowPending = true) {
         val pending = readJournal()
         if (pending != null) return@run reconcilePending(pending)
@@ -505,6 +522,10 @@ class ReceivingWorkflow(
                 }
                 mutable.update { it.copy(message = message, authExpired = (failure is WorkerRepository.ApiException && failure.code == 401) || failure is SessionChangedFailure) }
                 signal(message.tone, message.title, message.detail, message.scanned)
+                val definiteRefusal = (failure is WorkerRepository.ApiException && !failure.outcomeUnknown) ||
+                    (failure is TransportFailure && !failure.outcomeUnknown) ||
+                    (failure is SessionChangedFailure && !failure.outcomeUnknown)
+                if (definiteRefusal) resyncAfterRefusal()
             } finally {
                 mutable.update { it.copy(busy = false, step = if (it.pending != null) ReceivingStep.RECONCILE else it.step) }
             }

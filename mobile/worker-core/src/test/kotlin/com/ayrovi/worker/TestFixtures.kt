@@ -73,6 +73,7 @@ internal class ReceivingBackend : ReceivingGateway {
     override suspend fun confirmProduct(sessionId: String, identifier: String, identifierType: String, quantity: Int, operationId: String, source: String, startedAt: String?): ReceivingSession {
         calls += "confirm-product"; productCalls++; productScanType = identifierType; productSource = source
         confirmFailure?.let { throw it }
+        if (current.status != "RECEIVING") throw WorkerRepository.ApiException(409, "Session is not active.")
         val card = current.productCards.firstOrNull { CardMatcher.sameCode(identifier, it.sku) || CardMatcher.sameCode(identifier, it.reference) }
             ?: return current.copy(flash = FlashView(kind = "MISMATCH", cardType = "PRODUCT", code = identifier))
         if (card.received >= card.expected) return current.copy(flash = FlashView(kind = "CARD_ALREADY_COMPLETE", cardType = "PRODUCT", code = card.sku ?: identifier))
@@ -97,6 +98,7 @@ internal class ReceivingBackend : ReceivingGateway {
     override suspend fun confirmCarton(sessionId: String, identifier: String, identifierType: String, operationId: String, source: String, startedAt: String?): ReceivingSession {
         calls += "confirm-carton"; cartonCalls++; cartonScanType = identifierType; cartonSource = source
         confirmFailure?.let { throw it }
+        if (current.status != "RECEIVING") throw WorkerRepository.ApiException(409, "Session is not active.")
         val card = current.cartonCards.firstOrNull {
             CardMatcher.sameCode(identifier, it.externalCartonId) || CardMatcher.sameCode(identifier, it.reference) ||
                 CardMatcher.sameCode(identifier, it.qrCodeValue) || CardMatcher.sameCode(identifier, it.barcodeValue)

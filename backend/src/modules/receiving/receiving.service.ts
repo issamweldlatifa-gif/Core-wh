@@ -316,7 +316,7 @@ export class ReceivingService {
    * logged as a failure.
    */
   async confirmProduct(sessionId: string, input: ProductConfirmInput, actor: ReceivingActor) {
-    const session = await this.requireActiveSession(sessionId);
+    const session = await this.requireConfirmableSession(sessionId);
     await this.assignments.assertOperationalAccess(actor.id, 'receiving', { arrivalId: session.arrivalId });
     const term = normalizeScan(input.identifier);
     if (!term) throw new BadRequestException(OPERATIONAL_ERRORS.productNotMatched);
@@ -431,7 +431,7 @@ export class ReceivingService {
    * logged as a failure.
    */
   async confirmCarton(sessionId: string, input: CardConfirmInput, actor: ReceivingActor) {
-    const session = await this.requireActiveSession(sessionId);
+    const session = await this.requireConfirmableSession(sessionId);
     await this.assignments.assertOperationalAccess(actor.id, 'receiving', { arrivalId: session.arrivalId });
     const term = normalizeScan(input.identifier);
     if (!term) throw new BadRequestException(OPERATIONAL_ERRORS.cartonUnknown);
@@ -758,6 +758,13 @@ export class ReceivingService {
     if (s.status === 'COMPLETED' || s.status === 'COMPLETED_WITH_DISCREPANCY' || s.status === 'CANCELLED') {
       throw new ConflictException('Receiving session is closed.');
     }
+    return s;
+  }
+
+  /** A card confirmation only ever applies to a session that is actively RECEIVING (a paused session rejects it). */
+  private async requireConfirmableSession(id: string) {
+    const s = await this.requireActiveSession(id);
+    if (s.status !== 'RECEIVING') throw new ConflictException('Session is not active.');
     return s;
   }
 
