@@ -35,7 +35,7 @@ fun TextOcrScanner(coordinator: ScanCoordinator, modifier: Modifier = Modifier) 
     DisposableEffect(owner, coordinator) {
         val disposed = AtomicBoolean(false)
         val executor = Executors.newSingleThreadExecutor()
-        val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT)
+        val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         val inFlight = AtomicBoolean(false)
         var lastEmit = 0L
         val providerFuture = ProcessCameraProvider.getInstance(context)
