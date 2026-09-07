@@ -84,7 +84,13 @@ class TerminalAppearanceTest {
         compose.onNodeWithTag("RECEIVING_HOME").assertExists()
         compose.onNodeWithText("PRODUIT").assertIsDisplayed()
         compose.onNodeWithText("CARTON").assertIsDisplayed()
-        compose.onNodeWithText("1").assertIsDisplayed() // one product card + one carton card
+        // Both lanes are visible with their counters (fixture: one product card
+        // AND one carton card each showing a pending count of 1).
+        compose.waitUntil(10_000) {
+            model.state.value.home?.productCardsPending == 1 && model.state.value.home?.cartonCardsPending == 1
+        }
+        compose.onNodeWithTag("HOME_PRODUIT_TILE").assertIsDisplayed()
+        compose.onNodeWithTag("HOME_CARTON_TILE").assertIsDisplayed()
         compose.onNodeWithTag("OPEN_PRODUCT").assertHeightIsAtLeast(TerminalTokens.touch)
         compose.onNodeWithTag("OPEN_CARTON").assertHeightIsAtLeast(TerminalTokens.touch)
         saveScreenshot("receiving-home-white")
@@ -95,8 +101,7 @@ class TerminalAppearanceTest {
         // PRODUIT SCAN opens the PRODUCT scanner only (no carton matching).
         compose.onNodeWithTag("OPEN_PRODUCT").performClick()
         compose.waitUntil(10_000) { model.state.value.step == com.ayrovi.worker.domain.HomeStep.PRODUCT_SCAN }
-        compose.onNodeWithTag("PRODUCT_SCANNER").assertExists()
-        compose.onNodeWithText("PRODUCT SCANNER").assertIsDisplayed()
+        compose.onNodeWithTag("PRODUCT_SCANNER").assertIsDisplayed()
         saveScreenshot("receiving-product-scanner-black")
     }
 
@@ -116,8 +121,7 @@ class TerminalAppearanceTest {
         compose.onNodeWithTag("OPEN_CARTON").performScrollTo().assertHeightIsAtLeast(TerminalTokens.touch)
         compose.onNodeWithTag("OPEN_CARTON").performClick()
         compose.waitUntil(10_000) { model.state.value.step == com.ayrovi.worker.domain.HomeStep.CARTON_SCAN }
-        compose.onNodeWithTag("CARTON_SCANNER").assertExists()
-        compose.onNodeWithText("CARTON SCANNER").assertIsDisplayed()
+        compose.onNodeWithTag("CARTON_SCANNER").assertIsDisplayed()
         saveScreenshot("receiving-carton-scanner-large-font")
     }
 
