@@ -122,7 +122,7 @@ class ReceivingHomeWorkflowTest {
             val flow = workflow()
             flow.openCarton(); runCurrent()
             flow.scan(scan(code, ScanSource.CAMERA)); runCurrent()
-            assertEquals("matching $code must open carton review", HomeStep.REVIEW_CARTON, flow.state.value.step)
+            assertEquals(HomeStep.REVIEW_CARTON, flow.state.value.step, "matching $code must open carton review")
             assertNotNull(flow.state.value.cartonReview)
         }
     }

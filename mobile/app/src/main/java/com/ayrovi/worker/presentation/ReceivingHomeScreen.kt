@@ -271,7 +271,7 @@ private fun HomeCardLists(state: com.ayrovi.worker.domain.ReceivingHomeState) {
         CardListBlock("CARTON — ${home.cartonCardsPending} CARDS",
             emptyText = if (home.cartonCardsPending == 0) "No carton cards waiting." else null) {
             home.cartonList.take(50).forEachIndexed { i, row ->
-                CardRow("#${i + 1}", row.reference, listOfNotNull(row.tracking?.let { "TRK $it" }, row.arrivalCode).joinToString(" · "))
+                CardRow("#${i + 1}", row.reference ?: "—", listOfNotNull(row.tracking?.let { "TRK $it" }, row.arrivalCode).joinToString(" · "))
             }
         }
     }

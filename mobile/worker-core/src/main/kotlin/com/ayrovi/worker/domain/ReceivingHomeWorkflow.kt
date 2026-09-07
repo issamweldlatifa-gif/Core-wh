@@ -31,7 +31,7 @@ import java.util.UUID
  *
  * The two lanes are STRICTLY separated: a product scan can never confirm a
  * carton and vice versa. The device match is primary; the backend
- * (/v1/receiving/home/*) is the final authority for validation, persistence,
+ * (/v1/receiving/home endpoints) is the final authority for validation, persistence,
  * state update, duplicate protection and the worker activity log. A MISMATCH
  * confirms nothing and completes nothing.
  */
@@ -205,8 +205,10 @@ class ReceivingHomeWorkflow(
         }
     }
 
-    /** Device-side MISMATCH: log on the backend; nothing is confirmed/completed. */
-    private fun reportMismatch(cardType: String, term: String, scan: ScanResult) = run {
+    /** Device-side MISMATCH: log on the backend; nothing is confirmed/completed.
+     *  Called from inside an already-running `run` action (the caller has set
+     *  busy=true), so it must NOT re-enter the `run` guard. */
+    private suspend fun reportMismatch(cardType: String, term: String, scan: ScanResult) {
         val result = gateway.homeMismatch(cardType, term, scan.scanType, scan.source.name, iso(clock()))
         if (result.home != null) mutable.update { it.copy(home = result.home, productReview = null, cartonReview = null, scanEpoch = it.scanEpoch + 1) }
         mutable.update {

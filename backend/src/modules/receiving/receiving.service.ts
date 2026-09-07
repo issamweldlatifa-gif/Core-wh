@@ -936,7 +936,7 @@ export class ReceivingService {
     const open = await this.prisma.expectedArrival.findMany({
       where: { status: { in: ['EXPECTED', 'RECEIVING', 'PAUSED'] } },
       orderBy: { receivedViaApiAt: 'asc' },
-      include: { shipments: { include: { cartons: true } } },
+      include: { items: true, shipments: { include: { cartons: true } } },
     });
     const scoped: typeof open = [];
     for (const a of open) {
