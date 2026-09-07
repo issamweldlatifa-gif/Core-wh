@@ -83,21 +83,52 @@ class WorkerRepository(
         return json.decodeFromString(ReceivingSession.serializer(), raw)
     }
 
-    override suspend fun scanCarton(
-        sessionId: String, code: String, scanType: String, operationId: String, source: String,
+    override suspend fun confirmProduct(
+        sessionId: String, identifier: String, identifierType: String, quantity: Int,
+        operationId: String, source: String, startedAt: String?,
     ): ReceivingSession {
-        val raw = post(
-            "/v1/receiving/sessions/${urlEncode(sessionId)}/scan-carton",
-            """{"code":${jq(code)},"scanType":${jq(scanType)},"operationId":${jq(operationId)},"source":${jq(source)}}""",
-        )
+        val body = buildString {
+            append("{\"identifier\":").append(jq(identifier))
+            append(",\"identifierType\":").append(jq(identifierType))
+            append(",\"quantity\":").append(quantity)
+            append(",\"operationId\":").append(jq(operationId))
+            append(",\"source\":").append(jq(source))
+            if (startedAt != null) append(",\"startedAt\":").append(jq(startedAt))
+            append("}")
+        }
+        val raw = post("/v1/receiving/sessions/${urlEncode(sessionId)}/confirm-product", body)
         return json.decodeFromString(ReceivingSession.serializer(), raw)
     }
 
-    override suspend fun receiveCarton(sessionId: String, cartonId: String, operationId: String, source: String): ReceivingSession {
-        val raw = post(
-            "/v1/receiving/sessions/${urlEncode(sessionId)}/receive-carton",
-            """{"cartonId":${jq(cartonId)},"operationId":${jq(operationId)},"source":${jq(source)}}""",
-        )
+    override suspend fun confirmCarton(
+        sessionId: String, identifier: String, identifierType: String,
+        operationId: String, source: String, startedAt: String?,
+    ): ReceivingSession {
+        val body = buildString {
+            append("{\"identifier\":").append(jq(identifier))
+            append(",\"identifierType\":").append(jq(identifierType))
+            append(",\"operationId\":").append(jq(operationId))
+            append(",\"source\":").append(jq(source))
+            if (startedAt != null) append(",\"startedAt\":").append(jq(startedAt))
+            append("}")
+        }
+        val raw = post("/v1/receiving/sessions/${urlEncode(sessionId)}/confirm-carton", body)
+        return json.decodeFromString(ReceivingSession.serializer(), raw)
+    }
+
+    override suspend fun reportMismatch(
+        sessionId: String, cardType: String, identifier: String,
+        identifierType: String, source: String, startedAt: String?,
+    ): ReceivingSession {
+        val body = buildString {
+            append("{\"cardType\":").append(jq(cardType))
+            append(",\"identifier\":").append(jq(identifier))
+            append(",\"identifierType\":").append(jq(identifierType))
+            append(",\"source\":").append(jq(source))
+            if (startedAt != null) append(",\"startedAt\":").append(jq(startedAt))
+            append("}")
+        }
+        val raw = post("/v1/receiving/sessions/${urlEncode(sessionId)}/mismatch", body)
         return json.decodeFromString(ReceivingSession.serializer(), raw)
     }
 
@@ -123,7 +154,7 @@ class WorkerRepository(
         )
     }
 
-    override suspend fun container(code: String): OpContainerDetail =
+    suspend fun container(code: String): OpContainerDetail =
         json.decodeFromString(OpContainerDetail.serializer(), get("/v1/fulfillment/containers/${urlEncode(code)}"))
 
     suspend fun createContainer(type: String, orderReference: String? = null, label: String? = null): OpContainer {
@@ -131,19 +162,6 @@ class WorkerRepository(
         if (orderReference != null) parts.add(""""orderReference":${jq(orderReference)}""")
         if (label != null) parts.add(""""label":${jq(label)}""")
         return json.decodeFromString(OpContainer.serializer(), post("/v1/fulfillment/containers", "{${parts.joinToString(",")}}"))
-    }
-
-    override suspend fun scanArticleAtReceiving(sessionId: String, sku: String, containerCode: String, cartonCode: String?, operationId: String?): ArticleScanResult {
-        val body = buildString {
-            append("""{"sku":${jq(sku)},"containerCode":${jq(containerCode)}""")
-            if (cartonCode != null) append(""","cartonCode":${jq(cartonCode)}""")
-            if (operationId != null) append(""","operationId":${jq(operationId)}""")
-            append("}")
-        }
-        return json.decodeFromString(
-            ArticleScanResult.serializer(),
-            post("/v1/fulfillment/receiving/sessions/${urlEncode(sessionId)}/scan-article", body),
-        )
     }
 
     // Sorting (stowing)

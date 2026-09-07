@@ -28,7 +28,7 @@ data class ReceivingPresentation(
     val instruction: String,
     val target: String,
 ) {
-    val captureVisible: Boolean get() = workflow.step in setOf(ReceivingStep.ARRIVAL, ReceivingStep.CARTON, ReceivingStep.TOTE, ReceivingStep.PRODUCT)
+    val captureVisible: Boolean get() = workflow.step in setOf(ReceivingStep.ARRIVAL, ReceivingStep.PRODUCT, ReceivingStep.CARTON)
     val emptyQueue: Boolean get() = workflow.loaded && workflow.session == null && workflow.arrivals.isEmpty() && workflow.step == ReceivingStep.ARRIVAL
 }
 
@@ -105,21 +105,18 @@ class ReceivingFeedbackController(
         fun project(work: ReceivingState, scanner: ScannerStatus, connection: ConnectionState, flash: TerminalFeedback?): ReceivingPresentation {
             val step = when (work.step) {
                 ReceivingStep.ARRIVAL -> 1
-                ReceivingStep.CARTON, ReceivingStep.CONFIRM_CARTON -> 2
-                ReceivingStep.TOTE, ReceivingStep.PRODUCT -> 3
-                ReceivingStep.REVIEW_PRODUCT -> 4
-                ReceivingStep.REVIEW_COMPLETE, ReceivingStep.RESULT -> 6
-                ReceivingStep.COMPLETE -> 7
+                ReceivingStep.PRODUCT, ReceivingStep.CARTON -> 2
+                ReceivingStep.REVIEW_PRODUCT, ReceivingStep.REVIEW_CARTON -> 3
+                ReceivingStep.REVIEW_COMPLETE -> 4
+                ReceivingStep.COMPLETE -> 5
                 ReceivingStep.PAUSED, ReceivingStep.RECONCILE -> null
             }
             val instruction = when (work.step) {
                 ReceivingStep.ARRIVAL -> "SCAN ARRIVAL"
-                ReceivingStep.CARTON -> if (work.mode == ReceivingMode.CARTONS) "SCAN CARTON" else "SCAN SOURCE CARTON"
-                ReceivingStep.CONFIRM_CARTON -> "CONFIRM CARTON"
-                ReceivingStep.TOTE -> "SCAN RECEIVING TOTE"
                 ReceivingStep.PRODUCT -> "SCAN PRODUCT"
-                ReceivingStep.REVIEW_PRODUCT -> "CHECK QUANTITY"
-                ReceivingStep.RESULT -> "UNIT RECORDED"
+                ReceivingStep.CARTON -> "SCAN CARTON"
+                ReceivingStep.REVIEW_PRODUCT -> "CONFIRM PRODUCT"
+                ReceivingStep.REVIEW_CARTON -> "CONFIRM CARTON"
                 ReceivingStep.REVIEW_COMPLETE -> "REVIEW RECEIVING"
                 ReceivingStep.COMPLETE -> if (work.session?.status == "CANCELLED") "TASK CANCELLED" else "RECEIVING COMPLETE"
                 ReceivingStep.PAUSED -> "RECEIVING PAUSED"
@@ -127,14 +124,13 @@ class ReceivingFeedbackController(
             }
             val target = when (work.step) {
                 ReceivingStep.ARRIVAL -> "ARRIVAL"
-                ReceivingStep.CARTON, ReceivingStep.CONFIRM_CARTON -> "CARTON"
-                ReceivingStep.TOTE -> "TOTE"
-                else -> "PRODUCT"
+                ReceivingStep.PRODUCT, ReceivingStep.REVIEW_PRODUCT -> "PRODUCT"
+                else -> "CARTON"
             }
             val view = when {
                 work.authExpired || connection == ConnectionState.AUTH_ERROR -> TerminalFeedback(TerminalPhase.ERROR, "SIGN IN REQUIRED", "Your session has ended.")
-                !work.busy && (work.storageBlocked || (work.pending != null && work.pending.confirmedReceipt == null)) -> TerminalFeedback(TerminalPhase.WARNING,
-                    "SUPERVISOR REQUIRED", "Do not receive this item again. Ask your supervisor to check the receipt.")
+                !work.busy && (work.storageBlocked || work.pending != null) -> TerminalFeedback(TerminalPhase.WARNING,
+                    "SUPERVISOR REQUIRED", "Do not repeat the last operation. Ask your supervisor to check it.")
                 !work.authorized -> TerminalFeedback(TerminalPhase.ERROR,
                     work.message?.title ?: "ACCESS REQUIRED",
                     WorkerMessages.reason(work.message?.detail, "Ask your supervisor to check your assignment."), work.message?.scanned)
@@ -147,8 +143,6 @@ class ReceivingFeedbackController(
                 work.step == ReceivingStep.ARRIVAL && work.session == null && work.arrivals.isEmpty() -> TerminalFeedback(TerminalPhase.EMPTY,
                     "NO ARRIVALS WAITING", "No receiving work is currently waiting.")
                 work.step == ReceivingStep.PAUSED -> TerminalFeedback(TerminalPhase.WAITING, "PAUSED", "Resume when ready.")
-                work.step == ReceivingStep.RESULT -> TerminalFeedback(if (work.receipt?.withException == true) TerminalPhase.WARNING else TerminalPhase.SUCCESS,
-                    if (work.restoredReceipt) "PREVIOUS UNIT RECORDED" else "UNIT RECORDED", "Check placement, then acknowledge.", work.receipt?.articleCode)
                 work.step == ReceivingStep.COMPLETE -> TerminalFeedback(if (work.session?.status == "COMPLETED") TerminalPhase.SUCCESS else TerminalPhase.WARNING,
                     instruction, "Return to the work queue.", work.session?.arrival?.code)
                 scanner == ScannerStatus.UNAVAILABLE -> TerminalFeedback(TerminalPhase.WARNING, "SCANNER UNAVAILABLE", "Use manual entry or ask your supervisor.")

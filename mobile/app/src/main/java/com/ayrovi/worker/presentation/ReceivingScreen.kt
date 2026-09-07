@@ -83,10 +83,6 @@ fun ReceivingScreen(
     if (menu) AlertDialog(onDismissRequest = { menu = false; overlay(menuOpen = false) },
         title = { Text("TASK ACTIONS") }, text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-                if (state.mode == ReceivingMode.PRODUCTS) {
-                    SecondaryAction("CHANGE SOURCE CARTON", { menu = false; overlay(menuOpen = false); model.send(ReceivingIntent.ChangeSource) }, state.canManageTask)
-                    SecondaryAction("CHANGE TOTE", { menu = false; overlay(menuOpen = false); model.send(ReceivingIntent.ChangeTote) }, state.canManageTask)
-                }
                 SecondaryAction("REPORT A PROBLEM", { menu = false; problem = true; reason = ""; overlay(menuOpen = false, problemOpen = true) }, state.canManageTask)
                 SecondaryAction("TASK DETAILS", { menu = false; details = true; overlay(menuOpen = false, detailOpen = true) }, state.session != null)
                 PauseAction({ menu = false; overlay(menuOpen = false); model.send(ReceivingIntent.Pause) }, state.canManageTask)

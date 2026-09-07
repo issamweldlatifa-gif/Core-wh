@@ -83,7 +83,7 @@ describe('OPERATIONAL FLOW — receiving tote -> sorting -> bin -> pack -> ship'
   beforeAll(async () => {
     prisma = new PrismaClient();
     arrivals = new ExpectedArrivalsService(prisma as any, captureAudit);
-    receiving = new ReceivingService(prisma as any, captureAudit, new AssignmentsService(prisma as any, captureAudit));
+    receiving = new ReceivingService(prisma as any, captureAudit, new AssignmentsService(prisma as any, captureAudit), { onReceivingCompleted: async () => {} } as any);
     categories = new CategoriesService(prisma as any, captureAudit);
     fulfillment = new FulfillmentService(prisma as any, captureAudit, categories, new EventEmitter2(), new AssignmentsService(prisma as any, captureAudit));
     orders = new OrdersService(prisma as any, captureAudit);

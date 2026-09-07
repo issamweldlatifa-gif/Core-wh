@@ -87,20 +87,34 @@ describe('Isolated 90-unit operational validation', () => {
     await api('other', 'post', `/receiving/arrivals/${arrival.code}/start`, {}).expect(403);
     sessionId = (await api('receiver', 'post', `/receiving/arrivals/${arrival.code}/start`, {}).expect(201)).body.id;
   });
-  it('validates 3 cartons and records duplicate and unknown barcode outcomes', async () => {
+  it('confirms 3 CARTON CARDS via device-side matching and records duplicate + mismatch outcomes', async () => {
+    // Each carton card is confirmed independently (the device matched the
+    // identifier locally; the backend re-validates and is the final authority).
     for (const code of cartons) {
-      const scan = (await api('receiver', 'post', `/receiving/sessions/${sessionId}/scan-carton`, { code, scanType: 'QR', source: 'EXTERNAL_SCANNER', operationId: randomUUID() }).expect(201)).body;
-      expect(scan.flash.kind).toBe('CARTON_IDENTIFIED');
-      await api('receiver', 'post', `/receiving/sessions/${sessionId}/receive-carton`, { cartonId: scan.flash.carton.id, operationId: randomUUID() }).expect(201);
+      const confirmed = (await api('receiver', 'post', `/receiving/sessions/${sessionId}/confirm-carton`,
+        { identifier: code, identifierType: 'QR', source: 'EXTERNAL_SCANNER', operationId: randomUUID() }).expect(201)).body;
+      expect(confirmed.flash.kind).toBe('MATCH');
+      expect(confirmed.flash.cardType).toBe('CARTON');
     }
-    const duplicate = (await api('receiver', 'post', `/receiving/sessions/${sessionId}/scan-carton`, { code: cartons[0] }).expect(201)).body;
-    expect(duplicate.flash.kind).toBe('DUPLICATE_CARTON');
-    const unknown = (await api('receiver', 'post', `/receiving/sessions/${sessionId}/scan-carton`, { code: `${tag}-UNKNOWN` }).expect(201)).body;
-    expect(unknown.flash.kind).toBe('UNKNOWN_CARTON');
+    // Duplicate completion protection: a received carton card is rejected.
+    const duplicate = (await api('receiver', 'post', `/receiving/sessions/${sessionId}/confirm-carton`, { identifier: cartons[0] }).expect(201)).body;
+    expect(duplicate.flash.kind).toBe('CARD_ALREADY_COMPLETE');
+    // Mismatch: nothing is confirmed, the failure is logged (worker activity log).
+    const unknown = (await api('receiver', 'post', `/receiving/sessions/${sessionId}/confirm-carton`, { identifier: `${tag}-UNKNOWN` }).expect(201)).body;
+    expect(unknown.flash.kind).toBe('MISMATCH');
+    // Device-side mismatch report (the worker device found no carton card).
+    const rejected = (await api('receiver', 'post', `/receiving/sessions/${sessionId}/mismatch`, { cardType: 'CARTON', identifier: `${tag}-REJECTED`, identifierType: 'QR', source: 'EXTERNAL_SCANNER' }).expect(201)).body;
+    expect(rejected.flash.kind).toBe('MISMATCH');
     await api('receiver', 'post', `/receiving/sessions/${sessionId}/complete`, {}).expect(403);
-    for (const issue of unknown.discrepancies.filter((item: any) => item.status === 'OPEN')) {
-      await api('supervisor', 'post', `/receiving/discrepancies/${issue.id}/resolve`, { resolution: 'ISOLATED TEST: wrong label removed; expected cartons verified' }).expect(201);
-    }
+    // The worker activity log recorded every card operation (Admin report source).
+    const logs = await prisma.receivingWorkerLog.findMany({ where: { receivingSessionId: sessionId } });
+    expect(logs.length).toBeGreaterThanOrEqual(6);
+    expect(logs.map((l) => l.result).sort()).toEqual(expect.arrayContaining(['MATCH', 'MATCH', 'MATCH', 'DUPLICATE', 'MISMATCH', 'MISMATCH']));
+    // Supervisor discrepancy flow (explicit flag) still works on the session.
+    const flagged = (await api('receiver', 'post', `/receiving/sessions/${sessionId}/flag`, { code: `${tag}-UNKNOWN`, reason: 'ISOLATED TEST: unknown label scanned' }).expect(201)).body;
+    const open = flagged.discrepancies.find((item: any) => item.status === 'OPEN');
+    expect(open).toBeDefined();
+    await api('supervisor', 'post', `/receiving/discrepancies/${open.id}/resolve`, { resolution: 'ISOLATED TEST: wrong label removed; expected cartons verified' }).expect(201);
   });
   it('records 90 units through HTTP, closes at 50 and supports early close at 37', async () => {
     let tote = (await api('receiver', 'post', '/fulfillment/containers', { type: 'RECEIVING', capacity: 50, label: tag }).expect(201)).body; totes.push(tote.code);
@@ -147,6 +161,8 @@ describe('Isolated 90-unit operational validation', () => {
       const packed = (await api('packing', 'post', `/fulfillment/packing/containers/${bin}/pack`, {}).expect(201)).body;
       const code = packed.shipment.code;
       await api('shipping', 'get', `/fulfillment/shipping/shipments/${code}`).expect(200);
+      // Pre-dispatch verification (content-hash-bound, 10-minute window) gates the ship.
+      await api('shipping', 'post', `/fulfillment/shipping/shipments/${code}/verify`, {}).expect(201);
       await api('shipping', 'post', `/fulfillment/shipping/shipments/${code}/ship`, {}).expect(201);
       await api('shipping', 'post', `/fulfillment/shipping/shipments/${code}/ship`, {}).expect(409);
       const admin = (await api('admin', 'get', `/fulfillment/outbound-shipments?q=${code}`).expect(200)).body;

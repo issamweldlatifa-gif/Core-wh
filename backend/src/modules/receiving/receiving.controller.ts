@@ -1,13 +1,24 @@
-import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { RequireApplication } from '../../common/decorators/require-application.decorator';
-import { ReceivingService } from './receiving.service';
+import { ReceivingService, CardConfirmInput, ProductConfirmInput, MismatchInput } from './receiving.service';
 
 /**
- * Receiving Terminal API (JWT). Warehouse workers scan cartons/products
- * against the Expected Arrival + Shipment data already stored in the
- * Warehouse. Expected data is never modified by these endpoints.
+ * Receiving Terminal API (JWT).
+ *
+ * Card-based receiving (device-side matching rebuild):
+ *
+ *   CRM ──▶ PRODUCT CARD / CARTON CARD (expected data, immutable)
+ *        ──▶ RECEIVING session (worker downloads the card data)
+ *        ──▶ [ PRODUIT ] lane: scan / OCR → device-side match → CONFIRM
+ *        ──▶ [ CARTON ]  lane: scan → device-side match → CONFIRM
+ *
+ * The worker device matches the scanned identifier against the expected card
+ * data locally; these endpoints are the backend's FINAL validation,
+ * persistence, state update, duplicate/conflict protection and the worker
+ * activity log. A mismatch never confirms and never completes — it is
+ * logged. Expected card data is never modified.
  */
 @ApiTags('Receiving')
 @ApiBearerAuth()
@@ -58,42 +69,42 @@ export class ReceivingController {
 
   @Get('sessions/:id')
   @RequirePermissions('receiving.view')
-  @ApiOperation({ summary: 'Full receiving session state (terminal).' })
+  @ApiOperation({ summary: 'Full receiving session state: expected product cards + carton cards + tally (device-side matching data).' })
   session(@Param('id') id: string) {
     return this.receiving.sessionDetail(id);
   }
 
-  @Post('sessions/:id/scan-carton')
+  @Post('sessions/:id/confirm-product')
   @RequirePermissions('receiving.execute')
-  @ApiOperation({ summary: 'Scan/identify a carton by QR/barcode/manual code.' })
-  scan(
+  @ApiOperation({ summary: 'Confirm a PRODUCT card matched on the device (QR / barcode / OCR SKU / reference). Final server validation + persistence + worker log.' })
+  confirmProduct(
     @Param('id') id: string,
-    @Body() body: { code: string; scanType?: 'QR' | 'BARCODE' | 'MANUAL'; operationId?: string; source?: 'CAMERA' | 'EXTERNAL_SCANNER' | 'MANUAL' },
+    @Body() body: ProductConfirmInput,
     @Req() req: any,
   ) {
-    return this.receiving.scanCarton(id, body.code, body.scanType ?? 'MANUAL', this.actor(req), body.operationId, body.source);
+    return this.receiving.confirmProduct(id, body, this.actor(req));
   }
 
-  @Post('sessions/:id/receive-carton')
+  @Post('sessions/:id/confirm-carton')
   @RequirePermissions('receiving.execute')
-  @ApiOperation({ summary: 'Confirm an identified carton physically received.' })
-  receiveCarton(
+  @ApiOperation({ summary: 'Confirm a CARTON card matched on the device (carton ref / QR / barcode / tracking). Final server validation + persistence + worker log.' })
+  confirmCarton(
     @Param('id') id: string,
-    @Body() body: { cartonId: string; operationId?: string; source?: 'CAMERA' | 'EXTERNAL_SCANNER' | 'MANUAL' },
+    @Body() body: CardConfirmInput,
     @Req() req: any,
   ) {
-    return this.receiving.receiveCarton(id, body.cartonId, this.actor(req), body.operationId, body.source);
+    return this.receiving.confirmCarton(id, body, this.actor(req));
   }
 
-  @Post('sessions/:id/receive-product')
+  @Post('sessions/:id/mismatch')
   @RequirePermissions('receiving.execute')
-  @ApiOperation({ summary: 'Scan/receive product units against the Expected Arrival lines (idempotent via operationId).' })
-  receiveProduct(
+  @ApiOperation({ summary: 'Log a device-side MISMATCH (failure logged; nothing confirmed, nothing completed).' })
+  mismatch(
     @Param('id') id: string,
-    @Body() body: { sku: string; quantity?: number; source?: 'CAMERA' | 'EXTERNAL_SCANNER' | 'MANUAL'; operationId?: string },
+    @Body() body: MismatchInput,
     @Req() req: any,
   ) {
-    return this.receiving.receiveProduct(id, body.sku, body.quantity ?? 1, this.actor(req), body.source, body.operationId);
+    return this.receiving.reportMismatch(id, body, this.actor(req));
   }
 
   @Post('sessions/:id/pause')
@@ -122,7 +133,7 @@ export class ReceivingController {
 
   @Post('sessions/:id/complete')
   @RequirePermissions('receiving.execute')
-  @ApiOperation({ summary: 'Complete receiving (full match -> RECEIVED; else needs supervisor).' })
+  @ApiOperation({ summary: 'Complete receiving (full match -> RECEIVED; else needs supervisor). Duplicate completion is rejected.' })
   complete(@Param('id') id: string, @Req() req: any) {
     return this.receiving.complete(id, this.actor(req));
   }

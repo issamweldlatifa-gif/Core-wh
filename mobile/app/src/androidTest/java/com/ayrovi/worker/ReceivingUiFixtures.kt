@@ -12,7 +12,6 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.ayrovi.worker.data.*
 import com.ayrovi.worker.domain.AudioFeedback
 import kotlinx.coroutines.delay
-import kotlinx.serialization.json.Json
 import java.io.File
 
 /** Test-only API responses; no production service, account or stock is contacted. */
@@ -22,7 +21,11 @@ internal class ReceivingUiGateway(expectedCartons: Int = 0, var empty: Boolean =
     var activeFailure: Exception? = null
     var session = ReceivingSession("session", "RCV-TEST-001", "RECEIVING", "2026-09-06T08:00:00Z",
         arrival = DetailArrival("arrival", "WAR-TEST-001", customerName = "UI TEST FIXTURE"),
-        products = listOf(ProductRow(sku = "SKU-TEST", productName = "UI TEST FIXTURE ITEM", expected = 1, received = 0, remaining = 1, difference = -1)),
+        productCards = listOf(ProductCard(id = "line", sku = "SKU-TEST", productName = "UI TEST FIXTURE ITEM",
+            expected = 1, received = 0, remaining = 1, status = "EXPECTED", identifiers = listOf("SKU-TEST"))),
+        cartonCards = listOf(CartonCard(id = "carton", externalCartonId = "CTN-TEST", trackingNumber = "TRK-TEST",
+            cartonNumber = 1, totalCartons = expectedCartons.coerceAtLeast(1), status = "EXPECTED",
+            identifiers = listOf("CTN-TEST", "TRK-TEST"))),
         tally = ReceivingTally(expectedCartons, 0, 1, 0, 1, 0, 0, 1, 0, 0, expectedCartons))
     override suspend fun arrivals() = if (empty) emptyList() else listOf(ArrivalRow(id = "arrival", code = "WAR-TEST-001"))
     override suspend fun receivingSession(sessionId: String) = session
@@ -33,25 +36,27 @@ internal class ReceivingUiGateway(expectedCartons: Int = 0, var empty: Boolean =
         return session
     }
     override suspend fun startReceiving(arrivalIdOrCode: String): ReceivingSession { writes++; return session }
-    override suspend fun scanCarton(sessionId: String, code: String, scanType: String, operationId: String, source: String): ReceivingSession {
-        if (code != "CTN-TEST") return session.copy(flash = FlashView(kind = "UNKNOWN_CARTON"))
-        return session.copy(flash = FlashView(kind = "CARTON_IDENTIFIED", carton = Json.parseToJsonElement("""{"id":"carton","externalCartonId":"CTN-TEST"}""")))
-    }
-    override suspend fun receiveCarton(sessionId: String, cartonId: String, operationId: String, source: String): ReceivingSession {
+    override suspend fun confirmProduct(sessionId: String, identifier: String, identifierType: String, quantity: Int, operationId: String, source: String, startedAt: String?): ReceivingSession {
         writes++
-        session = session.copy(receivedCartonEvents = listOf(CartonEvent(cartonId = "CTN-TEST", status = "RECEIVED")),
-            tally = session.tally.copy(receivedCartons = 1, missingCartons = 0))
+        if (identifier.uppercase() != "SKU-TEST") return session.copy(flash = FlashView(kind = "MISMATCH", cardType = "PRODUCT", code = identifier))
+        session = session.copy(productCards = session.productCards.map { it.copy(received = 1, remaining = 0, status = "RECEIVED") },
+            tally = session.tally.copy(receivedUnits = 1, receivedProducts = 1, shortUnits = 0),
+            flash = FlashView(kind = "MATCH", cardType = "PRODUCT", code = "SKU-TEST"))
         return session
     }
-    override suspend fun container(code: String): OpContainerDetail {
-        if (code != "RCN-TEST") throw WorkerRepository.ApiException(404, "Tote not found.")
-        return OpContainerDetail(code = code, type = "RECEIVING", status = "ACTIVE")
-    }
-    override suspend fun scanArticleAtReceiving(sessionId: String, sku: String, containerCode: String, cartonCode: String?, operationId: String?): ArticleScanResult {
+    override suspend fun confirmCarton(sessionId: String, identifier: String, identifierType: String, operationId: String, source: String, startedAt: String?): ReceivingSession {
         writes++
-        session = session.copy(products = session.products.map { it.copy(received = 1, remaining = 0, difference = 0) },
-            tally = session.tally.copy(receivedUnits = 1, receivedProducts = 1, shortUnits = 0))
-        return ArticleScanResult(flash = FlashView(kind = "ARTICLE_RECEIVED", article = Json.parseToJsonElement("""{"code":"ART-TEST-001"}""")), matched = true)
+        if (identifier.uppercase() != "CTN-TEST" && identifier.uppercase() != "TRK-TEST") {
+            return session.copy(flash = FlashView(kind = "MISMATCH", cardType = "CARTON", code = identifier))
+        }
+        session = session.copy(cartonCards = session.cartonCards.map { it.copy(status = "RECEIVED") },
+            tally = session.tally.copy(receivedCartons = 1, missingCartons = 0),
+            flash = FlashView(kind = "MATCH", cardType = "CARTON", code = "CTN-TEST"))
+        return session
+    }
+    override suspend fun reportMismatch(sessionId: String, cardType: String, identifier: String, identifierType: String, source: String, startedAt: String?): ReceivingSession {
+        writes++
+        return session.copy(flash = FlashView(kind = "MISMATCH", cardType = cardType, code = identifier))
     }
     override suspend fun pauseSession(sessionId: String): ReceivingSession { writes++; session = session.copy(status = "PAUSED"); return session }
     override suspend fun resumeSession(sessionId: String): ReceivingSession { writes++; session = session.copy(status = "RECEIVING"); return session }

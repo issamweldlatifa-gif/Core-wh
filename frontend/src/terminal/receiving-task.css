@@ -141,3 +141,58 @@
   border: 1px solid #d9a300;
   background: #fff7e0;
 }
+
+/* ==========================================================================
+   Card-based rebuild — the two workflow ENTRIES (PRODUIT / CARTON) and the
+   explicit verify/confirm step. Same design tokens as the rest of the
+   terminal (os-theme.css) — no new visual language.
+   ========================================================================== */
+.rt-lanes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 640px) {
+  .rt-lanes { grid-template-columns: 1fr; }
+}
+.rt-lane {
+  display: grid;
+  gap: 2px;
+  justify-items: start;
+  padding: 18px 20px;
+  min-height: 84px;
+  letter-spacing: 0.08em;
+  font-size: 0.85rem;
+}
+.rt-lane .rt-lane-t { font-size: 1.5rem; font-weight: 800; letter-spacing: 0.16em; }
+.rt-lane .rt-lane-s { font-size: 0.75rem; opacity: 0.75; letter-spacing: 0.04em; }
+.rt-lane.is-active {
+  background: var(--surface-2);
+  border-color: var(--primary);
+  color: var(--text);
+  box-shadow: var(--glow);
+}
+.rt-lane.is-active .rt-lane-t { color: var(--primary); }
+
+/* Device-side match result — explicit CONFIRM (the only write path). */
+.rt-verify {
+  border: 1px solid var(--success);
+  background: var(--surface);
+  border-radius: var(--os-radius);
+  padding: var(--os-s4);
+  display: grid;
+  gap: var(--os-s3);
+  animation: rt-pop var(--os-speed) ease-out;
+}
+.rt-verify--carton { border-color: var(--info); }
+.rt-verify-head {
+  display: flex;
+  align-items: center;
+  gap: var(--os-s3);
+  flex-wrap: wrap;
+}
+.rt-verify-body { display: grid; gap: 4px; }
+.rt-verify-name { font-size: 1.15rem; font-weight: 700; letter-spacing: 0.04em; }
+.rt-verify-nums { display: flex; gap: var(--os-s4); font-size: 0.9rem; color: var(--muted); }
+.rt-verify-actions { justify-content: flex-end; }
+.rt-verify-actions .os-btn--primary { letter-spacing: 0.12em; min-width: 160px; }

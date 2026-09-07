@@ -153,6 +153,10 @@ enum AuditAction {
   DISCREPANCY_RESOLVED
   RECEIVING_COMPLETED
   RECEIVING_COMPLETED_WITH_DISCREPANCY
+  // Receiving card operations (device-side matching rebuild): a completed
+  // card (product line or carton) was scanned again and rejected — the
+  // operation is logged, nothing is counted twice.
+  CARD_ALREADY_COMPLETED
   // WAREHOUSE OS — stations, terminal sessions and audited corrections.
   STATION_CREATED
   STATION_UPDATED
@@ -959,6 +963,9 @@ enum ScanType {
   QR
   BARCODE
   MANUAL
+  /// Operator-confirmed text read by the EXISTING OCR review flow (the OCR
+  /// engine itself is unchanged; the code is confirmed by the worker).
+  OCR
 }
 
 // The input device that produced a scan. The receiving workflow is identical
@@ -1561,6 +1568,7 @@ model ReceivingSession {
   scanEvents    ReceivingScanEvent[]
   products      ReceivingProduct[]
   discrepancies ReceivingDiscrepancy[]
+  workerLogs    ReceivingWorkerLog[]
   corrections   OperationCorrection[]
   articleUnits  ArticleUnit[] // pieces born in this session
   /// Station the session was executed at (§13). SetNull so retiring a
@@ -1680,6 +1688,92 @@ model ReceivingDiscrepancy {
   @@index([status])
   @@index([type])
   @@map("receiving_discrepancies")
+}
+
+/// Worker Receiving activity log (Admin "Receiving Worker" report).
+///
+/// One row per receiving CARD operation executed by a worker on a worker
+/// device: the device matches the scanned identifier against the expected
+/// card data locally (DEVICE-SIDE MATCHING) and the backend keeps the
+/// persistent, auditable record — Who / What / When / Card / Card Type /
+/// Operation / Identifier / Result / Duration / Device.
+///
+/// `result` is the FINAL server-side verdict (the device match is advisory):
+///   MATCH     — identifier matched the card, receipt persisted (or confirmed)
+///   MISMATCH  — identifier matched no expected card (failure logged, nothing
+///               confirmed, nothing completed)
+///   DUPLICATE — the card was already completed/received; rejected, not
+///               counted again
+///   AMBIGUOUS — a shipment-level identifier (tracking number) matched more
+///               than one carton card; the worker must scan the specific carton
+model ReceivingWorkerLog {
+  id                 String           @id @default(uuid())
+  receivingSessionId String
+  session            ReceivingSession @relation(fields: [receivingSessionId], references: [id], onDelete: Cascade)
+
+  /// Worker who executed the operation (plain id snapshot, no FK: a worker
+  /// leaving the system must never destroy receiving history).
+  workerId   String?
+  workerName String?
+  /// Operational task the operation belongs to (task registry key).
+  taskKey String @default("receiving")
+  /// Display context of the operation (arrival / session codes for the report).
+  arrivalCode String?
+  sessionCode String?
+
+  /// Which independent card type the operation targets.
+  cardType CardType @default(PRODUCT)
+  /// The expected card the operation references (matched card code, or null
+  /// when nothing matched).
+  cardRef String?
+  /// The worker operation on the card.
+  operation WorkerLogOperation
+  /// How the identifier was read: QR | BARCODE | MANUAL | OCR.
+  identifierType ScanType @default(MANUAL)
+  /// Identifier source device (free form device context, audit only):
+  /// CAMERA | EXTERNAL_SCANNER | MANUAL | OCR_CONFIRMED | ...
+  source String @default("MANUAL")
+  /// The (normalized) identifier value the worker scanned / read.
+  identifierValue String
+  /// Final server-side verdict.
+  result WorkerLogResult
+  /// Device-reported scan start (device-side matching start time) and the
+  /// server processing time -> duration of the physical operation.
+  startedAt DateTime?
+  endedAt   DateTime?
+  durationMs Int?
+  /// Device context of the worker terminal (free form, audit only).
+  deviceType String?
+  deviceName String?
+
+  createdAt DateTime @default(now())
+
+  @@index([receivingSessionId])
+  @@index([workerId, createdAt])
+  @@index([cardType, result])
+  @@index([createdAt])
+  @@map("receiving_worker_logs")
+}
+
+enum CardType {
+  PRODUCT
+  CARTON
+}
+
+enum WorkerLogOperation {
+  /// The device matched the identifier against a card and asked for confirm.
+  CONFIRM
+  /// The device reported a local mismatch (failure logged, no state change).
+  SCAN_REJECT
+  /// A completed card was scanned again and rejected (never counted twice).
+  DUPLICATE_REJECT
+}
+
+enum WorkerLogResult {
+  MATCH
+  MISMATCH
+  DUPLICATE
+  AMBIGUOUS
 }
 
 // ===========================================================================

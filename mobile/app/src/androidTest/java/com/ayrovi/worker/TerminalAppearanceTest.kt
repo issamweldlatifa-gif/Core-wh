@@ -87,7 +87,7 @@ class TerminalAppearanceTest {
         compose.onNodeWithText("PRODUIT").performClick()
         compose.waitUntil(10_000) { model.state.value.mode == com.ayrovi.worker.domain.ReceivingMode.PRODUCTS && !model.state.value.busy }
         compose.onNodeWithText("PRODUIT").assertIsSelected()
-        compose.onNodeWithText("SCAN RECEIVING TOTE").assertExists()
+        compose.onNodeWithText("SCAN PRODUCT").assertExists()
         compose.runOnIdle { assertEquals(0, backend.writes); assertEquals("session", model.state.value.session!!.id) }
         saveScreenshot("receiving-product-mode-black")
     }

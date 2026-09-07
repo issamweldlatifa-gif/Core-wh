@@ -74,28 +74,36 @@ internal fun OcrScan(capture: ScannerCapture, enabled: Boolean) {
     }
 }
 
+/**
+ * Card review for the two lanes. The device already matched the scanned
+ * identifier against the expected card data; CONFIRM is the only path to a
+ * backend write. The two card types are rendered independently, never merged.
+ */
 @Composable
 internal fun ReceivingReview(view: ReceivingPresentation, send: (ReceivingIntent) -> Unit, compact: Boolean) {
     val state = view.workflow
     when (state.step) {
-        ReceivingStep.CONFIRM_CARTON -> state.carton?.let {
-            LocationBlock(it.code, label = if (it.alreadyReceived) "RECEIVED CARTON · CONFIRM SOURCE" else "CARTON TO RECEIVE")
-        }
-        ReceivingStep.REVIEW_PRODUCT -> state.product?.let {
-            ProductBlock(it.product?.productName, it.scan.value)
+        ReceivingStep.REVIEW_PRODUCT -> state.product?.let { review ->
+            ProductBlock(review.card.productName, review.scan.value)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
-                QuantityDisplay("EXPECTED", it.product?.expected?.toString() ?: "—", Modifier.weight(1f))
-                QuantityDisplay("REMAINING", it.product?.remaining?.toString() ?: "—", Modifier.weight(1f))
+                QuantityDisplay("EXPECTED", review.card.expected.toString(), Modifier.weight(1f))
+                QuantityDisplay("RECEIVED", review.card.received.toString(), Modifier.weight(1f))
+                QuantityDisplay("REMAINING", review.card.remaining.toString(), Modifier.weight(1f))
             }
-            QuantityInput(it.quantity, { value -> send(ReceivingIntent.Quantity(value)) }, state.canMutate)
-            Text("Receive one physical unit. Set damaged items aside and report the problem.", style = MaterialTheme.typography.bodyMedium)
-            state.tote?.let { tote -> Text("TOTE · ${tote.code}", style = MaterialTheme.typography.titleMedium) }
+            ScanBadge(review.scan.scanType, review.card.sku ?: review.card.reference)
+            Text("Confirming receives one physical unit against this product card.", style = MaterialTheme.typography.bodyMedium)
             state.message?.takeIf { it.tone == MessageTone.ERROR }?.let { issue -> ErrorState(issue.title, issue.detail) }
         }
-        ReceivingStep.RESULT -> state.receipt?.let {
-            BarcodeDisplay(it.articleCode)
-            Text("${it.sku} · ${it.toteCode}", style = MaterialTheme.typography.titleMedium)
-            Text("Check the unit is in its tote, then acknowledge.", style = MaterialTheme.typography.bodyLarge)
+        ReceivingStep.REVIEW_CARTON -> state.carton?.let { review ->
+            LocationBlock(review.card.externalCartonId ?: review.scan.value, label = "CARTON TO RECEIVE")
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
+                QuantityDisplay("MATCHED ON", review.matchedOn, Modifier.weight(1f))
+                QuantityDisplay("CARTON", "${review.card.cartonNumber}/${review.card.totalCartons}", Modifier.weight(1f))
+            }
+            review.card.trackingNumber?.let { Text("TRACKING · $it", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted) }
+            review.card.senderName?.let { Text("SENDER · $it", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted) }
+            ScanBadge(review.scan.scanType, review.scan.value)
+            Text("Confirming records this carton as received. It cannot be counted twice.", style = MaterialTheme.typography.bodyMedium)
         }
         ReceivingStep.REVIEW_COMPLETE -> {
             state.session?.let {
@@ -104,9 +112,19 @@ internal fun ReceivingReview(view: ReceivingPresentation, send: (ReceivingIntent
                 Text("${it.tally.openDiscrepancies} OPEN PROBLEMS", style = MaterialTheme.typography.titleMedium)
             }
             if (state.hasVariance && !state.canResolve) WarningState("SUPERVISOR REQUIRED", "Ask your supervisor to check differences before closing receiving.")
-            SecondaryAction("CONTINUE SCANNING", { send(ReceivingIntent.NextProduct) }, state.canMutate)
+            SecondaryAction("CONTINUE SCANNING", { send(ReceivingIntent.ContinueScanning) }, state.canMutate)
         }
-        else -> if (!compact) state.tote?.let { LocationBlock(it.code, label = "RECEIVING TOTE") }
+        else -> Unit
+    }
+}
+
+/** Scan provenance line (QR / BARCODE / OCR / MANUAL) for the card under review. */
+@Composable
+private fun ScanBadge(scanType: String, code: String?) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xxs)) {
+        WorkerIcon(TerminalIcon.SCANNER, null, Modifier.size(TerminalTokens.iconSmall))
+        Text(scanType, style = MaterialTheme.typography.labelLarge)
+        code?.let { Text("· $it", style = MaterialTheme.typography.labelMedium, color = TerminalTokens.muted) }
     }
 }
 
@@ -114,17 +132,15 @@ internal fun ReceivingReview(view: ReceivingPresentation, send: (ReceivingIntent
 internal fun ReceivingFooter(view: ReceivingPresentation, send: (ReceivingIntent) -> Unit,
     back: () -> Unit, more: () -> Unit, refresh: () -> Unit, industrial: Boolean) {
     val state = view.workflow
-    TerminalFooter(if (state.busy) "PLEASE WAIT" else if (state.pending?.confirmedReceipt != null) "CHECK PHYSICAL PLACEMENT" else "") {
+    TerminalFooter(if (state.busy) "PLEASE WAIT" else "") {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xxs)) {
             TerminalIconAction(TerminalIcon.BACK, "Back to work queue", back, !state.busy)
             Box(Modifier.weight(1f)) {
                 when {
                     !state.serverAvailable -> PrimaryAction("RECONNECT", refresh, !state.busy)
-                    state.step == ReceivingStep.CONFIRM_CARTON -> PrimaryAction(if (state.carton?.alreadyReceived == true) "CONFIRM SOURCE" else "CONFIRM CARTON",
-                        { send(ReceivingIntent.ConfirmCarton) }, state.canMutate)
-                    state.step == ReceivingStep.REVIEW_PRODUCT -> PrimaryAction("CONFIRM 1 UNIT", { send(ReceivingIntent.ConfirmProduct) }, state.canMutate)
-                    state.step == ReceivingStep.RESULT -> PrimaryAction("ACKNOWLEDGE", { send(ReceivingIntent.NextProduct) }, state.canAcknowledgeReceipt)
+                    state.step == ReceivingStep.REVIEW_PRODUCT -> PrimaryAction("CONFIRM", { send(ReceivingIntent.ConfirmCard) }, state.canConfirm)
+                    state.step == ReceivingStep.REVIEW_CARTON -> PrimaryAction("CONFIRM", { send(ReceivingIntent.ConfirmCard) }, state.canConfirm)
                     state.step == ReceivingStep.REVIEW_COMPLETE -> PrimaryAction("COMPLETE", { send(ReceivingIntent.Complete) }, state.canComplete)
                     state.step == ReceivingStep.PAUSED -> PrimaryAction("RESUME", { send(ReceivingIntent.Resume) }, state.canMutate)
                     state.step == ReceivingStep.COMPLETE -> PrimaryAction("NEXT ARRIVAL", { send(ReceivingIntent.NextArrival) }, state.canMutate)
@@ -136,6 +152,10 @@ internal fun ReceivingFooter(view: ReceivingPresentation, send: (ReceivingIntent
                 }
             }
             TerminalIconAction(TerminalIcon.MENU, "Task actions", more, !state.busy)
+        }
+        // Reviews get an explicit cancel next to CONFIRM — never an auto-submit.
+        if (state.step in setOf(ReceivingStep.REVIEW_PRODUCT, ReceivingStep.REVIEW_CARTON)) {
+            SecondaryAction("CANCEL", { send(ReceivingIntent.ContinueScanning) }, state.canMutate)
         }
     }
 }

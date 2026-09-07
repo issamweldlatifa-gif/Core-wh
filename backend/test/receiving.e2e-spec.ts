@@ -1,24 +1,25 @@
 import { AssignmentsService } from '../src/modules/assignments/assignments.service';
-import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaClient } from '@prisma/client';
 import { ReceivingService } from '../src/modules/receiving/receiving.service';
 
 /**
- * Phase 2 — Receiving end-to-end (service layer, real Postgres).
+ * Receiving end-to-end (service layer, real Postgres) — card-based rebuild.
  *
- * Exercises a transmitted shipment (8 cartons / 100 products across lines /
- * 127 units) and the failure/edge rules:
- *  - unknown carton -> UNKNOWN_CARTON discrepancy, never auto-created
- *  - wrong-shipment carton -> WRONG_SHIPMENT discrepancy, not received
- *  - duplicate scan / operationId retry -> no double count
- *  - unexpected product -> UNEXPECTED_PRODUCT discrepancy
- *  - expected data immutable; shortage -> SHORT
- *  - completion with open discrepancies requires supervisor
+ * The CRM pushes two INDEPENDENT card types (product cards / carton cards);
+ * the worker device matches identifiers locally and the backend stays the
+ * final authority:
+ *  - unknown carton/product -> MISMATCH flash + worker activity log, never
+ *    confirmed, never auto-created
+ *  - wrong-shipment carton  -> WRONG_SHIPMENT flash, carton untouched
+ *  - duplicate carton/product -> CARD_ALREADY_COMPLETE (no double count)
+ *  - device-side mismatch report -> logged (SCAN_REJECT), nothing confirmed
+ *  - operationId idempotency -> no double count on retry
+ *  - completion with shortages requires supervisor
  *  - perfect match -> COMPLETED + arrival RECEIVED
  *
- * Requires a migrated database: DATABASE_URL=... npm run test:e2e
+ * Requires a migrated database: DATABASE_URL=... (run with the e2e config)
  */
-describe('Phase 2 — Receiving', () => {
+describe('Receiving (card-based, device-side matching) end-to-end', () => {
   let prisma: PrismaClient;
   let service: ReceivingService;
   const tag = `RCVE2E-${Date.now()}`;
@@ -34,10 +35,17 @@ describe('Phase 2 — Receiving', () => {
     prisma = new PrismaClient();
     // AuditService takes a PrismaService; the service only calls audit.log()
     // which accepts an optional tx — PrismaClient satisfies the call surface.
-    service = new ReceivingService(prisma as any, { log: async () => {} } as any, new AssignmentsService(prisma as any, { log: async () => {} } as any));
+    service = new ReceivingService(
+      prisma as any,
+      { log: async () => {} } as any,
+      new AssignmentsService(prisma as any, { log: async () => {} } as any),
+      { onReceivingCompleted: async () => {} } as any,
+    );
   });
 
   afterAll(async () => {
+    await (prisma as any).receivingWorkerLog.deleteMany({ where: { session: { code: { startsWith: 'RCV-' } } } });
+    await (prisma as any).receivingScanEvent.deleteMany({ where: { session: { code: { startsWith: 'RCV-' } } } });
     await (prisma as any).receivingDiscrepancy.deleteMany({ where: { session: { code: { startsWith: 'RCV-' } } } });
     await (prisma as any).receivingCarton.deleteMany({ where: { session: { code: { startsWith: 'RCV-' } } } });
     await (prisma as any).receivingProduct.deleteMany({ where: { session: { code: { startsWith: 'RCV-' } } } });
@@ -98,12 +106,17 @@ describe('Phase 2 — Receiving', () => {
     return arrival;
   }
 
-  it('starts a session and seeds expected products', async () => {
+  it('starts a session and seeds independent PRODUCT and CARTON cards', async () => {
     const arrival = await seedArrival({ suffix: 'A', units: { SKU1: 100, SKU2: 27 }, cartons: 8 });
     const session = await service.start(arrival.code, actor());
     expect(session.code).toMatch(/^RCV-/);
     expect(session.status).toBe('RECEIVING');
-    expect(session.products).toHaveLength(2);
+    // PRODUCT CARDS (Customer Arrival Card) — independent card type.
+    expect(session.productCards).toHaveLength(2);
+    expect(session.productCards.map((p: any) => p.sku).sort()).toEqual(['SKU1', 'SKU2']);
+    expect(session.productCards.every((p: any) => Array.isArray(p.identifiers))).toBe(true);
+    // CARTON CARDS (Shipment Card) — independent card type, carries tracking.
+    expect(session.cartonCards).toHaveLength(8);
     expect(session.tally.expectedCartons).toBe(8);
     expect(session.tally.expectedUnits).toBe(127);
     // Idempotent start: second call returns the same session.
@@ -111,74 +124,95 @@ describe('Phase 2 — Receiving', () => {
     expect(again.id).toBe(session.id);
   });
 
-  it('unknown carton -> discrepancy, never auto-created', async () => {
+  it('unknown carton -> MISMATCH + worker log, never confirmed or auto-created', async () => {
     const session = await service.start('WAR-RCV-A', actor());
-    const res = await service.scanCarton(session.id, 'CTN-NEVER-EXISTS', 'QR', actor(), 'op-unk-1');
-    expect(res.flash?.kind).toBe('UNKNOWN_CARTON');
+    const res = await service.confirmCarton(session.id, { identifier: 'CTN-NEVER-EXISTS', identifierType: 'QR', source: 'EXTERNAL_SCANNER', operationId: `op-${tag}-unk` }, actor());
+    expect(res.flash?.kind).toBe('MISMATCH');
+    expect(res.tally.receivedCartons).toBe(0);
     const auto = await (prisma as any).warehouseCarton.findFirst({ where: { externalCartonId: 'CTN-NEVER-EXISTS' } });
     expect(auto).toBeNull();
+    const log = await (prisma as any).receivingWorkerLog.findFirst({ where: { receivingSessionId: session.id, result: 'MISMATCH' } });
+    expect(log).not.toBeNull();
+    expect(log.cardType).toBe('CARTON');
+    expect(log.operation).toBe('CONFIRM');
   });
 
-  it('wrong-shipment carton -> discrepancy and not received', async () => {
-    const b = await seedArrival({ suffix: 'B', units: { SKUB: 5 }, cartons: 1 });
+  it('wrong-shipment carton -> WRONG_SHIPMENT, carton untouched', async () => {
+    await seedArrival({ suffix: 'B', units: { SKUB: 5 }, cartons: 1 });
     const sessionA = await service.start('WAR-RCV-A', actor());
-    // Carton belongs to arrival B but scanned in session A.
-    const res = await service.scanCarton(sessionA.id, `CTN-${tag}-B-1`, 'QR', actor(), 'op-wrong-1');
+    // Carton belongs to arrival B but is confirmed in session A.
+    const res = await service.confirmCarton(sessionA.id, { identifier: `CTN-${tag}-B-1`, identifierType: 'QR', source: 'EXTERNAL_SCANNER', operationId: `op-${tag}-wrong` }, actor());
     expect(res.flash?.kind).toBe('WRONG_SHIPMENT');
     const cartonB = await (prisma as any).warehouseCarton.findFirst({ where: { externalCartonId: `CTN-${tag}-B-1` } });
     expect(cartonB.status).toBe('EXPECTED'); // not received
   });
 
-  it('duplicate scan / same operationId does not double-count', async () => {
+  it('duplicate carton -> CARD_ALREADY_COMPLETE; operationId retry never double-counts', async () => {
     const session = await service.start('WAR-RCV-A', actor());
     const code = `CTN-${tag}-A-1`;
-    await service.scanCarton(session.id, code, 'QR', actor(), 'op-dup-1');
-    const r1 = await service.receiveCarton(session.id, code, actor(), 'op-dup-2');
+    const r1 = await service.confirmCarton(session.id, { identifier: code, identifierType: 'QR', source: 'EXTERNAL_SCANNER', operationId: `op-${tag}-dup` }, actor());
+    expect(r1.flash?.kind).toBe('MATCH');
     expect(r1.tally.receivedCartons).toBe(1);
     // Same operationId retry -> idempotent, same count.
-    const r2 = await service.receiveCarton(session.id, code, actor(), 'op-dup-2');
+    const r2 = await service.confirmCarton(session.id, { identifier: code, identifierType: 'QR', source: 'EXTERNAL_SCANNER', operationId: `op-${tag}-dup` }, actor());
     expect(r2.tally.receivedCartons).toBe(1);
-    // Plain rescan of received carton -> duplicate flash, no row.
-    const r3 = await service.scanCarton(session.id, code, 'QR', actor(), 'op-dup-3');
-    expect(r3.flash?.kind).toBe('DUPLICATE_CARTON');
+    // Re-confirm of a received carton card -> duplicate flash, no second row.
+    const r3 = await service.confirmCarton(session.id, { identifier: code, identifierType: 'QR', source: 'EXTERNAL_SCANNER', operationId: `op-${tag}-dup2` }, actor());
+    expect(r3.flash?.kind).toBe('CARD_ALREADY_COMPLETE');
     const rows = await (prisma as any).receivingCarton.count({
       where: { receivingSessionId: session.id, scannedCode: code },
     });
     expect(rows).toBe(1);
   });
 
-  it('unexpected product -> discrepancy; expected immutable; shortage tracked', async () => {
+  it('unknown product -> MISMATCH; device mismatch report is logged; expected data immutable', async () => {
     await seedArrival({ suffix: 'D', units: { SKUD1: 100, SKUD2: 27 }, cartons: 8 });
     const session = await service.start('WAR-RCV-D', actor());
-    // Receive full SKUD1, partial SKUD2 (27 expected, 20 received -> short 7).
-    await service.receiveProduct(session.id, 'SKUD1', 100, actor());
-    const partial = await service.receiveProduct(session.id, 'SKUD2', 20, actor());
-    const sku2 = partial.products.find((p: any) => p.sku === 'SKUD2');
+    const unexp = await service.confirmProduct(session.id, { identifier: 'SKU-GHOST', identifierType: 'QR', source: 'EXTERNAL_SCANNER', operationId: `op-${tag}-ghost` }, actor());
+    expect(unexp.flash?.kind).toBe('MISMATCH');
+    // The worker device matched locally and reports the failure (SCAN_REJECT).
+    const rejected = await service.reportMismatch(session.id, { cardType: 'PRODUCT', identifier: 'SKU-DEVICE-NOPE', identifierType: 'OCR', source: 'CAMERA' }, actor());
+    expect(rejected.flash?.kind).toBe('MISMATCH');
+    const logs = await (prisma as any).receivingWorkerLog.findMany({ where: { receivingSessionId: session.id, cardType: 'PRODUCT' } });
+    expect(logs.map((l: any) => l.operation).sort()).toEqual(['CONFIRM', 'SCAN_REJECT']);
+    // Expected product data is immutable: nothing received, shortfall intact.
+    expect(session.tally.receivedUnits).toBe(0);
+  });
+
+  it('product card completion is protected (partial then full then duplicate)', async () => {
+    const session = await service.start('WAR-RCV-D', actor());
+    await service.confirmProduct(session.id, { identifier: 'SKUD1', identifierType: 'QR', source: 'EXTERNAL_SCANNER', operationId: `op-${tag}-p1` }, actor());
+    const partial = await service.confirmProduct(session.id, { identifier: 'SKUD2', identifierType: 'QR', source: 'EXTERNAL_SCANNER', quantity: 20, operationId: `op-${tag}-p2` }, actor());
+    const sku2 = partial.productCards.find((p: any) => p.sku === 'SKUD2');
     expect(sku2?.status).toBe('PARTIALLY_RECEIVED');
     expect(sku2?.received).toBe(20);
     expect(sku2?.expected).toBe(27); // immutable
-    const unexp = await service.receiveProduct(session.id, 'SKU-GHOST', 3, actor());
-    expect(unexp.flash?.kind).toBe('UNEXPECTED_PRODUCT');
+    // SKU-GHOST never matched a product card, so it stays unmatched.
+    const ghost = partial.productCards.find((p: any) => p.sku === 'SKU-GHOST');
+    expect(ghost).toBeUndefined();
   });
 
-  it('complete with discrepancies requires supervisor', async () => {
+  it('complete with shortages requires supervisor', async () => {
     const session = await service.start('WAR-RCV-D', actor());
-    // Worker (no resolve perm) cannot complete with open discrepancies.
+    // Worker (no resolve permission) cannot complete with open shortages.
     await expect(service.complete(session.id, actor(false))).rejects.toThrow();
   });
 
   it('perfect match -> COMPLETED and arrival RECEIVED', async () => {
-    const c = await seedArrival({ suffix: 'C', units: { SKUC: 4 }, cartons: 1 });
+    await seedArrival({ suffix: 'C', units: { SKUC: 4 }, cartons: 1 });
     const session = await service.start('WAR-RCV-C', actor());
     const code = `CTN-${tag}-C-1`;
-    await service.scanCarton(session.id, code, 'QR', actor(), 'op-c-1');
-    await service.receiveCarton(session.id, code, actor(), 'op-c-2');
-    await service.receiveProduct(session.id, 'SKUC', 4, actor());
+    const carton = await service.confirmCarton(session.id, { identifier: code, identifierType: 'QR', source: 'EXTERNAL_SCANNER', operationId: `op-${tag}-c-1` }, actor());
+    expect(carton.flash?.kind).toBe('MATCH');
+    await service.confirmProduct(session.id, { identifier: 'SKUC', identifierType: 'QR', source: 'EXTERNAL_SCANNER', quantity: 4, operationId: `op-${tag}-c-2` }, actor());
     const done = await service.complete(session.id, actor(true));
     expect(done.status).toBe('COMPLETED');
     expect(done.arrival.status).toBe('RECEIVED');
     expect(done.tally.openDiscrepancies).toBe(0);
     expect(done.tally.receivedCartons).toBe(1);
     expect(done.tally.receivedUnits).toBe(4);
+    // The worker activity log is the Admin report source.
+    const logs = await (prisma as any).receivingWorkerLog.findMany({ where: { receivingSessionId: session.id, result: 'MATCH' } });
+    expect(logs.map((l: any) => l.cardType).sort()).toEqual(['CARTON', 'PRODUCT']);
   });
 });
