@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
 import { PrismaModule } from '../../prisma/prisma.module';
+import { AssignmentsModule } from '../assignments/assignments.module';
 import { ShipmentsService } from './shipments.service';
 import { ShipmentsController } from './shipments.controller';
 import { CrmShipmentsController } from '../../integrations/crm/crm-shipments.controller';
@@ -13,7 +14,7 @@ import { IntegrationApiGuard } from '../../integrations/crm/integration-api.guar
  *  - ShipmentsController (JWT + shipments.view): Warehouse UI read
  */
 @Module({
-  imports: [PrismaModule, AuditModule],
+  imports: [PrismaModule, AuditModule, AssignmentsModule],
   controllers: [CrmShipmentsController, ShipmentsController],
   providers: [ShipmentsService, IntegrationApiGuard],
   exports: [ShipmentsService],

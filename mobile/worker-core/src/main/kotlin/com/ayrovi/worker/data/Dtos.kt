@@ -151,6 +151,35 @@ import kotlinx.serialization.json.JsonElement
     val flash: FlashView? = null,
 )
 
+// ---------------- RECEIVING HOME (automatic-dispatch feed) ----------------
+// RECEIVING never opens the scanner directly. It opens the HOME feed: the
+// PRODUCT and CARTON cards dispatched to this worker, with live counters.
+// The card lists are information only — the worker never picks a card;
+// scanning matches the physical identifier automatically on the device.
+@Serializable data class HomeProductRow(
+    val arrivalCode: String? = null, val reference: String? = null,
+    val label: String? = null, val remaining: Int = 0,
+)
+@Serializable data class HomeCartonRow(
+    val arrivalCode: String? = null, val reference: String? = null,
+    val tracking: String? = null, val remaining: Int = 0,
+)
+@Serializable data class ReceivingHome(
+    val productCards: List<ProductCard> = emptyList(),
+    val cartonCards: List<CartonCard> = emptyList(),
+    val productCardsPending: Int = 0,
+    val cartonCardsPending: Int = 0,
+    val productList: List<HomeProductRow> = emptyList(),
+    val cartonList: List<HomeCartonRow> = emptyList(),
+)
+/** Response of a HOME scan: the verdict flash plus the refreshed feed. */
+@Serializable data class HomeScanResult(
+    val ok: Boolean = true,
+    val sessionId: String? = null,
+    val flash: FlashView? = null,
+    val home: ReceivingHome? = null,
+)
+
 // ---------------- FULFILLMENT ----------------
 @Serializable data class OpContainer(
     val id: String? = null, val code: String, val type: String? = null, val status: String? = null,

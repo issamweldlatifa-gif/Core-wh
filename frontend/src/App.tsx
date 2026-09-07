@@ -21,7 +21,10 @@ import System from './pages/System';
 // WAREHOUSE OS — Worker Terminal (§3-§5) and Admin Control Center (§6).
 const WorkerShell = lazy(() => import('./terminal/WorkerShell'));
 const WorkerTerminalHome = lazy(() => import('./terminal/WorkerTerminalHome'));
-const ReceivingTask = lazy(() => import('./terminal/ReceivingTask'));
+// RECEIVING REBUILD: RECEIVING opens the new RECEIVING HOME (PRODUIT / CARTON
+// tiles with live counters + lane-specific scanners). The old arrival-picker
+// receiving screen is removed (terminal/ReceivingTask.tsx deleted).
+const ReceivingHome = lazy(() => import('./terminal/ReceivingHome'));
 const PutawayTask = lazy(() => import('./terminal/PutawayTask'));
 const SortingTask = lazy(() => import('./terminal/SortingTask'));
 const OrderSortingTask = lazy(() => import('./terminal/OrderSortingTask'));
@@ -164,7 +167,7 @@ export default function App() {
             <Route index element={<WorkerTerminalHome />} />
             <Route
               path="receiving"
-              element={<PermissionGate perm="receiving.execute"><ReceivingTask /></PermissionGate>}
+              element={<PermissionGate perm="receiving.execute"><ReceivingHome /></PermissionGate>}
             />
             <Route
               path="putaway"

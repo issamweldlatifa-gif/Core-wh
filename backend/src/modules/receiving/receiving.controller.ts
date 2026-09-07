@@ -38,6 +38,48 @@ export class ReceivingController {
     };
   }
 
+  // ----------------------------------------------------------------
+  // RECEIVING HOME — automatic-dispatch worker feed (card rebuild).
+  //
+  // GET  /receiving/home            → the worker's PRODUCT + CARTON cards
+  //                                    and live counters (no arrival picker)
+  // POST /receiving/home/product    → scan/confirm a PRODUCT card
+  // POST /receiving/home/carton     → scan/confirm a CARTON card
+  // POST /receiving/home/mismatch   → log a device-side MISMATCH
+  //
+  // The device performs the matching against the downloaded cards; the
+  // backend resolves the owning arrival/session automatically and remains
+  // the final authority for validation, persistence, duplicate protection
+  // and the worker activity log.
+  // ----------------------------------------------------------------
+  @Get('home')
+  @RequirePermissions('receiving.view')
+  @ApiOperation({ summary: 'Receiving Home: the worker’s available PRODUCT and CARTON cards + live counters.' })
+  home(@Req() req: any) {
+    return this.receiving.workerHome(this.actor(req).id, this.actor(req));
+  }
+
+  @Post('home/product')
+  @RequirePermissions('receiving.execute')
+  @ApiOperation({ summary: 'Confirm a PRODUCT card scanned from Receiving Home (auto-resolves the session).' })
+  homeProduct(@Body() body: ProductConfirmInput, @Req() req: any) {
+    return this.receiving.homeConfirmProduct(body, this.actor(req));
+  }
+
+  @Post('home/carton')
+  @RequirePermissions('receiving.execute')
+  @ApiOperation({ summary: 'Confirm a CARTON card scanned from Receiving Home (auto-resolves the session).' })
+  homeCarton(@Body() body: CardConfirmInput, @Req() req: any) {
+    return this.receiving.homeConfirmCarton(body, this.actor(req));
+  }
+
+  @Post('home/mismatch')
+  @RequirePermissions('receiving.execute')
+  @ApiOperation({ summary: 'Log a device-side MISMATCH from Receiving Home (nothing confirmed, nothing completed).' })
+  homeMismatch(@Body() body: MismatchInput, @Req() req: any) {
+    return this.receiving.homeMismatch(body, this.actor(req));
+  }
+
   @Get('arrivals')
   @RequirePermissions('receiving.view')
   @ApiOperation({ summary: 'List arrivals awaiting/in receiving (terminal picker).' })

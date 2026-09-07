@@ -145,7 +145,73 @@ export type ScanSource = 'CAMERA' | 'EXTERNAL_SCANNER' | 'MANUAL';
 /** Identifier class sent with a confirm / mismatch (device-derived). */
 export type IdentifierType = 'QR' | 'BARCODE' | 'OCR' | 'MANUAL';
 
+/** One line in the Receiving Home visible card list (information only). */
+export interface ReceivingHomeProductRow {
+  arrivalCode: string;
+  reference: string | null;
+  label: string | null;
+  remaining: number;
+}
+export interface ReceivingHomeCartonRow {
+  arrivalCode: string;
+  reference: string;
+  tracking: string | null;
+  remaining: number;
+}
+
+/**
+ * RECEIVING HOME payload — the automatic-dispatch worker feed.
+ * `productCards` / `cartonCards` are the device-side matching corpora (the
+ * worker never chooses a card); `*Pending` drive the home counters and the
+ * `*List` arrays are the visible "what arrived" enumeration.
+ */
+export interface ReceivingHome {
+  productCards: ProductCard[];
+  cartonCards: CartonCard[];
+  productCardsPending: number;
+  cartonCardsPending: number;
+  productList: ReceivingHomeProductRow[];
+  cartonList: ReceivingHomeCartonRow[];
+  arrivals: Array<{ id: string; code: string; customerName: string }>;
+  worker: { id: string; name: string | null };
+}
+
+/** Response shape of a home scan (confirm or mismatch). */
+export interface HomeScanResult {
+  ok: boolean;
+  sessionId?: string | null;
+  flash?: Flash | null;
+  home: ReceivingHome;
+}
+
 export const api = {
+  /** RECEIVING HOME: the worker's available PRODUCT + CARTON cards + counters. */
+  home: () => client.get<ReceivingHome>('/v1/receiving/home').then((r) => r.data),
+  /** PRODUCT scan from Receiving Home (backend auto-resolves the session). */
+  homeProduct: (body: {
+    identifier: string;
+    identifierType: IdentifierType;
+    quantity?: number;
+    source: ScanSource;
+    operationId: string;
+    startedAt: string;
+  }) => client.post<HomeScanResult>('/v1/receiving/home/product', body).then((r) => r.data),
+  /** CARTON scan from Receiving Home (backend auto-resolves the session). */
+  homeCarton: (body: {
+    identifier: string;
+    identifierType: IdentifierType;
+    source: ScanSource;
+    operationId: string;
+    startedAt: string;
+  }) => client.post<HomeScanResult>('/v1/receiving/home/carton', body).then((r) => r.data),
+  /** Device-side MISMATCH from Receiving Home (nothing confirmed/completed). */
+  homeMismatch: (body: {
+    cardType: 'PRODUCT' | 'CARTON';
+    identifier: string;
+    identifierType: IdentifierType;
+    source: ScanSource;
+    startedAt: string;
+  }) => client.post<HomeScanResult>('/v1/receiving/home/mismatch', body).then((r) => r.data),
   arrivals: () =>
     client.get<ReceivingArrival[]>('/v1/receiving/arrivals').then((r) => r.data),
   active: (idOrCode: string) =>

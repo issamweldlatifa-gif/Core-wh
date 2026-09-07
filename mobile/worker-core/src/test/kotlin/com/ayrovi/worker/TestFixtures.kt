@@ -1,7 +1,6 @@
 package com.ayrovi.worker
 
 import com.ayrovi.worker.data.*
-import com.ayrovi.worker.domain.CardMatcher
 
 /** Test doubles ONLY. No mock repository/data is included in the application. */
 internal class MemorySessions : SessionStorage {
@@ -39,107 +38,99 @@ internal class MemoryJournal : MutationJournal {
 }
 
 /**
- * Card-based receiving double. Product and carton card data are the SAME
- * objects the device-side CardMatcher sees; the confirm endpoints mutate
+ * RECEIVING HOME double. The PRODUCT and CARTON card data are the SAME
+ * objects the device-side CardMatcher sees; the home confirm endpoints mutate
  * them the way the backend does (one unit per product confirm, carton status
- * RECEIVED, tally derived from the cards).
+ * RECEIVED, counters derived from the remaining cards).
  */
-internal class ReceivingBackend : ReceivingGateway {
+internal class HomeBackend : ReceivingGateway {
     val calls = mutableListOf<String>()
-    var current = session()
-    var active: ReceivingSession? = null
-    var productScanType: String? = null
-    var productSource: String? = null
-    var cartonScanType: String? = null
-    var cartonSource: String? = null
-    var mismatchCardType: String? = null
-    var mismatchScanType: String? = null
+    var productCards = mutableListOf(
+        ProductCard(id = "line", sku = "SKU/A-01", reference = "REF-ONLY", productName = "Test product",
+            expected = 2, received = 0, remaining = 2, status = "EXPECTED", identifiers = listOf("SKU/A-01", "REF-ONLY")),
+    )
+    var cartonCards = mutableListOf(
+        CartonCard(id = "carton", externalCartonId = "CTN-001", reference = "REF-CTN-001",
+            qrCodeValue = "QR-CTN-001", barcodeValue = "BC-CTN-001",
+            cartonNumber = 1, totalCartons = 1, trackingNumber = "TRK-001", senderName = "Sender Co",
+            weight = 12.0, weightUnit = "KG", status = "EXPECTED",
+            identifiers = listOf("CTN-001", "REF-CTN-001", "QR-CTN-001", "BC-CTN-001", "TRK-001")),
+    )
+    var homeFailures = 0
     var confirmFailure: Exception? = null
-    var mismatchFailure: Exception? = null
-    var readFailure: Exception? = null
-    var activeFailure: Exception? = null
-    var startCalls = 0
-    var productCalls = 0
-    var cartonCalls = 0
-    var mismatchCalls = 0
-    var completionCalls = 0
-    var flagCalls = 0
 
-    override suspend fun arrivals(): List<ArrivalRow> { calls += "arrivals"; return listOf(ArrivalRow(id = "arrival", code = "WAR-001", customerName = "Test customer", cartons = 1, units = 2)) }
-    override suspend fun receivingSession(sessionId: String): ReceivingSession { calls += "session"; readFailure?.let { throw it }; return current }
-    override suspend fun activeSession(arrivalIdOrCode: String): ReceivingSession? { calls += "active:$arrivalIdOrCode"; activeFailure?.let { throw it }; return active }
-    override suspend fun startReceiving(arrivalIdOrCode: String): ReceivingSession { startCalls++; calls += "start"; active = current; return current }
+    private fun feed(): ReceivingHome = ReceivingHome(
+        productCards = productCards.filter { it.received < it.expected },
+        cartonCards = cartonCards.filter { it.status != "RECEIVED" },
+        productCardsPending = productCards.count { it.received < it.expected },
+        cartonCardsPending = cartonCards.count { it.status != "RECEIVED" },
+        productList = productCards.mapNotNull { p ->
+            if (p.received >= p.expected) null else HomeProductRow("WAR-001", p.sku ?: p.reference, p.productName, p.remaining)
+        },
+        cartonList = cartonCards.mapNotNull { c ->
+            if (c.status == "RECEIVED") null else HomeCartonRow("WAR-001", c.externalCartonId, c.trackingNumber, 1)
+        },
+    )
 
-    override suspend fun confirmProduct(sessionId: String, identifier: String, identifierType: String, quantity: Int, operationId: String, source: String, startedAt: String?): ReceivingSession {
-        calls += "confirm-product"; productCalls++; productScanType = identifierType; productSource = source
+    override suspend fun receivingHome(): ReceivingHome { calls += "home"; return feed() }
+
+    override suspend fun homeConfirmProduct(
+        identifier: String, identifierType: String, quantity: Int,
+        operationId: String, source: String, startedAt: String?,
+    ): HomeScanResult {
+        calls += "home-product"
         confirmFailure?.let { throw it }
-        if (current.status != "RECEIVING") throw WorkerRepository.ApiException(409, "Session is not active.")
-        val card = current.productCards.firstOrNull { CardMatcher.sameCode(identifier, it.sku) || CardMatcher.sameCode(identifier, it.reference) }
-            ?: return current.copy(flash = FlashView(kind = "MISMATCH", cardType = "PRODUCT", code = identifier))
-        if (card.received >= card.expected) return current.copy(flash = FlashView(kind = "CARD_ALREADY_COMPLETE", cardType = "PRODUCT", code = card.sku ?: identifier))
+        val card = productCards.firstOrNull {
+            com.ayrovi.worker.domain.CardMatcher.sameCode(identifier, it.sku) ||
+                com.ayrovi.worker.domain.CardMatcher.sameCode(identifier, it.reference)
+        } ?: return HomeScanResult(ok = false, flash = FlashView(kind = "MISMATCH", cardType = "PRODUCT", code = identifier), home = feed())
+        if (card.received >= card.expected) return HomeScanResult(ok = true,
+            flash = FlashView(kind = "CARD_ALREADY_COMPLETE", cardType = "PRODUCT", code = card.sku), home = feed())
         val received = card.received + quantity
-        current = current.copy(
-            productCards = current.productCards.map {
-                if (it.id != card.id) it else it.copy(
-                    received = received, remaining = (it.expected - received).coerceAtLeast(0),
-                    status = when { received >= it.expected -> "RECEIVED" else -> "PARTIALLY_RECEIVED" },
-                )
-            },
-            tally = current.tally.copy(
-                receivedUnits = current.tally.receivedUnits + quantity,
-                receivedProducts = current.productCards.count { it.received >= it.expected },
-                shortUnits = current.productCards.sumOf { (it.expected - it.received).coerceAtLeast(0) },
-            ),
-            flash = FlashView(kind = "MATCH", cardType = "PRODUCT", code = card.sku ?: identifier, sku = identifier, expected = card.expected, received = received),
-        )
-        return current
+        productCards = productCards.map {
+            if (it.id != card.id) it else it.copy(received = received, remaining = (it.expected - received).coerceAtLeast(0),
+                status = if (received >= it.expected) "RECEIVED" else "PARTIALLY_RECEIVED")
+        }.toMutableList()
+        return HomeScanResult(ok = true, sessionId = "session",
+            flash = FlashView(kind = "MATCH", cardType = "PRODUCT", code = card.sku ?: identifier, expected = card.expected, received = received),
+            home = feed())
     }
 
-    override suspend fun confirmCarton(sessionId: String, identifier: String, identifierType: String, operationId: String, source: String, startedAt: String?): ReceivingSession {
-        calls += "confirm-carton"; cartonCalls++; cartonScanType = identifierType; cartonSource = source
+    override suspend fun homeConfirmCarton(
+        identifier: String, identifierType: String,
+        operationId: String, source: String, startedAt: String?,
+    ): HomeScanResult {
+        calls += "home-carton"
         confirmFailure?.let { throw it }
-        if (current.status != "RECEIVING") throw WorkerRepository.ApiException(409, "Session is not active.")
-        val card = current.cartonCards.firstOrNull {
-            CardMatcher.sameCode(identifier, it.externalCartonId) || CardMatcher.sameCode(identifier, it.reference) ||
-                CardMatcher.sameCode(identifier, it.qrCodeValue) || CardMatcher.sameCode(identifier, it.barcodeValue)
-        } ?: current.cartonCards.firstOrNull { CardMatcher.sameCode(identifier, it.trackingNumber) }
-        if (card == null) return current.copy(flash = FlashView(kind = "MISMATCH", cardType = "CARTON", code = identifier))
-        if (card.status == "RECEIVED") return current.copy(flash = FlashView(kind = "CARD_ALREADY_COMPLETE", cardType = "CARTON", code = card.externalCartonId ?: identifier))
-        current = current.copy(
-            cartonCards = current.cartonCards.map { if (it.id != card.id) it else it.copy(status = "RECEIVED") },
-            tally = current.tally.copy(receivedCartons = current.tally.receivedCartons + 1, missingCartons = (current.tally.missingCartons - 1).coerceAtLeast(0)),
-            flash = FlashView(kind = "MATCH", cardType = "CARTON", code = card.externalCartonId ?: identifier),
-        )
-        return current
+        val card = cartonCards.firstOrNull {
+            com.ayrovi.worker.domain.CardMatcher.sameCode(identifier, it.externalCartonId) ||
+                com.ayrovi.worker.domain.CardMatcher.sameCode(identifier, it.reference) ||
+                com.ayrovi.worker.domain.CardMatcher.sameCode(identifier, it.qrCodeValue) ||
+                com.ayrovi.worker.domain.CardMatcher.sameCode(identifier, it.barcodeValue) ||
+                com.ayrovi.worker.domain.CardMatcher.sameCode(identifier, it.trackingNumber)
+        } ?: return HomeScanResult(ok = false, flash = FlashView(kind = "MISMATCH", cardType = "CARTON", code = identifier), home = feed())
+        if (card.status == "RECEIVED") return HomeScanResult(ok = true,
+            flash = FlashView(kind = "CARD_ALREADY_COMPLETE", cardType = "CARTON", code = card.externalCartonId), home = feed())
+        cartonCards = cartonCards.map { if (it.id != card.id) it else it.copy(status = "RECEIVED") }.toMutableList()
+        return HomeScanResult(ok = true, sessionId = "session",
+            flash = FlashView(kind = "MATCH", cardType = "CARTON", code = card.externalCartonId), home = feed())
     }
 
-    override suspend fun reportMismatch(sessionId: String, cardType: String, identifier: String, identifierType: String, source: String, startedAt: String?): ReceivingSession {
-        calls += "mismatch"; mismatchCalls++; mismatchCardType = cardType; mismatchScanType = identifierType
-        mismatchFailure?.let { throw it }
-        return current.copy(flash = FlashView(kind = "MISMATCH", cardType = cardType, code = identifier))
-    }
+    override suspend fun homeMismatch(
+        cardType: String, identifier: String, identifierType: String, source: String, startedAt: String?,
+    ): HomeScanResult { calls += "home-mismatch"; return HomeScanResult(ok = true, flash = FlashView(kind = "MISMATCH", cardType = cardType, code = identifier), home = feed()) }
 
-    override suspend fun pauseSession(sessionId: String): ReceivingSession { calls += "pause"; current = current.copy(status = "PAUSED"); return current }
-    override suspend fun resumeSession(sessionId: String): ReceivingSession { calls += "resume"; current = current.copy(status = "RECEIVING"); return current }
-    override suspend fun completeSession(sessionId: String): ReceivingSession { calls += "complete"; completionCalls++; current = current.copy(status = "COMPLETED"); return current }
-    override suspend fun flagSession(sessionId: String, reason: String, sku: String?, code: String?): ReceivingSession { calls += "flag:$reason"; flagCalls++; return current }
-    override suspend fun resolveDiscrepancy(discrepancyId: String, resolution: String): ReceivingSession { calls += "resolve"; return current }
-
-    companion object {
-        fun session() = ReceivingSession(
-            id = "session", code = "RCV-000201", status = "RECEIVING", startedAt = "2026-09-05T08:00:00Z",
-            arrival = DetailArrival(id = "arrival", code = "WAR-001", customerName = "Test customer"),
-            productCards = listOf(
-                ProductCard(id = "line", sku = "Sku/a-01", reference = "REF-ONLY", productName = "A long test product name for a physical unit",
-                    expected = 2, received = 0, remaining = 2, status = "EXPECTED", identifiers = listOf("SKU/A-01", "REF-ONLY")),
-            ),
-            cartonCards = listOf(
-                CartonCard(id = "carton", externalCartonId = "CTN-001", reference = "REF-CTN-001", qrCodeValue = "QR-CTN-001", barcodeValue = "BC-CTN-001",
-                    cartonNumber = 1, totalCartons = 1, trackingNumber = "TRK-001", senderName = "Sender Co",
-                    weight = 12.0, weightUnit = "KG", status = "EXPECTED",
-                    identifiers = listOf("CTN-001", "REF-CTN-001", "QR-CTN-001", "BC-CTN-001")),
-            ),
-            tally = ReceivingTally(expectedCartons = 1, receivedCartons = 0, expectedProducts = 1, receivedProducts = 0, expectedUnits = 2, receivedUnits = 0, openDiscrepancies = 0, shortUnits = 2, overageUnits = 0, unexpectedProducts = 0, missingCartons = 1),
-        )
-    }
+    // Legacy session contract — not used by the home flow.
+    override suspend fun arrivals() = listOf(ArrivalRow(id = "arrival", code = "WAR-001"))
+    override suspend fun receivingSession(sessionId: String): ReceivingSession = throw UnsupportedOperationException()
+    override suspend fun activeSession(arrivalIdOrCode: String): ReceivingSession? = throw UnsupportedOperationException()
+    override suspend fun startReceiving(arrivalIdOrCode: String): ReceivingSession = throw UnsupportedOperationException()
+    override suspend fun confirmProduct(sessionId: String, identifier: String, identifierType: String, quantity: Int, operationId: String, source: String, startedAt: String?): ReceivingSession = throw UnsupportedOperationException()
+    override suspend fun confirmCarton(sessionId: String, identifier: String, identifierType: String, operationId: String, source: String, startedAt: String?): ReceivingSession = throw UnsupportedOperationException()
+    override suspend fun reportMismatch(sessionId: String, cardType: String, identifier: String, identifierType: String, source: String, startedAt: String?): ReceivingSession = throw UnsupportedOperationException()
+    override suspend fun pauseSession(sessionId: String): ReceivingSession = throw UnsupportedOperationException()
+    override suspend fun resumeSession(sessionId: String): ReceivingSession = throw UnsupportedOperationException()
+    override suspend fun completeSession(sessionId: String): ReceivingSession = throw UnsupportedOperationException()
+    override suspend fun flagSession(sessionId: String, reason: String, sku: String?, code: String?): ReceivingSession = throw UnsupportedOperationException()
+    override suspend fun resolveDiscrepancy(discrepancyId: String, resolution: String): ReceivingSession = throw UnsupportedOperationException()
 }

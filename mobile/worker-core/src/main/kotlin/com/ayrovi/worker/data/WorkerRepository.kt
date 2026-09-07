@@ -62,6 +62,56 @@ class WorkerRepository(
             """{"resolution":${jq(resolution)}}""",
         ))
 
+    // ---------------- RECEIVING HOME (automatic-dispatch feed) ----------------
+    override suspend fun receivingHome(): ReceivingHome =
+        json.decodeFromString(ReceivingHome.serializer(), get("/v1/receiving/home"))
+
+    override suspend fun homeConfirmProduct(
+        identifier: String, identifierType: String, quantity: Int,
+        operationId: String, source: String, startedAt: String?,
+    ): HomeScanResult {
+        val body = buildString {
+            append("{\"identifier\":").append(jq(identifier))
+            append(",\"identifierType\":").append(jq(identifierType))
+            append(",\"quantity\":").append(quantity)
+            append(",\"operationId\":").append(jq(operationId))
+            append(",\"source\":").append(jq(source))
+            if (startedAt != null) append(",\"startedAt\":").append(jq(startedAt))
+            append("}")
+        }
+        return json.decodeFromString(HomeScanResult.serializer(), post("/v1/receiving/home/product", body))
+    }
+
+    override suspend fun homeConfirmCarton(
+        identifier: String, identifierType: String,
+        operationId: String, source: String, startedAt: String?,
+    ): HomeScanResult {
+        val body = buildString {
+            append("{\"identifier\":").append(jq(identifier))
+            append(",\"identifierType\":").append(jq(identifierType))
+            append(",\"operationId\":").append(jq(operationId))
+            append(",\"source\":").append(jq(source))
+            if (startedAt != null) append(",\"startedAt\":").append(jq(startedAt))
+            append("}")
+        }
+        return json.decodeFromString(HomeScanResult.serializer(), post("/v1/receiving/home/carton", body))
+    }
+
+    override suspend fun homeMismatch(
+        cardType: String, identifier: String,
+        identifierType: String, source: String, startedAt: String?,
+    ): HomeScanResult {
+        val body = buildString {
+            append("{\"cardType\":").append(jq(cardType))
+            append(",\"identifier\":").append(jq(identifier))
+            append(",\"identifierType\":").append(jq(identifierType))
+            append(",\"source\":").append(jq(source))
+            if (startedAt != null) append(",\"startedAt\":").append(jq(startedAt))
+            append("}")
+        }
+        return json.decodeFromString(HomeScanResult.serializer(), post("/v1/receiving/home/mismatch", body))
+    }
+
     // ---------------- RECEIVING (one existing backend contract) ----------------
     override suspend fun arrivals(): List<ArrivalRow> =
         json.decodeFromString(

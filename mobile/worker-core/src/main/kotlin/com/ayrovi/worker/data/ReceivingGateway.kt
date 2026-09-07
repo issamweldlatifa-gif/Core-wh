@@ -10,6 +10,24 @@ package com.ayrovi.worker.data
  * activity log. A mismatch never confirms and is logged as a failure.
  */
 interface ReceivingGateway {
+    /** RECEIVING HOME feed: cards dispatched to this worker + live counters. */
+    suspend fun receivingHome(): ReceivingHome
+    /** PRODUCT scan from Receiving Home (backend auto-resolves the session). */
+    suspend fun homeConfirmProduct(
+        identifier: String, identifierType: String, quantity: Int,
+        operationId: String, source: String, startedAt: String? = null,
+    ): HomeScanResult
+    /** CARTON scan from Receiving Home (backend auto-resolves the session). */
+    suspend fun homeConfirmCarton(
+        identifier: String, identifierType: String,
+        operationId: String, source: String, startedAt: String? = null,
+    ): HomeScanResult
+    /** Device-side MISMATCH from Receiving Home (nothing confirmed/completed). */
+    suspend fun homeMismatch(
+        cardType: String, identifier: String,
+        identifierType: String, source: String, startedAt: String? = null,
+    ): HomeScanResult
+
     suspend fun arrivals(): List<ArrivalRow>
     suspend fun receivingSession(sessionId: String): ReceivingSession
     suspend fun activeSession(arrivalIdOrCode: String): ReceivingSession?

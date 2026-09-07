@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma, PrismaClient } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { TaskDispatchService } from '../assignments/dispatch.service';
 import { ShipmentCardEventDto } from '../../integrations/crm/dto/shipment-card.dto';
 import type { IntegrationPrincipal } from '../expected-arrivals/expected-arrivals.service';
 
@@ -25,6 +26,7 @@ export class ShipmentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly dispatch: TaskDispatchService,
   ) {}
 
   /**
@@ -223,6 +225,20 @@ export class ShipmentsService {
         },
         tx,
       );
+
+      // Automatic dispatch (no manual "Send"): a new CARTON card makes the
+      // receiving work available to an eligible worker, using the SAME
+      // assignment/dispatch system as every other workflow. Idempotent — a
+      // replay (created:false) never reaches here and an open assignment is
+      // never duplicated.
+      const arrivalId = arrival?.id ?? null;
+      if (arrivalId) {
+        await this.dispatch.dispatch(
+          'receiving',
+          { arrivalId, entityCode: arrival?.code ?? created.code },
+          { db: tx, reason: `CRM shipment card ${shipmentId} processed` },
+        );
+      }
 
       return created;
     });
