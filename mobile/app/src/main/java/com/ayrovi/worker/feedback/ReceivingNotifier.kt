@@ -1,6 +1,7 @@
 package com.ayrovi.worker.feedback
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -43,7 +44,12 @@ class ReceivingNotifier(private val context: Context) {
         Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
-    /** Show a "new card" tray notification. Safe to call without the runtime permission. */
+    /**
+     * Show a "new card" tray notification. The permission is guarded by
+     * [permitted] on this exact call path and the notify is wrapped so a
+     * revoked permission degrades silently; @SuppressLint documents that guard.
+     */
+    @SuppressLint("MissingPermission")
     fun newCard(product: Boolean, count: Int) {
         if (!permitted() || count <= 0) return
         val title = if (product) "New Product Card received" else "New Carton Card received"
