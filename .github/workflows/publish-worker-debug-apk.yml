@@ -1,0 +1,107 @@
+name: One-shot publish Worker debug APK (arena session helper)
+
+# TEMPORARY helper for the arena/01a0793c-core-wh session only.
+# Added -> runs once (pull_request opened) -> dropped before the PR is merged.
+# The merged PR therefore carries ZERO workflow diff (same pattern the repo
+# already used for the worker-canary helper: commits 9401be6 / b8d492c).
+# It builds the current master mobile tree and publishes a debug QA APK as a
+# GitHub Release (no managed signing keys exist -> assembleRelease is not
+# possible; per app/build.gradle.kts release tasks fail without AYROVI_SIGNING_*).
+
+on:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - '.github/workflows/publish-worker-debug-apk.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    name: Build debug APK from master and publish GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build the current master mobile tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout origin/master
+          echo "Building mobile tree from commit: $(git rev-parse HEAD)"
+      - name: Install Android platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Compile worker modules and assemble debug APK
+        working-directory: mobile
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew :scanner-core:test :worker-core:test :app:assembleDebug --no-daemon --console=plain
+      - name: Stage APK asset and checksums
+        working-directory: mobile
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHORT=$(git rev-parse --short=7 HEAD)
+          cp app/build/outputs/apk/debug/app-debug.apk "app-debug-${SHORT}.apk"
+          sha256sum "app-debug-${SHORT}.apk" | tee SHA256SUMS
+          ls -la "app-debug-${SHORT}.apk"
+          echo "APK_ASSET=app-debug-${SHORT}.apk" >> "$GITHUB_ENV"
+          echo "SRC_SHA_SHORT=${SHORT}" >> "$GITHUB_ENV"
+      - name: Compose release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<'EOF'
+          AYROVI Worker — native Android, debug QA APK.
+
+          - Source commit (master mobile tree at build time): `$(git rev-parse origin/master)`
+          - APK sha256: see SHA256SUMS asset
+          - versionCode 45 / versionName 1.5.1-rc1 / package com.ayrovi.worker
+          - Build variant: DEBUG (debug-signed; internal warehouse QA only, never Google Play)
+          - assembleRelease is not possible here: no managed AYROVI_SIGNING_* keys are
+            configured (release tasks fail without them by design).
+
+          Why built on GitHub Actions: this sandbox has no network egress to
+          services.gradle.org / dl.google.com / Maven repositories, so a local
+          `./gradlew assembleDebug` cannot download Gradle, the Android SDK or
+          dependencies. The existing android-build.yml only stores artifacts
+          (deliberately no release), so this one-shot helper (dropped before the
+          PR merge — zero workflow diff in master, same pattern as the earlier
+          worker-canary helper) publishes the APK as a GitHub Release.
+
+          Evidence: run ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          Report: AYROVI_MASTER_WORKFLOW_IMPLEMENTATION_REPORT.md
+          EOF
+          echo "notes file ready"
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="worker-1.5.1-rc1"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::Release tag $TAG already exists — refusing to overwrite."
+            exit 1
+          fi
+          gh release create "$TAG" \
+            "mobile/${APK_ASSET}" \
+            "mobile/SHA256SUMS" \
+            --title "AYROVI Worker 1.5.1-rc1 (build 45) — debug QA APK" \
+            --notes-file release-notes.md \
+            --prerelease
+          echo "::notice::Published release: $(gh release view "$TAG" --json url -q .url)"
