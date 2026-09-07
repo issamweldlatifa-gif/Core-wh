@@ -161,6 +161,8 @@ describe('Isolated 90-unit operational validation', () => {
       const packed = (await api('packing', 'post', `/fulfillment/packing/containers/${bin}/pack`, {}).expect(201)).body;
       const code = packed.shipment.code;
       await api('shipping', 'get', `/fulfillment/shipping/shipments/${code}`).expect(200);
+      // Pre-dispatch verification (content-hash-bound, 10-minute window) gates the ship.
+      await api('shipping', 'post', `/fulfillment/shipping/shipments/${code}/verify`, {}).expect(201);
       await api('shipping', 'post', `/fulfillment/shipping/shipments/${code}/ship`, {}).expect(201);
       await api('shipping', 'post', `/fulfillment/shipping/shipments/${code}/ship`, {}).expect(409);
       const admin = (await api('admin', 'get', `/fulfillment/outbound-shipments?q=${code}`).expect(200)).body;
