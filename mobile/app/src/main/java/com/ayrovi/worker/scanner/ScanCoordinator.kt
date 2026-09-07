@@ -6,7 +6,16 @@ class ScanCoordinator(
     private val onRejected: (reason: String) -> Unit,
     val manager: ScannerManager = ScannerManager(initiallyEnabled = true),
     private val onResult: ((ScanResult) -> Unit)? = null,
+    private val onOcrReview: ((block: String, result: DirectedOcrResult) -> Unit)? = null,
 ) {
+    fun onOcrBlock(block: String, template: OcrTemplate = SkuTemplate) {
+        // Live engine text is NEVER submitted here: readings that contain a
+        // candidate go to the review UI, and the operator still confirms
+        // every code. Blocks without a candidate keep scanning silently.
+        val reading = DirectedOcr(template).read(block)
+        if (reading.candidate != null) onOcrReview?.invoke(block, reading)
+    }
+
     fun onScanned(raw: String, fromOcr: Boolean, source: String = "CAMERA", symbology: ScanSymbology = ScanSymbology.UNKNOWN) {
         if (fromOcr) {
             // No live OCR acceptance: a format score is not an AYROVI product match.

@@ -52,6 +52,7 @@ internal fun PhoneReceiving(
                             WorkerIcon(TerminalIcon.MANUAL, null, Modifier.size(TerminalTokens.icon))
                             Spacer(Modifier.width(TerminalTokens.xs)); Text("MANUAL CODE")
                         }
+                        SecondaryAction("READ LABEL TEXT", capture.ocr, enabled)
                     }
                 }
             }

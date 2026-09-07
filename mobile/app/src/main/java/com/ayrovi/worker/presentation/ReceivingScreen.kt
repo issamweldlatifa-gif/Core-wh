@@ -71,6 +71,9 @@ fun ReceivingScreen(
     LaunchedEffect(cameraRequested) {
         if (cameraRequested && model.captureAllowed) { capture.camera(); cameraRequested = false }
     }
+    LaunchedEffect(ocrRequested) {
+        if (ocrRequested && model.captureAllowed) { capture.ocr(); ocrRequested = false }
+    }
     when (device) {
         WorkerDevice.CT40 -> CT40Receiving(view, capture, model.captureAllowed, worker, station, connection,
             model::send, onBack, openMenu, settings, refresh)
