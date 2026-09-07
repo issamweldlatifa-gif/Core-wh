@@ -69,6 +69,9 @@ internal fun CT40Receiving(
                         capture.preview(Modifier.fillMaxWidth().height(TerminalTokens.scanPreview))
                         SecondaryAction("CANCEL CAMERA", capture.cancel)
                     }
+                    // OCR label-text fallback, opened from TASK ACTIONS. Same
+                    // review gate as the phone: nothing auto-submits.
+                    view.captureVisible && capture.ocrOpen -> OcrScan(capture, enabled)
                     view.captureVisible && !view.feedback.transient -> {
                         if (fontScale <= 1.2f) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
                             WorkerIcon(TerminalIcon.SCANNER, null, Modifier.size(TerminalTokens.iconSmall))

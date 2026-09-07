@@ -41,6 +41,7 @@ internal fun PhoneReceiving(
                         capture.preview(Modifier.fillMaxWidth().height(TerminalTokens.scanPreview))
                         SecondaryAction("CANCEL SCAN", capture.cancel)
                     }
+                    capture.ocrOpen -> OcrScan(capture, enabled)
                     else -> {
                         Box(Modifier.fillMaxWidth().height(TerminalTokens.stateIcon), contentAlignment = Alignment.Center) {
                             WorkerIcon(TerminalIcon.SCANNER, "Scanner", Modifier.size(TerminalTokens.stateIcon), TerminalTokens.instruction)

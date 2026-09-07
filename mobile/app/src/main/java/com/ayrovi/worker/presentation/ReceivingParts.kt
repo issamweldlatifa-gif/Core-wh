@@ -56,6 +56,18 @@ internal fun ManualScan(capture: ScannerCapture, enabled: Boolean) {
     SecondaryAction("CLOSE KEYPAD", capture.manual, enabled)
 }
 
+/** OCR review: multi-line label text in, operator-confirmed SKU out. Nothing auto-submits. */
+@Composable
+internal fun OcrScan(capture: ScannerCapture, enabled: Boolean) {
+    Column(Modifier.fillMaxWidth().testTag("OCR_SCAN"), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+        TerminalTextInput("LABEL TEXT", capture.ocrText, capture.setOcrText, enabled = enabled, singleLine = false, onSubmit = capture.submitOcr)
+        capture.ocrSuggestion?.candidate?.let { BarcodeDisplay(it) }
+        capture.ocrError?.let { ErrorState("NO SKU FOUND", it) }
+        PrimaryAction("SUBMIT SKU", capture.submitOcr, enabled && capture.ocrText.isNotBlank())
+        SecondaryAction("CLOSE OCR", capture.ocr, enabled)
+    }
+}
+
 @Composable
 internal fun ReceivingReview(view: ReceivingPresentation, send: (ReceivingIntent) -> Unit, compact: Boolean) {
     val state = view.workflow

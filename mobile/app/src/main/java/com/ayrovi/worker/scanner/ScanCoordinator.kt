@@ -22,6 +22,18 @@ class ScanCoordinator(
         else onAccepted(result.value, false, result.source.name)
     }
 
+    fun onOcrConfirmed(result: DirectedOcrResult) {
+        // Reviewed OCR only: raw engine text still goes through onScanned and
+        // is rejected there. A confirmed candidate is operator-accepted text,
+        // so it submits as MANUAL through the same single scan guard.
+        val code = result.takeIf { it.confirmed }?.candidate
+        if (code == null) { onRejected("OCR_REQUIRES_MANUAL_REVIEW"); return }
+        val captured = manager.capture(code, ScanSource.MANUAL, ScanSymbology.UNKNOWN)
+        if (captured == null) onRejected(manager.state.value.detail)
+        else if (onResult != null) onResult.invoke(captured)
+        else onAccepted(captured.value, false, captured.source.name)
+    }
+
     fun reset() = manager.rearm()
     fun unavailable(reason: String) { manager.unavailable(reason); onRejected(reason) }
 }
