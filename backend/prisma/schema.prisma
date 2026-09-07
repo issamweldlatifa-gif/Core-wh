@@ -827,6 +827,10 @@ model WarehouseOrder {
   outboundShipments OutboundShipment[]
 
   @@index([externalCustomerReference])
+  // D-64 projection search fields (created by migration 20260906180000_master_workflow_chain;
+  // declared here so the Render boot-gate `prisma migrate diff --exit-code` stays clean).
+  @@index([customerName])
+  @@index([customerSurname])
   @@index([status])
   @@index([warehouseId])
   @@map("warehouse_orders")
@@ -1216,6 +1220,9 @@ model OperationalContainer {
 
   @@index([type, status])
   @@index([orderId])
+  // Staging placement lookup (created by migration 20260906180000_master_workflow_chain;
+  // declared here so the Render boot-gate `prisma migrate diff --exit-code` stays clean).
+  @@index([stagingStationId])
   @@map("operational_containers")
 }
 

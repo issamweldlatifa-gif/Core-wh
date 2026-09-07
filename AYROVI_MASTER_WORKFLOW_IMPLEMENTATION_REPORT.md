@@ -199,3 +199,75 @@ Publishing mechanics: GitHub release-asset upload (`uploads.github.com`) is bloc
 - **Signed `assembleRelease`** — BLOCKED: `app/build.gradle.kts` fails release tasks without managed `AYROVI_SIGNING_STORE_FILE` / `AYROVI_SIGNING_KEY_ALIAS` / `AYROVI_SIGNING_STORE_PASSWORD` / `AYROVI_SIGNING_KEY_PASSWORD`. None are configured for this session (repo `warehouse-release` environment has no secrets). The debug APK above is the QA artifact, explicitly not a Release build.
 - **Render production deployment** — BLOCKED / not observable: no Render API token or dashboard access and no network egress to Render from this sandbox. Nothing was deployed here and no deployment was claimed. If the `core-wh` service is branch-bound to `master` with Auto-Deploy, the merge below may trigger deployment automatically; this environment cannot confirm it.
 - **Post-merge statement:** merged to master — بانتظار تأكيد النشر من لوحة رندر.
+## 13. Session follow-up — Render boot-gate drift: declare missing master-workflow indexes (2026-09-07)
+
+### 13.1 BLOCKER
+
+Render production boot was stopped at the schema-compatibility gate (`start.sh`):
+
+```bash
+npx --no-install prisma migrate diff --from-url "$DATABASE_URL" \
+  --to-schema-datamodel prisma/schema.prisma --exit-code   # non-zero → exit 1
+```
+
+`prisma migrate deploy` reported **23 applied, 0 pending** — the drift was not a missing
+migration; the database state and `schema.prisma` disagreed on indexes.
+
+### 13.2 CAUSE
+
+Migration `20260906180000_master_workflow_chain` created three indexes **via raw SQL
+(`CREATE INDEX IF NOT EXISTS`)**, but they were never declared in `schema.prisma`:
+
+| Table | Index (production name) | Migration SQL |
+|---|---|---|
+| `warehouse_orders` (WarehouseOrder) | `warehouse_orders_customerName_idx` | `20260906180000_master_workflow_chain/migration.sql:55` |
+| `warehouse_orders` (WarehouseOrder) | `warehouse_orders_customerSurname_idx` | `20260906180000_master_workflow_chain/migration.sql:56` |
+| `operational_containers` (OperationalContainer) | `operational_containers_stagingStationId_idx` | `20260906180000_master_workflow_chain/migration.sql:44` |
+
+Because the columns exist and the DB already carries those indexes while the datamodel
+did not, `prisma migrate diff --from-url … --to-schema-datamodel …` reported a
+database-only schema difference, the boot gate exited non-zero, and Render failed to start.
+
+Rollback was ruled out **before any attempt**: the migration history is linear and already
+fully applied (23/23); going back to the 22-migration state would contradict a
+fully-migrated database (confirmed by the failed 22-vs-current rollback attempt on the
+service). Forward-only.
+
+### 13.3 FIX (this commit — additive, declarative only)
+
+`backend/prisma/schema.prisma` now declares the three indexes so the datamodel matches the
+state the migration already produced in production:
+
+```prisma
+model WarehouseOrder {
+  // …
+  @@index([customerName])
+  @@index([customerSurname])
+}
+
+model OperationalContainer {
+  // …
+  @@index([stagingStationId])
+}
+```
+
+Prisma's default index naming matches the production names above exactly
+(`warehouse_orders_customerName_idx`, `warehouse_orders_customerSurname_idx`,
+`operational_containers_stagingStationId_idx`), so after this commit the drift gate
+reports a clean diff **without any new migration** — no DDL runs, no DROP, no rollback,
+nothing destructive on the production database.
+
+### 13.4 Scope discipline
+
+Only two files changed: `backend/prisma/schema.prisma` and this report. No workflow,
+frontend, mobile, or other backend code was touched.
+
+### 13.5 Post-merge statement (Render Auto-Deploy)
+
+The squash merge to `master` will trigger Render Auto-Deploy for the `core-wh` service;
+the deploy re-runs `start.sh` → `prisma migrate deploy` (no-op) → `migrate diff
+--exit-code` (expected clean now). Confirmation of the green deploy can only be made
+from the Render dashboard — no Render API token/egress exists in this environment, so no
+deployment success is claimed here. If the deploy fails again after the merge, the full
+Render log must be reproduced verbatim in the session report and analysed honestly
+(BLOCKER/CAUSE/EVIDENCE) — no fabricated success.
