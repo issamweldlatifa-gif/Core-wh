@@ -4,6 +4,8 @@
 **Date:** 2026-09-06
 **Status:** Backend + Admin frontend implemented and verified end-to-end. Production deploy and Android release are **BLOCKED** (see §9) — nothing is reported as deployed or released without proof.
 
+**Session follow-up (2026-09-07, `arena/01a0793c-core-wh`):** the Worker **debug QA APK was built and published** to a GitHub Release (§12). The production Render deployment is still not observable from this environment (no credentials/egress). Render statement after merge: **merged to master — بانتظار تأكيد النشر من لوحة رندر**.
+
 ---
 
 ## 1. What the Master Order required
@@ -129,11 +131,12 @@ Migration `20260906180000_master_workflow_chain` is **additive only** (alter/add
 |---|---|---|---|
 | **Render production deployment** | **BLOCKED** | No Render credentials and no network egress to Render in this sandbox. | Provide Render API token / dashboard access, or confirm the production branch and deploy manually. |
 | **Live URL** | **N/A** | Depends on the Render deployment above. | Provide the deployed URL once the deploy lands. |
-| **Android release APK** | **BLOCKED** | No JVM / Android SDK (egress restricted; GitHub release-asset host blocked) → cannot build a signed release APK. | Provide a JVM+SDK build environment or prebuilt signing; then build `release` and publish. |
-| **APK path** | **N/A** | No APK was built (only `versionCode`/`versionName` are set). | See above. |
-| **GitHub Release (with permanent APK link)** | **BLOCKED** | Requires the release APK, which is blocked. | See above. |
+| **Android debug APK** | ✅ **BUILT + PUBLISHED** (2026-09-07 — §12) | Local build impossible (services.gradle.org / dl.google.com / Maven egress blocked) → built on GitHub Actions from master `d3c1cdb`. | — |
+| **APK path** | ✅ §12 | `app-debug-d3c1cdb.apk` asset of Release `worker-1.5.1-rc1`. | — |
+| **GitHub Release (with permanent APK link)** | ✅ §12 | Release `worker-1.5.1-rc1` (pre-release, APK + SHA256SUMS assets). | — |
+| **Signed release APK (`assembleRelease`)** | **BLOCKED** | Repo rules fail release tasks without managed `AYROVI_SIGNING_*` secrets (store/alias/passwords); none configured for this session. Debug APK is QA-only, not a production delivery. | Configure the signing secrets in the approved environment, then run `android-release.yml` (`workflow_dispatch`). |
 
-**Explicit:** the production app was **not** deployed and **no** APK/release was created or linked. `versionName`/`versionCode` above reflect the repo source only.
+**Explicit:** the production app was **not** deployed from this environment and **no signed** release APK was created or linked. A **debug QA APK** Release was created on 2026-09-07 (see §12) — QA artifact only, never Google Play.
 
 ---
 
@@ -161,3 +164,38 @@ npx tsc --noEmit && npx vite build
 bash aitest/e2e-master-chain.sh        # 60/60
 bash aitest/e2e-admin-corrections.sh   # 23/23
 ```
+
+---
+
+## 12. Session follow-up — Worker packaging & publish (2026-09-07)
+
+### 12.1 Toolchain / build environment
+
+| Step | Result | Evidence |
+|---|---|---|
+| JDK 17 + `javac` | ✅ installed | Official JDK endpoints unreachable → npm fallback `@dragon-den/install-jdk-17@0.0.4` (bundles OpenJDK 17.0.6, ~183 MB). Verified: `java -version` = 17.0.6, `javac -version` = 17.0.6 (`~/.local/jdk/17.0.6`). |
+| Gradle 8.9 wrapper | ❌ local download | `./gradlew :app:assembleDebug` → `Downloading https://services.gradle.org/distributions/gradle-8.9-bin.zip` then `SSLHandshakeException: Remote host terminated the handshake` (services.gradle.org egress blocked; /tmp/gradle-attempt.log). |
+| Android SDK / Google Maven / Maven Central / plugins.gradle.org | ❌ unreachable from sandbox | `dl.google.com`, `repo1.maven.org`, `repo.maven.apache.org`, `plugins.gradle.org`, `downloads.gradle.org` — all TLS-blocked (curl/openssl probes). |
+| **APK build** | ✅ **GitHub Actions** | Full egress available on runners → JDK 17 (temurin) + `sdkmanager 'platforms;android-35' 'build-tools;35.0.0'` + wrapper Gradle 8.9; ran `:scanner-core:test :worker-core:test :app:assembleDebug` (same commands as the repo's own `android-build.yml`), steps gated with `set -euo pipefail` before publishing. |
+
+The sandbox egress list is allow-listed (github.com / api.github.com / registry.npmjs.org / pypi.org …); build infrastructure hosts are NOT on it, so a local `assembleDebug` cannot run here — this is the CAUSE, with the failures above as EVIDENCE. No fake build was claimed.
+
+### 12.2 Published artifact (GitHub Release with APK)
+
+| Item | Value |
+|---|---|
+| Release | https://github.com/issamweldlatifa-gif/Core-wh/releases/tag/worker-1.5.1-rc1 (pre-release) |
+| APK asset | `app-debug-d3c1cdb.apk` — **36,117,367 bytes** — debug-signed QA APK |
+| Checksums | `SHA256SUMS` asset on the same Release (canonical sha256 of the APK) |
+| Source built | master mobile tree @ `d3c1cdb` (post-PR#9 merge) |
+| CI run | https://github.com/issamweldlatifa-gif/Core-wh/actions/runs/34069900782 |
+| Version | `versionCode` 45 · `versionName` 1.5.1-rc1 · `com.ayrovi.worker` (unchanged, repo source) |
+| Variant | **DEBUG** (QA only — internal warehouse; never Google Play; not a signed production delivery) |
+
+Publishing mechanics: GitHub release-asset upload (`uploads.github.com`) is blocked from the sandbox too (verified with a throwaway draft release → `EOF`), and release assets are not accessible from the sandbox. A **one-shot helper workflow** on the session branch (added → triggered on PR-open → removed before merge) performed the build + `gh release create` on the runner. The merged master carries **zero workflow diff** — same pattern the repo already used for the worker-canary helper (commits `9401be6` add / `b8d492c` drop, already in master history).
+
+### 12.3 Remaining blockers (unchanged, no false claims)
+
+- **Signed `assembleRelease`** — BLOCKED: `app/build.gradle.kts` fails release tasks without managed `AYROVI_SIGNING_STORE_FILE` / `AYROVI_SIGNING_KEY_ALIAS` / `AYROVI_SIGNING_STORE_PASSWORD` / `AYROVI_SIGNING_KEY_PASSWORD`. None are configured for this session (repo `warehouse-release` environment has no secrets). The debug APK above is the QA artifact, explicitly not a Release build.
+- **Render production deployment** — BLOCKED / not observable: no Render API token or dashboard access and no network egress to Render from this sandbox. Nothing was deployed here and no deployment was claimed. If the `core-wh` service is branch-bound to `master` with Auto-Deploy, the merge below may trigger deployment automatically; this environment cannot confirm it.
+- **Post-merge statement:** merged to master — بانتظار تأكيد النشر من لوحة رندر.
