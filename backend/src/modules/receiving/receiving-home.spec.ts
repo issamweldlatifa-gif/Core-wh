@@ -94,13 +94,20 @@ describe('ReceivingService HOME (automatic dispatch feed)', () => {
       expect(home.cartonList[0]).toMatchObject({ arrivalCode: 'WAR-001001', reference: 'CTN-1', tracking: 'TRK-1' });
     });
 
-    it('scopes cards to the worker: arrivals assigned to another worker are excluded', async () => {
+    // REGRESSION (card delivery outage #2): dispatch() assigns an arrival to
+    // exactly ONE worker. Hiding it from everyone else made CRM cards that
+    // were plainly visible in Admin Web unreachable in the Worker App for
+    // every account except the assignee. The feed is a READ surface: the
+    // arrival stays VISIBLE to the floor, while OWNERSHIP is still enforced
+    // on write by assertOperationalAccess. `isOwn` marks the difference.
+    it('an arrival assigned to another worker stays visible, flagged not-own', async () => {
       db.workerTaskAssignment.findMany.mockResolvedValue([
         { workerId: 'other-worker', arrivalId: 'arr-1' },
       ]);
       const home = await service.workerHome('w-1', ACTOR);
-      expect(home.productCardsPending).toBe(0);
-      expect(home.cartonCardsPending).toBe(0);
+      expect(home.productCardsPending).toBe(1);
+      expect(home.cartonCardsPending).toBe(1);
+      expect(home.arrivals[0].isOwn).toBe(false);
     });
 
     it('scopes cards to the worker: the assigned worker keeps their arrival', async () => {
@@ -110,6 +117,7 @@ describe('ReceivingService HOME (automatic dispatch feed)', () => {
       const home = await service.workerHome('w-1', ACTOR);
       expect(home.productCardsPending).toBe(1);
       expect(home.cartonCardsPending).toBe(1);
+      expect(home.arrivals[0].isOwn).toBe(true);
     });
 
     // REGRESSION (card delivery outage): a COMPLETED/CANCELLED receiving

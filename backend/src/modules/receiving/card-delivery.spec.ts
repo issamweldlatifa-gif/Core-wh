@@ -127,12 +127,13 @@ describe('Unified card delivery pipeline (delivery matrix)', () => {
     expect(home.cartonCards).toHaveLength(home.cartonCardsPending);
   });
 
-  it('an arrival held by another worker hides BOTH of its lanes, not just one', async () => {
+  it('an arrival held by another worker still delivers BOTH lanes, flagged not-own', async () => {
     db.expectedArrival.findMany.mockResolvedValue([arrivalWith('a1', 'WAR-1', 2, 2)]);
     db.workerTaskAssignment.findMany.mockResolvedValue([{ workerId: 'other', arrivalId: 'a1' }]);
     const home = await service.workerHome('w-1', ACTOR);
-    expect(home.productCardsPending).toBe(0);
-    expect(home.cartonCardsPending).toBe(0);
+    expect(home.productCardsPending).toBe(2);
+    expect(home.cartonCardsPending).toBe(2);
+    expect(home.arrivals[0].isOwn).toBe(false);
   });
 
   it('a worker sees their own held arrival plus unheld open-floor work', async () => {
@@ -146,8 +147,13 @@ describe('Unified card delivery pipeline (delivery matrix)', () => {
       { workerId: 'other', arrivalId: 'a3' },
     ]);
     const home = await service.workerHome('w-1', ACTOR);
-    expect(home.productCardsPending).toBe(2);
-    expect(home.cartonCardsPending).toBe(2);
-    expect(home.arrivals.map((a: any) => a.code).sort()).toEqual(['WAR-1', 'WAR-2']);
+    // All three arrivals are delivered now (1 product + 1 carton each).
+    expect(home.productCardsPending).toBe(3);
+    expect(home.cartonCardsPending).toBe(3);
+    expect(home.arrivals.map((a: any) => a.code).sort()).toEqual(['WAR-1', 'WAR-2', 'WAR-3']);
+    const own = new Map(home.arrivals.map((a: any) => [a.code, a.isOwn]));
+    expect(own.get('WAR-1')).toBe(true);  // held by w-1
+    expect(own.get('WAR-2')).toBe(true);  // open floor
+    expect(own.get('WAR-3')).toBe(false); // held by another worker
   });
 });

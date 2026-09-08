@@ -975,12 +975,27 @@ export class ReceivingService {
       heldBy.set(row.arrivalId, holders);
     }
 
-    // In scope when nobody holds the arrival (open floor work) or when this
-    // worker is one of the holders — the same rule assertOperationalAccess
-    // enforces at write time.
-    return open.filter((a) => {
+    // VISIBILITY vs OWNERSHIP.
+    //
+    // Receiving work is auto-dispatched to exactly ONE worker (dispatch()
+    // picks candidates[0]). Scoping the FEED to that single holder meant a
+    // card pushed by the CRM was visible to one account only: every other
+    // receiving worker opened the app and saw an empty Home, which reads as
+    // "cards stopped arriving". Admin Web showed the arrival all along,
+    // because it never applied this filter.
+    //
+    // The feed is a READ surface, so it now shows the arrival to every
+    // receiving worker: the assignee (so their own work is never hidden) and
+    // the rest of the floor (so the card is visible and can be picked up).
+    // Ownership is unchanged and still enforced on WRITE by
+    // assertOperationalAccess — a worker who is not the holder can look at
+    // the card but cannot confirm against someone else's assignment. Nothing
+    // here grants extra permission; `isOwn` simply tells the UI which cards
+    // belong to this worker.
+    return open.map((a) => {
       const holders = heldBy.get(a.id);
-      return !holders || holders.size === 0 || holders.has(workerId);
+      const isOwn = !holders || holders.size === 0 || holders.has(workerId);
+      return Object.assign(a, { isOwn });
     });
   }
 
@@ -1059,23 +1074,28 @@ export class ReceivingService {
         // No session yet: expected items ARE the product cards. Aggregate by
         // normalized (sku | reference) exactly like session seeding, so lines
         // sharing a SKU are ONE card with the summed quantity (not N cards).
-        const lines = new Map<string, { sku: string | null; reference: string | null; productName: string | null; qty: number; category: string | null; subcategory: string | null; categoryStatus: string }>();
+        const lines = new Map<string, { key: string; sku: string | null; reference: string | null; productName: string | null; qty: number; category: string | null; subcategory: string | null; categoryStatus: string }>();
         for (const it of a.items) {
-          const key = (it.sku || it.reference || '').trim();
-          if (!key) continue; // identifier-less line becomes NEEDS_REVIEW at session start
           const sku = it.sku?.trim() || null;
           const ref = it.reference?.trim() || null;
-          const lineKey = `${sku ?? ''}::${ref ?? ''}`;
+          // A line with neither SKU nor reference used to be SKIPPED here, so
+          // a CRM card whose items carry only a product name produced an
+          // arrival that was visible in Admin Web and completely absent from
+          // the worker feed — a silent drop with no log and no error.
+          // Such a line is now still a card, keyed by its own row id and left
+          // at NEEDS_REVIEW so the worker can identify it on the floor.
+          // Grouping for identified lines is unchanged.
+          const lineKey = sku || ref ? `${sku ?? ''}::${ref ?? ''}` : `item::${it.id}`;
           const prev = lines.get(lineKey);
           if (prev) { prev.qty += Math.max(1, it.quantity || 1); }
-          else lines.set(lineKey, { sku, reference: ref, productName: it.productName, qty: Math.max(1, it.quantity || 1), category: it.category ?? null, subcategory: it.subcategory ?? null, categoryStatus: (it as any).categoryStatus ?? 'NEEDS_REVIEW' });
+          else lines.set(lineKey, { key: lineKey, sku, reference: ref, productName: it.productName, qty: Math.max(1, it.quantity || 1), category: it.category ?? null, subcategory: it.subcategory ?? null, categoryStatus: (it as any).categoryStatus ?? 'NEEDS_REVIEW' });
         }
         for (const line of lines.values()) {
-          const key = `${a.id}::${line.sku ?? ''}::${line.reference ?? ''}`;
+          const key = `${a.id}::${line.key}`;
           if (seenProduct.has(key)) continue;
           seenProduct.add(key);
           productCards.push({
-            id: `item-${a.id}-${line.sku ?? line.reference}`, sku: line.sku, reference: line.reference, productName: line.productName,
+            id: `item-${a.id}-${line.key}`, sku: line.sku, reference: line.reference, productName: line.productName,
             category: line.category, subcategory: line.subcategory,
             categoryStatus: line.categoryStatus as any,
             expected: line.qty, received: 0, remaining: line.qty,
@@ -1117,7 +1137,10 @@ export class ReceivingService {
       // Visible lists (information only — matching is automatic by scan).
       productList,
       cartonList,
-      arrivals: arrivals.map((a) => ({ id: a.id, code: a.code, customerName: a.customerName })),
+      // `isOwn` = this worker holds the receiving assignment (or it is open
+      // floor work). The card is delivered either way; the flag lets the app
+      // distinguish "mine" from "visible on the floor" without a second call.
+      arrivals: arrivals.map((a) => ({ id: a.id, code: a.code, customerName: a.customerName, isOwn: (a as any).isOwn !== false })),
       worker: { id: actor.id, name: actor.name ?? null },
     };
   }
