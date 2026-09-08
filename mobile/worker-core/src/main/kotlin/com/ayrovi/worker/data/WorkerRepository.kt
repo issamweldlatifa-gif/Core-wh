@@ -118,6 +118,20 @@ class WorkerRepository(
         return json.decodeFromString(HomeScanResult.serializer(), post("/v1/receiving/home/carton", body))
     }
 
+    override suspend fun registerPushToken(token: String, platform: String, deviceId: String?) {
+        val body = buildString {
+            append("{\"token\":").append(jq(token))
+            append(",\"platform\":").append(jq(platform))
+            if (deviceId != null) append(",\"deviceId\":").append(jq(deviceId))
+            append("}")
+        }
+        post("/v1/notifications/push-token", body)
+    }
+
+    override suspend fun unregisterPushToken(token: String) {
+        transport.request("DELETE", "/v1/notifications/push-token", "{\"token\":${jq(token)}}", authenticated = true)
+    }
+
     override suspend fun homeMismatch(
         cardType: String, identifier: String,
         identifierType: String, source: String, startedAt: String?,

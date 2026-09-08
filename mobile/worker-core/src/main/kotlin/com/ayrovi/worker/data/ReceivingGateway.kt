@@ -22,6 +22,16 @@ interface ReceivingGateway {
         identifier: String, identifierType: String,
         operationId: String, source: String, startedAt: String? = null,
     ): HomeScanResult
+    /**
+     * Register this device's push token so the backend can reach the handset
+     * with NEW_RECEIVING_CARD while the app is backgrounded or closed.
+     * Idempotent per token; safe to call on every authenticated start.
+     */
+    suspend fun registerPushToken(token: String, platform: String = "ANDROID", deviceId: String? = null)
+
+    /** Drop the push token on logout so a signed-out phone stops receiving cards. */
+    suspend fun unregisterPushToken(token: String)
+
     /** Device-side MISMATCH from Receiving Home (nothing confirmed/completed). */
     suspend fun homeMismatch(
         cardType: String, identifier: String,

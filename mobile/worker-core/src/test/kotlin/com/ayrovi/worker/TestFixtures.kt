@@ -58,6 +58,22 @@ internal class HomeBackend : ReceivingGateway {
     )
     var homeFailures = 0
     var confirmFailure: Exception? = null
+    /** Push tokens the backend was told about, and a switch to simulate an outage. */
+    val registeredTokens = mutableListOf<String>()
+    val unregisteredTokens = mutableListOf<String>()
+    var pushFailure: Exception? = null
+
+    override suspend fun registerPushToken(token: String, platform: String, deviceId: String?) {
+        calls += "register-push"
+        pushFailure?.let { throw it }
+        registeredTokens += token
+    }
+
+    override suspend fun unregisterPushToken(token: String) {
+        calls += "unregister-push"
+        pushFailure?.let { throw it }
+        unregisteredTokens += token
+    }
 
     private fun feed(): ReceivingHome = ReceivingHome(
         productCards = productCards.filter { it.received < it.expected },

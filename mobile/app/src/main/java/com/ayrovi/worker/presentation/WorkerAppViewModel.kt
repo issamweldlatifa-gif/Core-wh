@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.ayrovi.worker.data.*
 import com.ayrovi.worker.domain.OperationalMessage
 import com.ayrovi.worker.domain.MessageTone
+import com.ayrovi.worker.domain.PushRegistration
 import com.ayrovi.worker.domain.WorkerSessionUseCase
 import com.ayrovi.worker.domain.AudioFeedback
 import com.ayrovi.worker.domain.WorkerQueuePolicy
@@ -56,6 +57,8 @@ class WorkerAppViewModel(
     private val audio: AudioFeedback = AudioFeedback.Silent,
     private val notifier: ReceivingNotifier? = null,
     private val readStore: CardReadStore = InMemoryCardReadStore(),
+    /** Uploads the FCM token once a session exists (null in tests/previews). */
+    private val pushRegistration: PushRegistration? = null,
 ) : ViewModel() {
     private val mutable = MutableStateFlow(WorkerAppState(signedIn = session.hasSession))
     val state = mutable.asStateFlow()
@@ -128,6 +131,10 @@ class WorkerAppViewModel(
         val previousProduct = mutable.value.receivingProductPending
         val previousCarton = mutable.value.receivingCartonPending
         val verified = session.loadContext()
+        // The session is authenticated here, so this is the first point at
+        // which the parked FCM token can be uploaded. It is a no-op unless the
+        // token is new, and it never throws — push must not break receiving.
+        runCatching { pushRegistration?.syncAfterLogin() }
         val incoming = verified.receivingArrivalCount
         if (foreground) {
             val newProduct = verified.receivingProductPending
@@ -236,6 +243,9 @@ class WorkerAppViewModel(
         mutable.value = WorkerAppState(busy = true)
         viewModelScope.launch {
             try {
+                // Release the push token first: a signed-out handset must stop
+                // receiving cards even if revocation later fails.
+                runCatching { pushRegistration?.releaseOnLogout() }
                 val revoked = session.logout()
                 mutable.value = WorkerAppState(message = if (revoked) null else OperationalMessage(
                     "SIGNED OUT ON THIS DEVICE", "Signed out here. Ask your supervisor to check the previous session.", MessageTone.WARNING))

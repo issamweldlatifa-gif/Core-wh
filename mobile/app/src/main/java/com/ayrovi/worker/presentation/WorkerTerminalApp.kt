@@ -39,7 +39,7 @@ fun WorkerTerminalApp(
     openReceivingRequest: Long = 0L,
 ) {
     val model: WorkerAppViewModel = viewModel(
-        factory = factory { WorkerAppViewModel(container.workerSession, container.audio, container.notifier, container.cardReads) },
+        factory = factory { WorkerAppViewModel(container.workerSession, container.audio, container.notifier, container.cardReads, container.pushRegistration) },
     )
     val appearance: AppearanceViewModel = viewModel(factory = factory { AppearanceViewModel(container.appearance) })
     val theme by appearance.theme.collectAsStateWithLifecycle()

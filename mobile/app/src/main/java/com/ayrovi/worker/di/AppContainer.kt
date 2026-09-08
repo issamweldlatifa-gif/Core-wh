@@ -12,6 +12,8 @@ import com.ayrovi.worker.data.TerminalPreferences
 import com.ayrovi.worker.data.CardReadPreferences
 import com.ayrovi.worker.data.SessionStore
 import com.ayrovi.worker.data.WorkerRepository
+import com.ayrovi.worker.domain.PushRegistration
+import com.ayrovi.worker.push.PushTokenStore
 
 /** Explicit application-scoped dependency injection; one client/store, no service locator in UI. */
 class AppContainer(context: Context) {
@@ -29,4 +31,7 @@ class AppContainer(context: Context) {
     val workerSession = WorkerSessionUseCase(repository, sessions)
     val frozenRollbackAllowed = sessions.read() == null
     val connectivity = NetworkMonitor(context.applicationContext, repository.transport::networkAvailable)
+    /** FCM token store + the uploader that hands it to the backend. */
+    val pushTokens = PushTokenStore(context.applicationContext)
+    val pushRegistration = PushRegistration(repository, pushTokens, sessions.deviceCode)
 }
