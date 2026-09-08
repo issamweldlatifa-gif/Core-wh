@@ -3,6 +3,7 @@ import { Prisma, PrismaClient } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { TaskDispatchService } from '../assignments/dispatch.service';
+import { PushService } from '../notifications/push.service';
 import { CustomerArrivalCardEventDto } from '../../integrations/crm/dto/customer-arrival-card.dto';
 
 const WAR_PREFIX = 'WAR-';
@@ -31,6 +32,7 @@ export class ExpectedArrivalsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly dispatch: TaskDispatchService,
+    private readonly push: PushService,
   ) {}
 
   /**
@@ -276,6 +278,13 @@ export class ExpectedArrivalsService {
 
       return record;
     });
+
+    // NEW_RECEIVING_CARD -> push to every worker holding the receiving
+    // permission (shared queue: NOT only the auto-dispatched assignee).
+    // Fired AFTER the transaction commits so a rolled-back intake can never
+    // notify the floor about a card that does not exist, and awaited so the
+    // failure path is logged rather than becoming an unhandled rejection.
+    await this.push.notifyNewReceivingCard(arrival.code, products.length);
 
     return {
       success: true,

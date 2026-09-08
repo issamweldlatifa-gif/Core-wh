@@ -142,11 +142,20 @@ describe('AssignmentsService (operational model)', () => {
       await expect(service.completeAssignment('w1', 'task')).rejects.toThrow('already changed');
       expect(db.auditLog.create).not.toHaveBeenCalled();
     });
-    it('denies another worker or a blocked linked task', async () => {
+    // Ownership is still enforced for NON-SHARED tasks. Receiving is now a
+    // shared, permission-gated queue (several workers per station), so it is
+    // deliberately excluded from this rule and covered by
+    // shared-receiving-queue.spec.ts instead.
+    it('denies another worker or a blocked linked task (non-shared task)', async () => {
       db.workerTaskAssignment.findMany.mockResolvedValue([{ id: 'task', workerId: 'w2', status: 'ASSIGNED' }]);
-      await expect(service.assertOperationalAccess('w1', 'receiving', { arrivalId: 'arrival' })).rejects.toThrow(ForbiddenException);
+      await expect(service.assertOperationalAccess('w1', 'packing', { containerId: 'bin' })).rejects.toThrow(ForbiddenException);
       db.workerTaskAssignment.findMany.mockResolvedValue([{ id: 'task', workerId: 'w1', status: 'BLOCKED' }]);
-      await expect(service.assertOperationalAccess('w1', 'receiving', { arrivalId: 'arrival' })).rejects.toThrow(ForbiddenException);
+      await expect(service.assertOperationalAccess('w1', 'packing', { containerId: 'bin' })).rejects.toThrow(ForbiddenException);
+    });
+
+    it('a shared receiving task authorizes any permitted worker', async () => {
+      db.workerTaskAssignment.findMany.mockResolvedValue([{ id: 'task', workerId: 'w2', status: 'ASSIGNED' }]);
+      await expect(service.assertOperationalAccess('w1', 'receiving', { arrivalId: 'arrival' })).resolves.toBeUndefined();
     });
   });
 

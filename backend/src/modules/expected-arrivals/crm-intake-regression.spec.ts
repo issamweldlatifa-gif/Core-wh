@@ -159,10 +159,14 @@ const principal: IntegrationPrincipal = { kind: 'static', id: null, name: 'ARRIV
  * created:false, nothing new in Admin Web, no card in the Worker app.
  * The key must only suppress a replay of the SAME card id.
  */
+function pushMock(): any {
+  return { notifyNewReceivingCard: jest.fn().mockResolvedValue(0) };
+}
+
 describe('CRM intake — idempotency key must be scoped to the card', () => {
   it('stores every distinct card even when one Idempotency-Key is reused', async () => {
     const { prisma, audit, dispatch, rows } = makeMocks();
-    const svc = new ExpectedArrivalsService(prisma, audit, dispatch);
+    const svc = new ExpectedArrivalsService(prisma, audit, dispatch, pushMock());
     const p = { ...principal, idempotencyKey: 'one-key-for-everything' };
 
     const r1 = await svc.receiveCard(dto({ id: 'CARD-1' }), p as any);
@@ -177,7 +181,7 @@ describe('CRM intake — idempotency key must be scoped to the card', () => {
 
   it('still suppresses a true replay of the same card with the same key', async () => {
     const { prisma, audit, dispatch, rows } = makeMocks();
-    const svc = new ExpectedArrivalsService(prisma, audit, dispatch);
+    const svc = new ExpectedArrivalsService(prisma, audit, dispatch, pushMock());
     const p = { ...principal, idempotencyKey: 'retry-key' };
     const first = await svc.receiveCard(dto({ id: 'CARD-9' }), p as any);
     const replay = await svc.receiveCard(dto({ id: 'CARD-9' }), p as any);
@@ -199,7 +203,7 @@ describe('CRM intake — idempotency key must be scoped to the card', () => {
 describe('WAR code generation after deletions', () => {
   it('continues past the highest existing code instead of colliding', async () => {
     const { prisma, audit, dispatch, rows } = makeMocks();
-    const svc = new ExpectedArrivalsService(prisma, audit, dispatch);
+    const svc = new ExpectedArrivalsService(prisma, audit, dispatch, pushMock());
     const p = { ...principal, idempotencyKey: null };
 
     await svc.receiveCard(dto({ id: 'CARD-1' }), p as any); // WAR-001001
@@ -216,7 +220,7 @@ describe('WAR code generation after deletions', () => {
 
   it('keeps issuing sequential codes across several deletions', async () => {
     const { prisma, audit, dispatch, rows } = makeMocks();
-    const svc = new ExpectedArrivalsService(prisma, audit, dispatch);
+    const svc = new ExpectedArrivalsService(prisma, audit, dispatch, pushMock());
     const p = { ...principal, idempotencyKey: null };
     const issued: string[] = [];
     for (let i = 1; i <= 4; i += 1) {

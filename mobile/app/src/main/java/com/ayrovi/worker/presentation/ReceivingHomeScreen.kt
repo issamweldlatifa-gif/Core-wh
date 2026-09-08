@@ -101,13 +101,10 @@ fun ReceivingHomeScreen(
                     SecondaryAction(if (lane != null) "BACK TO RECEIVING" else "BACK", {
                         if (lane != null) model.send(ReceivingHomeIntent.BackHome) else onBack()
                     }, !state.busy, Modifier.weight(1f))
-                    when {
-                        state.step == HomeStep.REVIEW_PRODUCT ->
-                            PrimaryAction("CONFIRM PRODUCT", { model.send(ReceivingHomeIntent.Confirm) }, state.canConfirm, Modifier.weight(1f))
-                        state.step == HomeStep.REVIEW_CARTON ->
-                            PrimaryAction("CONFIRM CARTON", { model.send(ReceivingHomeIntent.Confirm) }, state.canConfirm, Modifier.weight(1f))
-                        else -> SecondaryAction("REFRESH", { model.send(ReceivingHomeIntent.Refresh) }, !state.busy, Modifier.weight(1f))
-                    }
+                    // No CONFIRM/APPROVE button: a valid scan is verified and
+                    // approved automatically, then the lane re-arms for the
+                    // next product. The worker only ever scans.
+                    SecondaryAction("REFRESH", { model.send(ReceivingHomeIntent.Refresh) }, !state.busy, Modifier.weight(1f))
                 }
             }
         },
@@ -189,7 +186,7 @@ private fun ProductLane(state: com.ayrovi.worker.domain.ReceivingHomeState, capt
                         QuantityDisplay("REMAINING", review.card.remaining.toString(), Modifier.weight(1f))
                     }
                     Text("Scanned: ${review.scan.value} · ${review.scan.scanType}", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)
-                    Text("Confirm one physical unit against this product card.", style = MaterialTheme.typography.bodyMedium)
+                    Text("Verifying and recording one physical unit automatically...", style = MaterialTheme.typography.bodyMedium)
                 }
             }
         } else {
@@ -214,7 +211,7 @@ private fun CartonLane(state: com.ayrovi.worker.domain.ReceivingHomeState, captu
                     }
                     review.card.trackingNumber?.let { Text("TRACKING · $it", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted) }
                     Text("Scanned: ${review.scan.value} · ${review.scan.scanType}", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)
-                    Text("Confirm records this carton as received. It cannot be counted twice.", style = MaterialTheme.typography.bodyMedium)
+                    Text("Recording this carton as received. It cannot be counted twice.", style = MaterialTheme.typography.bodyMedium)
                 }
             }
         } else {

@@ -140,10 +140,14 @@ function dto(over: any = {}) {
 
 const principal: IntegrationPrincipal = { kind: 'static', id: null, name: 'ARRIVAL_CRM', idempotencyKey: null };
 
+function pushMock(): any {
+  return { notifyNewReceivingCard: jest.fn().mockResolvedValue(0) };
+}
+
 describe('ExpectedArrivalsService', () => {
   it('creates an EXPECTED arrival (not RECEIVED) from a customer card with products', async () => {
     const { prisma, audit, dispatch, dispatched, rows, audits } = makeMocks();
-    const service = new ExpectedArrivalsService(prisma, audit, dispatch);
+    const service = new ExpectedArrivalsService(prisma, audit, dispatch, pushMock());
 
     const res = await service.receiveCard(dto(), principal, '127.0.0.1');
 
@@ -199,7 +203,7 @@ describe('ExpectedArrivalsService', () => {
       source: 'ARRIVAL_CRM', productCount: 0, totalUnits: 0, apiClientId: null, idempotencyKey: null,
       receivedViaApi: true, receivedViaApiAt: new Date(), createdAt: new Date(), updatedAt: new Date(), items: [],
     });
-    const service = new ExpectedArrivalsService(prisma, audit, dispatch);
+    const service = new ExpectedArrivalsService(prisma, audit, dispatch, pushMock());
 
     const res = await service.receiveCard(dto(), principal);
 
@@ -220,7 +224,7 @@ describe('ExpectedArrivalsService', () => {
 
   it('is idempotent: a double send of the same card returns the SAME Expected Arrival', async () => {
     const { prisma, audit, dispatch, dispatched, rows, audits } = makeMocks();
-    const service = new ExpectedArrivalsService(prisma, audit, dispatch);
+    const service = new ExpectedArrivalsService(prisma, audit, dispatch, pushMock());
 
     const first = await service.receiveCard(dto(), { ...principal, idempotencyKey: 'CARD-ARR-2026-000145' });
     const second = await service.receiveCard(dto(), { ...principal, idempotencyKey: 'CARD-ARR-2026-000145' });
@@ -238,7 +242,7 @@ describe('ExpectedArrivalsService', () => {
 
   it('rejects a card with no products without creating a partial record', async () => {
     const { prisma, audit, dispatch, dispatched, rows, audits } = makeMocks();
-    const service = new ExpectedArrivalsService(prisma, audit, dispatch);
+    const service = new ExpectedArrivalsService(prisma, audit, dispatch, pushMock());
     const empty = dto({ products: [] });
 
     await expect(service.receiveCard(empty, principal)).rejects.toBeInstanceOf(BadRequestException);
@@ -248,7 +252,7 @@ describe('ExpectedArrivalsService', () => {
 
   it('handles a large card (100 products) and aggregates units', async () => {
     const { prisma, audit, dispatch, dispatched, rows, audits } = makeMocks();
-    const service = new ExpectedArrivalsService(prisma, audit, dispatch);
+    const service = new ExpectedArrivalsService(prisma, audit, dispatch, pushMock());
     const big = dto({
       products: Array.from({ length: 100 }, (_, i) => ({
         sku: `SKU-${i + 1}`,

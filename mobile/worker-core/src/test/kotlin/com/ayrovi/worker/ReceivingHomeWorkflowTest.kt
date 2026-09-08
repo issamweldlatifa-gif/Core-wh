@@ -57,35 +57,38 @@ class ReceivingHomeWorkflowTest {
     }
 
     // --------------------------- PRODUCT LANE ---------------------------
-    @Test fun `product scan matches the product card on the device`() = runTest {
-        val flow = workflow()
+    // AUTO-APPROVAL: a valid scan verifies + approves with no Confirm press,
+    // then returns the lane to the scanner ready for the next product.
+    @Test fun `product scan auto-approves and re-arms the scanner`() = runTest {
+        val backend = HomeBackend()
+        val flow = workflow(backend)
         flow.openProduct(); runCurrent()
         flow.scan(scan("sku/a-01", ScanSource.CAMERA, ScanSymbology.QR)); runCurrent()
-        assertEquals(HomeStep.REVIEW_PRODUCT, flow.state.value.step)
-        assertNotNull(flow.state.value.productReview)
-        assertEquals("SKU/A-01", flow.state.value.productReview?.card?.sku)
+        // Approved on the backend without any further worker action.
+        assertTrue(backend.calls.contains("home-product"))
+        // Back on the scanner, review cleared -> next product can be scanned.
+        assertEquals(HomeStep.PRODUCT_SCAN, flow.state.value.step)
+        assertNull(flow.state.value.productReview)
+        assertTrue(flow.state.value.canScan)
     }
 
-    @Test fun `product confirm sends one unit and decreases the counter`() = runTest {
+    @Test fun `product scan sends one unit and decreases the counter`() = runTest {
         val backend = HomeBackend()
         val flow = workflow(backend)
         flow.openProduct(); runCurrent()
         flow.scan(scan("REF-ONLY", ScanSource.MANUAL)); runCurrent()
-        assertEquals(HomeStep.REVIEW_PRODUCT, flow.state.value.step)
-        flow.confirm(); runCurrent()
         assertTrue(backend.calls.contains("home-product"))
         // Card expected 2, received 1 -> still 1 pending.
         assertEquals(1, flow.state.value.home?.productCardsPending)
         assertEquals(HomeStep.PRODUCT_SCAN, flow.state.value.step)
     }
 
-    @Test fun `product confirm twice completes the card and removes it`() = runTest {
+    @Test fun `scanning twice completes the card and removes it`() = runTest {
         val backend = HomeBackend()
         val flow = workflow(backend)
         repeat(2) {
             flow.openProduct(); runCurrent()
             flow.scan(scan("SKU/A-01", ScanSource.EXTERNAL_SCANNER, ScanSymbology.BARCODE)); runCurrent()
-            flow.confirm(); runCurrent()
         }
         assertEquals(0, flow.state.value.home?.productCardsPending)
     }
@@ -122,17 +125,17 @@ class ReceivingHomeWorkflowTest {
             val flow = workflow()
             flow.openCarton(); runCurrent()
             flow.scan(scan(code, ScanSource.CAMERA)); runCurrent()
-            assertEquals(HomeStep.REVIEW_CARTON, flow.state.value.step, "matching $code must open carton review")
-            assertNotNull(flow.state.value.cartonReview)
+            // Auto-approved: the lane returns to its scanner with the carton recorded.
+            assertEquals(HomeStep.CARTON_SCAN, flow.state.value.step, "matching $code must auto-approve")
+            assertEquals(0, flow.state.value.home?.cartonCardsPending, "$code must be received")
         }
     }
 
-    @Test fun `carton confirm completes the carton and decreases the counter`() = runTest {
+    @Test fun `carton scan auto-completes the carton and decreases the counter`() = runTest {
         val backend = HomeBackend()
         val flow = workflow(backend)
         flow.openCarton(); runCurrent()
         flow.scan(scan("CTN-001", ScanSource.EXTERNAL_SCANNER, ScanSymbology.BARCODE)); runCurrent()
-        flow.confirm(); runCurrent()
         assertTrue(backend.calls.contains("home-carton"))
         assertEquals(0, flow.state.value.home?.cartonCardsPending)
         assertEquals(HomeStep.CARTON_SCAN, flow.state.value.step)
@@ -153,14 +156,13 @@ class ReceivingHomeWorkflowTest {
         val flow = workflow(backend)
         flow.openCarton(); runCurrent()
         flow.scan(scan("CTN-001")); runCurrent()
-        flow.confirm(); runCurrent()
         // Scan the same carton again — device sees no pending carton card -> mismatch/reject.
         flow.scan(scan("CTN-001")); runCurrent()
         assertNull(flow.state.value.cartonReview)
         assertEquals(0, flow.state.value.home?.cartonCardsPending)
     }
 
-    @Test fun `confirm without a returned feed re-pulls home so the completed card leaves the queue`() = runTest {
+    @Test fun `approval without a returned feed re-pulls home so the completed card leaves the queue`() = runTest {
         // A gateway that completes the carton on the backend but returns NO
         // home payload with the verdict (older/partial contract). The workflow
         // must still re-pull the feed itself — a completed card can never be
@@ -180,8 +182,64 @@ class ReceivingHomeWorkflowTest {
         assertEquals(1, flow.state.value.home?.cartonCardsPending)
         flow.openCarton(); runCurrent()
         flow.scan(scan("CTN-001", ScanSource.EXTERNAL_SCANNER, ScanSymbology.BARCODE)); runCurrent()
-        flow.confirm(); runCurrent()
         assertEquals(0, flow.state.value.home?.cartonCardsPending, "the re-pulled feed reflects completion")
+    }
+
+    // ------------------- AUTO APPROVAL (TEST E / F) ---------------------
+    // SCAN -> VERIFY -> AUTO APPROVE -> NEXT, with no Confirm step.
+
+    @Test fun `TEST E - no confirm is ever required after a valid scan`() = runTest {
+        val backend = HomeBackend()
+        val flow = workflow(backend)
+        flow.openProduct(); runCurrent()
+        flow.scan(scan("SKU/A-01")); runCurrent()
+        // canConfirm must never be true: there is no button to enable.
+        assertFalse(flow.state.value.canConfirm, "auto-approval leaves no pending confirmation")
+        assertTrue(backend.calls.contains("home-product"))
+    }
+
+    @Test fun `TEST E - the scanner stays ready for the next product`() = runTest {
+        val backend = HomeBackend()
+        val flow = workflow(backend)
+        flow.openProduct(); runCurrent()
+        val before = flow.state.value.scanEpoch
+        flow.scan(scan("SKU/A-01")); runCurrent()
+        assertEquals(HomeStep.PRODUCT_SCAN, flow.state.value.step)
+        assertTrue(flow.state.value.canScan, "scanner must re-arm automatically")
+        assertTrue(flow.state.value.scanEpoch > before, "scan epoch bumps so the capture host re-arms")
+    }
+
+    @Test fun `TEST F - a scan error approves nothing and keeps the same product`() = runTest {
+        val backend = HomeBackend()
+        val flow = workflow(backend)
+        flow.openProduct(); runCurrent()
+        val pendingBefore = flow.state.value.home?.productCardsPending
+        flow.scan(scan("NOT-A-REAL-CODE")); runCurrent()
+        // No approval call, nothing counted, worker stays in the scanner.
+        assertFalse(backend.calls.contains("home-product"))
+        assertEquals(pendingBefore, flow.state.value.home?.productCardsPending)
+        assertEquals(HomeStep.PRODUCT_SCAN, flow.state.value.step)
+        assertTrue(flow.state.value.canScan, "worker can immediately rescan the same product")
+    }
+
+    @Test fun `TEST F - an empty scan is not approved`() = runTest {
+        val backend = HomeBackend()
+        val flow = workflow(backend)
+        flow.openProduct(); runCurrent()
+        flow.scan(scan("")); runCurrent()
+        assertFalse(backend.calls.contains("home-product"))
+        assertEquals(HomeStep.PRODUCT_SCAN, flow.state.value.step)
+    }
+
+    @Test fun `an already complete card is not approved twice`() = runTest {
+        val backend = HomeBackend()
+        val flow = workflow(backend)
+        flow.openCarton(); runCurrent()
+        flow.scan(scan("CTN-001")); runCurrent()
+        val callsAfterFirst = backend.calls.count { it == "home-carton" }
+        flow.scan(scan("CTN-001")); runCurrent()
+        assertEquals(callsAfterFirst, backend.calls.count { it == "home-carton" },
+            "a completed carton must not be sent for approval again")
     }
 
     // ------------------------------ ACCESS ------------------------------

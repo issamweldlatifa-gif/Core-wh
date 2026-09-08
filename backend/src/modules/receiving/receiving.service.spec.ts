@@ -18,7 +18,7 @@ import { ReceivingService } from './receiving.service';
 function prisma(): any {
   const model = () => ({
     findUnique: jest.fn(), findFirst: jest.fn(), findMany: jest.fn(),
-    create: jest.fn(), update: jest.fn(), updateMany: jest.fn(), count: jest.fn(),
+    create: jest.fn(), update: jest.fn(), updateMany: jest.fn().mockResolvedValue({ count: 1 }), count: jest.fn(),
   });
   return {
     receivingSession: model(),
@@ -135,8 +135,10 @@ describe('ReceivingService (card-based, device-side matching)', () => {
       }, ACTOR);
 
       // persisted receipt
-      expect(db.receivingProduct.update).toHaveBeenCalledWith({
-        where: { id: 'p-1' },
+      // Guarded by the quantity the update was computed from, so two
+      // concurrent workers can never both apply the same unit.
+      expect(db.receivingProduct.updateMany).toHaveBeenCalledWith({
+        where: { id: 'p-1', receivedQuantity: 0 },
         data: { receivedQuantity: 1, difference: -1, status: 'PARTIALLY_RECEIVED' },
       });
       // idempotency event
@@ -226,7 +228,7 @@ describe('ReceivingService (card-based, device-side matching)', () => {
       db.receivingDiscrepancy.create.mockResolvedValue({ id: 'd-1' });
 
       await service.confirmProduct('sess-1', { identifier: 'SKU-1', quantity: 2 }, ACTOR);
-      expect(db.receivingProduct.update).toHaveBeenCalledWith(expect.objectContaining({
+      expect(db.receivingProduct.updateMany).toHaveBeenCalledWith(expect.objectContaining({
         data: expect.objectContaining({ receivedQuantity: 3, status: 'OVERAGE' }),
       }));
       expect(db.receivingDiscrepancy.create).toHaveBeenCalledWith(expect.objectContaining({

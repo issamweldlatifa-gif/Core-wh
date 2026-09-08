@@ -12,7 +12,7 @@ import { ReceivingService } from './receiving.service';
 function prisma(): any {
   const model = () => ({
     findUnique: jest.fn(), findFirst: jest.fn(), findMany: jest.fn(),
-    create: jest.fn(), update: jest.fn(), updateMany: jest.fn(), count: jest.fn(),
+    create: jest.fn(), update: jest.fn(), updateMany: jest.fn().mockResolvedValue({ count: 1 }), count: jest.fn(),
   });
   return {
     receivingSession: model(),

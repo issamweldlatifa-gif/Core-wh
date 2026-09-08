@@ -32,8 +32,10 @@ import { ApplicationGuard } from './common/guards/application.guard';
  * never by reaching into another module's tables directly. This keeps the
  * design ready for extracting any module into an independent service later.
  */
+import { NotificationsModule } from './modules/notifications/notifications.module';
+
 @Module({
-  imports: [
+  imports: [NotificationsModule, 
     ConfigModule.forRoot({
       isGlobal: true,
       // SECURITY: never fall back to .env.example — it contains placeholder

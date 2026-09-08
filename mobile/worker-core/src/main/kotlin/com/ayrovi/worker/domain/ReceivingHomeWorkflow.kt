@@ -173,9 +173,15 @@ class ReceivingHomeWorkflow(
         val card = CardMatcher.matchProduct(home.productCards, term)
         when {
             card != null && card.received < card.expected -> {
+                // AUTO-APPROVE: a valid scan needs no human confirmation.
+                // SCAN -> VERIFY (backend) -> APPROVE -> NEXT. The review
+                // state is still set first so the UI can show WHAT matched
+                // while the backend call is in flight; it is cleared by
+                // applyResult, which returns the lane to its scanner.
                 mutable.update { it.copy(step = HomeStep.REVIEW_PRODUCT, productReview = HomeProductReview(scan, card, clock()), cartonReview = null,
-                    message = OperationalMessage("MATCH FOUND", "Check the product, then confirm one physical unit.", MessageTone.INFO, scanned = term)) }
+                    message = OperationalMessage("MATCH FOUND", "Verifying and recording automatically...", MessageTone.INFO, scanned = term)) }
                 signal(MessageTone.SUCCESS, "PRODUCT MATCH", card.productName ?: card.sku ?: term, card.sku ?: term)
+                confirmProduct()
             }
             card != null -> {
                 mutable.update { it.copy(productReview = null, cartonReview = null, scanEpoch = it.scanEpoch + 1,
@@ -193,9 +199,11 @@ class ReceivingHomeWorkflow(
         if (term.isEmpty()) return@run notice("EMPTY SCAN", "No code was read. Scan again.")
         when (val verdict = CardMatcher.matchCarton(home.cartonCards, term)) {
             is CardMatcher.CartonVerdict.Card -> {
+                // AUTO-APPROVE (same rule as the PRODUIT lane).
                 mutable.update { it.copy(step = HomeStep.REVIEW_CARTON, cartonReview = HomeCartonReview(scan, verdict.card, verdict.matchedOn, clock()), productReview = null,
-                    message = OperationalMessage("MATCH FOUND", "Check the carton, then confirm receipt.", MessageTone.INFO, scanned = term)) }
+                    message = OperationalMessage("MATCH FOUND", "Verifying and recording automatically...", MessageTone.INFO, scanned = term)) }
                 signal(MessageTone.SUCCESS, "CARTON MATCH", "${verdict.card.externalCartonId ?: term} · ${verdict.matchedOn}", verdict.card.externalCartonId ?: term)
+                confirmCarton()
             }
             is CardMatcher.CartonVerdict.AllReceived -> {
                 mutable.update { it.copy(productReview = null, cartonReview = null, scanEpoch = it.scanEpoch + 1,

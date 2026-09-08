@@ -97,6 +97,13 @@ dependencies {
     implementation("androidx.camera:camera-view:1.4.1")
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
     implementation("com.google.mlkit:text-recognition:16.0.1")
+    // Push notifications. The google-services PLUGIN is deliberately NOT
+    // applied: it fails the build when google-services.json is absent, and
+    // the pilot APK must keep building without Firebase credentials. The
+    // library alone compiles fine; AyroviMessagingService initialises
+    // defensively and simply stays dormant until a real google-services.json
+    // is added to app/. See docs/PUSH-SETUP.md.
+    implementation("com.google.firebase:firebase-messaging:24.1.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     androidTestImplementation(platform("androidx.compose:compose-bom:2024.12.01"))

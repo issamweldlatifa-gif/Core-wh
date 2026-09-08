@@ -64,6 +64,7 @@ enum ApplicationClass {
   VIEWER // read-only ADMIN_WEB
   UNKNOWN
 }
+
 enum DeviceStatus {
   ACTIVE
   DISABLED
@@ -269,36 +270,36 @@ model WorkerTaskAssignment {
   createdBy     User?            @relation("AssignmentCreator", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
   note          String? // worker's completion note
   completedById String?
-  completedBy   User?   @relation("AssignmentCompleted", fields: [completedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  completedBy   User?            @relation("AssignmentCompleted", fields: [completedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
   completedAt   DateTime?
   cancelledById String?
-  cancelledBy   User?   @relation("AssignmentCancelled", fields: [cancelledById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  cancelledBy   User?            @relation("AssignmentCancelled", fields: [cancelledById], references: [id], onDelete: SetNull, onUpdate: Cascade)
   cancelledAt   DateTime?
   cancelReason  String?
 
   // ---- authoritative operational-entity links (all optional: an
   // assignment may be a plain instruction with no entity) -----------------
   /// Receiving task → ExpectedArrival (WAR-…).
-  arrivalId           String?
-  arrival             ExpectedArrival? @relation("AssignmentArrival", fields: [arrivalId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  arrivalId          String?
+  arrival            ExpectedArrival?      @relation("AssignmentArrival", fields: [arrivalId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   /// Putaway task → WarehouseCarton (CTN-…).
-  cartonId            String?
-  carton              WarehouseCarton? @relation("AssignmentCarton", fields: [cartonId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  cartonId           String?
+  carton             WarehouseCarton?      @relation("AssignmentCarton", fields: [cartonId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   /// Packing / order-sorting task → OperationalContainer (RCN-/BIN-…).
-  containerId         String?
-  container           OperationalContainer? @relation("AssignmentContainer", fields: [containerId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  containerId        String?
+  container          OperationalContainer? @relation("AssignmentContainer", fields: [containerId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   /// Shipping task → OutboundShipment (OUT-…).
-  outboundShipmentId  String?
-  outboundShipment    OutboundShipment? @relation("AssignmentOutbound", fields: [outboundShipmentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  outboundShipmentId String?
+  outboundShipment   OutboundShipment?     @relation("AssignmentOutbound", fields: [outboundShipmentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   /// Order workload → WarehouseOrder.
-  orderId             String?
-  order               WarehouseOrder? @relation("AssignmentOrder", fields: [orderId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  orderId            String?
+  order              WarehouseOrder?       @relation("AssignmentOrder", fields: [orderId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   /// Where the work should happen, when the admin pinned it.
-  stationId           String?
-  station             Station? @relation("AssignmentStation", fields: [stationId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  stationId          String?
+  station            Station?              @relation("AssignmentStation", fields: [stationId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([workerId, status])
   @@index([status])
@@ -323,20 +324,21 @@ model User {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
-  sessions         Session[]
-  devices          Device[]            @relation("DeviceWorker")
-  roles            UserRole[]
-  createdAudit     AuditLog[]            @relation("Actor")
+  sessions              Session[]
+  devices               Device[]               @relation("DeviceWorker")
+  pushTokens            PushToken[]            @relation("UserPushTokens")
+  roles                 UserRole[]
+  createdAudit          AuditLog[]             @relation("Actor")
   // COMMAND #3 — Worker Control: task assignments.
   workerTaskAssignments WorkerTaskAssignment[] @relation("WorkerAssignments")
   workerTaskCreators    WorkerTaskAssignment[] @relation("AssignmentCreator")
   workerTaskCompletions WorkerTaskAssignment[] @relation("AssignmentCompleted")
   workerTaskCancels     WorkerTaskAssignment[] @relation("AssignmentCancelled")
   // WAREHOUSE OS back-relations.
-  stationsAssigned Station[]             @relation("StationWorker")
-  correctionsMade  OperationCorrection[] @relation("CorrectionAdmin")
-  correctionsAbout OperationCorrection[] @relation("CorrectionWorker")
-  putawaySessions  PutawaySession[]      @relation("PutawayWorker")
+  stationsAssigned      Station[]              @relation("StationWorker")
+  correctionsMade       OperationCorrection[]  @relation("CorrectionAdmin")
+  correctionsAbout      OperationCorrection[]  @relation("CorrectionWorker")
+  putawaySessions       PutawaySession[]       @relation("PutawayWorker")
 
   @@index([status])
   @@map("users")
@@ -441,20 +443,20 @@ model Session {
 // ------------------------------------------------------------------
 
 model Device {
-  id         String       @id @default(uuid())
-  code       String       @unique // e.g. AYROVI-RCV-01
-  name       String
-  status     DeviceStatus @default(ACTIVE)
-  model      String? // hardware model / label
-  appVersion String? // last known native app version
+  id          String       @id @default(uuid())
+  code        String       @unique // e.g. AYROVI-RCV-01
+  name        String
+  status      DeviceStatus @default(ACTIVE)
+  model       String? // hardware model / label
+  appVersion  String? // last known native app version
   stationCode String? // display-only snapshot of the station this device sits at
-  lastSeenAt DateTime?
-  lastSeenIp String?
-  createdAt  DateTime     @default(now())
-  updatedAt  DateTime     @updatedAt
+  lastSeenAt  DateTime?
+  lastSeenIp  String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
   assignedWorkerId String?
-  assignedWorker   User?    @relation("DeviceWorker", fields: [assignedWorkerId], references: [id], onDelete: SetNull)
+  assignedWorker   User?   @relation("DeviceWorker", fields: [assignedWorkerId], references: [id], onDelete: SetNull)
 
   sessions Session[]
   stations Station[] @relation("StationDevice")
@@ -462,6 +464,24 @@ model Device {
   @@index([status])
   @@index([assignedWorkerId])
   @@map("devices")
+}
+
+/// A push registration (FCM/APNs token) belonging to ONE worker's install.
+/// Push must reach the phone while the Worker App is closed, so the token is
+/// stored server-side against the user rather than kept in app memory.
+model PushToken {
+  id         String   @id @default(uuid())
+  token      String   @unique
+  platform   String   @default("ANDROID")
+  userId     String
+  user       User     @relation("UserPushTokens", fields: [userId], references: [id], onDelete: Cascade)
+  deviceId   String?
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([userId])
+  @@map("push_tokens")
 }
 
 // ------------------------------------------------------------------
@@ -604,10 +624,10 @@ model Zone {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
-  aisles    Aisle[]
-  locations Location[]
+  aisles           Aisle[]
+  locations        Location[]
   categoryMappings CategoryZoneMapping[]
-  stations  Station[]
+  stations         Station[]
 
   @@unique([warehouseId, code])
   @@index([warehouseId])
@@ -824,7 +844,7 @@ model WarehouseOrder {
   createdAt                 DateTime             @default(now())
   updatedAt                 DateTime             @updatedAt
 
-  items OrderItem[]
+  items             OrderItem[]
   taskAssignments   WorkerTaskAssignment[] @relation("AssignmentOrder")
   // Operational flow back-relations (fulfilment).
   containers        OperationalContainer[]
@@ -1050,31 +1070,31 @@ model ExpectedArrivalItem {
   arrivalId String
   arrival   ExpectedArrival @relation(fields: [arrivalId], references: [id], onDelete: Cascade)
 
-  productId   String? // external/CRM product id, reference only
-  sku         String? // store-agnostic: any field may be missing (nullable)
-  reference   String?
-  productName String?
-  quantity    Int     @default(1) // >= 1 enforced by DTO + DB CHECK
-  variant     String?
-  color       String?
-  size        String?
+  productId            String? // external/CRM product id, reference only
+  sku                  String? // store-agnostic: any field may be missing (nullable)
+  reference            String?
+  productName          String?
+  quantity             Int                      @default(1) // >= 1 enforced by DTO + DB CHECK
+  variant              String?
+  color                String?
+  size                 String?
   /// Product category pushed by the Arrival CRM (normalized UPPERCASE, e.g.
   /// "SHOES", "CLOTHING"). NULL when the CRM did not send one — the UI shows
   /// NULL as UNKNOWN; it is NEVER guessed from the product name. Used by
   /// Receiving display and Sorting destination decisions.
-  category    String?
+  category             String?
   /// Optional subcategory from the CRM (e.g. "SPORTS" under "SHOES").
-  subcategory String?
+  subcategory          String?
   /// Who classified the product on the CRM side: AI | MANUAL. Reference only.
   classificationSource String?
   /// Validation verdict against the Category Master at intake time:
   /// CONFIRMED    — category exists in the master and is ACTIVE.
   /// NEEDS_REVIEW — missing / UNCLASSIFIED / unknown / inactive category.
   /// A NEEDS_REVIEW line is NEVER treated as classified downstream.
-  categoryStatus CategoryValidationStatus @default(NEEDS_REVIEW)
+  categoryStatus       CategoryValidationStatus @default(NEEDS_REVIEW)
   // Store the product came from when a card aggregates multiple stores.
-  storeId     String?
-  storeName   String?
+  storeId              String?
+  storeName            String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1108,16 +1128,16 @@ enum CategoryStatus {
 }
 
 model CategoryMaster {
-  id        String         @id @default(uuid())
+  id            String         @id @default(uuid())
   /// Canonical UPPERCASE code, e.g. SHOES / CLOTHING / ACCESSORIES.
-  code      String         @unique
-  name      String
-  status    CategoryStatus @default(ACTIVE)
+  code          String         @unique
+  name          String
+  status        CategoryStatus @default(ACTIVE)
   /// Optional allowed subcategories (UPPERCASE codes). Empty = any/none.
   /// Kept as a simple list: subcategories are labels, not a second tree.
-  subcategories String[]   @default([])
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  subcategories String[]       @default([])
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 
   zoneMappings CategoryZoneMapping[]
 
@@ -1189,16 +1209,16 @@ enum OutboundShipmentStatus {
 /// QR-identified operational container. Configuration-driven (created at
 /// runtime by workers/admins), never hardcoded.
 model OperationalContainer {
-  id     String          @id @default(uuid())
+  id       String          @id @default(uuid())
   /// Unique scannable code = the QR value (RCN-xxxxxx / BIN-xxxxxx).
-  code   String          @unique
-  type   ContainerType
-  status ContainerStatus @default(ACTIVE)
+  code     String          @unique
+  type     ContainerType
+  status   ContainerStatus @default(ACTIVE)
   /// Configurable container capacity (master data, default 50 — never
   /// hardcoded in the UI/API). FULL is derived: articles.count >= capacity.
-  capacity Int            @default(50)
+  capacity Int             @default(50)
   /// Big human label, e.g. the customer reference on a bin ("AHMED").
-  label  String?
+  label    String?
 
   /// CUSTOMER bins are attached to one order. SetNull keeps container
   /// history alive even if an order projection is ever removed.
@@ -1214,7 +1234,7 @@ model OperationalContainer {
   /// (Master Order §11): which station/zone the container physically waits at.
   /// Written by the container stage operation; SetNull keeps history.
   stagingStationId String?
-  stagingStation   Station? @relation("ContainerStaging", fields: [stagingStationId], references: [id], onDelete: SetNull)
+  stagingStation   Station?  @relation("ContainerStaging", fields: [stagingStationId], references: [id], onDelete: SetNull)
   stagedAt         DateTime?
   stagedById       String? // plain worker id (no FK) — mirrors WarehouseCarton.claimedById
 
@@ -1244,10 +1264,10 @@ model ArticleUnit {
   /// Human/QR display code ART-XXXXXXXX, generated server-side, immutable.
   code String @unique
 
-  sku         String
-  productName String?
-  category    String?
-  subcategory String?
+  sku            String
+  productName    String?
+  category       String?
+  subcategory    String?
   categoryStatus CategoryValidationStatus @default(NEEDS_REVIEW)
 
   status ArticleUnitStatus @default(RECEIVED)
@@ -1317,9 +1337,9 @@ model OutboundShipment {
   shippedBy String?
   shippedAt DateTime?
 
-  articles ArticleUnit[]
+  articles        ArticleUnit[]
   taskAssignments WorkerTaskAssignment[] @relation("AssignmentOutbound")
-  verifications ShippingVerification[]
+  verifications   ShippingVerification[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1334,16 +1354,16 @@ model OutboundShipment {
 /// verification expires and is single-use; `ship` re-checks the content hash
 /// so contents cannot change between verify and dispatch.
 model ShippingVerification {
-  id                 String   @id @default(uuid())
+  id                 String           @id @default(uuid())
   outboundShipmentId String
   outboundShipment   OutboundShipment @relation(fields: [outboundShipmentId], references: [id], onDelete: Cascade)
 
   verifiedById String? // the worker who verified (audited actor)
   /// SHA-256 over the sorted (code|sku) content of the shipment's articles —
   /// recomputed at ship time and compared.
-  contentHash String
-  expiresAt   DateTime
-  usedAt      DateTime? // set when the dispatch consumed this verification
+  contentHash  String
+  expiresAt    DateTime
+  usedAt       DateTime? // set when the dispatch consumed this verification
 
   createdAt DateTime @default(now())
 
@@ -1364,8 +1384,8 @@ enum OperationalExceptionStatus {
 }
 
 model OperationalException {
-  id     String @id @default(uuid())
-  code   String @unique // EXC-XXXXXX, server-generated
+  id     String                     @id @default(uuid())
+  code   String                     @unique // EXC-XXXXXX, server-generated
   /// Same vocabulary as DiscrepancyType (SHORTAGE, MISSING_PRODUCT, ...).
   type   String
   status OperationalExceptionStatus @default(OPEN)
@@ -1575,7 +1595,7 @@ model ReceivingSession {
   /// Station the session was executed at (§13). SetNull so retiring a
   /// station never destroys receiving history.
   stationId     String?
-  station       Station? @relation("StationSessions", fields: [stationId], references: [id], onDelete: SetNull)
+  station       Station?               @relation("StationSessions", fields: [stationId], references: [id], onDelete: SetNull)
 
   @@index([arrivalId])
   @@index([status])
@@ -1613,9 +1633,9 @@ model ReceivingCarton {
 /// here and NEVER double-counted (fix C-4). Carton scans are already
 /// idempotent via `receiving_cartons.operationId`.
 model ReceivingScanEvent {
-  id          String           @id @default(uuid())
-  sessionId   String
-  session     ReceivingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  id        String           @id @default(uuid())
+  sessionId String
+  session   ReceivingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   /// Client-generated idempotency key (one physical scan = one key).
   operationId String  @unique
@@ -1638,10 +1658,10 @@ model ReceivingProduct {
   receivingSessionId String
   session            ReceivingSession @relation(fields: [receivingSessionId], references: [id], onDelete: Cascade)
 
-  arrivalItemId String? // link to ExpectedArrivalItem (expected line)
-  sku           String?
-  reference     String?
-  productName   String?
+  arrivalItemId  String? // link to ExpectedArrivalItem (expected line)
+  sku            String?
+  reference      String?
+  productName    String?
   /// Category snapshot copied from the ExpectedArrivalItem when the session
   /// is seeded (§ CURRENT CARD + CATEGORY). Kept on the receiving line so the
   /// worker terminal and Sorting see it without re-joining CRM data.
@@ -1714,38 +1734,38 @@ model ReceivingWorkerLog {
 
   /// Worker who executed the operation (plain id snapshot, no FK: a worker
   /// leaving the system must never destroy receiving history).
-  workerId   String?
-  workerName String?
+  workerId    String?
+  workerName  String?
   /// Operational task the operation belongs to (task registry key).
-  taskKey String @default("receiving")
+  taskKey     String  @default("receiving")
   /// Display context of the operation (arrival / session codes for the report).
   arrivalCode String?
   sessionCode String?
 
   /// Which independent card type the operation targets.
-  cardType CardType @default(PRODUCT)
+  cardType        CardType           @default(PRODUCT)
   /// The expected card the operation references (matched card code, or null
   /// when nothing matched).
-  cardRef String?
+  cardRef         String?
   /// The worker operation on the card.
-  operation WorkerLogOperation
+  operation       WorkerLogOperation
   /// How the identifier was read: QR | BARCODE | MANUAL | OCR.
-  identifierType ScanType @default(MANUAL)
+  identifierType  ScanType           @default(MANUAL)
   /// Identifier source device (free form device context, audit only):
   /// CAMERA | EXTERNAL_SCANNER | MANUAL | OCR_CONFIRMED | ...
-  source String @default("MANUAL")
+  source          String             @default("MANUAL")
   /// The (normalized) identifier value the worker scanned / read.
   identifierValue String
   /// Final server-side verdict.
-  result WorkerLogResult
+  result          WorkerLogResult
   /// Device-reported scan start (device-side matching start time) and the
   /// server processing time -> duration of the physical operation.
-  startedAt DateTime?
-  endedAt   DateTime?
-  durationMs Int?
+  startedAt       DateTime?
+  endedAt         DateTime?
+  durationMs      Int?
   /// Device context of the worker terminal (free form, audit only).
-  deviceType String?
-  deviceName String?
+  deviceType      String?
+  deviceName      String?
 
   createdAt DateTime @default(now())
 
@@ -1917,19 +1937,19 @@ model Station {
   /// Zone this physical station sits in (Master Order §11 — the
   /// station/zone relationship is BACKEND/ADMIN CONFIGURATION, not code).
   /// For STAGING stations: the temporary-storage zone closed totes are moved to.
-  zoneId  String?
-  zone    Zone?   @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+  zoneId String?
+  zone   Zone?   @relation(fields: [zoneId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  corrections     OperationCorrection[]
-  sessions        ReceivingSession[]   @relation("StationSessions")
-  workerSessions  Session[]            @relation("SessionStation")
-  putawaySessions PutawaySession[]     @relation("StationPutawaySessions")
-  taskAssignments WorkerTaskAssignment[] @relation("AssignmentStation")
+  corrections      OperationCorrection[]
+  sessions         ReceivingSession[]     @relation("StationSessions")
+  workerSessions   Session[]              @relation("SessionStation")
+  putawaySessions  PutawaySession[]       @relation("StationPutawaySessions")
+  taskAssignments  WorkerTaskAssignment[] @relation("AssignmentStation")
   stagedContainers OperationalContainer[] @relation("ContainerStaging")
-  exceptions      OperationalException[]   @relation("ExceptionStation")
+  exceptions       OperationalException[] @relation("ExceptionStation")
 
   @@index([department])
   @@index([status])

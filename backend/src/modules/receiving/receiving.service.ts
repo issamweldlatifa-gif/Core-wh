@@ -397,11 +397,22 @@ export class ReceivingService {
     const difference = received - line.expectedQuantity;
     const status = received === line.expectedQuantity ? 'RECEIVED' : received > line.expectedQuantity ? 'OVERAGE' : 'PARTIALLY_RECEIVED';
     const ref = line.sku ?? line.reference ?? term;
+    let raced = false;
     await this.prisma.$transaction(async (tx) => {
-      await tx.receivingProduct.update({
-        where: { id: line.id },
+      // CONCURRENCY (shared receiving queue): `received` was computed from a
+      // read taken OUTSIDE this transaction. With several workers scanning
+      // the same card at once, two requests could read the same
+      // receivedQuantity and both write it back — a lost update that counted
+      // two physical units as one. The write is therefore guarded by the
+      // value we based the computation on (optimistic concurrency): it only
+      // applies while the row is still unchanged. If another worker got
+      // there first, `count` is 0 and we redo the scan against fresh state
+      // instead of silently overwriting their receipt.
+      const applied = await tx.receivingProduct.updateMany({
+        where: { id: line.id, receivedQuantity: line.receivedQuantity },
         data: { receivedQuantity: received, difference, status: status as any },
       });
+      if (applied.count === 0) { raced = true; return; }
       if (input.operationId) {
         await tx.receivingScanEvent.create({ data: {
           sessionId, operationId: input.operationId, kind: 'PRODUCT', code: term, quantity: qty, source,
@@ -424,6 +435,10 @@ export class ReceivingService {
         metadata: { card: ref, received, expected: line.expectedQuantity, added: qty, identifierType, source, logId: log.id },
       }, tx);
     });
+    // Lost-update guard tripped: another worker confirmed this unit while we
+    // were computing. Re-run once against the now-current state; the scan is
+    // either applied cleanly or reported as already complete.
+    if (raced) return this.confirmProduct(sessionId, { ...input, operationId: undefined }, actor);
     return this.sessionDetail(sessionId, {
       flash: { kind: 'MATCH', cardType: 'PRODUCT', code: ref, sku: term, expected: line.expectedQuantity, received },
     });
@@ -975,23 +990,16 @@ export class ReceivingService {
       heldBy.set(row.arrivalId, holders);
     }
 
-    // VISIBILITY vs OWNERSHIP.
+    // SHARED RECEIVING QUEUE.
     //
-    // Receiving work is auto-dispatched to exactly ONE worker (dispatch()
-    // picks candidates[0]). Scoping the FEED to that single holder meant a
-    // card pushed by the CRM was visible to one account only: every other
-    // receiving worker opened the app and saw an empty Home, which reads as
-    // "cards stopped arriving". Admin Web showed the arrival all along,
-    // because it never applied this filter.
+    // Receiving is a shared, permission-gated queue: every worker holding
+    // receiving.execute sees the SAME queue, because a station is staffed by
+    // several workers at once while dispatch() names only one of them.
+    // Assignment is optional tracking data, not an authorization gate (see
+    // task-registry `shared` and assertOperationalAccess).
     //
-    // The feed is a READ surface, so it now shows the arrival to every
-    // receiving worker: the assignee (so their own work is never hidden) and
-    // the rest of the floor (so the card is visible and can be picked up).
-    // Ownership is unchanged and still enforced on WRITE by
-    // assertOperationalAccess — a worker who is not the holder can look at
-    // the card but cannot confirm against someone else's assignment. Nothing
-    // here grants extra permission; `isOwn` simply tells the UI which cards
-    // belong to this worker.
+    // `isOwn` is retained purely as a UI hint so the app can highlight the
+    // arrival this worker was routed to. It grants and withholds nothing.
     return open.map((a) => {
       const holders = heldBy.get(a.id);
       const isOwn = !holders || holders.size === 0 || holders.has(workerId);

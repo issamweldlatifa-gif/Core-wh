@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { TASK_REGISTRY, taskByKey } from '../operations/task-registry';
+import { TASK_REGISTRY, taskByKey, isSharedTask } from '../operations/task-registry';
 
 /**
  * WORKER OPERATIONAL ASSIGNMENTS (§5–§11 of the worker order).
@@ -387,6 +387,22 @@ export class AssignmentsService {
   /** Existing available-floor-work policy is retained; linked work must respect its owner and block state. */
   async assertOperationalAccess(workerId: string, taskKey: string,
     entity: { arrivalId?: string; cartonId?: string; containerId?: string; outboundShipmentId?: string }, db: Prisma.TransactionClient = this.prisma) {
+    // SHARED QUEUE TASKS (Receiving): authorization is by PERMISSION only.
+    //
+    // Receiving is staffed by several workers at one station at the same
+    // time, but dispatch() names exactly ONE worker per arrival. Treating
+    // that row as an authorization gate meant only the named worker could
+    // open/scan/verify/approve the card — every other qualified worker was
+    // rejected here. The route guard has already enforced the task
+    // permission (receiving.execute) before we get here, so for a shared
+    // task that is the whole authorization decision.
+    //
+    // The assignment row is NOT deleted and NOT ignored elsewhere: it still
+    // drives audit, workload balancing and routing. It simply stops acting
+    // as a gate. Per-unit concurrency (two workers scanning the same
+    // product) is enforced at the write path, not here.
+    if (isSharedTask(taskKey)) return;
+
     const rows = await db.workerTaskAssignment.findMany({ where: { taskKey, ...entity, status: { not: 'CANCELLED' } }, select: { id: true, workerId: true, status: true, stationId: true } });
     if (!rows.length) return; // audited upstream floor-work policy; strict assignment-only cutover remains a gate
     const own = rows.find((row) => row.workerId === workerId && ['ASSIGNED', 'IN_PROGRESS'].includes(row.status));

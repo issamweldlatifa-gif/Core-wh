@@ -23,6 +23,18 @@ export interface OperationalTask {
   ready: boolean;
   /** Parent task key when this is a worker-visible sub-action of one workflow. */
   subtaskOf?: string;
+  /**
+   * SHARED QUEUE task: authorization is decided by PERMISSION alone, never by
+   * who holds the WorkerTaskAssignment row.
+   *
+   * Receiving is staffed by several workers at one station simultaneously, so
+   * treating the auto-dispatched assignment as an authorization gate limited
+   * every arrival to a single account. For a shared task the assignment is
+   * retained as OPTIONAL data (audit, workload balancing, routing hints) but
+   * it must not gate visibility, opening, scanning, verification or approval.
+   * Concurrency is handled per-unit at the write path instead.
+   */
+  shared?: boolean;
 }
 
 export const TASK_REGISTRY: OperationalTask[] = [
@@ -33,6 +45,7 @@ export const TASK_REGISTRY: OperationalTask[] = [
     department: 'RECEIVING',
     permission: 'receiving.execute',
     ready: true,
+    shared: true,
   },
   {
     key: 'receiving-container',
@@ -41,6 +54,7 @@ export const TASK_REGISTRY: OperationalTask[] = [
     department: 'RECEIVING',
     permission: 'receiving.execute',
     ready: true,
+    shared: true,
     subtaskOf: 'receiving',
   },
   {
@@ -87,6 +101,14 @@ export const TASK_REGISTRY: OperationalTask[] = [
 
 export function taskByKey(key: string): OperationalTask | undefined {
   return TASK_REGISTRY.find((t) => t.key === key);
+}
+
+/**
+ * True when a task is a shared, permission-gated queue: any worker holding
+ * the task permission may execute it regardless of who the assignment names.
+ */
+export function isSharedTask(key: string): boolean {
+  return taskByKey(key)?.shared === true;
 }
 
 /** Worker-facing sub-actions of the Receiving workflow (§6 of the order). */
