@@ -39,13 +39,22 @@ class WorkerSessionUseCaseTest {
         assertEquals(99, result.context.readyTaskCount)
         assertEquals(store.snapshot().identityVersion, result.identityVersion)
     }
-    @Test fun `worker without receiving read authority does not query receiving queue`() = runBlocking {
+    @Test fun `worker without receiving read authority does not query receiving home`() = runBlocking {
         val store = MemorySessions().apply { signIn() }
         val transport = responses(worker.copy(permissions = listOf("picking.execute")))
         val result = WorkerSessionUseCase(WorkerRepository(store, transport), store).loadContext()
         assertNull(result.receivingArrivalCount)
-        assertFalse(transport.paths.contains("/v1/receiving/arrivals"))
+        assertFalse(transport.paths.contains("/v1/receiving/home"))
         assertTrue(result.tasks.isEmpty())
+    }
+
+    @Test fun `receiving view authority loads cards even before execute authority`() = runBlocking {
+        val store = MemorySessions().apply { signIn() }
+        val transport = responses(worker.copy(permissions = listOf("receiving.view")))
+        val result = WorkerSessionUseCase(WorkerRepository(store, transport), store).loadContext()
+        assertEquals(3, result.receivingArrivalCount)
+        assertTrue(transport.paths.contains("/v1/receiving/home"))
+        assertTrue(result.tasks.isEmpty(), "without execute, cards are visible but mutation entry is locked")
     }
     @Test fun `admin surface response fails closed`() = runBlocking {
         val store = MemorySessions().apply { signIn() }

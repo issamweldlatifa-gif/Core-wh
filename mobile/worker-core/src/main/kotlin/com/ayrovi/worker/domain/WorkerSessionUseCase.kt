@@ -44,7 +44,10 @@ class WorkerSessionUseCase(private val repository: WorkerRepository, private val
         // call /receiving/arrivals here: that endpoint is a broad arrival list
         // and caused the worker Home to show counts that were not this worker's
         // actual product/carton cards.
-        val canWatchCards = WorkerAccess.VIEW_RECEIVING in me.permissions && WorkerAccess.EXECUTE_RECEIVING in me.permissions
+        // Reading the worker-scoped card feed needs VIEW only. EXECUTE is
+        // checked later by the confirm/mutation endpoints and by the scanner
+        // gate; it must not hide real cards from the Home screen.
+        val canWatchCards = WorkerAccess.VIEW_RECEIVING in me.permissions
         val home: ReceivingHome? = if (!canWatchCards) null else try {
             repository.receivingHome()
         } catch (cancelled: CancellationException) {
