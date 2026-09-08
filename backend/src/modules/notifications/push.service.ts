@@ -102,6 +102,38 @@ export class PushService {
   }
 
   /**
+   * NEW_RECEIVING_CARD (CARTON lane) — a Shipment Card landed.
+   *
+   * The carton keeps its own identity in the notification: the worker is told
+   * the suivi/tracking code, not a product SKU, so the message matches what
+   * they will scan on the box.
+   */
+  async notifyNewCartonCard(
+    shipmentCode: string,
+    cartonCount: number,
+    trackingNumber: string | null,
+  ): Promise<number> {
+    try {
+      const suivi = trackingNumber ? ` · Suivi: ${trackingNumber}` : '';
+      return await this.notifyTaskAudience('receiving', {
+        title: 'AYROVI Receiving',
+        body: `New carton arrived · ${cartonCount} carton(s)${suivi}`,
+        route: '/terminal/receiving',
+        data: {
+          event: 'NEW_RECEIVING_CARD',
+          cardType: 'CARTON',
+          shipmentCode,
+          cartonCount: String(cartonCount),
+          ...(trackingNumber ? { trackingNumber } : {}),
+        },
+      });
+    } catch (err) {
+      this.logger.error(`NEW_RECEIVING_CARD (carton) push failed for ${shipmentCode}: ${(err as Error).message}`);
+      return 0;
+    }
+  }
+
+  /**
    * NEW_RECEIVING_CARD — emitted when a CRM arrival card lands.
    *
    * Delivery is best-effort and must NEVER fail the intake transaction: a
@@ -113,7 +145,7 @@ export class PushService {
         title: 'AYROVI Receiving',
         body: `New receiving card arrived · ${arrivalCode}`,
         route: '/terminal/receiving',
-        data: { event: 'NEW_RECEIVING_CARD', arrivalCode, productCount: String(productCount) },
+        data: { event: 'NEW_RECEIVING_CARD', cardType: 'PRODUCT', arrivalCode, productCount: String(productCount) },
       });
     } catch (err) {
       this.logger.error(`NEW_RECEIVING_CARD push failed for ${arrivalCode}: ${(err as Error).message}`);

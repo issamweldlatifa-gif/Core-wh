@@ -3,6 +3,7 @@ import { Prisma, PrismaClient } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { TaskDispatchService } from '../assignments/dispatch.service';
+import { PushService } from '../notifications/push.service';
 import { ShipmentCardEventDto } from '../../integrations/crm/dto/shipment-card.dto';
 import type { IntegrationPrincipal } from '../expected-arrivals/expected-arrivals.service';
 
@@ -27,6 +28,7 @@ export class ShipmentsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly dispatch: TaskDispatchService,
+    private readonly push: PushService,
   ) {}
 
   /**
@@ -246,6 +248,18 @@ export class ShipmentsService {
 
       return created;
     });
+
+    // NEW CARTON CARD -> push to every worker holding the receiving
+    // permission, exactly like the PRODUCT (Customer Arrival Card) path.
+    // Only the carton lane was missing this, so a shipment-only arrival was
+    // dispatched silently and nobody was told a carton had landed.
+    // Fired AFTER the transaction commits; a push outage can never fail
+    // intake.
+    await this.push.notifyNewCartonCard(
+      record.code,
+      cartons.length,
+      shipment.tracking?.tracking_number?.trim() || null,
+    );
 
     return {
       success: true,
