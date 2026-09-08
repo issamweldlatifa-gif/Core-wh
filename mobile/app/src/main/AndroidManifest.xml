@@ -19,6 +19,8 @@
         android:name=".AyroviWorkerApplication"
         android:allowBackup="false"
         android:label="AYROVI Worker"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:usesCleartextTraffic="false"
         android:theme="@style/Theme.AyroviWorker">
