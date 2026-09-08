@@ -526,14 +526,16 @@ export class AssignmentsService {
     });
     const openOrderSkus = Array.from(new Set(openOrderItems.map((r) => r.product.externalProductCode)));
 
-    const [myOpenAssignments, arrivalsReady, myReceiving, putawayCartons, myClaims, articlesToSort, binsReady, shipmentsReady, articlesAwaitingOrder] =
+    const [myOpenAssignments, myReceiving, putawayCartons, myClaims, articlesToSort, binsReady, shipmentsReady, articlesAwaitingOrder] =
       await Promise.all([
         this.prisma.workerTaskAssignment.groupBy({
           by: ['taskKey'],
           where: { workerId: user.id, status: { in: ['ASSIGNED', 'IN_PROGRESS'] } },
           _count: { _all: true },
         }),
-        this.prisma.expectedArrival.count({ where: { status: 'EXPECTED' } }),
+        // Receiving card availability is resolved by GET /receiving/home,
+        // which applies the worker's assignment/floor scope. Do not expose
+        // the global EXPECTED-arrival count here as a worker queue number.
         this.prisma.receivingSession.count({ where: { startedBy: user.id, status: { in: ['RECEIVING', 'PAUSED'] } } }),
         this.prisma.warehouseCarton.count({
           where: {
@@ -559,7 +561,9 @@ export class AssignmentsService {
     }
 
     const availability: Record<string, { assigned: number; available: number; mine?: number }> = {
-      receiving: { assigned: assignedBy.get('receiving') ?? 0, available: arrivalsReady + myReceiving, mine: myReceiving },
+      // The Worker app replaces this queue availability with the scoped
+      // Receiving Home feed. Keep only the real open session count here.
+      receiving: { assigned: assignedBy.get('receiving') ?? 0, available: myReceiving, mine: myReceiving },
       'receiving-container': { assigned: 0, available: 0 },
       sorting: { assigned: assignedBy.get('sorting') ?? 0, available: articlesToSort },
       putaway: { assigned: assignedBy.get('putaway') ?? 0, available: putawayCartons, mine: myClaims },

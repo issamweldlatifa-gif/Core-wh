@@ -14,7 +14,9 @@ object WorkerQueuePolicy {
         permittedTasks.filter { it.key in labels }.distinctBy { it.key }.map { task ->
             val key = task.key!!
             WorkerQueueItem(key, labels.getValue(key), task.ready == true && key == "receiving",
-                counts.firstOrNull { it.key == key }?.assigned?.takeIf { it >= 0 }
-                    ?: if (key == "receiving") receivingArrivals?.takeIf { it >= 0 } else null)
+                // Receiving counts come only from the worker-scoped Home feed;
+                // the generic work-count endpoint is not a card feed.
+                if (key == "receiving") receivingArrivals?.takeIf { it >= 0 }
+                else counts.firstOrNull { it.key == key }?.assigned?.takeIf { it >= 0 })
         }
 }

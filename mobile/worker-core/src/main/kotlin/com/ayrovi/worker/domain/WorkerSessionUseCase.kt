@@ -40,10 +40,10 @@ class WorkerSessionUseCase(private val repository: WorkerRepository, private val
         if (context.worker?.id != me.user?.id) denyIdentity(identity, "Worker identity could not be verified.")
         val assignments = repository.assignments()
         val counts = repository.workCounts()
-        val count = if (WorkerAccess.VIEW_RECEIVING in me.permissions && WorkerAccess.EXECUTE_RECEIVING in me.permissions)
-            repository.arrivals().size else null
-        // Per-lane card counters for the whole-app new-card notification. Read
-        // alone so a transient feed failure never blocks the rest of the context.
+        // Receiving Home is the only authoritative worker-scoped feed. Do not
+        // call /receiving/arrivals here: that endpoint is a broad arrival list
+        // and caused the worker Home to show counts that were not this worker's
+        // actual product/carton cards.
         val canWatchCards = WorkerAccess.VIEW_RECEIVING in me.permissions && WorkerAccess.EXECUTE_RECEIVING in me.permissions
         val home: ReceivingHome? = if (!canWatchCards) null else try {
             repository.receivingHome()
@@ -58,7 +58,7 @@ class WorkerSessionUseCase(private val repository: WorkerRepository, private val
             context = context,
             tasks = WorkerAccess.permittedTasks(me, context),
             assignments = assignments,
-            receivingArrivalCount = count,
+            receivingArrivalCount = home?.let { it.productCardsPending + it.cartonCardsPending },
             identityVersion = identity,
             workCounts = counts,
             receivingProductPending = home?.productCardsPending,

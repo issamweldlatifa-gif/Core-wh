@@ -29,12 +29,12 @@ class WorkerSessionUseCaseTest {
         "/v1/terminal/context" to json.encodeToString(TerminalContext.serializer(), terminal),
         "/v1/terminal/work" to "[]",
         "/v1/terminal/assignments" to """{"open":[],"recent":[]}""",
-        "/v1/receiving/arrivals" to """[{"id":"one","code":"WAR-001"},{"id":"two","code":"WAR-002"}]""",
+        "/v1/receiving/home" to """{"productCardsPending":2,"cartonCardsPending":1}""",
     ))
-    @Test fun `work context counts actual server arrivals rather than module readiness`() = runBlocking {
+    @Test fun `work context counts only cards from the worker scoped home feed`() = runBlocking {
         val store = MemorySessions().apply { signIn() }
         val result = WorkerSessionUseCase(WorkerRepository(store, responses()), store).loadContext()
-        assertEquals(2, result.receivingArrivalCount)
+        assertEquals(3, result.receivingArrivalCount)
         assertEquals(1, result.tasks.size)
         assertEquals(99, result.context.readyTaskCount)
         assertEquals(store.snapshot().identityVersion, result.identityVersion)
