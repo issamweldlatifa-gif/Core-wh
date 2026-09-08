@@ -59,6 +59,7 @@ class AyroviMessagingService : FirebaseMessagingService() {
         }
 
         /** Post the notification; tapping it opens the Receiving queue. */
+        @android.annotation.SuppressLint("MissingPermission")
         fun notify(context: Context, title: String, body: String, route: String) {
             ensureChannel(context)
             // Deep link: MainActivity is singleTask, so this reuses the running
