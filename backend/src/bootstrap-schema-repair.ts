@@ -465,6 +465,8 @@ END $$`,
   `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'EXCEPTION_RESOLVED'`,
   `ALTER TYPE "StationDepartment" ADD VALUE IF NOT EXISTS 'STAGING'`,
   `ALTER TYPE "CorrectionAction" ADD VALUE IF NOT EXISTS 'REOPEN_CUSTOMER_BIN'`,
+  // Admin Force Data Delete (emergency cleanup of workflow-active data).
+  `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'DATA_FORCE_DELETED'`,
   `DO $$ BEGIN CREATE TYPE "OperationalExceptionStatus" AS ENUM ('OPEN', 'RESOLVED', 'REJECTED'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
   // stations ↔ zone configuration (§11).
   `ALTER TABLE "stations" ADD COLUMN IF NOT EXISTS "zoneId" TEXT`,

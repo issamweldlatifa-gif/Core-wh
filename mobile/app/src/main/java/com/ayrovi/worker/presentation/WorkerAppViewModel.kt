@@ -8,6 +8,10 @@ import com.ayrovi.worker.domain.MessageTone
 import com.ayrovi.worker.domain.WorkerSessionUseCase
 import com.ayrovi.worker.domain.AudioFeedback
 import com.ayrovi.worker.domain.WorkerQueuePolicy
+import com.ayrovi.worker.domain.CardNotificationCenter
+import com.ayrovi.worker.domain.CardNotificationState
+import com.ayrovi.worker.domain.CardReadStore
+import com.ayrovi.worker.domain.InMemoryCardReadStore
 import com.ayrovi.worker.domain.toOperationalMessage
 import com.ayrovi.worker.feedback.ReceivingNotifier
 import kotlinx.coroutines.CancellationException
@@ -37,14 +41,21 @@ data class WorkerAppState(
     /** Live per-lane pending counters from the whole-app poll (see loadContext). */
     val receivingProductPending: Int? = null,
     val receivingCartonPending: Int? = null,
+    /** Last authoritative card feed — the input to the unread badge model. */
+    val receivingHome: ReceivingHome? = null,
+    /** UNREAD notification state (badge source of truth on the device). */
+    val notifications: CardNotificationState = CardNotificationState(),
 ) {
-    val queueItems get() = WorkerQueuePolicy.items(tasks, receivingArrivals, workCounts)
+    val queueItems get() = WorkerQueuePolicy.items(tasks, receivingArrivals, workCounts, notifications.unreadTotal)
+    /** Whole-app unread badge (null instead of a drawn zero). */
+    val unreadBadge: Int? get() = notifications.badge
 }
 
 class WorkerAppViewModel(
     private val session: WorkerSessionUseCase,
     private val audio: AudioFeedback = AudioFeedback.Silent,
     private val notifier: ReceivingNotifier? = null,
+    private val readStore: CardReadStore = InMemoryCardReadStore(),
 ) : ViewModel() {
     private val mutable = MutableStateFlow(WorkerAppState(signedIn = session.hasSession))
     val state = mutable.asStateFlow()
@@ -54,6 +65,8 @@ class WorkerAppViewModel(
     private var explicitSignOut = false
     private var foreground = false
     private var monitor: Job? = null
+    /** Read-set rehydrated once per signed-in session (see loadContext). */
+    private var restored = false
 
     init {
         viewModelScope.launch {
@@ -90,6 +103,7 @@ class WorkerAppViewModel(
             try {
                 session.login(identifier, secret, pin)
                 explicitSignOut = false
+                restored = false // rehydrate this worker's read set on the next context load
                 mutable.update { it.copy(signedIn = true, loginGeneration = ++generation) }
                 loadContext()
             } catch (cancelled: CancellationException) { throw cancelled }
@@ -139,13 +153,59 @@ class WorkerAppViewModel(
             if (newProduct != null && newProduct == 0) notifier?.clearCard(product = true)
             if (newCarton != null && newCarton == 0) notifier?.clearCard(product = false)
         }
+        // After a fresh sign-in / process restart the in-memory read set is
+        // empty: rehydrate it from the store first, so already-read cards are
+        // never re-announced as unread (TEST 10 / TEST 11).
+        if (!restored) { restoreReads(verified.me?.user?.id); restored = true }
+        // Recompute UNREAD against the fresh feed. Cards that left the feed
+        // (completed, or force-deleted by an admin) are pruned here, so the
+        // badge reaches 0 immediately — no restart, re-login or manual refresh.
+        val reconciled = CardNotificationCenter.reconcile(mutable.value.notifications, verified.receivingHome)
+        persistReads(verified.me?.user?.id, reconciled)
+        // A lane whose unread count fell to zero must not keep a tray
+        // notification claiming a card is waiting.
+        if (reconciled.unreadProduct == 0) notifier?.clearCard(product = true)
+        if (reconciled.unreadCarton == 0) notifier?.clearCard(product = false)
         mutable.update { it.copy(
             signedIn = true, me = verified.me, context = verified.context, tasks = verified.tasks,
             assignments = verified.assignments, receivingArrivals = verified.receivingArrivalCount, workCounts = verified.workCounts,
             identityVersion = verified.identityVersion, verified = foreground, message = null,
             receivingProductPending = verified.receivingProductPending,
             receivingCartonPending = verified.receivingCartonPending,
+            receivingHome = verified.receivingHome,
+            notifications = reconciled,
         ) }
+    }
+
+    /** Persist the read set so it survives process death and re-login (TEST 10/11). */
+    private fun persistReads(workerId: String?, state: CardNotificationState) {
+        val id = workerId ?: return
+        runCatching { readStore.save(id, state.readProduct, state.readCarton) }
+    }
+
+    /** Restore the read set for the signed-in worker before the first reconcile. */
+    private fun restoreReads(workerId: String?) {
+        val id = workerId ?: return
+        val (product, carton) = runCatching { readStore.load(id) }.getOrDefault(emptySet<String>() to emptySet())
+        mutable.update { it.copy(notifications = it.notifications.copy(readProduct = product, readCarton = carton)) }
+    }
+
+    /**
+     * The worker opened a receiving lane: every card visible in it becomes
+     * READ and the badge drops immediately, without waiting for the next poll.
+     */
+    fun markReceivingRead(product: Boolean? = null) {
+        val current = mutable.value
+        val home = current.receivingHome
+        val updated = when (product) {
+            true -> CardNotificationCenter.markProductRead(current.notifications, home)
+            false -> CardNotificationCenter.markCartonRead(current.notifications, home)
+            null -> CardNotificationCenter.markAllRead(current.notifications, home)
+        }
+        persistReads(current.me?.user?.id, updated)
+        if (updated.unreadProduct == 0) notifier?.clearCard(product = true)
+        if (updated.unreadCarton == 0) notifier?.clearCard(product = false)
+        mutable.update { it.copy(notifications = updated) }
     }
 
     fun completeAssignment(id: String) {
@@ -167,7 +227,10 @@ class WorkerAppViewModel(
     fun logout() {
         if (mutable.value.busy) return
         explicitSignOut = true
-        // Remove any waiting-card tray notifications with the session.
+        restored = false
+        // Remove any waiting-card tray notifications with the session. The
+        // persisted READ set is deliberately kept: signing back in must not
+        // resurrect notifications the worker already read (TEST 11).
         notifier?.clearAll()
         // Hide worker/task data immediately, not after a potentially slow revocation request.
         mutable.value = WorkerAppState(busy = true)

@@ -1411,6 +1411,216 @@ export class OperationsService {
     throw new BadRequestException(`Unsupported void kind "${input.kind}".`);
   }
 
+  // ------------------------------------------------------------------
+  // ADMIN FORCE DATA DELETE (PART 4). Admin-only emergency cleanup for
+  // data that is already OPEN / ACTIVE / ASSIGNED / IN_PROGRESS inside the
+  // worker workflow and therefore refused by the normal soft-void above.
+  //
+  // Force delete is NOT a second delete pipeline: it terminates the active
+  // workflow first, then removes the data, then lets the SAME worker feed
+  // (GET /receiving/home) drop the card on its next poll. The Worker app has
+  // no delete capability of any kind — this lives behind operations.correct.
+  // ------------------------------------------------------------------
+
+  /**
+   * Dry-run impact report shown in the confirmation dialog. Purely read-only:
+   * the admin sees exactly what the FORCE DELETE would terminate and remove
+   * before typing the confirmation text.
+   */
+  async dataControlForceDeletePreview(kind: 'arrival' | 'carton', id?: string, code = '') {
+    const target = await this.resolveForceTarget(kind, id, code);
+    return { ...target.report, kind, code: target.code, requiresConfirmation: target.code };
+  }
+
+  /** Resolve + describe a force-delete target (shared by preview and execute). */
+  private async resolveForceTarget(kind: 'arrival' | 'carton', id?: string, rawCode = '') {
+    const code = (rawCode ?? '').trim();
+    if (!id && !code) throw new BadRequestException('code is required.');
+
+    if (kind === 'arrival') {
+      const row = id
+        ? await this.prisma.expectedArrival.findUnique({ where: { id } })
+        : await this.prisma.expectedArrival.findFirst({
+            where: { OR: [{ code }, { customerArrivalCardId: code }, { arrivalReference: code }] },
+          });
+      if (!row) throw new NotFoundException(`No arrival card found for "${code}".`);
+
+      const [sessions, assignments, shipments, cartons, articles] = await Promise.all([
+        this.prisma.receivingSession.findMany({
+          where: { arrivalId: row.id },
+          select: { id: true, code: true, status: true },
+        }),
+        this.prisma.workerTaskAssignment.findMany({
+          where: { arrivalId: row.id, status: { in: ['ASSIGNED', 'IN_PROGRESS', 'BLOCKED'] } },
+          select: { id: true, workerId: true, status: true, taskKey: true },
+        }),
+        this.prisma.warehouseShipment.count({ where: { arrivalId: row.id } }),
+        this.prisma.warehouseCarton.count({ where: { shipment: { arrivalId: row.id } } }),
+        this.prisma.articleUnit.count({ where: { receivingSession: { arrivalId: row.id } } }),
+      ]);
+
+      return {
+        code: row.code,
+        row,
+        sessions,
+        assignments,
+        report: {
+          entity: 'arrival',
+          code: row.code,
+          currentStatus: row.status,
+          active: sessions.some((s) => ['RECEIVING', 'PAUSED'].includes(s.status)) || assignments.length > 0,
+          assignedWorkers: assignments.map((a) => a.workerId),
+          willTerminate: {
+            receivingSessions: sessions.length,
+            openAssignments: assignments.length,
+          },
+          willDelete: {
+            shipments,
+            cartons,
+            expectedItems: row.productCount,
+          },
+          // Articles are physical pieces already produced on the floor: they
+          // are NEVER destroyed by a data cleanup.
+          blockedBy: articles > 0
+            ? `${articles} article(s) were already produced from this arrival — resolve them in Corrections first.`
+            : null,
+        },
+      };
+    }
+
+    const row = id
+      ? await this.prisma.warehouseCarton.findUnique({ where: { id } })
+      : await this.prisma.warehouseCarton.findFirst({
+          where: { OR: [{ externalCartonId: code }, { qrCodeValue: code }, { barcodeValue: code }] },
+        });
+    if (!row) throw new NotFoundException(`No carton found for "${code}".`);
+    const show = row.externalCartonId ?? row.qrCodeValue ?? row.barcodeValue ?? row.id;
+
+    const [assignments, receivingRows, placements, articles] = await Promise.all([
+      this.prisma.workerTaskAssignment.findMany({
+        where: { cartonId: row.id, status: { in: ['ASSIGNED', 'IN_PROGRESS', 'BLOCKED'] } },
+        select: { id: true, workerId: true, status: true, taskKey: true },
+      }),
+      this.prisma.receivingCarton.count({ where: { cartonId: row.id } }),
+      this.prisma.cartonPlacement.count({ where: { cartonId: row.id } }),
+      this.prisma.articleUnit.count({ where: { sourceCartonId: row.id } }),
+    ]);
+
+    return {
+      code: show,
+      row,
+      sessions: [] as Array<{ id: string; code: string; status: string }>,
+      assignments,
+      report: {
+        entity: 'carton',
+        code: show,
+        currentStatus: row.status,
+        active: assignments.length > 0 || receivingRows > 0,
+        assignedWorkers: assignments.map((a) => a.workerId),
+        willTerminate: { openAssignments: assignments.length, receivingRows },
+        willDelete: { placements, carton: 1 },
+        blockedBy: articles > 0
+          ? `${articles} article(s) were already scanned out of this carton — void the articles instead.`
+          : null,
+      },
+    };
+  }
+
+  /**
+   * Execute the force delete. Two-level confirmation is enforced server-side
+   * as well as in the UI: a written reason AND the exact code typed back.
+   */
+  async dataControlForceDelete(
+    input: { kind: 'arrival' | 'carton'; id?: string; code: string; reason?: string; confirm?: string },
+    actor: { id: string; ip?: string },
+  ) {
+    const reason = (input.reason ?? '').trim();
+    if (reason.length < 2) {
+      throw new BadRequestException('A written reason (at least 2 characters) is required for a force delete.');
+    }
+    const target = await this.resolveForceTarget(input.kind, input.id, input.code);
+    // Confirmation #2: the admin must type the resolved code back exactly.
+    if ((input.confirm ?? '').trim() !== target.code) {
+      throw new BadRequestException(`Confirmation failed: type "${target.code}" exactly to force delete.`);
+    }
+    if (target.report.blockedBy) throw new ConflictException(target.report.blockedBy);
+
+    // The audit row is written FIRST and outside the deletion transaction, so
+    // the trace survives even if the cleanup itself fails midway. Audit logs
+    // are never deleted.
+    await this.prisma.auditLog.create({
+      data: {
+        actorUserId: actor.id || null,
+        ipAddress: actor.ip ?? null,
+        action: 'DATA_FORCE_DELETED',
+        entityType: target.report.entity,
+        entityId: target.code,
+        metadata: {
+          action: 'FORCE_DELETE',
+          kind: input.kind,
+          code: target.code,
+          reason,
+          previousStatus: target.report.currentStatus,
+          assignedWorkers: target.report.assignedWorkers,
+          terminated: target.report.willTerminate,
+          removed: target.report.willDelete,
+        } as Prisma.InputJsonValue,
+      },
+    });
+
+    const cancelled = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // 1) Terminate the active workflow: open assignments become CANCELLED
+      //    with the reason, so the worker's task list drops them and the
+      //    audit keeps who was holding the work.
+      const ids = target.assignments.map((a) => a.id);
+      if (ids.length > 0) {
+        await tx.workerTaskAssignment.updateMany({
+          where: { id: { in: ids } },
+          data: {
+            status: 'CANCELLED',
+            cancelledById: actor.id || null,
+            cancelledAt: new Date(),
+            cancelReason: `FORCE_DELETE: ${reason}`,
+          },
+        });
+      }
+
+      if (input.kind === 'arrival') {
+        // 2) Sessions and their scans/products/discrepancies/logs cascade
+        //    from the arrival row itself (onDelete: Cascade), as do items.
+        //    Shipments are SetNull, so remove their cartons then the
+        //    shipments explicitly — otherwise cartons would outlive the
+        //    arrival and reappear as orphan CARTON cards.
+        const shipmentIds = (
+          await tx.warehouseShipment.findMany({ where: { arrivalId: target.row.id }, select: { id: true } })
+        ).map((s) => s.id);
+        if (shipmentIds.length > 0) {
+          await tx.warehouseCarton.deleteMany({ where: { shipmentId: { in: shipmentIds } } });
+          await tx.warehouseShipment.deleteMany({ where: { id: { in: shipmentIds } } });
+        }
+        await tx.expectedArrival.delete({ where: { id: target.row.id } });
+      } else {
+        // A carton force delete removes its placements and the carton; the
+        // receiving rows that referenced it are SetNull by schema.
+        await tx.cartonPlacement.deleteMany({ where: { cartonId: target.row.id } });
+        await tx.warehouseCarton.delete({ where: { id: target.row.id } });
+      }
+      return ids.length;
+    });
+
+    return {
+      ok: true,
+      action: 'FORCE_DELETE',
+      kind: input.kind,
+      code: target.code,
+      previousStatus: target.report.currentStatus,
+      cancelledAssignments: cancelled,
+      terminated: target.report.willTerminate,
+      removed: target.report.willDelete,
+      reason,
+    };
+  }
+
   private toActivityEvent(row: {
     id: string;
     action: string;

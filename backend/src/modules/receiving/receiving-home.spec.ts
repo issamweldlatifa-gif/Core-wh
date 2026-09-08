@@ -96,7 +96,7 @@ describe('ReceivingService HOME (automatic dispatch feed)', () => {
 
     it('scopes cards to the worker: arrivals assigned to another worker are excluded', async () => {
       db.workerTaskAssignment.findMany.mockResolvedValue([
-        { workerId: 'other-worker', status: 'ASSIGNED' },
+        { workerId: 'other-worker', arrivalId: 'arr-1' },
       ]);
       const home = await service.workerHome('w-1', ACTOR);
       expect(home.productCardsPending).toBe(0);
@@ -105,11 +105,50 @@ describe('ReceivingService HOME (automatic dispatch feed)', () => {
 
     it('scopes cards to the worker: the assigned worker keeps their arrival', async () => {
       db.workerTaskAssignment.findMany.mockResolvedValue([
-        { workerId: 'w-1', status: 'ASSIGNED' },
+        { workerId: 'w-1', arrivalId: 'arr-1' },
       ]);
       const home = await service.workerHome('w-1', ACTOR);
       expect(home.productCardsPending).toBe(1);
       expect(home.cartonCardsPending).toBe(1);
+    });
+
+    // REGRESSION (card delivery outage): a COMPLETED/CANCELLED receiving
+    // assignment must release the arrival back to the open floor. The old
+    // scope query matched every row that was `not: CANCELLED`, so a closed
+    // assignment left the arrival held by nobody and hid its PRODUCT and
+    // CARTON cards from every worker at once.
+    it('releases the arrival when its only assignment is no longer open', async () => {
+      // The service now asks prisma for OPEN rows only; a completed
+      // assignment is therefore simply absent from the result.
+      db.workerTaskAssignment.findMany.mockResolvedValue([]);
+      const home = await service.workerHome('w-1', ACTOR);
+      expect(home.productCardsPending).toBe(1);
+      expect(home.cartonCardsPending).toBe(1);
+      // and the scope query must never widen back to closed statuses
+      expect(db.workerTaskAssignment.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ status: { in: ['ASSIGNED', 'IN_PROGRESS'] } }),
+        }),
+      );
+    });
+
+    it('delivers PRODUCT and CARTON cards together in one unified feed', async () => {
+      const home = await service.workerHome('w-1', ACTOR);
+      // Both lanes travel on the same scope resolution — one pipeline, the
+      // card type is the only difference. Neither lane may starve the other.
+      expect(home.productCards).toHaveLength(1);
+      expect(home.cartonCards).toHaveLength(1);
+      expect(home.productCardsPending).toBe(1);
+      expect(home.cartonCardsPending).toBe(1);
+    });
+
+    it('resolves the worker scope with a single assignment query (no N+1 per arrival)', async () => {
+      const second = arrival();
+      second.id = 'arr-2';
+      second.code = 'WAR-001002';
+      db.expectedArrival.findMany.mockResolvedValue([arrival(), second]);
+      await service.workerHome('w-1', ACTOR);
+      expect(db.workerTaskAssignment.findMany).toHaveBeenCalledTimes(1);
     });
 
     it('does not count already-received cartons / completed product cards', async () => {

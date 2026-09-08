@@ -9,6 +9,7 @@ import com.ayrovi.worker.feedback.AndroidAudioFeedback
 import com.ayrovi.worker.feedback.ReceivingNotifier
 import com.ayrovi.worker.design.TerminalThemeMode
 import com.ayrovi.worker.data.TerminalPreferences
+import com.ayrovi.worker.data.CardReadPreferences
 import com.ayrovi.worker.data.SessionStore
 import com.ayrovi.worker.data.WorkerRepository
 
@@ -23,6 +24,8 @@ class AppContainer(context: Context) {
     val appearance = TerminalPreferences(context.applicationContext,
         defaultMode = if (device == WorkerDevice.CT40) TerminalThemeMode.INDUSTRIAL else TerminalThemeMode.WHITE,
         darkMode = if (device == WorkerDevice.CT40) TerminalThemeMode.INDUSTRIAL else TerminalThemeMode.BLACK)
+    /** Persistent UNREAD/READ set backing the receiving notification badge. */
+    val cardReads = CardReadPreferences(context.applicationContext)
     val workerSession = WorkerSessionUseCase(repository, sessions)
     val frozenRollbackAllowed = sessions.read() == null
     val connectivity = NetworkMonitor(context.applicationContext, repository.transport::networkAvailable)
