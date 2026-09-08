@@ -32,7 +32,7 @@ import kotlinx.coroutines.launch
  * connection, device class).
  */
 
-private enum class SupportForm { NONE, REPORT, PROBLEM }
+internal enum class SupportForm { NONE, REPORT, PROBLEM }
 
 /** Problem categories reuse the operational language of the receiving floor. */
 internal enum class ProblemCategory(val label: String, val backendType: String) {
@@ -43,14 +43,14 @@ internal enum class ProblemCategory(val label: String, val backendType: String) 
     OTHER("Other problem", "MANUAL_REPORT"),
 }
 
-data class WorkerSettingsState(
+internal data class WorkerSettingsState(
     val busy: Boolean = false,
     val sent: Boolean = false,
     val form: SupportForm = SupportForm.NONE,
     val message: OperationalMessage? = null,
 )
 
-class WorkerSettingsViewModel(
+internal class WorkerSettingsViewModel(
     private val repository: WorkerRepository,
     private val appVersion: String,
     private val deviceCode: String,
