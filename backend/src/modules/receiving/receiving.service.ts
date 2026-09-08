@@ -148,10 +148,19 @@ export class ReceivingService {
   ) {}
 
   // ---------- helpers ----------
+  // Sequence from the highest existing code, never from count() — see the
+  // same fix in ExpectedArrivalsService.generateWarehouseCode.
   private async genCode(tx: Prisma.TransactionClient) {
-    for (let i = 0; i < 5; i += 1) {
-      const count = await tx.receivingSession.count();
-      const code = `${RCV_PREFIX}${String(RCV_START + count + 1).padStart(6, '0')}`;
+    const last = await tx.receivingSession.findFirst({
+      where: { code: { startsWith: RCV_PREFIX } },
+      orderBy: { code: 'desc' },
+      select: { code: true },
+    });
+    const lastNumber = last ? Number.parseInt(last.code.slice(RCV_PREFIX.length), 10) : NaN;
+    let next = Number.isFinite(lastNumber) ? lastNumber + 1 : RCV_START + 1;
+    if (next <= RCV_START) next = RCV_START + 1;
+    for (let i = 0; i < 25; i += 1) {
+      const code = `${RCV_PREFIX}${String(next + i).padStart(6, '0')}`;
       if (!(await tx.receivingSession.findUnique({ where: { code } }))) return code;
     }
     return `${RCV_PREFIX}R${Date.now().toString().slice(-6)}`;

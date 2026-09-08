@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -25,6 +25,8 @@ export interface ReceiveResult {
 
 @Injectable()
 export class ExpectedArrivalsService {
+  private readonly logger = new Logger(ExpectedArrivalsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -57,6 +59,9 @@ export class ExpectedArrivalsService {
     });
     if (existing) {
       // Replay of the same card -> return the same record (no new arrival).
+      this.logger.warn(
+        `Arrival card ${cardId} already exists as ${existing.code}; returning the existing arrival (no new card created).`,
+      );
       return {
         success: true,
         customer_arrival_card_id: cardId,
@@ -66,11 +71,23 @@ export class ExpectedArrivalsService {
       };
     }
     // Idempotency-Key header (if present) is a secondary guard.
+    //
+    // It must only ever suppress a REPLAY OF THE SAME CARD. Matching the key
+    // alone made the key a global "already seen anything" flag: a CRM that
+    // reuses one Idempotency-Key for every request (a very common client
+    // default) had its FIRST card stored and every following card silently
+    // resolved to that first arrival — success:true, created:false, nothing
+    // new in Admin Web and no card reaching the Worker app. The key is scoped
+    // to this card id so a different card is always processed on its own.
     if (principal.idempotencyKey) {
       const byKey = await this.prisma.expectedArrival.findFirst({
-        where: { idempotencyKey: principal.idempotencyKey },
+        where: { idempotencyKey: principal.idempotencyKey, customerArrivalCardId: cardId },
       });
       if (byKey) {
+        this.logger.warn(
+          `Arrival card ${cardId} replayed with Idempotency-Key "${principal.idempotencyKey}"; ` +
+            `returning existing arrival ${byKey.code}.`,
+        );
         return {
           success: true,
           customer_arrival_card_id: cardId,
@@ -276,15 +293,30 @@ export class ExpectedArrivalsService {
    * later `warehouse_orders` sequence.
    */
   private async generateWarehouseCode(tx: Prisma.TransactionClient): Promise<string> {
-    // Retry a few times to absorb a concurrent insert collision.
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      const count = await tx.expectedArrival.count();
-      const number = WAR_COUNTER_START + count + 1;
-      const code = `${WAR_PREFIX}${String(number).padStart(6, '0')}`;
+    // Derive the next number from the HIGHEST existing code, not from
+    // count(). A count-based sequence breaks permanently as soon as any
+    // arrival is deleted or voided away: with 1 row left that is already
+    // WAR-001002, count()+1 proposes WAR-001002 forever. The old retry loop
+    // could not help either — every attempt recomputed the identical number,
+    // so all 5 attempts proposed the same taken code and fell through to the
+    // random WAR-R… fallback, producing ugly non-sequential codes.
+    const last = await tx.expectedArrival.findFirst({
+      where: { code: { startsWith: WAR_PREFIX } },
+      orderBy: { code: 'desc' },
+      select: { code: true },
+    });
+    const lastNumber = last ? Number.parseInt(last.code.slice(WAR_PREFIX.length), 10) : NaN;
+    let next = Number.isFinite(lastNumber) ? lastNumber + 1 : WAR_COUNTER_START + 1;
+    if (next <= WAR_COUNTER_START) next = WAR_COUNTER_START + 1;
+
+    // Walk forward past any code already taken (e.g. a legacy WAR-R… row or a
+    // concurrent insert). Each attempt proposes a DIFFERENT number.
+    for (let attempt = 0; attempt < 25; attempt += 1) {
+      const code = `${WAR_PREFIX}${String(next + attempt).padStart(6, '0')}`;
       const clash = await tx.expectedArrival.findUnique({ where: { code } });
       if (!clash) return code;
     }
-    // Fallback: time-based unique code if the counter contended repeatedly.
+    // Fallback: time-based unique code if the sequence contended repeatedly.
     const rand = Date.now().toString().slice(-6);
     return `${WAR_PREFIX}R${rand}`;
   }

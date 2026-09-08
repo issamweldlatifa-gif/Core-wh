@@ -69,9 +69,13 @@ export class ShipmentsService {
         duplicate: true,
       };
     }
+    // Scoped to THIS shipment id — see the same fix in
+    // ExpectedArrivalsService.receiveCard. A key matched on its own turns a
+    // reused Idempotency-Key into a global "seen" flag that swallows every
+    // subsequent Shipment Card (and therefore every CARTON card).
     if (principal.idempotencyKey) {
       const byKey = await this.prisma.warehouseShipment.findFirst({
-        where: { idempotencyKey: principal.idempotencyKey },
+        where: { idempotencyKey: principal.idempotencyKey, externalShipmentId: shipmentId },
       });
       if (byKey) {
         return {
@@ -254,11 +258,20 @@ export class ShipmentsService {
     };
   }
 
+  // Sequence from the highest existing code, never from count(): a deleted
+  // or voided row makes a count-based sequence propose an already-taken code
+  // forever (and the old retry loop recomputed the SAME number every time).
   private async generateCode(tx: Prisma.TransactionClient): Promise<string> {
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      const count = await tx.warehouseShipment.count();
-      const number = WSHP_COUNTER_START + count + 1;
-      const code = `${WSHP_PREFIX}${String(number).padStart(6, '0')}`;
+    const last = await tx.warehouseShipment.findFirst({
+      where: { code: { startsWith: WSHP_PREFIX } },
+      orderBy: { code: 'desc' },
+      select: { code: true },
+    });
+    const lastNumber = last ? Number.parseInt(last.code.slice(WSHP_PREFIX.length), 10) : NaN;
+    let next = Number.isFinite(lastNumber) ? lastNumber + 1 : WSHP_COUNTER_START + 1;
+    if (next <= WSHP_COUNTER_START) next = WSHP_COUNTER_START + 1;
+    for (let attempt = 0; attempt < 25; attempt += 1) {
+      const code = `${WSHP_PREFIX}${String(next + attempt).padStart(6, '0')}`;
       const clash = await tx.warehouseShipment.findUnique({ where: { code } });
       if (!clash) return code;
     }
@@ -267,14 +280,20 @@ export class ShipmentsService {
 
   /** Generate a `WAR-XXXXXX` code aligned with ExpectedArrivals numbering. */
   private async generateArrivalCode(tx: Prisma.TransactionClient): Promise<string> {
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      const count = await tx.expectedArrival.count();
-      const number = WAR_COUNTER_START + count + 1;
-      const code = `${WAR_PREFIX}${String(number).padStart(6, '0')}`;
+    const last = await tx.expectedArrival.findFirst({
+      where: { code: { startsWith: WAR_PREFIX } },
+      orderBy: { code: 'desc' },
+      select: { code: true },
+    });
+    const lastNumber = last ? Number.parseInt(last.code.slice(WAR_PREFIX.length), 10) : NaN;
+    let next = Number.isFinite(lastNumber) ? lastNumber + 1 : WAR_COUNTER_START + 1;
+    if (next <= WAR_COUNTER_START) next = WAR_COUNTER_START + 1;
+    for (let attempt = 0; attempt < 25; attempt += 1) {
+      const code = `${WAR_PREFIX}${String(next + attempt).padStart(6, '0')}`;
       const clash = await tx.expectedArrival.findUnique({ where: { code } });
       if (!clash) return code;
     }
-    return `${WAR_PREFIX}R${Math.floor(Math.random() * 1e6)}`;
+    return `${WAR_PREFIX}R${Date.now().toString().slice(-6)}`;
   }
 
   // ---- Read side ----

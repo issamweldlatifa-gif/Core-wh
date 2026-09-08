@@ -56,9 +56,21 @@ export class CorrectionsService {
     }
   }
 
+  // Highest-code sequence (not count()): a deleted correction would otherwise
+  // make every later code collide with an existing one.
   private async nextCode(tx: Prisma.TransactionClient) {
-    const count = await tx.operationCorrection.count();
-    return `COR-${String(count + 1).padStart(6, '0')}`;
+    const last = await tx.operationCorrection.findFirst({
+      where: { code: { startsWith: 'COR-' } },
+      orderBy: { code: 'desc' },
+      select: { code: true },
+    });
+    const lastNumber = last ? Number.parseInt(last.code.slice(4), 10) : NaN;
+    let next = Number.isFinite(lastNumber) ? lastNumber + 1 : 1;
+    for (let i = 0; i < 25; i += 1) {
+      const code = `COR-${String(next + i).padStart(6, '0')}`;
+      if (!(await tx.operationCorrection.findUnique({ where: { code } }))) return code;
+    }
+    return `COR-R${Date.now().toString().slice(-6)}`;
   }
 
   async list(filter?: { sessionId?: string; entityId?: string; take?: number }) {
