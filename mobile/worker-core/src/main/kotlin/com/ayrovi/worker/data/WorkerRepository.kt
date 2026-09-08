@@ -44,6 +44,27 @@ class WorkerRepository(
     suspend fun assignments(): AssignmentsResponse = json.decodeFromString(AssignmentsResponse.serializer(), get("/v1/terminal/assignments"))
     suspend fun completeAssignment(id: String) { post("/v1/terminal/assignments/${urlEncode(id)}/complete", "{}") }
 
+    /**
+     * Worker support report — the EXISTING backend "Report a Problem" action
+     * (POST /v1/fulfillment/exceptions → OperationalException row, visible on
+     * the Admin exceptions board, audited). No duplicate reporting API:
+     * Settings → Send Report / Report a Problem both submit here.
+     * @param stage operational stage/context (e.g. RECEIVING / SETTINGS)
+     * @param type report category (uses backend free-form type; ops-relevant)
+     * @param reason the worker's description
+     * @param entityCode optional reference/card/task code the report concerns
+     */
+    suspend fun reportProblem(stage: String, type: String, reason: String, entityCode: String? = null) {
+        val body = buildString {
+            append("{\"stage\":").append(jq(stage))
+            append(",\"type\":").append(jq(type))
+            append(",\"reason\":").append(jq(reason))
+            if (!entityCode.isNullOrBlank()) append(",\"entityCode\":").append(jq(entityCode))
+            append("}")
+        }
+        post("/v1/fulfillment/exceptions", body)
+    }
+
     override suspend fun receivingSession(sessionId: String): ReceivingSession = json.decodeFromString(
         ReceivingSession.serializer(), get("/v1/receiving/sessions/${urlEncode(sessionId)}"),
     )

@@ -1,19 +1,11 @@
 package com.ayrovi.worker.presentation
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import com.ayrovi.worker.scanner.WorkerDevice
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -108,23 +100,26 @@ fun WorkerTerminalApp(
             }
             ReceivingHomeScreen(receiving, workerLabel(state), stationLabel(state), connection.name,
                 onBack = { route = TerminalRoute.QUEUE; model.refresh() }, onAuthExpired = model::expireSession,
-                device = container.device, onToggleTheme = appearance::toggleTheme)
+                device = container.device, onToggleTheme = appearance::toggleTheme,
+                appVersion = com.ayrovi.worker.BuildConfig.VERSION_NAME,
+                deviceCode = model.deviceCode,
+                repository = container.repository)
         } else {
             WorkerWorkQueue(state, container.device, connection.name, workerLabel(state), stationLabel(state),
                 model::refresh, model::logout, { showSettings = true }, model::completeAssignment) { route = TerminalRoute.RECEIVING }
         }
-        if (showSettings) AlertDialog(onDismissRequest = { showSettings = false }, title = { Text("WORKER SETTINGS") },
-            text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
-                Text(workerLabel(state), style = MaterialTheme.typography.titleMedium)
-                Text(listOfNotNull(state.context?.station?.code, state.context?.station?.name).joinToString(" · "))
-                Text(if (container.device == WorkerDevice.CT40) "Honeywell CT40 · Side trigger" else "Phone · Touch scanning")
-                SecondaryAction("CHANGE DISPLAY", appearance::toggleTheme)
-                state.assignments?.open?.forEach { instruction ->
-                    Text(instruction.title)
-                    instruction.description?.let { Text(it) }
-                    if (instruction.isInstruction) SecondaryAction("MARK INSTRUCTION DONE", { model.completeAssignment(instruction.id) }, state.verified && !state.busy)
-                }
-            } }, confirmButton = { SecondaryAction("CLOSE", { showSettings = false }) })
+        if (showSettings) WorkerSettingsDialog(
+            repository = container.repository,
+            worker = workerLabel(state),
+            station = stationLabel(state),
+            connection = connection.name,
+            appVersion = com.ayrovi.worker.BuildConfig.VERSION_NAME,
+            deviceCode = model.deviceCode,
+            device = container.device,
+            onSwitchMode = { showSettings = false },
+            onClose = { showSettings = false },
+            onChangeDisplay = appearance::toggleTheme,
+        )
     }
 }
 

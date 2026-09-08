@@ -129,6 +129,86 @@ class DirectedOcrTest {
     }
 }
 
+class CartonTemplateTest {
+    @Test
+    fun acceptsCartonAndTrackingShapes() {
+        assertNotNull(CartonTemplate.score("CTN-2026-000001", 0.9), "external carton id")
+        assertNotNull(CartonTemplate.score("SHP145-01", 0.9), "carton reference")
+        assertNotNull(CartonTemplate.score("DHL1234567890", 0.9), "carrier tracking run")
+        assertEquals("CARTON", CartonTemplate.id)
+    }
+
+    @Test
+    fun rejectsProductSkuQuantitiesAndBareWords() {
+        assertNull(CartonTemplate.score("SB25092090066487374", 0.95), "compact product SKU belongs to PRODUCT lane")
+        assertNull(CartonTemplate.score("12345", 0.9), "pure digits are a quantity")
+        assertNull(CartonTemplate.score("CARTON", 0.9), "bare word with no digits")
+        assertNull(CartonTemplate.score("QTY", 0.9), "short noise")
+    }
+
+    @Test
+    fun normalizerExtractsStrictSkuAndCarton() {
+        val n = OcrNormalizer()
+        // A noisy multi-line label still yields exactly the compact SKU.
+        assertEquals("SB25092090066487374", n.compactSku("AYROVI LOGISTICS\nsb25092090066487374\nQTY 24"))
+        // No s-shape -> null (never accept arbitrary detected text).
+        assertNull(n.compactSku("CARTON\nQTY 24\nCTN-2026-000001"))
+        // Carton lane extracts the carton id, not the SKU-shaped noise.
+        assertEquals("CTN-2026-000001", n.cartonCode("AYROVI LOGISTICS\nCTN-2026-000001\nQTY 24"))
+    }
+
+    @Test
+    fun emptyAndNoiseProduceNothing() {
+        val n = OcrNormalizer()
+        assertNull(n.compactSku(""))
+        assertNull(n.compactSku("   \n  "))
+        assertNull(n.cartonCode(""))
+    }
+}
+
+class OcrFrameVoteTest {
+    @Test
+    fun locksOnlyAfterRepeatedCandidate() {
+        var t = 0L
+        val vote = OcrFrameVote(threshold = 2, windowMs = 2_000, clock = { t })
+        // Clean run: two identical frames in the window lock.
+        assertNull(vote.observe("SB123"), "first frame is not enough")
+        t = 100
+        assertEquals("SB123", vote.observe("SB123"), "the repeated frame locks")
+        // Once locked it keeps returning the value until reset.
+        t = 200
+        assertEquals("SB123", vote.observe(null))
+        vote.reset()
+        assertNull(vote.observe("SB123"), "reset clears the lock and the tally")
+    }
+
+    @Test
+    fun aDifferentCandidateRestartsTheVote() {
+        var t = 0L
+        val vote = OcrFrameVote(threshold = 2, windowMs = 2_000, clock = { t })
+        assertNull(vote.observe("SB123"))
+        t = 100
+        assertNull(vote.observe("SB999"), "the first SB999 frame does not lock")
+        t = 200
+        assertEquals("SB999", vote.observe("SB999"), "the repeated SB999 frame locks")
+    }
+
+    @Test
+    fun staleFramesExpire() {
+        var t = 0L
+        val vote = OcrFrameVote(threshold = 3, windowMs = 1_000, clock = { t })
+        assertNull(vote.observe("CTN-1"))
+        t = 100
+        assertNull(vote.observe("CTN-1"))
+        t = 5_000 // window long gone — the two old sightings are forgotten
+        assertNull(vote.observe("CTN-1"), "the old sightings expired; vote restarts")
+        t = 5_100
+        assertNull(vote.observe("CTN-1"))
+        t = 5_200
+        assertEquals("CTN-1", vote.observe("CTN-1"), "three fresh sightings in-window lock")
+    }
+}
+
 class DeviceScanModesTest {
     @Test
     fun bothDevicesAreBarcodeFirstWithOcrFallback() {

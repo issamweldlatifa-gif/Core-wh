@@ -40,12 +40,20 @@ class ScannerCapture(
 )
 
 @Composable
-fun rememberScannerCapture(manager: ScannerManager, enabled: Boolean, contextKey: String, onScan: (ScanResult) -> Unit): ScannerCapture {
+fun rememberScannerCapture(
+    manager: ScannerManager,
+    enabled: Boolean,
+    contextKey: String,
+    onScan: (ScanResult) -> Unit,
+    /** Lane template for OCR: strict compact product SKU (PRODUCT lane) or carton/tracking (CARTON lane). */
+    ocrTemplate: OcrTemplate = CompactSkuTemplate,
+): ScannerCapture {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current
     val focus = LocalFocusManager.current
     val latestScan = rememberUpdatedState(onScan)
     val latestEnabled = rememberUpdatedState(enabled)
+    val latestTemplate = rememberUpdatedState(ocrTemplate)
     var camera by remember { mutableStateOf(false) }
     var manual by remember { mutableStateOf(false) }
     var code by remember { mutableStateOf("") }
@@ -53,7 +61,9 @@ fun rememberScannerCapture(manager: ScannerManager, enabled: Boolean, contextKey
     var ocrText by remember { mutableStateOf("") }
     var ocrSuggestion by remember { mutableStateOf<DirectedOcrResult?>(null) }
     var ocrError by remember { mutableStateOf<String?>(null) }
-    val ocrReader = remember { DirectedOcr() }
+    // Lane-aware paste/text reader: the PRODUCT lane extracts the compact SKU,
+    // the CARTON lane extracts a carton / tracking identifier.
+    val ocrReader = remember(ocrTemplate) { DirectedOcr(ocrTemplate) }
     var ocrCameraOpen by remember { mutableStateOf(false) }
     var ocrCameraPending by remember { mutableStateOf(false) }
     var permissionGranted by remember { mutableStateOf(false) }
@@ -68,7 +78,7 @@ fun rememberScannerCapture(manager: ScannerManager, enabled: Boolean, contextKey
             // First useful engine read fills the review field and stops the
             // camera; the operator still reviews and confirms the code.
             ocrText = block.take(2048); ocrSuggestion = result; ocrError = null; ocrCameraOpen = false
-        })
+        }, ocrTemplate = { latestTemplate.value })
     }
     val service = remember(coordinator) { ScannerService(context, coordinator) }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -96,7 +106,7 @@ fun rememberScannerCapture(manager: ScannerManager, enabled: Boolean, contextKey
         }
     }
     LaunchedEffect(enabled, resumed) { if (!enabled || !resumed) { camera = false; ocrCameraOpen = false } }
-    LaunchedEffect(contextKey) { camera = false; code = ""; permissionGranted = false; ocrOpen = false; ocrText = ""; ocrSuggestion = null; ocrError = null; ocrCameraOpen = false; ocrCameraPending = false }
+    LaunchedEffect(contextKey) { camera = false; code = ""; permissionGranted = false; ocrOpen = false; ocrText = ""; ocrSuggestion = null; ocrError = null; ocrCameraOpen = false; ocrCameraPending = false; coordinator.reset() }
     LaunchedEffect(trigger) {
         if (trigger > 0) { delay(10_000); manager.timeout(); if (manager.state.value.status == ScannerStatus.TIMEOUT) { camera = false; ocrCameraOpen = false } }
     }
@@ -121,15 +131,19 @@ fun rememberScannerCapture(manager: ScannerManager, enabled: Boolean, contextKey
             if (enabled && resumed) coordinator.onScanned(code, false, ScanSource.MANUAL.name)
         }, ocr = { camera = false; manual = false; permissionGranted = false; ocrCameraOpen = false; ocrOpen = !ocrOpen; ocrError = null; if (!ocrOpen) focus.clearFocus() },
         // OCR text entry accepts multi-line blocks (pasted label reads): the
-        // template extracts the SKU line, so newlines never reach the scan
-        // guard — only the extracted single-line token is submitted.
-        setOcrText = { ocrText = it.take(2048); ocrError = null; ocrSuggestion = if (ocrText.isBlank()) null else ocrReader.read(ocrText) },
+        // LANE template extracts the identifier line (compact SKU in the
+        // product lane, carton/tracking id in the carton lane), so newlines
+        // never reach the scan guard — only the extracted token is submitted.
+        setOcrText = { ocrText = it.take(2048); ocrError = null; ocrSuggestion = if (ocrText.isBlank()) null else coordinator.onOcrText(ocrText) },
         submitOcr = {
             if (enabled && resumed) {
-                val reading = ocrReader.read(ocrText)
+                val reading = coordinator.onOcrText(ocrText)
                 ocrSuggestion = reading
                 val confirmed = reading.confirmedByOperator()
-                if (confirmed.candidate == null) ocrError = "No SKU found in this text — edit it or re-scan the label"
+                val isCarton = latestTemplate.value.id == CartonTemplate.id
+                if (confirmed.candidate == null) ocrError = if (isCarton)
+                    "No carton or tracking code found in this text — edit it or re-scan the label"
+                else "No SKU found in this text — edit it or re-scan the label"
                 else { ocrError = null; coordinator.onOcrConfirmed(confirmed) }
             }
         }, ocrCamera = { if (ocrCameraOpen) { ocrCameraOpen = false; manager.cancel() } else openOcrCamera() },

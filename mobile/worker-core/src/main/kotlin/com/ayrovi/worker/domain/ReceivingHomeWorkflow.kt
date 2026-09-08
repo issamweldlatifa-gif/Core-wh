@@ -242,8 +242,14 @@ class ReceivingHomeWorkflow(
         applyResult(result, HomeStep.CARTON_SCAN, "CARTON")
     }
 
-    private fun applyResult(result: HomeScanResult, laneStep: HomeStep, lane: String) {
-        if (result.home != null) mutable.update { it.copy(home = result.home) }
+    private suspend fun applyResult(result: HomeScanResult, laneStep: HomeStep, lane: String) {
+        // The backend is the final authority for completion state. Prefer the
+        // fresh, complete feed returned with the verdict; when the server only
+        // answered with a flash (e.g. a mismatch without a feed), re-pull the
+        // home feed ourselves so a completed card ALWAYS leaves the active
+        // queue immediately — no app close / re-login required.
+        val home = result.home ?: runCatching { gateway.receivingHome() }.getOrNull()
+        if (home != null) mutable.update { it.copy(home = home) }
         mutable.update { it.copy(productReview = null, cartonReview = null, step = laneStep, scanEpoch = it.scanEpoch + 1) }
         when (result.flash?.kind) {
             "MATCH" -> signal(MessageTone.SUCCESS, if (lane == "PRODUCT") "PRODUCT RECEIVED" else "CARTON RECEIVED",

@@ -131,6 +131,13 @@ class WorkerAppViewModel(
             } else if (previous != null && incoming != null && incoming > previous) {
                 runCatching { audio.notification() }
             }
+            // A completed lane (pending back to zero / fewer than before) must
+            // not leave a stale "card waiting" tray notification on Home. Clear
+            // the lane notification as soon as its queue drains — this is the
+            // notification half of the backend state update; the in-app counters
+            // below already reflect the fresh feed.
+            if (newProduct != null && newProduct == 0) notifier?.clearCard(product = true)
+            if (newCarton != null && newCarton == 0) notifier?.clearCard(product = false)
         }
         mutable.update { it.copy(
             signedIn = true, me = verified.me, context = verified.context, tasks = verified.tasks,
@@ -160,6 +167,8 @@ class WorkerAppViewModel(
     fun logout() {
         if (mutable.value.busy) return
         explicitSignOut = true
+        // Remove any waiting-card tray notifications with the session.
+        notifier?.clearAll()
         // Hide worker/task data immediately, not after a potentially slow revocation request.
         mutable.value = WorkerAppState(busy = true)
         viewModelScope.launch {

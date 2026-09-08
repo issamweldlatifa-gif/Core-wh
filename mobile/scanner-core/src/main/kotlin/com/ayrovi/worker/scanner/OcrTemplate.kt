@@ -70,19 +70,75 @@ object SkuTemplate : OcrTemplate {
  * Comparison is case-insensitive (the OCR normalizer uppercases reads and the
  * matcher compares case-insensitively), so `SB25092090066487374` reads are
  * accepted too — a floor scan must not fail on case.
+ *
+ * The pattern is the device-side mirror of the authoritative backend SKU
+ * contract: the backend (receiving confirm endpoints) remains the FINAL
+ * authority for whether a SKU exists — this shape only stops OCR noise from
+ * being offered as a candidate.
  */
 object CompactSkuTemplate : OcrTemplate {
     override val id: String = "COMPACT_SKU"
     override val label: String = "Product SKU"
     override val hint: String = "Point at the product SKU line"
 
-    /** `s` + one letter + 1..20 digits, case-insensitive. */
-    private val compactSku = Regex("(?i)^s[a-z][0-9]{1,20}$")
+    /**
+     * Canonical compact SKU: `s` + one letter + 1..20 digits,
+     * case-insensitive (s12..sb12345..SZ25092090066487374).
+     */
+    val SKU_PATTERN: Regex = Regex("(?i)^s[a-z][0-9]{1,20}$")
+
+    /** True when a normalised token has the authoritative compact-SKU shape. */
+    fun isCompactSku(token: String): Boolean = SKU_PATTERN.matches(token.trim())
 
     override fun score(token: String, baseConfidence: Double): Double? {
-        if (!compactSku.matches(token)) return null
+        if (!SKU_PATTERN.matches(token)) return null
         // Shape is exact, so a high floor confidence that stays under 1.0: OCR
         // is still a suggestion that must be confirmed / server-verified.
         return ((baseConfidence + 0.10).coerceAtMost(0.97) * 100).toInt() / 100.0
+    }
+}
+
+/**
+ * CARTON lane template: reads the identifiers printed on a Shipment Card
+ * carton — the external carton id (e.g. `CTN-2026-000001`), a carton
+ * reference (`SHP145-01`), a QR/barcode value, or the shipment tracking
+ * number. It deliberately stays in the CARTON lane: it never accepts the
+ * compact product-SKU shape (that belongs to the PRODUCT lane) so a product
+ * label cannot confirm a carton and vice-versa.
+ *
+ * Like every template it only SCORES candidates — the device-side carton
+ * matcher + backend `/receiving/home/carton` stay the authorities for whether
+ * the read matches a dispatched carton card.
+ */
+object CartonTemplate : OcrTemplate {
+    override val id: String = "CARTON"
+    override val label: String = "Carton"
+    override val hint: String = "Point at the carton / tracking label"
+
+    // Carton identifiers are segmented shipping codes (CTN-…, SHP…-01), a
+    // bare carton id (CTN…) or a carrier tracking run (letters+digits, 6+
+    // chars). Pure quantities and bare dictionary words are rejected.
+    private val segmented = Regex("^[A-Z0-9]*[A-Z][A-Z0-9]*[-_][A-Z0-9_-]{2,}$")
+    private val trackingRun = Regex("^[A-Z0-9]{6,}$")
+
+    override fun score(token: String, baseConfidence: Double): Double? {
+        if (token.length < 5 || token.length > 48) return null
+        if (token.all { it.isDigit() }) return null                 // a quantity, never a carton id
+        if (CompactSkuTemplate.isCompactSku(token)) return null     // product SKU -> PRODUCT lane only
+        val hasDigit = token.any { it.isDigit() }
+        val hasLetter = token.any { it.isLetter() }
+        if (!hasLetter) return null
+        return when {
+            // Explicit carton prefix — segmented CTN-… or bare CTN2026000001 —
+            // is the strongest carton evidence.
+            token.startsWith("CTN") ->
+                ((baseConfidence + 0.12).coerceAtMost(0.97) * 100).toInt() / 100.0
+            segmented.matches(token) && hasDigit ->
+                ((baseConfidence + 0.08).coerceAtMost(0.96) * 100).toInt() / 100.0
+            // Long letter+digit runs look like carrier tracking numbers.
+            trackingRun.matches(token) && hasDigit ->
+                ((baseConfidence + 0.04).coerceAtMost(0.92) * 100).toInt() / 100.0
+            else -> null
+        }
     }
 }

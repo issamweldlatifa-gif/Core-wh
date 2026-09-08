@@ -18,6 +18,13 @@ data class OcrCandidate(
 
 class OcrNormalizer {
 
+    /**
+     * Candidate token shape: a warehouse code token is 3..48 chars of A-Z,
+     * 0-9, '-' or '_' that does not start/end with a separator. Shared by the
+     * generic candidate extractor and the strict lane shape gates.
+     */
+    private val tokenPattern = Regex("(?<![A-Z0-9])[A-Z0-9][A-Z0-9_-]{2,47}(?![A-Z0-9])")
+
     /** Normalise raw OCR text into a clean uppercase, single-spaced string. */
     fun normalise(raw: String): String =
         raw
@@ -35,7 +42,6 @@ class OcrNormalizer {
      */
     fun candidates(normalised: String): List<OcrCandidate> {
         if (normalised.isEmpty()) return emptyList()
-        val tokenPattern = Regex("(?<![A-Z0-9])[A-Z0-9][A-Z0-9_-]{2,47}(?![A-Z0-9])")
         return tokenPattern.findAll(normalised).map { m ->
             val token = m.value
             OcrCandidate(token, confidenceFor(token, normalised))
@@ -64,4 +70,38 @@ class OcrNormalizer {
      */
     fun bestCandidate(raw: String, minConfidence: Double = 0.8): OcrCandidate? =
         candidates(normalise(raw)).firstOrNull { it.confidence >= minConfidence }
+
+    /**
+     * STRICT shape gate for the product lane: extract the single token that
+     * has the authoritative compact-SKU shape (`s` + letter + digits), or null
+     * when the block contains no such token. ML Kit text is NEVER accepted as
+     * a SKU unless a token passes this shape — quantities, bare words,
+     * segmented codes and merged garbage all return null.
+     */
+    fun compactSku(raw: String): String? {
+        val normalised = normalise(raw)
+        if (normalised.isEmpty()) return null
+        return tokenPattern.findAll(normalised)
+            .map { it.value }
+            .firstOrNull { CompactSkuTemplate.isCompactSku(it) }
+    }
+
+    /**
+     * STRICT shape gate for the carton lane: extract the best carton /
+     * tracking token, or null when none of the tokens look like a carton
+     * identifier. Returns the highest-scoring carton-shaped token.
+     */
+    fun cartonCode(raw: String): String? {
+        val normalised = normalise(raw)
+        if (normalised.isEmpty()) return null
+        return tokenPattern.findAll(normalised)
+            .map { match ->
+                val token = match.value
+                val score = CartonTemplate.score(token, confidenceFor(token, normalised))
+                if (score == null) null else token to score
+            }
+            .filterNotNull()
+            .maxByOrNull { (_, score) -> score }
+            ?.first
+    }
 }

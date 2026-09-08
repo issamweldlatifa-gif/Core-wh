@@ -79,6 +79,28 @@ class ReceivingNotifier(private val context: Context) {
         }
     }
 
+    /**
+     * Clear a lane's "new card" tray notification once its pending queue is
+     * empty (all cards of that lane completed). Called from the whole-app
+     * poll so a COMPLETED card never leaves a stale "card waiting"
+     * notification on Home after the worker finishes the task — no
+     * close/reopen or re-login needed.
+     */
+    fun clearCard(product: Boolean) {
+        runCatching {
+            NotificationManagerCompat.from(context).cancel(if (product) NOTIF_PRODUCT else NOTIF_CARTON)
+        }
+    }
+
+    /** Clear both lane notifications (e.g. on sign-out). */
+    fun clearAll() {
+        runCatching {
+            val manager = NotificationManagerCompat.from(context)
+            manager.cancel(NOTIF_PRODUCT)
+            manager.cancel(NOTIF_CARTON)
+        }
+    }
+
     companion object {
         private const val CHANNEL_ID = "ayrovi_receiving_cards"
         private const val NOTIF_PRODUCT = 2101

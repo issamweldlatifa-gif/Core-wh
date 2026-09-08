@@ -160,6 +160,30 @@ class ReceivingHomeWorkflowTest {
         assertEquals(0, flow.state.value.home?.cartonCardsPending)
     }
 
+    @Test fun `confirm without a returned feed re-pulls home so the completed card leaves the queue`() = runTest {
+        // A gateway that completes the carton on the backend but returns NO
+        // home payload with the verdict (older/partial contract). The workflow
+        // must still re-pull the feed itself — a completed card can never be
+        // left visibly pending on Home (stale-notification regression).
+        val inner = HomeBackend()
+        val gateway = object : ReceivingGateway by inner {
+            override suspend fun homeConfirmCarton(
+                identifier: String, identifierType: String, operationId: String, source: String, startedAt: String?,
+            ): HomeScanResult {
+                val result = inner.homeConfirmCarton(identifier, identifierType, operationId, source, startedAt)
+                return result.copy(home = null) // simulate a verdict without the refreshed feed
+            }
+        }
+        val flow = ReceivingHomeWorkflow(gateway, "worker", perms, this).also {
+            it.updateAccess(perms, true); it.initialize(); runCurrent()
+        }
+        assertEquals(1, flow.state.value.home?.cartonCardsPending)
+        flow.openCarton(); runCurrent()
+        flow.scan(scan("CTN-001", ScanSource.EXTERNAL_SCANNER, ScanSymbology.BARCODE)); runCurrent()
+        flow.confirm(); runCurrent()
+        assertEquals(0, flow.state.value.home?.cartonCardsPending, "the re-pulled feed reflects completion")
+    }
+
     // ------------------------------ ACCESS ------------------------------
     @Test fun `worker without receiving permission cannot scan or confirm`() = runTest {
         val backend = HomeBackend()

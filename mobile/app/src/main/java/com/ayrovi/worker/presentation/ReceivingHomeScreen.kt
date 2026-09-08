@@ -52,6 +52,9 @@ fun ReceivingHomeScreen(
     onAuthExpired: () -> Unit,
     device: WorkerDevice = WorkerDevice.PHONE,
     onToggleTheme: (() -> Unit)? = null,
+    appVersion: String = "",
+    deviceCode: String = "",
+    repository: com.ayrovi.worker.data.WorkerRepository? = null,
 ) {
     val state by model.state.collectAsStateWithLifecycle()
     val industrial = device == WorkerDevice.CT40
@@ -81,6 +84,13 @@ fun ReceivingHomeScreen(
     val capture = rememberScannerCapture(
         model.scanner, model.captureAllowed,
         "home:${state.step}:${state.scanEpoch}", model::onScan,
+        // The PRODUCT lane reads the strict compact SKU shape; the CARTON
+        // lane reads carton / tracking identifiers. Each lane only ever
+        // shape-gates its own identifier family.
+        ocrTemplate = when (lane) {
+            "CARTON" -> com.ayrovi.worker.scanner.CartonTemplate
+            else -> com.ayrovi.worker.scanner.CompactSkuTemplate
+        },
     )
 
     TerminalShell(
@@ -112,15 +122,21 @@ fun ReceivingHomeScreen(
                 openCarton = { model.send(ReceivingHomeIntent.OpenCarton) })
         }
         if (settings) {
-            androidx.compose.material3.AlertDialog(
-                onDismissRequest = { settings = false },
-                title = { Text("RECEIVING SETTINGS") },
-                text = { Column(verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-                    Text(worker, style = MaterialTheme.typography.titleMedium)
-                    Text(station ?: "No station assigned")
-                    onToggleTheme?.let { SecondaryAction("CHANGE DISPLAY", it) }
-                } },
-                confirmButton = { SecondaryAction("CLOSE", { settings = false }) },
+            // Shared worker Settings (Send Report / Report a Problem / Switch
+            // Mode / clean system info). "Switch Mode" leaves Receiving for
+            // the work queue; permissions stay enforced by the backend. When
+            // no repository is wired (UI harnesses) the Support actions hide.
+            WorkerSettingsDialog(
+                repository = repository,
+                worker = worker,
+                station = station,
+                connection = connection,
+                appVersion = appVersion,
+                deviceCode = deviceCode,
+                device = device,
+                onSwitchMode = { settings = false; onBack() },
+                onClose = { settings = false },
+                onChangeDisplay = onToggleTheme,
             )
         }
     }
