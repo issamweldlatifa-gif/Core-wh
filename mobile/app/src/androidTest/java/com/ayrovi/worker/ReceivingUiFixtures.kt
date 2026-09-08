@@ -87,6 +87,9 @@ internal class ReceivingUiGateway(expectedCartons: Int = 1, var empty: Boolean =
     override suspend fun completeSession(sessionId: String): ReceivingSession = throw UnsupportedOperationException("home flow")
     override suspend fun flagSession(sessionId: String, reason: String, sku: String?, code: String?): ReceivingSession = throw UnsupportedOperationException("home flow")
     override suspend fun resolveDiscrepancy(discrepancyId: String, resolution: String): ReceivingSession = throw UnsupportedOperationException("home flow")
+    // CARTON FIX + Push registration — no-op for UI fixtures
+    override suspend fun registerPushToken(token: String, platform: String, deviceId: String?) {}
+    override suspend fun unregisterPushToken(token: String) {}
 }
 
 internal class RecordingAudio : AudioFeedback {
