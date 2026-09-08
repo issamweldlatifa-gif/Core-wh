@@ -19,6 +19,35 @@ export interface ExpectedArrivalItem {
   categoryStatus?: 'CONFIRMED' | 'NEEDS_REVIEW';
   storeId: string | null;
   storeName: string | null;
+  cartonId?: string | null;
+  originalPayload?: any;
+}
+
+export interface CartonCard {
+  id: string;
+  externalCartonId: string;
+  reference: string | null;
+  qrCodeValue: string | null;
+  barcodeValue: string | null;
+  suiviCode: string | null;
+  trackingCode: string | null;
+  entityType: string;
+  productCount: number | null;
+  sourceProject: string | null;
+  status: string;
+  metadata?: any;
+  originalPayload?: any;
+}
+
+export interface ShipmentWithCartons {
+  id: string;
+  code: string;
+  externalShipmentId: string;
+  trackingNumber: string | null;
+  suiviCode: string | null;
+  carrierName: string | null;
+  totalCartons: number;
+  cartons: CartonCard[];
 }
 
 export interface ChangeCategoryPayload {
@@ -57,6 +86,7 @@ export interface ExpectedArrivalDetail extends ExpectedArrival {
   apiClientId: string | null;
   idempotencyKey: string | null;
   items: ExpectedArrivalItem[];
+  shipments?: ShipmentWithCartons[];
 }
 
 export const api = {

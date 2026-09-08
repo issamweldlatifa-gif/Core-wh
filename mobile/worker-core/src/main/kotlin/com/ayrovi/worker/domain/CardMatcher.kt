@@ -7,19 +7,12 @@ import com.ayrovi.worker.data.ProductCard
  * DEVICE-SIDE CARD MATCHING — a deliberate mirror of the backend
  * `scan-normalizer` (normalizeScan / sameScanCode).
  *
- * The worker device downloads the expected CARD data with the session
- * (productCards / cartonCards) and compares scanned / OCR identifiers
- * locally before anything is confirmed. The backend remains the FINAL
- * authority (re-validation, persistence, state update, duplicate
- * protection, worker activity log) — the device verdict only decides
- * what the operator sees and whether an explicit CONFIRM is offered.
- *
- * Normalization contract (identical on both sides):
- *   1. trim leading/trailing whitespace
- *   2. strip CR / LF / TAB (scanner drivers append a line terminator)
- *   3. collapse internal whitespace runs to a single space
- *   4. comparison is case-insensitive; stored identifiers are never rewritten
+ * CARTON FIX:
+ * - Carton is always CARTON entity, never PRODUCT, even if it contains SKU
+ * - Preserve suivi_code, tracking_code, QR, barcode as identifiers
+ * - Match against suivi_code and tracking_code as well
  */
+
 object CardMatcher {
     private val LINE_TERMINATORS = Regex("[\\r\\n\\t]")
     private val WHITESPACE_RUNS = Regex("\\s+")
@@ -57,8 +50,9 @@ object CardMatcher {
     }
 
     /**
-     * CARTON card: carton external id / reference / QR / barcode first, then the
+     * CARTON card: carton external id / reference / QR / barcode / suivi / tracking first, then the
      * shipment-level TRACKING number (mirrors the backend confirmCarton order).
+     * CARTON FIX: preserve carton identity, do NOT match SKU as carton
      */
     fun matchCarton(cards: List<CartonCard>, raw: String?): CartonVerdict {
         val term = normalize(raw)
@@ -67,7 +61,9 @@ object CardMatcher {
         val direct = cards.firstOrNull { c ->
             (c.identifiers.isNotEmpty() && c.identifiers.any { it == termUp }) ||
                 sameCode(term, c.externalCartonId) || sameCode(term, c.reference) ||
-                sameCode(term, c.qrCodeValue) || sameCode(term, c.barcodeValue)
+                sameCode(term, c.qrCodeValue) || sameCode(term, c.barcodeValue) ||
+                sameCode(term, c.suiviCode) || sameCode(term, c.trackingCode) ||
+                sameCode(term, c.trackingNumber)
         }
         if (direct != null) {
             if (direct.status == "RECEIVED") return CartonVerdict.AllReceived(direct)
@@ -76,16 +72,21 @@ object CardMatcher {
                 sameCode(term, direct.reference) -> "CARTON REFERENCE"
                 sameCode(term, direct.qrCodeValue) -> "QR CODE"
                 sameCode(term, direct.barcodeValue) -> "BARCODE"
+                sameCode(term, direct.suiviCode) -> "SUIVI CODE"
+                sameCode(term, direct.trackingCode) -> "TRACKING CODE"
+                sameCode(term, direct.trackingNumber) -> "TRACKING NUMBER"
                 else -> "CARTON CARD"
             })
         }
-        val tracked = cards.filter { sameCode(term, it.trackingNumber) }
+        val tracked = cards.filter { 
+            sameCode(term, it.trackingNumber) || sameCode(term, it.suiviCode) || sameCode(term, it.trackingCode)
+        }
         if (tracked.isEmpty()) return CartonVerdict.NotMatched
         val open = tracked.filter { it.status != "RECEIVED" }
         return when {
             open.isEmpty() -> CartonVerdict.AllReceived(tracked.first())
-            open.size == 1 -> CartonVerdict.Card(open.first(), "TRACKING NUMBER")
-            else -> CartonVerdict.Ambiguous(tracked.first().trackingNumber ?: term, open)
+            open.size == 1 -> CartonVerdict.Card(open.first(), "TRACKING / SUIVI")
+            else -> CartonVerdict.Ambiguous(tracked.first().trackingNumber ?: tracked.first().suiviCode ?: term, open)
         }
     }
 }

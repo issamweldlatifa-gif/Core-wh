@@ -429,7 +429,10 @@ export class ExpectedArrivalsService {
   async detail(idOrCode: string) {
     const arrival = await this.prisma.expectedArrival.findFirst({
       where: { OR: [{ id: idOrCode }, { code: idOrCode }] },
-      include: { items: { orderBy: { createdAt: 'asc' } } },
+      include: { 
+        items: { orderBy: { createdAt: 'asc' } },
+        shipments: { include: { cartons: { orderBy: { cartonNumber: 'asc' } } } },
+      },
     });
     if (!arrival) throw new NotFoundException('Expected arrival not found.');
     return this.toDetailShape(arrival);
@@ -484,6 +487,32 @@ export class ExpectedArrivalsService {
         categoryStatus: it.categoryStatus ?? 'NEEDS_REVIEW',
         storeId: it.storeId,
         storeName: it.storeName,
+        cartonId: it.cartonId ?? null,
+        originalPayload: it.originalPayload ?? null,
+      })),
+      shipments: (arrival.shipments ?? []).map((s: any) => ({
+        id: s.id,
+        code: s.code,
+        externalShipmentId: s.externalShipmentId,
+        trackingNumber: s.trackingNumber,
+        suiviCode: s.suiviCode ?? s.trackingNumber,
+        carrierName: s.carrierName,
+        totalCartons: s.totalCartons,
+        cartons: (s.cartons ?? []).map((c: any) => ({
+          id: c.id,
+          externalCartonId: c.externalCartonId,
+          reference: c.cartonReference,
+          qrCodeValue: c.qrCodeValue,
+          barcodeValue: c.barcodeValue,
+          suiviCode: c.suiviCode ?? s.suiviCode ?? s.trackingNumber,
+          trackingCode: c.trackingCode ?? c.suiviCode ?? s.trackingNumber,
+          entityType: c.entityType ?? 'CARTON',
+          productCount: c.productCount,
+          sourceProject: c.sourceProject ?? s.sourceProject,
+          status: c.status,
+          metadata: c.metadata,
+          originalPayload: c.originalPayload,
+        })),
       })),
     };
   }

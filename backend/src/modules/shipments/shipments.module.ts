@@ -15,7 +15,7 @@ import { IntegrationApiGuard } from '../../integrations/crm/integration-api.guar
  *  - ShipmentsController (JWT + shipments.view): Warehouse UI read
  */
 @Module({
-  imports: [NotificationsModule, PrismaModule, AuditModule, AssignmentsModule],
+  imports: [PrismaModule, AuditModule, AssignmentsModule, NotificationsModule],
   controllers: [CrmShipmentsController, ShipmentsController],
   providers: [ShipmentsService, IntegrationApiGuard],
   exports: [ShipmentsService],

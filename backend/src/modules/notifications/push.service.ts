@@ -94,50 +94,80 @@ export class PushService {
     const list = tokens.map((t) => t.token);
     const { invalidTokens } = await this.transport.send(list, message);
     if (invalidTokens.length) {
-      // FCM reported these as unregistered — prune so the table cannot grow
-      // into a list of dead handsets.
       await this.prisma.pushToken.deleteMany({ where: { token: { in: invalidTokens } } });
     }
     return list.length - invalidTokens.length;
   }
 
   /**
-   * NEW_RECEIVING_CARD (CARTON lane) — a Shipment Card landed.
+   * CARTON FIX - Unified notifyNewCartonCard
+   * Supports both signatures:
+   *  - (shipmentCode, cartonCount, trackingNumber) -> legacy / remote
+   *  - (arrivalCode, cartonId, suiviCode) -> new carton fix
    *
    * The carton keeps its own identity in the notification: the worker is told
    * the suivi/tracking code, not a product SKU, so the message matches what
    * they will scan on the box.
+   *
+   * Works when app open/background/closed via FCM.
+   * Example payload required:
+   * {
+   *   "event": "NEW_CARTON_CARD",
+   *   "arrivalCode": "WAR-...",
+   *   "cartonId": "CTN-...",
+   *   "suiviCode": "SUIVI-12345",
+   *   "entityType": "CARTON",
+   *   "route": "/terminal/receiving",
+   *   "title": "AYROVI Receiving",
+   *   "body": "📦 New carton arrived\nSuivi: SUIVI-12345"
+   * }
    */
   async notifyNewCartonCard(
-    shipmentCode: string,
-    cartonCount: number,
-    trackingNumber: string | null,
+    shipmentOrArrivalCode: string,
+    cartonIdOrCount: string | number,
+    suiviOrTracking: string | null | undefined,
   ): Promise<number> {
     try {
-      const suivi = trackingNumber ? ` · Suivi: ${trackingNumber}` : '';
+      const isCount = typeof cartonIdOrCount === 'number';
+      const cartonId = isCount ? shipmentOrArrivalCode : String(cartonIdOrCount);
+      const suiviCode = suiviOrTracking ?? null;
+      const cartonCount = isCount ? (cartonIdOrCount as number) : 1;
+
+      // Body with suivi if available
+      const body = suiviCode
+        ? `📦 New carton arrived\nSuivi: ${suiviCode}`
+        : isCount
+          ? `📦 New carton arrived · ${cartonCount} carton(s)`
+          : `📦 New carton arrived · ${cartonId}`;
+
+      // Extra tracking info for legacy
+      const suiviSuffix = !isCount && suiviCode ? '' : suiviCode ? ` · Suivi: ${suiviCode}` : '';
+
       return await this.notifyTaskAudience('receiving', {
         title: 'AYROVI Receiving',
-        body: `New carton arrived · ${cartonCount} carton(s)${suivi}`,
+        body: isCount && !suiviCode ? `New carton arrived · ${cartonCount} carton(s)` : body,
         route: '/terminal/receiving',
         data: {
-          event: 'NEW_RECEIVING_CARD',
-          cardType: 'CARTON',
-          shipmentCode,
+          event: 'NEW_CARTON_CARD',
+          arrivalCode: shipmentOrArrivalCode,
+          cartonId: cartonId,
+          suiviCode: suiviCode ?? '',
+          entityType: 'CARTON',
+          route: '/terminal/receiving',
+          // legacy fields for backward compat
+          shipmentCode: shipmentOrArrivalCode,
           cartonCount: String(cartonCount),
-          ...(trackingNumber ? { trackingNumber } : {}),
+          ...(suiviCode ? { trackingNumber: suiviCode, tracking_code: suiviCode, suivi_code: suiviCode } : {}),
         },
       });
     } catch (err) {
-      this.logger.error(`NEW_RECEIVING_CARD (carton) push failed for ${shipmentCode}: ${(err as Error).message}`);
+      this.logger.error(`NEW_CARTON_CARD push failed for ${shipmentOrArrivalCode}: ${(err as Error).message}`);
       return 0;
     }
   }
 
   /**
    * NEW_RECEIVING_CARD — emitted when a CRM arrival card lands.
-   *
-   * Delivery is best-effort and must NEVER fail the intake transaction: a
-   * push outage cannot be allowed to reject a card that was already stored.
    */
   async notifyNewReceivingCard(arrivalCode: string, productCount: number): Promise<number> {
     try {

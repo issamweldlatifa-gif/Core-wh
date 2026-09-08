@@ -101,6 +101,14 @@ export interface CartonCard {
   reference: string | null;
   qrCodeValue: string | null;
   barcodeValue: string | null;
+  // CARTON FIX: explicit identity preservation
+  suiviCode: string | null;
+  trackingCode: string | null;
+  entityType: string;
+  productCount: number | null;
+  sourceProject: string | null;
+  metadata: any;
+  originalPayload: any;
   cartonNumber: number;
   totalCartons: number;
   /** Shipment-level card data (CRM Shipment Card). */
@@ -111,6 +119,8 @@ export interface CartonCard {
   weightUnit: string | null;
   dimensions: { length: number | null; width: number | null; height: number | null; unit: string | null } | null;
   status: string;
+  /** Products inside carton (preserve relationship, but parent stays CARTON) */
+  products: Array<{ sku: string | null; reference: string | null; productName: string | null; quantity: number }> | null;
   /** Normalized (uppercased) comparison keys the device may match against. */
   identifiers: string[];
 }
@@ -481,10 +491,12 @@ export class ReceivingService {
       for (const c of s.cartons) cards.push({ ...c, shipmentId: c.shipmentId ?? s.id, shipment: s });
     }
 
-    // 1) Carton-card identifier match (external id / reference / QR / barcode).
+    // 1) Carton-card identifier match (external id / reference / QR / barcode / suivi / tracking).
+    // CARTON FIX: preserve carton identity, do NOT match SKU as carton
     let carton = cards.find(
       (c) => sameScanCode(term, c.externalCartonId) || sameScanCode(term, c.cartonReference)
-        || sameScanCode(term, c.qrCodeValue) || sameScanCode(term, c.barcodeValue),
+        || sameScanCode(term, c.qrCodeValue) || sameScanCode(term, c.barcodeValue)
+        || sameScanCode(term, (c as any).suiviCode) || sameScanCode(term, (c as any).trackingCode),
     );
 
     // 2) Shipment-level TRACKING number match.
@@ -867,18 +879,27 @@ export class ReceivingService {
 
     // CARTON CARDS (Shipment Card cartons, ALL shipments of the arrival) with
     // the shipment-level card data (tracking / sender / shipped date).
+    // CARTON FIX: preserve carton identity, suivi, QR, barcode, products inside
     const cartonCards: CartonCard[] = [];
     for (const s of session.expectedArrival.shipments) {
       for (const c of s.cartons) {
+        const cAny = c as any;
         cartonCards.push({
           id: c.id,
           externalCartonId: c.externalCartonId,
           reference: c.cartonReference,
           qrCodeValue: c.qrCodeValue,
           barcodeValue: c.barcodeValue,
+          suiviCode: cAny.suiviCode ?? s.suiviCode ?? s.trackingNumber ?? null,
+          trackingCode: cAny.trackingCode ?? cAny.suiviCode ?? s.trackingNumber ?? null,
+          entityType: cAny.entityType ?? 'CARTON',
+          productCount: cAny.productCount ?? null,
+          sourceProject: cAny.sourceProject ?? (s as any).sourceProject ?? null,
+          metadata: cAny.metadata ?? null,
+          originalPayload: cAny.originalPayload ?? null,
           cartonNumber: c.cartonNumber,
           totalCartons: c.totalCartons,
-          trackingNumber: s.trackingNumber ?? null,
+          trackingNumber: cAny.trackingCode ?? cAny.suiviCode ?? s.trackingNumber ?? s.suiviCode ?? null,
           senderName: s.senderName ?? null,
           shippedAt: s.shippedAt ? new Date(s.shippedAt).toISOString() : null,
           weight: c.weight,
@@ -887,7 +908,8 @@ export class ReceivingService {
             ? { length: c.length, width: c.width, height: c.height, unit: c.dimensionUnit ?? null }
             : null,
           status: c.status,
-          identifiers: cardIdentifiers([c.externalCartonId, c.cartonReference, c.qrCodeValue, c.barcodeValue]),
+          products: null,
+          identifiers: cardIdentifiers([c.externalCartonId, c.cartonReference, c.qrCodeValue, c.barcodeValue, cAny.suiviCode, cAny.trackingCode, s.trackingNumber, (s as any).suiviCode]),
         });
       }
     }
@@ -1115,24 +1137,35 @@ export class ReceivingService {
     }
 
     const cartonCards: CartonCard[] = [];
-    const cartonList: Array<{ arrivalCode: string; reference: string; tracking: string | null; remaining: number }> = [];
+    const cartonList: Array<{ arrivalCode: string; reference: string; tracking: string | null; remaining: number; suiviCode: string | null }> = [];
     for (const a of arrivals) {
       for (const s of a.shipments) {
         for (const c of s.cartons) {
           if (c.status === 'RECEIVED' || c.status === 'VOIDED') continue;
+          const cAny = c as any;
+          const suivi = cAny.suiviCode ?? (s as any).suiviCode ?? s.trackingNumber ?? null;
+          const tracking = cAny.trackingCode ?? cAny.suiviCode ?? s.trackingNumber ?? (s as any).suiviCode ?? null;
           cartonCards.push({
             id: c.id, externalCartonId: c.externalCartonId, reference: c.cartonReference,
             qrCodeValue: c.qrCodeValue, barcodeValue: c.barcodeValue,
+            suiviCode: suivi,
+            trackingCode: tracking,
+            entityType: cAny.entityType ?? 'CARTON',
+            productCount: cAny.productCount ?? null,
+            sourceProject: cAny.sourceProject ?? (s as any).sourceProject ?? null,
+            metadata: cAny.metadata ?? null,
+            originalPayload: cAny.originalPayload ?? null,
             cartonNumber: c.cartonNumber, totalCartons: c.totalCartons,
-            trackingNumber: s.trackingNumber ?? null, senderName: s.senderName ?? null,
+            trackingNumber: tracking, senderName: s.senderName ?? null,
             shippedAt: s.shippedAt ? new Date(s.shippedAt).toISOString() : null,
             weight: c.weight, weightUnit: c.weightUnit,
             dimensions: c.length != null || c.width != null || c.height != null
               ? { length: c.length, width: c.width, height: c.height, unit: c.dimensionUnit ?? null } : null,
             status: c.status,
-            identifiers: cardIdentifiers([c.externalCartonId, c.cartonReference, c.qrCodeValue, c.barcodeValue, s.trackingNumber]),
+            products: null,
+            identifiers: cardIdentifiers([c.externalCartonId, c.cartonReference, c.qrCodeValue, c.barcodeValue, cAny.suiviCode, cAny.trackingCode, s.trackingNumber, (s as any).suiviCode]),
           });
-          cartonList.push({ arrivalCode: a.code, reference: c.externalCartonId, tracking: s.trackingNumber ?? null, remaining: 1 });
+          cartonList.push({ arrivalCode: a.code, reference: c.externalCartonId, tracking: tracking, remaining: 1, suiviCode: suivi });
         }
       }
     }
@@ -1187,6 +1220,8 @@ export class ReceivingService {
           { cartonReference: { equals: term, mode: 'insensitive' } },
           { qrCodeValue: { equals: term, mode: 'insensitive' } },
           { barcodeValue: { equals: term, mode: 'insensitive' } },
+          { suiviCode: { equals: term, mode: 'insensitive' } },
+          { trackingCode: { equals: term, mode: 'insensitive' } },
         ],
         shipment: { arrivalId: { in: arrivalIds } },
       },

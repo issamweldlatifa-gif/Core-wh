@@ -8,16 +8,16 @@ import { ShipmentCardEventDto } from '../../integrations/crm/dto/shipment-card.d
 import type { IntegrationPrincipal } from '../expected-arrivals/expected-arrivals.service';
 
 const WSHP_PREFIX = 'WSHP-';
-const WSHP_COUNTER_START = 100; // human codes start at WSHP-000100
+const WSHP_COUNTER_START = 100;
 const WAR_PREFIX = 'WAR-';
-const WAR_COUNTER_START = 1000; // human codes start at WAR-001000
+const WAR_COUNTER_START = 1000;
 
 export interface ShipmentReceiveResult {
   success: true;
   event: 'shipment.created';
   shipment_id: string;
   warehouse_shipment_id: string;
-  status: 'RECEIVED'; // accepted via API (the goods are still EXPECTED physically)
+  status: 'RECEIVED';
   created: boolean;
   duplicate: boolean;
 }
@@ -31,13 +31,6 @@ export class ShipmentsService {
     private readonly push: PushService,
   ) {}
 
-  /**
-   * Receive a Shipment Card pushed by the Arrival CRM. Idempotent on the
-   * external shipment id (and Idempotency-Key header). Links to the matching
-   * Expected Arrival by external arrival id when present. The physical cartons
-   * are stored as WarehouseCarton rows (status EXPECTED) — receiving happens
-   * later in the Receiving module.
-   */
   async receiveShipment(
     dto: ShipmentCardEventDto,
     principal: IntegrationPrincipal,
@@ -50,13 +43,11 @@ export class ShipmentsService {
     if (!cartons.length) {
       throw new BadRequestException('Shipment card contains no cartons.');
     }
-    // Carton external ids must be unique within the card.
     const ids = cartons.map((c) => c.id.trim());
     if (new Set(ids).size !== ids.length) {
       throw new BadRequestException('Duplicate carton id within the shipment card.');
     }
 
-    // --- Idempotency: external shipment id is the primary anchor ---
     const existing = await this.prisma.warehouseShipment.findUnique({
       where: { externalShipmentId: shipmentId },
     });
@@ -71,10 +62,6 @@ export class ShipmentsService {
         duplicate: true,
       };
     }
-    // Scoped to THIS shipment id — see the same fix in
-    // ExpectedArrivalsService.receiveCard. A key matched on its own turns a
-    // reused Idempotency-Key into a global "seen" flag that swallows every
-    // subsequent Shipment Card (and therefore every CARTON card).
     if (principal.idempotencyKey) {
       const byKey = await this.prisma.warehouseShipment.findFirst({
         where: { idempotencyKey: principal.idempotencyKey, externalShipmentId: shipmentId },
@@ -92,7 +79,6 @@ export class ShipmentsService {
       }
     }
 
-    // Link to the Expected Arrival by the CRM arrival id (stored on the card).
     const externalArrivalId = dto.arrival.id?.trim() || null;
     let arrival = externalArrivalId
       ? await this.prisma.expectedArrival.findFirst({
@@ -107,21 +93,32 @@ export class ShipmentsService {
       return Number.isNaN(d.getTime()) ? null : d;
     };
 
-    // Summary values that describe the arrival-level projection.
+    const shipmentSuiviCode = 
+      (shipment as any).suivi_code?.trim() ||
+      (shipment.tracking as any)?.suivi_code?.trim() ||
+      shipment.tracking?.tracking_number?.trim() ||
+      null;
+
+    const shipmentSourceProject = (shipment as any).source_project?.trim() || (shipment as any).sourceProject?.trim() || null;
+    const shipmentMetadata = (shipment as any).metadata || null;
+
     const summaryProducts = shipment.summary?.total_products ?? 0;
     const summaryUnits = shipment.summary?.total_units ?? 0;
 
+    let totalProductsInCartons = 0;
+    for (const c of cartons) {
+      const prods = (c as any).products as any[] | null | undefined;
+      if (prods && Array.isArray(prods)) {
+        totalProductsInCartons += prods.reduce((sum, p) => sum + (Number(p.quantity) || 1), 0);
+      }
+    }
+
     const record = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      // A Shipment Card always belongs to an Arrival. If the Expected Arrival
-      // has not been pushed yet (shipment arrives first), create a minimal
-      // stub so the shipment is never orphaned; it is enriched later when the
-      // Customer Arrival Card arrives / is matched by external arrival id.
       if (!arrival) {
         const warCode = await this.generateArrivalCode(tx);
         arrival = await tx.expectedArrival.create({
           data: {
             code: warCode,
-            // Shipment-only arrivals are anchored by the shipment id (unique).
             customerArrivalCardId: `shipment:${shipmentId}`,
             arrivalId: externalArrivalId,
             arrivalReference: dto.arrival.reference?.trim() || null,
@@ -130,8 +127,8 @@ export class ShipmentsService {
             storeName: null,
             status: 'EXPECTED',
             source: 'ARRIVAL_CRM',
-            productCount: summaryProducts,
-            totalUnits: summaryUnits,
+            productCount: summaryProducts || totalProductsInCartons,
+            totalUnits: summaryUnits || totalProductsInCartons,
             apiClientId: principal.id,
             idempotencyKey: principal.idempotencyKey ?? null,
             receivedViaApi: true,
@@ -141,6 +138,8 @@ export class ShipmentsService {
       }
 
       const code = await this.generateCode(tx);
+      const originalShipmentPayload = JSON.parse(JSON.stringify(dto));
+
       const created = await tx.warehouseShipment.create({
         data: {
           code,
@@ -157,11 +156,15 @@ export class ShipmentsService {
           carrierCode: shipment.carrier?.code?.trim() || null,
           serviceName: shipment.carrier?.service?.trim() || null,
           carrierAccountReference: shipment.carrier?.account_reference?.trim() || null,
-          trackingNumber: shipment.tracking?.tracking_number?.trim() || null,
+          trackingNumber: shipment.tracking?.tracking_number?.trim() || (shipment as any).tracking_number?.trim() || shipmentSuiviCode || null,
           trackingUrl: shipment.tracking?.tracking_url?.trim() || null,
           trackingStatus: (shipment.tracking?.status as any) || 'UNKNOWN',
           masterTrackingNumber: shipment.tracking?.master_tracking_number?.trim() || null,
           carrierTrackingReference: shipment.tracking?.carrier_tracking_reference?.trim() || null,
+          suiviCode: shipmentSuiviCode,
+          originalPayload: originalShipmentPayload as any,
+          metadata: shipmentMetadata as any,
+          sourceProject: shipmentSourceProject,
           senderName: shipment.sender?.name?.trim() || null,
           senderCompany: shipment.sender?.company?.trim() || null,
           senderCountry: shipment.sender?.country?.trim() || null,
@@ -179,32 +182,105 @@ export class ShipmentsService {
           estimatedArrivalAt: parseDate(shipment.dates?.estimated_arrival_at),
           actualArrivalAt: parseDate(shipment.dates?.actual_arrival_at),
           totalCartons: shipment.summary?.total_cartons ?? cartons.length,
-          totalProducts: shipment.summary?.total_products ?? 0,
-          totalUnits: shipment.summary?.total_units ?? 0,
+          totalProducts: shipment.summary?.total_products ?? totalProductsInCartons ?? 0,
+          totalUnits: shipment.summary?.total_units ?? totalProductsInCartons ?? 0,
           totalWeight: shipment.summary?.total_weight ?? null,
           weightUnit: shipment.summary?.weight_unit?.trim() || null,
           apiClientId: principal.id,
           receivedViaApi: true,
           receivedViaApiAt: now,
-          cartons: {
-            create: cartons.map((c) => ({
-              externalCartonId: c.id.trim(),
-              cartonReference: c.reference?.trim() || null,
-              qrCodeValue: c.qr_code_value?.trim() || c.id.trim(),
-              barcodeValue: c.barcode_value?.trim() || null,
-              cartonNumber: c.carton_number,
-              totalCartons: c.total_cartons,
-              weight: c.weight ?? null,
-              weightUnit: c.weight_unit?.trim() || null,
-              length: c.dimensions?.length ?? null,
-              width: c.dimensions?.width ?? null,
-              height: c.dimensions?.height ?? null,
-              dimensionUnit: c.dimensions?.unit?.trim() || null,
-              status: 'EXPECTED',
-            })),
-          },
         },
       });
+
+      for (const c of cartons) {
+        const cAny = c as any;
+        const suiviCode = 
+          cAny.suivi_code?.trim() ||
+          cAny.suivi?.trim() ||
+          cAny.tracking_code?.trim() ||
+          cAny.tracking_number?.trim() ||
+          cAny.trackingNumber?.trim() ||
+          shipmentSuiviCode ||
+          null;
+
+        const trackingCode =
+          cAny.tracking_code?.trim() ||
+          cAny.tracking_number?.trim() ||
+          cAny.trackingNumber?.trim() ||
+          suiviCode ||
+          null;
+
+        const qrValue = 
+          cAny.qr_code_value?.trim() ||
+          cAny.qr_code?.trim() ||
+          cAny.qrCodeValue?.trim() ||
+          cAny.qr?.trim() ||
+          c.id.trim();
+
+        const barcodeValue =
+          cAny.barcode_value?.trim() ||
+          cAny.barcode?.trim() ||
+          cAny.barcodeValue?.trim() ||
+          null;
+
+        const sourceProject = cAny.source_project?.trim() || cAny.sourceProject?.trim() || shipmentSourceProject || null;
+        const metadata = cAny.metadata || null;
+        const productsInside = cAny.products as any[] | null | undefined;
+        const productCount = productsInside && Array.isArray(productsInside) ? productsInside.length : 0;
+        const originalCartonPayload = JSON.parse(JSON.stringify(c));
+
+        const cartonRecord = await tx.warehouseCarton.create({
+          data: {
+            shipmentId: created.id,
+            externalCartonId: c.id.trim(),
+            cartonReference: c.reference?.trim() || cAny.carton_id?.trim() || null,
+            qrCodeValue: qrValue,
+            barcodeValue: barcodeValue,
+            suiviCode: suiviCode,
+            trackingCode: trackingCode,
+            entityType: (cAny.entity_type?.trim() || 'CARTON').toUpperCase(),
+            originalPayload: originalCartonPayload as any,
+            metadata: metadata as any,
+            sourceProject: sourceProject,
+            productCount: productCount,
+            cartonNumber: c.carton_number,
+            totalCartons: c.total_cartons,
+            weight: c.weight ?? null,
+            weightUnit: c.weight_unit?.trim() || null,
+            length: c.dimensions?.length ?? null,
+            width: c.dimensions?.width ?? null,
+            height: c.dimensions?.height ?? null,
+            dimensionUnit: c.dimensions?.unit?.trim() || null,
+            status: 'EXPECTED',
+          },
+        });
+
+        if (productsInside && Array.isArray(productsInside) && productsInside.length > 0) {
+          for (const p of productsInside) {
+            const pAny = p as any;
+            await tx.expectedArrivalItem.create({
+              data: {
+                arrivalId: arrival!.id,
+                cartonId: cartonRecord.id,
+                productId: pAny.product_id?.trim() || null,
+                sku: pAny.sku?.trim() || null,
+                reference: pAny.reference?.trim() || null,
+                productName: pAny.product_name?.trim() || pAny.productName?.trim() || null,
+                quantity: Math.max(1, Number(pAny.quantity) || 1),
+                variant: pAny.variant?.trim() || null,
+                color: pAny.color?.trim() || null,
+                size: pAny.size?.trim() || null,
+                category: pAny.category?.trim()?.toUpperCase() || null,
+                subcategory: pAny.subcategory?.trim()?.toUpperCase() || null,
+                storeId: pAny.store_id?.trim() || null,
+                storeName: pAny.store_name?.trim() || null,
+                originalPayload: JSON.parse(JSON.stringify(p)) as any,
+                categoryStatus: 'NEEDS_REVIEW',
+              },
+            });
+          }
+        }
+      }
 
       await this.audit.log(
         {
@@ -222,44 +298,59 @@ export class ShipmentsService {
             linked_expected_arrival: arrival?.code ?? null,
             carrier: created.carrierCode,
             tracking_number: created.trackingNumber,
+            suivi_code: created.suiviCode,
             cartons: created.totalCartons,
             products: created.totalProducts,
             units: created.totalUnits,
+            products_inside_cartons: totalProductsInCartons,
             api_client: principal.name,
             received_via_api: true,
+            entity_type: 'CARTON',
+            original_payload_preserved: true,
           },
         },
         tx,
       );
 
-      // Automatic dispatch (no manual "Send"): a new CARTON card makes the
-      // receiving work available to an eligible worker, using the SAME
-      // assignment/dispatch system as every other workflow. Idempotent — a
-      // replay (created:false) never reaches here and an open assignment is
-      // never duplicated.
       const arrivalId = arrival?.id ?? null;
       if (arrivalId) {
         await this.dispatch.dispatch(
           'receiving',
           { arrivalId, entityCode: arrival?.code ?? created.code },
-          { db: tx, reason: `CRM shipment card ${shipmentId} processed` },
+          { db: tx, reason: `CRM shipment card ${shipmentId} processed (CARTON FIX)` },
         );
       }
 
       return created;
     });
 
-    // NEW CARTON CARD -> push to every worker holding the receiving
-    // permission, exactly like the PRODUCT (Customer Arrival Card) path.
-    // Only the carton lane was missing this, so a shipment-only arrival was
-    // dispatched silently and nobody was told a carton had landed.
-    // Fired AFTER the transaction commits; a push outage can never fail
-    // intake.
-    await this.push.notifyNewCartonCard(
-      record.code,
-      cartons.length,
-      shipment.tracking?.tracking_number?.trim() || null,
-    );
+    // CARTON FIX: push notification for new carton cards (app open/background/closed)
+    // NEW CARTON CARD -> push to every worker holding the receiving permission
+    // Fired AFTER the transaction commits; a push outage can never fail intake.
+    // Preserves suivi_code end-to-end in notification payload.
+    try {
+      const firstCarton = cartons[0] as any;
+      const suivi =
+        firstCarton?.suivi_code?.trim() ||
+        firstCarton?.suivi?.trim() ||
+        firstCarton?.tracking_code?.trim() ||
+        firstCarton?.tracking_number?.trim() ||
+        shipmentSuiviCode ||
+        shipment.tracking?.tracking_number?.trim() ||
+        null;
+      // Unified push: arrivalCode, cartonId, suiviCode + legacy compat
+      await this.push.notifyNewCartonCard(
+        arrival?.code ?? record.code,
+        firstCarton?.id?.trim() ?? shipmentId,
+        suivi,
+      );
+      // Also fire legacy signature for any listeners expecting count
+      if (cartons.length > 1) {
+        await this.push.notifyNewCartonCard(record.code, cartons.length, suivi);
+      }
+    } catch (err) {
+      // best-effort, never fail intake
+    }
 
     return {
       success: true,
@@ -272,9 +363,6 @@ export class ShipmentsService {
     };
   }
 
-  // Sequence from the highest existing code, never from count(): a deleted
-  // or voided row makes a count-based sequence propose an already-taken code
-  // forever (and the old retry loop recomputed the SAME number every time).
   private async generateCode(tx: Prisma.TransactionClient): Promise<string> {
     const last = await tx.warehouseShipment.findFirst({
       where: { code: { startsWith: WSHP_PREFIX } },
@@ -292,7 +380,6 @@ export class ShipmentsService {
     return `${WSHP_PREFIX}R${Date.now().toString().slice(-6)}`;
   }
 
-  /** Generate a `WAR-XXXXXX` code aligned with ExpectedArrivals numbering. */
   private async generateArrivalCode(tx: Prisma.TransactionClient): Promise<string> {
     const last = await tx.expectedArrival.findFirst({
       where: { code: { startsWith: WAR_PREFIX } },
@@ -310,8 +397,6 @@ export class ShipmentsService {
     return `${WAR_PREFIX}R${Date.now().toString().slice(-6)}`;
   }
 
-  // ---- Read side ----
-
   async list(filters: { search?: string; status?: string; take?: number; skip?: number }) {
     const where: Prisma.WarehouseShipmentWhereInput = {};
     if (filters.status) where.trackingStatus = filters.status as never;
@@ -323,6 +408,7 @@ export class ShipmentsService {
         { shipmentReference: { contains: search, mode: 'insensitive' } },
         { carrierName: { contains: search, mode: 'insensitive' } },
         { trackingNumber: { contains: search, mode: 'insensitive' } },
+        { suiviCode: { contains: search, mode: 'insensitive' } },
       ];
     }
     const take = Math.min(filters.take ?? 50, 200);
@@ -361,8 +447,10 @@ export class ShipmentsService {
       carrierName: r.carrierName,
       carrierCode: r.carrierCode,
       trackingNumber: r.trackingNumber,
+      suiviCode: r.suiviCode ?? r.trackingNumber,
       trackingStatus: r.trackingStatus,
       sourceType: r.sourceType,
+      sourceProject: r.sourceProject,
       totalCartons: r.totalCartons,
       totalProducts: r.totalProducts,
       totalUnits: r.totalUnits,
@@ -370,6 +458,7 @@ export class ShipmentsService {
       destinationCode: r.destinationCode,
       receivedViaApiAt: r.receivedViaApiAt ?? r.createdAt,
       createdAt: r.createdAt,
+      entityType: 'CARTON',
     };
   }
 
@@ -390,15 +479,27 @@ export class ShipmentsService {
         total_cartons: s.totalCartons, total_products: s.totalProducts, total_units: s.totalUnits,
         total_weight: s.totalWeight, weight_unit: s.weightUnit,
       },
+      suiviCode: s.suiviCode,
+      sourceProject: s.sourceProject,
+      metadata: s.metadata,
+      originalPayload: s.originalPayload,
       cartons: (s.cartons ?? []).map((c: any) => ({
         id: c.id,
         externalCartonId: c.externalCartonId,
         reference: c.cartonReference,
         qrCodeValue: c.qrCodeValue,
         barcodeValue: c.barcodeValue,
+        suiviCode: c.suiviCode,
+        trackingCode: c.trackingCode ?? c.suiviCode,
+        trackingNumber: c.trackingCode ?? c.suiviCode,
+        entityType: c.entityType ?? 'CARTON',
         cartonNumber: c.cartonNumber,
         totalCartons: c.totalCartons,
+        productCount: c.productCount,
         status: c.status,
+        sourceProject: c.sourceProject,
+        metadata: c.metadata,
+        originalPayload: c.originalPayload,
         weight: c.weight, weightUnit: c.weightUnit,
         dimensions: { length: c.length, width: c.width, height: c.height, unit: c.dimensionUnit },
         receivedAt: c.receivedAt,

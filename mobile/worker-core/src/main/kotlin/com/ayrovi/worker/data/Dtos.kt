@@ -104,17 +104,33 @@ import kotlinx.serialization.json.JsonElement
 @Serializable data class CartonDimensions(
     val length: Double? = null, val width: Double? = null, val height: Double? = null, val unit: String? = null,
 )
-/** CARTON CARD (Shipment Card carton) — expected data for the CARTON lane. */
+/** CARTON CARD (Shipment Card carton) — expected data for the CARTON lane. CARTON FIX: preserve carton identity, suivi, QR, barcode */
 @Serializable data class CartonCard(
     val id: String? = null, val externalCartonId: String? = null, val reference: String? = null,
     val qrCodeValue: String? = null, val barcodeValue: String? = null,
+    // CARTON FIX fields
+    val suiviCode: String? = null,
+    val trackingCode: String? = null,
+    val entityType: String? = null, // Always CARTON
+    val productCount: Int? = null,
+    val sourceProject: String? = null,
+    val metadata: kotlinx.serialization.json.JsonElement? = null,
+    val originalPayload: kotlinx.serialization.json.JsonElement? = null,
     val cartonNumber: Int = 0, val totalCartons: Int = 0,
     /** Shipment-level card data carried by every carton card of the shipment. */
     val trackingNumber: String? = null, val senderName: String? = null, val shippedAt: String? = null,
     val weight: Double? = null, val weightUnit: String? = null, val dimensions: CartonDimensions? = null,
     val status: String? = null,
+    val products: List<CartonProduct>? = null,
     /** Normalized (uppercased) comparison keys for device-side matching. */
     val identifiers: List<String> = emptyList(),
+)
+
+@Serializable data class CartonProduct(
+    val sku: String? = null,
+    val reference: String? = null,
+    val productName: String? = null,
+    val quantity: Int = 0,
 )
 @Serializable data class DiscrepancyRow(
     val id: String? = null, val type: String? = null, val status: String? = null, val reason: String? = null,
@@ -163,6 +179,7 @@ import kotlinx.serialization.json.JsonElement
 @Serializable data class HomeCartonRow(
     val arrivalCode: String? = null, val reference: String? = null,
     val tracking: String? = null, val remaining: Int = 0,
+    val suiviCode: String? = null,
 )
 @Serializable data class ReceivingHome(
     val productCards: List<ProductCard> = emptyList(),

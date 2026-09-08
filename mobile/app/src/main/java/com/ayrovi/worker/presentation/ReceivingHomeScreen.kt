@@ -199,19 +199,29 @@ private fun ProductLane(state: com.ayrovi.worker.domain.ReceivingHomeState, capt
 @Composable
 private fun CartonLane(state: com.ayrovi.worker.domain.ReceivingHomeState, capture: ScannerCapture, enabled: Boolean) {
     Column(Modifier.fillMaxWidth().testTag("CARTON_SCANNER"), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
-        TaskInstruction("CARTON SCANNER", "Scan a carton QR / barcode, carton reference or the shipment tracking number.")
+        TaskInstruction("📦 CARTON RECEIVING", "Scan a carton QR / barcode, carton reference, suivi or tracking. Auto verify → Auto approve → Next.")
         state.message?.let { OperationalMessageViewHome(it) }
         if (state.step == HomeStep.REVIEW_CARTON) {
             state.cartonReview?.let { review ->
-                TerminalPanel("MATCHED CARTON CARD") {
+                TerminalPanel("📦 CARTON RECEIVING — ${review.card.entityType ?: "CARTON"}") {
                     LocationBlock(review.card.externalCartonId ?: review.scan.value, label = "CARTON TO RECEIVE")
+                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Carton: ${review.card.externalCartonId ?: "—"}", style = MaterialTheme.typography.titleMedium)
+                        Text("Suivi: ${review.card.suiviCode ?: review.card.trackingCode ?: review.card.trackingNumber ?: "—"}", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
+                        review.card.qrCodeValue?.let { Text("QR: $it", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace) }
+                        review.card.barcodeValue?.let { Text("Barcode: $it", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace) }
+                        review.card.productCount?.let { Text("Products: $it", style = MaterialTheme.typography.bodyMedium) }
+                        review.card.sourceProject?.let { Text("Source: $it", style = MaterialTheme.typography.bodySmall, color = TerminalTokens.muted) }
+                    }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
                         QuantityDisplay("MATCHED ON", review.matchedOn, Modifier.weight(1f))
                         QuantityDisplay("CARTON", "${review.card.cartonNumber}/${review.card.totalCartons}", Modifier.weight(1f))
                     }
                     review.card.trackingNumber?.let { Text("TRACKING · $it", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted) }
+                    review.card.suiviCode?.let { Text("SUIVI · $it", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted) }
                     Text("Scanned: ${review.scan.value} · ${review.scan.scanType}", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)
-                    Text("Recording this carton as received. It cannot be counted twice.", style = MaterialTheme.typography.bodyMedium)
+                    Text("✅ Auto verifying → Auto approving → Next carton", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                    Text("Recording this carton as received. It cannot be counted twice.", style = MaterialTheme.typography.bodySmall, color = TerminalTokens.muted)
                 }
             }
         } else {
@@ -281,10 +291,10 @@ private fun HomeCardLists(state: com.ayrovi.worker.domain.ReceivingHomeState) {
                 CardRow("#${i + 1}", row.reference ?: "—", listOfNotNull(row.label, row.arrivalCode).joinToString(" · "))
             }
         }
-        CardListBlock("CARTON — ${home.cartonCardsPending} CARDS",
+        CardListBlock("📦 CARTON — ${home.cartonCardsPending} CARDS (CARTON FIX)",
             emptyText = if (home.cartonCardsPending == 0) "No carton cards waiting." else null) {
             home.cartonList.take(50).forEachIndexed { i, row ->
-                CardRow("#${i + 1}", row.reference ?: "—", listOfNotNull(row.tracking?.let { "TRK $it" }, row.arrivalCode).joinToString(" · "))
+                CardRow("#${i + 1}", row.reference ?: "—", listOfNotNull(row.tracking?.let { "SUIVI/TRK $it" }, row.arrivalCode, "📦 CARTON").joinToString(" · "))
             }
         }
     }

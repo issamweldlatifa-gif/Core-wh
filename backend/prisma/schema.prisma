@@ -1096,6 +1096,11 @@ model ExpectedArrivalItem {
   storeId              String?
   storeName            String?
 
+  // --- CARTON FIX: product inside carton relationship ---
+  cartonId String?
+  carton   WarehouseCarton? @relation("CartonItems", fields: [cartonId], references: [id], onDelete: SetNull)
+  originalPayload Json?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1104,6 +1109,7 @@ model ExpectedArrivalItem {
   @@index([arrivalId])
   @@index([sku])
   @@index([category])
+  @@index([cartonId])
   @@map("expected_arrival_items")
 }
 
@@ -1443,12 +1449,18 @@ model WarehouseShipment {
   serviceName             String?
   carrierAccountReference String?
 
-  // Tracking
+  // Tracking — suivi / tracking code preservation (CARTON FIX)
   trackingNumber           String?
   trackingUrl              String?
   trackingStatus           ShipmentTrackingStatus @default(UNKNOWN)
   masterTrackingNumber     String?
   carrierTrackingReference String?
+  // Explicit suivi code from external project (preserved as-is)
+  suiviCode                String?
+  // Original payload preservation (full incoming card)
+  originalPayload          Json?
+  metadata                 Json?
+  sourceProject            String?
 
   // Sender
   senderName      String?
@@ -1495,6 +1507,7 @@ model WarehouseShipment {
   @@index([carrierCode])
   @@index([trackingNumber])
   @@index([trackingStatus])
+  @@index([suiviCode])
   @@map("warehouse_shipments")
 }
 
@@ -1508,6 +1521,19 @@ model WarehouseCarton {
   cartonReference  String?
   qrCodeValue      String? // stable identifier encoded into the QR
   barcodeValue     String? // stable identifier encoded into the barcode
+  // --- CARTON FIX: explicit identity preservation ---
+  // suivi / tracking code preservation (original from external project)
+  suiviCode        String? // suivi_code / tracking_code from external carton card
+  trackingCode     String? // alias for tracking_code if different from suivi
+  // Entity type discriminator — always CARTON for this entity (clarity)
+  entityType       String  @default("CARTON")
+  // Original incoming payload (full preservation, never discarded)
+  originalPayload  Json?
+  metadata         Json?
+  sourceProject    String?
+  // Product count inside carton (when carton contains products)
+  productCount     Int?    @default(0)
+
   cartonNumber     Int     @default(1)
   totalCartons     Int     @default(1)
 
@@ -1542,11 +1568,16 @@ model WarehouseCarton {
   placements       CartonPlacement[]
   articleUnits     ArticleUnit[] // pieces scanned OUT of this carton at receiving
   taskAssignments  WorkerTaskAssignment[] @relation("AssignmentCarton")
+  // CARTON FIX: products inside carton relationship
+  arrivalItems     ExpectedArrivalItem[] @relation("CartonItems")
 
   @@index([shipmentId])
   @@index([status])
   @@index([qrCodeValue])
   @@index([barcodeValue])
+  @@index([suiviCode])
+  @@index([trackingCode])
+  @@index([entityType])
   @@index([currentLocationId])
   @@map("warehouse_cartons")
 }
