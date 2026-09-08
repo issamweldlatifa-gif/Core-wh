@@ -938,22 +938,41 @@ export class ReceivingService {
       orderBy: { receivedViaApiAt: 'asc' },
       include: { items: true, shipments: { include: { cartons: true } } },
     });
-    const scoped: typeof open = [];
-    for (const a of open) {
-      // Floor policy: arrivals the worker is assigned to are always in
-      // scope; arrivals with NO receiving assignment rows at all are open
-      // floor work (any receiving worker) — same rule
-      // assertOperationalAccess enforces at write time.
-      const rows = await this.prisma.workerTaskAssignment.findMany({
-        where: { taskKey: 'receiving', arrivalId: a.id, status: { not: 'CANCELLED' } },
-        select: { workerId: true, status: true },
-      });
-      const own = rows.some(
-        (r) => r.workerId === workerId && ['ASSIGNED', 'IN_PROGRESS'].includes(r.status),
-      );
-      if (rows.length === 0 || own) scoped.push(a);
+    if (open.length === 0) return [];
+
+    // Floor policy is decided ONLY by assignments that are still OPEN.
+    //
+    // Regression fix: this used to load every row that was `not: CANCELLED`,
+    // which also matched COMPLETED / COMPLETED_WITH_DISCREPANCY rows. An
+    // arrival whose receiving assignment had been completed once therefore
+    // had `rows.length > 0` while nobody held it open (`own === false`), so
+    // it was filtered out for EVERY worker — its PRODUCT and CARTON cards
+    // silently disappeared from the feed even though the arrival was still
+    // EXPECTED with cards remaining. Closed assignments must release the
+    // arrival back to the open floor, exactly like a cancelled one.
+    const openAssignments = await this.prisma.workerTaskAssignment.findMany({
+      where: {
+        taskKey: 'receiving',
+        arrivalId: { in: open.map((a) => a.id) },
+        status: { in: ['ASSIGNED', 'IN_PROGRESS'] },
+      },
+      select: { workerId: true, arrivalId: true },
+    });
+    const heldBy = new Map<string, Set<string>>();
+    for (const row of openAssignments) {
+      if (!row.arrivalId) continue;
+      const holders = heldBy.get(row.arrivalId) ?? new Set<string>();
+      holders.add(row.workerId);
+      heldBy.set(row.arrivalId, holders);
     }
-    return scoped;
+
+    // In scope when nobody holds the arrival (open floor work) or when this
+    // worker is one of the holders — the same rule assertOperationalAccess
+    // enforces at write time.
+    return open.filter((a) => {
+      const holders = heldBy.get(a.id);
+      return !holders || holders.size === 0 || holders.has(workerId);
+    });
   }
 
   /**

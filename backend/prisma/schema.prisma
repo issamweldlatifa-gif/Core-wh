@@ -167,6 +167,7 @@ enum AuditAction {
   RECEIVING_REVERSED
   SESSION_REOPENED
   DATA_VOIDED // admin soft-voided an operational record (Data Control)
+  DATA_FORCE_DELETED // admin force-deleted data that was ACTIVE in the workflow (Data Control emergency cleanup)
   TASK_ASSIGNED // admin assigned a specific task to a worker (Worker Control)
   TASK_COMPLETED // worker completed an assigned task
   TASK_CANCELLED // admin cancelled an assigned task

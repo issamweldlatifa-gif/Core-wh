@@ -21,6 +21,13 @@ data class WorkerContextSnapshot(
      */
     val receivingProductPending: Int? = null,
     val receivingCartonPending: Int? = null,
+    /**
+     * The raw card feed behind the counters above. The notification badge is
+     * computed from card IDENTITY (see CardNotificationCenter), not from the
+     * pending counters, so the whole-app poll must carry the cards themselves.
+     * Null when the feed was unavailable or the worker has no receiving access.
+     */
+    val receivingHome: ReceivingHome? = null,
 )
 
 class WorkerSessionUseCase(private val repository: WorkerRepository, private val store: SessionStorage) {
@@ -66,6 +73,7 @@ class WorkerSessionUseCase(private val repository: WorkerRepository, private val
             workCounts = counts,
             receivingProductPending = home?.productCardsPending,
             receivingCartonPending = home?.cartonCardsPending,
+            receivingHome = home,
         )
     }
 

@@ -39,7 +39,7 @@ fun WorkerTerminalApp(
     openReceivingRequest: Long = 0L,
 ) {
     val model: WorkerAppViewModel = viewModel(
-        factory = factory { WorkerAppViewModel(container.workerSession, container.audio, container.notifier) },
+        factory = factory { WorkerAppViewModel(container.workerSession, container.audio, container.notifier, container.cardReads) },
     )
     val appearance: AppearanceViewModel = viewModel(factory = factory { AppearanceViewModel(container.appearance) })
     val theme by appearance.theme.collectAsStateWithLifecycle()
@@ -76,6 +76,9 @@ fun WorkerTerminalApp(
     LaunchedEffect(state.signedIn, pendingOpenReceiving) {
         if (state.signedIn && pendingOpenReceiving) {
             pendingOpenReceiving = false
+            // Same "read" event as tapping the RECEIVING tile: arriving from
+            // the tray notification means the worker has seen these cards.
+            model.markReceivingRead()
             route = TerminalRoute.RECEIVING
         }
     }
@@ -106,7 +109,13 @@ fun WorkerTerminalApp(
                 repository = container.repository)
         } else {
             WorkerWorkQueue(state, container.device, connection.name, workerLabel(state), stationLabel(state),
-                model::refresh, model::logout, { showSettings = true }, model::completeAssignment) { route = TerminalRoute.RECEIVING }
+                model::refresh, model::logout, { showSettings = true }, model::completeAssignment) {
+                // Entering RECEIVING is the "read" event for the dispatched
+                // cards: the worker has now seen them, so the badge clears
+                // immediately while the cards themselves stay in the feed.
+                model.markReceivingRead()
+                route = TerminalRoute.RECEIVING
+            }
         }
         if (showSettings) WorkerSettingsDialog(
             repository = container.repository,

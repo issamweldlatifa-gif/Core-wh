@@ -505,7 +505,47 @@ export const adminApi = {
     client.get<DataControlVoidedRow[]>('/v1/operations/data-control/voided').then((r) => r.data),
   dataControlVoid: (kind: DataControlKind, code: string, reason?: string, id?: string) =>
     client.post<DataControlVoidResult>('/v1/operations/data-control/void', { kind, code, reason, id }).then((r) => r.data),
+
+  // ---- Admin FORCE DATA DELETE (workflow-active data; admin only) --------
+  /** Read-only impact report powering the force-delete warning dialog. */
+  dataControlForceDeletePreview: (kind: ForceDeleteKind, code: string, id?: string) =>
+    client
+      .get<ForceDeletePreview>('/v1/operations/data-control/force-delete/preview', { params: { kind, code, id } })
+      .then((r) => r.data),
+  /** Requires a written reason AND the exact code typed back (confirmation #2). */
+  dataControlForceDelete: (kind: ForceDeleteKind, code: string, reason: string, confirm: string, id?: string) =>
+    client
+      .post<ForceDeleteResult>('/v1/operations/data-control/force-delete', { kind, code, reason, confirm, id })
+      .then((r) => r.data),
 };
+
+/** Only arrivals and cartons can be force deleted today. */
+export type ForceDeleteKind = 'arrival' | 'carton';
+
+export interface ForceDeletePreview {
+  entity: string;
+  code: string;
+  currentStatus: string;
+  /** True when the data is OPEN/ACTIVE/ASSIGNED/IN_PROGRESS in the workflow. */
+  active: boolean;
+  assignedWorkers: string[];
+  willTerminate: Record<string, number>;
+  willDelete: Record<string, number>;
+  /** Set when the cleanup is refused (e.g. physical articles already made). */
+  blockedBy: string | null;
+  /** The exact text the admin must type to confirm. */
+  requiresConfirmation: string;
+}
+
+export interface ForceDeleteResult {
+  ok: boolean;
+  action: 'FORCE_DELETE';
+  kind: ForceDeleteKind;
+  code: string;
+  previousStatus: string;
+  cancelledAssignments: number;
+  reason: string;
+}
 
 export type DataControlKind = 'arrival' | 'order' | 'container' | 'article' | 'carton';
 

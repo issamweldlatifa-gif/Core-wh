@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { adminApi, type DataControlHit, type DataControlKind, type DataControlVoidedRow } from '../api';
+import {
+  adminApi,
+  type DataControlHit,
+  type DataControlKind,
+  type DataControlVoidedRow,
+  type ForceDeleteKind,
+  type ForceDeletePreview,
+} from '../api';
 import { useAuth } from '../../context/AuthContext';
 import { apiErrorMessage } from '../../api/client';
 
@@ -42,6 +49,7 @@ export default function DataControl() {
 
   const [voidLog, setVoidLog] = useState<DataControlVoidedRow[] | null>(null);
   const [target, setTarget] = useState<DataControlHit | null>(null);
+  const [forceTarget, setForceTarget] = useState<DataControlHit | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -174,6 +182,18 @@ export default function DataControl() {
                         {canCorrect && terminal && (
                           <span className="os-muted" title="This record is already in a terminal state.">—</span>
                         )}
+                        {/* Emergency cleanup for data already live in the
+                            workflow, which the soft void deliberately refuses. */}
+                        {canCorrect && (h.kind === 'arrival' || h.kind === 'carton') && (
+                          <button
+                            className="ac-linkbtn"
+                            style={{ color: 'var(--os-danger, #b42318)', marginLeft: 10 }}
+                            onClick={() => setForceTarget(h)}
+                            title="Admin emergency cleanup: cancels the active workflow and deletes the data."
+                          >
+                            force delete
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -233,7 +253,178 @@ export default function DataControl() {
           onClose={() => setTarget(null)}
         />
       )}
+
+      {forceTarget && (
+        <ForceDeleteDialog
+          hit={forceTarget}
+          onDone={async (summary) => {
+            setForceTarget(null);
+            // The row is gone for good — drop it from the result list.
+            setHits((prev) => (prev ?? []).filter((h) => !(h.kind === forceTarget.kind && h.id === forceTarget.id)));
+            await loadLog();
+            setFlash(summary);
+          }}
+          onClose={() => setForceTarget(null)}
+        />
+      )}
     </>
+  );
+}
+
+/**
+ * FORCE DELETE dialog (PART 4). Two-level confirmation, a mandatory reason and
+ * an explicit impact report of everything that will be terminated and removed.
+ * The button stays disabled until BOTH confirmations are satisfied.
+ */
+function ForceDeleteDialog({
+  hit,
+  onDone,
+  onClose,
+}: {
+  hit: DataControlHit;
+  onDone: (summary: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const kind = hit.kind as ForceDeleteKind;
+  const [preview, setPreview] = useState<ForceDeletePreview | null>(null);
+  const [reason, setReason] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [acknowledged, setAcknowledged] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    adminApi
+      .dataControlForceDeletePreview(kind, hit.code, hit.id)
+      .then((p) => { if (alive) setPreview(p); })
+      .catch((e) => { if (alive) setError(apiErrorMessage(e)); });
+    return () => { alive = false; };
+  }, [kind, hit.code, hit.id]);
+
+  const expected = preview?.requiresConfirmation ?? hit.code;
+  const reasonOk = reason.trim().length >= 8;
+  const confirmOk = confirm.trim() === expected;
+  const blocked = Boolean(preview?.blockedBy);
+  const ready = Boolean(preview) && !blocked && acknowledged && reasonOk && confirmOk && !busy;
+
+  async function submit() {
+    if (!ready) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await adminApi.dataControlForceDelete(kind, hit.code, reason.trim(), confirm.trim(), hit.id);
+      await onDone(
+        `Force deleted ${r.kind} ${r.code} (was ${r.previousStatus}); ` +
+        `${r.cancelledAssignments} active task(s) cancelled. The worker app will drop it on its next sync.`,
+      );
+    } catch (e) {
+      setError(apiErrorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const rows = (label: string, data?: Record<string, number>) => {
+    const entries = Object.entries(data ?? {}).filter(([, n]) => n > 0);
+    if (entries.length === 0) return null;
+    return (
+      <div style={{ marginTop: 6 }}>
+        <b>{label}</b>{' '}
+        {entries.map(([k, n]) => (
+          <span key={k} className="os-tag os-tag--warn" style={{ marginRight: 6 }}>
+            {k.replace(/([A-Z])/g, ' $1').toLowerCase()}: {n}
+          </span>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <div className="ac-modal" role="dialog" aria-modal="true">
+      <div className="ac-modal-box">
+        <h2 className="ac-modal-title" style={{ color: 'var(--os-danger, #b42318)' }}>
+          Force delete {KIND_META[hit.kind].title.toLowerCase()} {hit.code}
+        </h2>
+
+        <div className="ac-modal-warn">
+          <b>WARNING:</b> This data is currently active in the workflow. Force deleting it will remove/cancel its
+          active state and associated operational data. This cannot be undone — only the audit record survives.
+        </div>
+
+        {!preview && !error && <div className="os-empty">Checking impact…</div>}
+
+        {preview && (
+          <div className="ac-sub" style={{ marginTop: 8 }}>
+            <div>
+              Current state: <b>{preview.currentStatus.replace(/_/g, ' ')}</b>{' '}
+              {preview.active
+                ? <span className="os-tag os-tag--warn">active in workflow</span>
+                : <span className="os-tag os-tag--muted">idle</span>}
+            </div>
+            {preview.assignedWorkers.length > 0 && (
+              <div style={{ marginTop: 6 }}>
+                Held by <b>{preview.assignedWorkers.length}</b> worker(s); their task(s) will be cancelled.
+              </div>
+            )}
+            {rows('Will terminate:', preview.willTerminate)}
+            {rows('Will delete:', preview.willDelete)}
+          </div>
+        )}
+
+        {preview?.blockedBy && <div className="ac-error" style={{ marginTop: 10 }}>{preview.blockedBy}</div>}
+
+        {preview && !blocked && (
+          <>
+            <div style={{ marginTop: 12 }}>
+              <label className="os-label" htmlFor="fd-reason">Reason (required — kept in the audit log)</label>
+              <input
+                id="fd-reason"
+                className="os-input"
+                value={reason}
+                autoFocus
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="e.g. test arrival stuck in receiving after a CRM replay"
+              />
+            </div>
+
+            <div style={{ marginTop: 10 }}>
+              <label className="os-label" htmlFor="fd-confirm">
+                Type <code>{expected}</code> to confirm
+              </label>
+              <input
+                id="fd-confirm"
+                className="os-input"
+                style={{ fontFamily: 'var(--os-font-mono)' }}
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                placeholder={expected}
+              />
+            </div>
+
+            <label className="os-row" style={{ marginTop: 10, gap: 8, alignItems: 'center' }}>
+              <input type="checkbox" checked={acknowledged} onChange={(e) => setAcknowledged(e.target.checked)} />
+              <span>I understand this cancels the active workflow and permanently removes this data.</span>
+            </label>
+          </>
+        )}
+
+        {error && <div className="ac-error" style={{ marginTop: 10 }}>{error}</div>}
+
+        <div className="ac-modal-actions">
+          <button type="button" className="os-btn" onClick={onClose} disabled={busy}>Cancel</button>
+          <button
+            type="button"
+            className="os-btn os-btn--danger"
+            onClick={submit}
+            disabled={!ready}
+            title={!ready ? 'Provide a reason, type the code exactly and tick the acknowledgement' : undefined}
+          >
+            {busy ? 'Force deleting…' : 'FORCE DELETE'}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

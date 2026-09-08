@@ -364,6 +364,47 @@ export class OperationsController {
     return this.ops.dataControlVoid(body, actorOf(req));
   }
 
+  // ---- Admin FORCE DATA DELETE (PART 4) ------------------------------------
+  // Emergency cleanup for data already ACTIVE in the workflow, which the
+  // normal soft-void deliberately refuses. Admin-only (operations.correct) —
+  // the Worker application has no delete capability at all, and this
+  // controller is not reachable from a WORKER_NATIVE session.
+
+  @Get('data-control/force-delete/preview')
+  @RequirePermissions('operations.correct')
+  @ApiOperation({ summary: 'Impact report for a force delete (read-only; powers the warning dialog).' })
+  @ApiQuery({ name: 'kind', required: true, enum: ['arrival', 'carton'] })
+  @ApiQuery({ name: 'code', required: false })
+  @ApiQuery({ name: 'id', required: false })
+  dataControlForceDeletePreview(
+    @Query('kind') kind: 'arrival' | 'carton',
+    @Query('code') code?: string,
+    @Query('id') id?: string,
+  ) {
+    return this.ops.dataControlForceDeletePreview(kind, id, code ?? '');
+  }
+
+  @Post('data-control/force-delete')
+  @RequirePermissions('operations.correct')
+  @ApiOperation({
+    summary: 'Force delete workflow-active data (admin only; requires a reason and the code typed back).',
+  })
+  dataControlForceDelete(
+    @Body()
+    body: {
+      kind: 'arrival' | 'carton';
+      id?: string;
+      code: string;
+      /** Mandatory written justification, kept in the audit trail forever. */
+      reason?: string;
+      /** Confirmation #2: the exact resolved code, typed by the admin. */
+      confirm?: string;
+    },
+    @Req() req: any,
+  ) {
+    return this.ops.dataControlForceDelete(body, actorOf(req));
+  }
+
   // ---- Worker Control (COMMAND #3; admin only — users.manage) --------------
 
   @Post('workers/:id/block')
