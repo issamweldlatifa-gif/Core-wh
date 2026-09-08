@@ -57,10 +57,12 @@ export type CartonMatch =
 
 /**
  * CARTON card match:
- *   1) carton identity — external id / reference / QR / barcode (card identifiers);
+ *   1) carton identity — external id / reference / QR / barcode / suivi (card-specific);
  *   2) shipment-level TRACKING number — 0 open cartons -> all received,
  *      exactly 1 open -> that carton (matchedOn = 'TRACKING NUMBER'),
  *      2+ open -> ambiguous (the worker must scan the specific carton).
+ *   CARTON FIX: preserve suivi_code end-to-end, match it as first-class identifier (carton-specific, not ambiguous).
+ *   trackingCode/trackingNumber are shipment-level and go through ambiguous logic.
  */
 export function matchCartonCard(term: string, cards: CartonCard[]): CartonMatch {
   const t = normalizeTerm(term);
@@ -71,10 +73,23 @@ export function matchCartonCard(term: string, cards: CartonCard[]): CartonMatch 
       sameCode(c.externalCartonId, t) ||
       sameCode(c.reference, t) ||
       sameCode(c.qrCodeValue, t) ||
-      sameCode(c.barcodeValue, t),
+      sameCode(c.barcodeValue, t) ||
+      sameCode((c as any).suiviCode, t),
   );
-  if (direct) return { result: 'card', card: direct, matchedOn: 'CARTON' };
-  const byTracking = cards.filter((c) => sameCode(c.trackingNumber, t));
+  if (direct) {
+    const matchedOn = sameCode((direct as any).suiviCode, t)
+      ? 'SUIVI CODE'
+      : sameCode(direct.qrCodeValue, t)
+        ? 'QR CODE'
+        : sameCode(direct.barcodeValue, t)
+          ? 'BARCODE'
+          : 'CARTON';
+    return { result: 'card', card: direct, matchedOn };
+  }
+  // Shipment-level tracking: trackingNumber and trackingCode are shared across cartons -> ambiguous handling
+  const byTracking = cards.filter(
+    (c) => sameCode(c.trackingNumber, t) || sameCode((c as any).trackingCode, t),
+  );
   if (byTracking.length === 0) return { result: 'none' };
   const open = byTracking.filter((c) => c.status !== 'RECEIVED');
   if (open.length === 0) return { result: 'all-received', card: byTracking[0] };

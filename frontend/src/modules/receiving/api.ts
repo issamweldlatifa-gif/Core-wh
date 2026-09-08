@@ -48,12 +48,12 @@ export interface CartonCard {
   reference: string | null;
   qrCodeValue: string | null;
   barcodeValue: string | null;
-  // CARTON FIX
-  suiviCode: string | null;
-  trackingCode: string | null;
-  entityType: string;
-  productCount: number | null;
-  sourceProject: string | null;
+  // CARTON FIX - optional for backward compat with existing tests/payloads
+  suiviCode?: string | null;
+  trackingCode?: string | null;
+  entityType?: string | null;
+  productCount?: number | null;
+  sourceProject?: string | null;
   metadata?: any;
   originalPayload?: any;
   products?: Array<{ sku: string | null; reference: string | null; productName: string | null; quantity: number }> | null;

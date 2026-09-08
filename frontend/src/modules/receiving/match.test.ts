@@ -36,6 +36,12 @@ function carton(over: Partial<CartonCard> = {}): CartonCard {
     reference: 'REF-CTN-1',
     qrCodeValue: 'QR123456789',
     barcodeValue: '6291001002011',
+    // CARTON FIX - explicit identity preserved end-to-end, suivi is carton-specific (direct), tracking is shipment-level (ambiguous)
+    suiviCode: 'SUIVI-001',
+    trackingCode: 'TRK-111',
+    entityType: 'CARTON',
+    productCount: 0,
+    sourceProject: null,
     cartonNumber: 1,
     totalCartons: 2,
     trackingNumber: 'TRK-111',
@@ -45,7 +51,7 @@ function carton(over: Partial<CartonCard> = {}): CartonCard {
     weightUnit: 'KG',
     dimensions: null,
     status: 'EXPECTED',
-    identifiers: ['CTN-001', 'REF-CTN-1', 'QR123456789', '6291001002011'],
+    identifiers: ['CTN-001', 'REF-CTN-1', 'QR123456789', '6291001002011', 'SUIVI-001'],
     ...over,
   };
 }
@@ -92,7 +98,18 @@ describe('PRODUCT card matching (PRODUIT lane)', () => {
 
 describe('CARTON card matching (CARTON lane)', () => {
   const c1 = carton();
-  const c2 = carton({ id: 'cc-2', externalCartonId: 'CTN-002', cartonNumber: 2, reference: 'REF-CTN-2', qrCodeValue: 'QR999', barcodeValue: '6291001002022', identifiers: ['CTN-002', 'REF-CTN-2', 'QR999', '6291001002022'] });
+  const c2 = carton({
+    id: 'cc-2',
+    externalCartonId: 'CTN-002',
+    cartonNumber: 2,
+    reference: 'REF-CTN-2',
+    qrCodeValue: 'QR999',
+    barcodeValue: '6291001002022',
+    suiviCode: 'SUIVI-002',
+    trackingCode: 'TRK-111',
+    trackingNumber: 'TRK-111',
+    identifiers: ['CTN-002', 'REF-CTN-2', 'QR999', '6291001002022', 'SUIVI-002'],
+  });
   const cards = [c1, c2];
 
   it('matches carton reference / external id / QR / barcode', () => {
