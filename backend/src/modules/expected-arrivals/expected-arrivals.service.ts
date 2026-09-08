@@ -81,6 +81,24 @@ export class ExpectedArrivalsService {
       }
     }
 
+    const externalArrivalId = dto.arrival.id?.trim() || null;
+    const arrivalReference = dto.arrival.reference?.trim() || null;
+    // Shipment Cards can arrive before Customer Arrival Cards. The shipment
+    // receiver creates a provisional `shipment:<id>` ExpectedArrival so the
+    // carton is never orphaned. Reconcile that provisional row here instead
+    // of creating a second arrival; otherwise product and carton cards split
+    // across two worker scopes and the B2B -> Worker feed appears broken.
+    const provisional = externalArrivalId || arrivalReference
+      ? await this.prisma.expectedArrival.findFirst({
+          where: {
+            customerArrivalCardId: { startsWith: 'shipment:' },
+            OR: [
+              ...(externalArrivalId ? [{ arrivalId: externalArrivalId }] : []),
+              ...(arrivalReference ? [{ arrivalReference }] : []),
+            ],
+          },
+        })
+      : null;
     const totalUnits = products.reduce((sum, p) => sum + (Number(p.quantity) || 0), 0);
     const now = new Date();
 
@@ -120,47 +138,50 @@ export class ExpectedArrivalsService {
     const needsReviewCount = verdicts.filter((v) => v.status === 'NEEDS_REVIEW').length;
 
     const arrival = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const code = await this.generateWarehouseCode(tx);
-      const record = await tx.expectedArrival.create({
-        data: {
-          code,
-          customerArrivalCardId: cardId,
-          arrivalId: dto.arrival.id?.trim() || null,
-          arrivalReference: dto.arrival.reference?.trim() || null,
-          customerId: card.customer.id.trim(),
-          customerName: card.customer.name.trim(),
-          storeId: card.store?.id?.trim() || null,
-          storeName: card.store?.name?.trim() || null,
-          status: 'EXPECTED',
-          source: 'ARRIVAL_CRM',
-          productCount: products.length,
-          totalUnits,
-          apiClientId: principal.id,
-          idempotencyKey: principal.idempotencyKey,
-          receivedViaApi: true,
-          receivedViaApiAt: now,
-          items: {
-            create: products.map((p, i) => ({
-              productId: p.product_id?.trim() || null,
-              sku: p.sku?.trim() || null,
-              reference: p.reference?.trim() || null,
-              productName: p.product_name?.trim() || null,
-              quantity: Math.max(1, Math.floor(Number(p.quantity) || 1)),
-              variant: p.variant?.trim() || null,
-              color: p.color?.trim() || null,
-              size: p.size?.trim() || null,
-              // Validated classification (see classify() above). Never
-              // inferred from the product name.
-              category: verdicts[i].category,
-              subcategory: verdicts[i].subcategory,
-              classificationSource: p.classification_source?.trim() || null,
-              categoryStatus: verdicts[i].status,
-              storeId: p.store_id?.trim() || card.store?.id?.trim() || null,
-              storeName: p.store_name?.trim() || card.store?.name?.trim() || null,
-            })),
-          },
-        },
-      });
+      const code = provisional?.code ?? await this.generateWarehouseCode(tx);
+      const itemData = products.map((p, i) => ({
+        productId: p.product_id?.trim() || null,
+        sku: p.sku?.trim() || null,
+        reference: p.reference?.trim() || null,
+        productName: p.product_name?.trim() || null,
+        quantity: Math.max(1, Math.floor(Number(p.quantity) || 1)),
+        variant: p.variant?.trim() || null,
+        color: p.color?.trim() || null,
+        size: p.size?.trim() || null,
+        // Validated classification (see classify() above). Never
+        // inferred from the product name.
+        category: verdicts[i].category,
+        subcategory: verdicts[i].subcategory,
+        classificationSource: p.classification_source?.trim() || null,
+        categoryStatus: verdicts[i].status,
+        storeId: p.store_id?.trim() || card.store?.id?.trim() || null,
+        storeName: p.store_name?.trim() || card.store?.name?.trim() || null,
+      }));
+      const arrivalData = {
+        customerArrivalCardId: cardId,
+        arrivalId: externalArrivalId,
+        arrivalReference,
+        customerId: card.customer.id.trim(),
+        customerName: card.customer.name.trim(),
+        storeId: card.store?.id?.trim() || null,
+        storeName: card.store?.name?.trim() || null,
+        status: 'EXPECTED' as const,
+        source: 'ARRIVAL_CRM' as const,
+        productCount: products.length,
+        totalUnits,
+        apiClientId: principal.id,
+        idempotencyKey: principal.idempotencyKey,
+        receivedViaApi: true,
+        receivedViaApiAt: now,
+        items: { create: itemData },
+      };
+      // Update the provisional shipment-backed arrival in place so its
+      // shipment/cartons keep the same arrivalId and the single receiving
+      // assignment remains valid. A normal first Customer Arrival Card still
+      // creates a new row exactly as before.
+      const record = provisional
+        ? await tx.expectedArrival.update({ where: { id: provisional.id }, data: arrivalData })
+        : await tx.expectedArrival.create({ data: { code, ...arrivalData } });
 
       // Atomic audit row (same tx as the mutation).
       await this.audit.log(

@@ -91,14 +91,19 @@ class ReceivingHomeWorkflow(
     private var autoRefresh: kotlinx.coroutines.Job? = null
     private var foreground = false
 
-    /** Automatic sync: poll the dispatched feed so counters update without a manual refresh. */
+    /**
+     * Refresh the real server feed while Home is visible. The refresh updates
+     * cards/counters only; it must never manufacture a "new card" message
+     * from a local counter delta. System-tray notification ownership stays in
+     * WorkerAppViewModel, which compares the authoritative feed.
+     */
     fun startAutoRefresh() {
         foreground = true
         autoRefresh?.cancel()
         autoRefresh = scope.launch {
             while (isActive) {
-                delay(20_000)
-                if (mutable.value.step == HomeStep.HOME && !mutable.value.busy) runCatching { loadHome(announce = true) }
+                delay(30_000)
+                if (mutable.value.step == HomeStep.HOME && !mutable.value.busy) runCatching { loadHome() }
             }
         }
     }
@@ -116,18 +121,20 @@ class ReceivingHomeWorkflow(
 
     fun initialize() = run(readOnly = true) { loadHome() }
 
-    fun refresh() = run(readOnly = true) { loadHome(announce = true) }
+    fun refresh() = run(readOnly = true) { loadHome() }
 
-    private suspend fun loadHome(announce: Boolean = false) {
-        val before = mutable.value.home
+    private suspend fun loadHome() {
         val home = gateway.receivingHome()
-        if (announce && before != null && foreground) {
-            if (home.productCardsPending > before.productCardsPending) signal(MessageTone.INFO,
-                "NEW PRODUCT CARD", "A new product card was received.", null)
-            if (home.cartonCardsPending > before.cartonCardsPending) signal(MessageTone.INFO,
-                "NEW CARTON CARD", "A new carton card was received.", null)
+        mutable.update {
+            it.copy(
+                home = home,
+                loaded = true,
+                // A successful server refresh clears only the old Home flash.
+                // It never creates a synthetic notification from count changes.
+                message = if (it.step == HomeStep.HOME) null else it.message,
+                step = if (it.step !in openSteps) HomeStep.HOME else it.step,
+            )
         }
-        mutable.update { it.copy(home = home, loaded = true, step = if (it.step !in openSteps) HomeStep.HOME else it.step) }
     }
 
     /** Enter a lane scanner. PRODUIT only ever sees product cards; CARTON only carton cards. */

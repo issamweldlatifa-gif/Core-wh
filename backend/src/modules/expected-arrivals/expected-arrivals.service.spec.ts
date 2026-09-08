@@ -71,9 +71,20 @@ function makeMocks() {
         rows.push(row);
         return row;
       },
+      update: async ({ where, data }: any) => {
+        const row = rows.find((r) => r.id === where.id);
+        if (!row) throw new Error('row not found');
+        const { items, ...fields } = data;
+        Object.assign(row, fields);
+        row.items.push(...(items?.create ?? []).map((it: any, i: number) => ({ id: `it_${row.id}_${row.items.length + i}`, ...it })));
+        row.updatedAt = new Date();
+        return row;
+      },
       findFirst: async ({ where }: any) => {
         const card = where?.customerArrivalCardId;
-        if (card) return rows.find((r) => r.customerArrivalCardId === card) ?? null;
+        if (typeof card === 'string') return rows.find((r) => r.customerArrivalCardId === card) ?? null;
+        if (card?.startsWith) return rows.find((r) => r.customerArrivalCardId.startsWith(card.startsWith) && (where.OR ?? []).some((clause: any) =>
+          Object.entries(clause).some(([key, value]) => (r as any)[key] === value))) ?? null;
         const key = where?.idempotencyKey;
         if (key) return rows.find((r) => r.idempotencyKey === key) ?? null;
         return null;
@@ -177,6 +188,34 @@ describe('ExpectedArrivalsService', () => {
     expect(validated).toHaveLength(1);
     expect(validated[0].metadata).toMatchObject({ confirmed: 0, needs_review: 2 });
     expect(audits.filter((a) => a.action === 'CATEGORY_NEEDS_REVIEW')).toHaveLength(1);
+  });
+
+  it('reconciles a shipment-first provisional arrival instead of splitting product and carton cards', async () => {
+    const { prisma, audit, dispatch, dispatched, rows } = makeMocks();
+    rows.push({
+      id: 'ea-shipment-first', code: 'WAR-001234', customerArrivalCardId: 'shipment:SHP-001',
+      arrivalId: 'ARR-JAN-2026-001', arrivalReference: 'JAN-2026-001', customerId: 'pending',
+      customerName: 'Pending customer card', storeId: null, storeName: null, status: 'EXPECTED',
+      source: 'ARRIVAL_CRM', productCount: 0, totalUnits: 0, apiClientId: null, idempotencyKey: null,
+      receivedViaApi: true, receivedViaApiAt: new Date(), createdAt: new Date(), updatedAt: new Date(), items: [],
+    });
+    const service = new ExpectedArrivalsService(prisma, audit, dispatch);
+
+    const res = await service.receiveCard(dto(), principal);
+
+    expect(res.created).toBe(true);
+    expect(res.warehouse_arrival_id).toBe('WAR-001234');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: 'ea-shipment-first',
+      customerArrivalCardId: 'CARD-ARR-2026-000145',
+      customerName: 'Ahmed',
+      productCount: 2,
+      totalUnits: 3,
+    });
+    expect(rows[0].items).toHaveLength(2);
+    expect(dispatched).toHaveLength(1);
+    expect(dispatched[0].entity.arrivalId).toBe('ea-shipment-first');
   });
 
   it('is idempotent: a double send of the same card returns the SAME Expected Arrival', async () => {
