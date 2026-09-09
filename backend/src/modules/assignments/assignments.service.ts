@@ -531,7 +531,16 @@ export class AssignmentsService {
 
   async workCounts(user: { id: string; permissions: string[] }) {
     const claimCutoff = new Date(Date.now() - CARTON_CLAIM_TTL_MS);
-    const tasks = TASK_REGISTRY.filter((t) => !t.subtaskOf && user.permissions.includes(t.permission));
+    // STATION ↔ DEPARTMENT: department-gated tasks (Temporary Storage =
+    // STAGING) only appear for workers bound to a matching ACTIVE station.
+    const station = await this.prisma.station
+      .findFirst({ where: { assignedWorkerId: user.id, status: 'ACTIVE' }, select: { department: true } })
+      .catch(() => null);
+    const departmentAllows = (t: (typeof TASK_REGISTRY)[number]) =>
+      !t.stationDepartments || (station ? t.stationDepartments.includes(station.department) : false);
+    const tasks = TASK_REGISTRY.filter(
+      (t) => !t.subtaskOf && user.permissions.includes(t.permission) && departmentAllows(t),
+    );
 
     // Stored articles still needed by at least one OPEN order line —
     // resolved as a two-step query (distinct SKU codes, then count).
@@ -580,6 +589,10 @@ export class AssignmentsService {
       // The Worker app replaces this queue availability with the scoped
       // Receiving Home feed. Keep only the real open session count here.
       receiving: { assigned: assignedBy.get('receiving') ?? 0, available: myReceiving, mine: myReceiving },
+      // Temporary Storage availability is resolved by the station scope
+      // (GET /temporary-storage/home header) — never duplicated here. Only
+      // admin-assigned tasks surface as a counter.
+      'temporary-storage': { assigned: assignedBy.get('temporary-storage') ?? 0, available: 0 },
       'receiving-container': { assigned: 0, available: 0 },
       sorting: { assigned: assignedBy.get('sorting') ?? 0, available: articlesToSort },
       putaway: { assigned: assignedBy.get('putaway') ?? 0, available: putawayCartons, mine: myClaims },

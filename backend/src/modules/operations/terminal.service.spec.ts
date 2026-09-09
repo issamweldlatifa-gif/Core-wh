@@ -181,3 +181,50 @@ describe('TerminalService.context routing', () => {
     expect(ctx.home).toBe('/terminal');
   });
 });
+
+
+describe('TerminalService.context — Temporary Storage task gating', () => {
+  function build(station: unknown) {
+    const prisma = {
+      receivingSession: { findFirst: jest.fn().mockResolvedValue(null) },
+      putawaySession: { findFirst: jest.fn().mockResolvedValue(null) },
+    } as never;
+    const stations = { forWorker: jest.fn().mockResolvedValue(station) } as never;
+    const service = new TerminalService(prisma, stations, {
+      myAssignments: jest.fn(),
+      completeAssignment: jest.fn(),
+    } as never);
+    const user = { id: 'user-ts', permissions: ['receiving.execute'] };
+    return { service, user };
+  }
+
+  it('only appears for workers bound to an ACTIVE STAGING station', async () => {
+    // STAGING station -> the task is listed.
+    const staging = build({ id: 's1', code: 'ST-STG-01', name: 'Temporary Storage 1', department: 'STAGING', capabilities: ['BARCODE_SCANNER'] });
+    const stagedCtx = await staging.service.context(staging.user);
+    expect(stagedCtx.tasks.some((t) => t.key === 'temporary-storage')).toBe(true);
+
+    // A receiving worker with the same permission never sees it (dept gate).
+    const recv = build({ id: 's2', code: 'ST-REC-01', name: 'Receiving 1', department: 'RECEIVING', capabilities: [] });
+    const recvCtx = await recv.service.context(recv.user);
+    expect(recvCtx.tasks.some((t) => t.key === 'temporary-storage')).toBe(false);
+
+    // No station at all -> not listed (Temporary Storage always needs its station).
+    const none = build(null);
+    const noneCtx = await none.service.context(none.user);
+    expect(noneCtx.tasks.some((t) => t.key === 'temporary-storage')).toBe(false);
+  });
+
+  it('registers the temporary-storage task with its terminal route, ready', async () => {
+    const { service, user } = build({ id: 's1', code: 'ST-STG-01', name: 'Temporary Storage 1', department: 'STAGING', capabilities: [] });
+    const ctx = await service.context(user);
+    const t = ctx.tasks.find((x) => x.key === 'temporary-storage');
+    expect(t).toMatchObject({
+      label: 'Temporary Storage',
+      path: '/terminal/temporary-storage',
+      department: 'STAGING',
+      permission: 'receiving.execute',
+      ready: true,
+    });
+  });
+});

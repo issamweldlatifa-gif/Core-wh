@@ -31,6 +31,7 @@ const SortingTask = lazy(() => import('./terminal/SortingTask'));
 const OrderSortingTask = lazy(() => import('./terminal/OrderSortingTask'));
 const PackingTask = lazy(() => import('./terminal/PackingTask'));
 const ShippingTask = lazy(() => import('./terminal/ShippingTask'));
+const TempStorageTask = lazy(() => import('./terminal/TempStorageTask'));
 const AdminShell = lazy(() => import('./admin/AdminShell'));
 const ControlCenter = lazy(() => import('./admin/pages/ControlCenter'));
 const AdminOperations = lazy(() => import('./admin/pages/Operations'));
@@ -48,6 +49,7 @@ const AdminActivity = lazy(() => import('./admin/pages/Activity'));
 const AdminLiveBoard = lazy(() => import('./admin/pages/LiveBoard'));
 const AdminDataControl = lazy(() => import('./admin/pages/DataControl'));
 const AdminReceivingContainers = lazy(() => import('./admin/pages/ReceivingContainers'));
+const AdminTemporaryStorage = lazy(() => import('./admin/pages/TemporaryStorage'));
 const AdminReceivingWorkers = lazy(() => import('./admin/pages/ReceivingWorkers'));
 const AdminCustomerBins = lazy(() => import('./admin/pages/CustomerBins'));
 const AdminContainerDetail = lazy(() => import('./admin/pages/ContainerDetail'));
@@ -194,6 +196,10 @@ export default function App() {
               path="shipping"
               element={<PermissionGate perm="shipping.execute"><ShippingTask /></PermissionGate>}
             />
+            <Route
+              path="temporary-storage"
+              element={<PermissionGate perm="receiving.execute"><TempStorageTask /></PermissionGate>}
+            />
           </Route>
             <Route
               path="expected-arrivals"
@@ -252,6 +258,7 @@ export default function App() {
             <Route path="live" element={<AdminLiveBoard />} />
             {/* Operational containers (COMMAND #1 FINAL §08/§09/§12). */}
             <Route path="receiving-containers" element={<AdminReceivingContainers />} />
+            <Route path="temporary-storage" element={<AdminTemporaryStorage />} />
             <Route path="receiving-workers" element={<AdminReceivingWorkers />} />
             <Route path="customer-bins" element={<AdminCustomerBins />} />
             <Route path="containers/:code" element={<AdminContainerDetail />} />

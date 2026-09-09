@@ -40,13 +40,17 @@ export class TerminalService {
    * shell can route without a waterfall of requests on a slow floor device.
    */
   async context(user: { id: string; permissions: string[] }) {
-    const tasks = TASK_REGISTRY.filter((t) => user.permissions.includes(t.permission));
+    // Station lookup must never break the terminal: an unassigned worker is a
+    // normal state, not an error. Resolved FIRST so department-gated tasks
+    // (Temporary Storage = STAGING) can be filtered authoritatively below.
+    const station = await this.stations.forWorker(user.id).catch(() => null);
+    const departmentAllows = (t: OperationalTask) =>
+      !t.stationDepartments || (station ? t.stationDepartments.includes(station.department) : false);
+    const tasks = TASK_REGISTRY.filter(
+      (t) => user.permissions.includes(t.permission) && departmentAllows(t),
+    );
     const readyTasks = tasks.filter((t) => t.ready);
     const readyPaths = Array.from(new Set(readyTasks.map((t) => t.path)));
-
-    // Station lookup must never break the terminal: an unassigned worker is a
-    // normal state, not an error.
-    const station = await this.stations.forWorker(user.id).catch(() => null);
 
     // A session already in flight wins over any default routing — the worker
     // returns exactly where they left off after a refresh or a dropped tab.

@@ -35,6 +35,13 @@ export interface OperationalTask {
    * Concurrency is handled per-unit at the write path instead.
    */
   shared?: boolean;
+  /**
+   * Station-department gate (STATION ↔ DEPARTMENT POLICY §22 mirror): when
+   * present, the task only appears for workers bound to an ACTIVE station of
+   * one of these departments. Server write paths enforce their own station
+   * policy regardless; this only keeps the terminal picker honest.
+   */
+  stationDepartments?: string[];
 }
 
 export const TASK_REGISTRY: OperationalTask[] = [
@@ -56,6 +63,17 @@ export const TASK_REGISTRY: OperationalTask[] = [
     ready: true,
     shared: true,
     subtaskOf: 'receiving',
+  },
+  {
+    key: 'temporary-storage',
+    label: 'Temporary Storage',
+    path: '/terminal/temporary-storage',
+    department: 'STAGING',
+    permission: 'receiving.execute',
+    ready: true,
+    // STAGING-station workers staff Temporary Storage (ST-STG-01). Receiving
+    // workers with the same permission never see this task on their picker.
+    stationDepartments: ['STAGING'],
   },
   {
     key: 'sorting',
