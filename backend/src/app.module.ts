@@ -21,6 +21,7 @@ import { OrdersModule } from './modules/orders/orders.module';
 import { FulfillmentModule } from './modules/fulfillment/fulfillment.module';
 import { DevicesModule } from './modules/devices/devices.module';
 import { CartonCardsModule } from './modules/carton-cards/carton-cards.module';
+import { WorkflowModule } from './modules/workflow/workflow.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { ApplicationGuard } from './common/guards/application.guard';
@@ -64,6 +65,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     OrdersModule,
     FulfillmentModule,
     DevicesModule,
+    WorkflowModule,
   ],
   providers: [
     // Global guards: every route is authenticated and permission-checked

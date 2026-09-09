@@ -113,6 +113,16 @@ export class ReceivingController {
     });
   }
 
+  // ORDER 04 — direct reportable-session resolution (one call instead of the
+  // arrivals + per-arrival active probes). Declared BEFORE 'sessions/:id' so
+  // 'active' is never captured as an :id.
+  @Get('sessions/active')
+  @RequirePermissions('receiving.view')
+  @ApiOperation({ summary: 'ORDER 04: the reportable receiving session (open, else latest completed with an actionable report), or null.' })
+  activeSession() {
+    return this.receiving.activeReceivingSession();
+  }
+
   @Get('sessions/:id')
   @RequirePermissions('receiving.view')
   @ApiOperation({ summary: 'Full receiving session state: expected product cards + carton cards + tally (device-side matching data).' })

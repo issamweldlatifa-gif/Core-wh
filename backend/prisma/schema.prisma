@@ -230,6 +230,9 @@ enum AuditAction {
   REPORT_REVIEWED // admin/supervisor reviewed the submitted report
   REPORT_CLOSED // report closed (verification cycle complete)
   DAMAGE_RECORDED // worker declared damaged units on a receiving product line
+  // Product Flow — Receiving -> Temporary Storage handoff + intake.
+  TEMPORARY_STORAGE_HANDOFF // locked CONFIRMED lines handed to the STAGING pool at report submit
+  TEMPORARY_STORAGE_ACCEPTED // a STAGING station accepted a waiting product move
 }
 
 enum ApiClientStatus {
@@ -1717,6 +1720,7 @@ model ReceivingProduct {
   damageNote      String?
 
   reportLines ReceivingReportLine[]
+  productMoves ProductStationMove[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1915,6 +1919,7 @@ model ReceivingReportLine {
   damagedQuantity    Int @default(0)
   result             ReceivingVerificationResult @default(PENDING)
   note               String?
+  productMoves ProductStationMove[]
 
   @@index([reportId])
   @@index([receivingProductId])
@@ -1936,6 +1941,49 @@ model ReceivingReportPhoto {
 
   @@index([reportId])
   @@map("receiving_report_photos")
+}
+
+/// Append-only product-move ledger (Product Flow): each locked CONFIRMED
+/// verification line hands its confirmed quantity to the next station.
+/// Cartons NEVER move here — the carton path ends at the report (Output A).
+/// A product's position = its latest move (no duplicated product records).
+model ProductStationMove {
+  id String @id @default(uuid())
+
+  /// Product identity snapshot (traceable without joins).
+  sku         String?
+  reference   String?
+  productName String?
+  /// Links to the receiving evidence (SetNull: history survives cleanup).
+  arrivalItemId      String?
+  receivingProductId String?
+  receivingProduct   ReceivingProduct? @relation(fields: [receivingProductId], references: [id], onDelete: SetNull)
+  reportLineId String?
+  reportLine   ReceivingReportLine? @relation(fields: [reportLineId], references: [id], onDelete: SetNull)
+  /// Receiving session that produced this output.
+  receivingSessionId String?
+  /// Quantities handed over (from the locked verification line).
+  expectedQuantity  Int @default(0)
+  confirmedQuantity Int @default(0)
+  result            ReceivingVerificationResult @default(CONFIRMED)
+
+  fromStationId String?
+  fromStation   Station? @relation("ProductMoveFrom", fields: [fromStationId], references: [id], onDelete: SetNull)
+  toDepartment StationDepartment
+  toStationId String?
+  toStation   Station? @relation("ProductMoveTo", fields: [toStationId], references: [id], onDelete: SetNull)
+
+  actorId String?
+  reason  String?
+  acceptedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([toDepartment, acceptedAt])
+  @@index([receivingProductId])
+  @@index([reportLineId])
+  @@index([receivingSessionId])
+  @@map("product_station_moves")
 }
 
 enum CardType {
@@ -2105,6 +2153,8 @@ model Station {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  productMovesFrom ProductStationMove[] @relation("ProductMoveFrom")
+  productMovesTo   ProductStationMove[] @relation("ProductMoveTo")
   corrections      OperationCorrection[]
   sessions         ReceivingSession[]     @relation("StationSessions")
   workerSessions   Session[]              @relation("SessionStation")

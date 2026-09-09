@@ -140,6 +140,7 @@ internal class HomeBackend : ReceivingGateway {
     override suspend fun arrivals() = listOf(ArrivalRow(id = "arrival", code = "WAR-001"))
     override suspend fun receivingSession(sessionId: String): ReceivingSession = throw UnsupportedOperationException()
     override suspend fun activeSession(arrivalIdOrCode: String): ReceivingSession? = throw UnsupportedOperationException()
+    override suspend fun activeReceivingSession(): ReceivingSession? = null
     override suspend fun startReceiving(arrivalIdOrCode: String): ReceivingSession = throw UnsupportedOperationException()
     override suspend fun confirmProduct(sessionId: String, identifier: String, identifierType: String, quantity: Int, operationId: String, source: String, startedAt: String?): ReceivingSession = throw UnsupportedOperationException()
     override suspend fun confirmCarton(sessionId: String, identifier: String, identifierType: String, operationId: String, source: String, startedAt: String?): ReceivingSession = throw UnsupportedOperationException()
@@ -149,4 +150,15 @@ internal class HomeBackend : ReceivingGateway {
     override suspend fun completeSession(sessionId: String): ReceivingSession = throw UnsupportedOperationException()
     override suspend fun flagSession(sessionId: String, reason: String, sku: String?, code: String?): ReceivingSession = throw UnsupportedOperationException()
     override suspend fun resolveDiscrepancy(discrepancyId: String, resolution: String): ReceivingSession = throw UnsupportedOperationException()
+
+    // ---------------- CONFIRMATION REPORT (ORDER 01) — unused test stub ----------------
+    override suspend fun report(sessionId: String): ReceivingReportView = throw UnsupportedOperationException()
+    override suspend fun saveReportDraft(
+        sessionId: String, description: String?, observation: String?, photos: List<ReportPhotoInput>,
+    ): ReceivingReportView = throw UnsupportedOperationException()
+    override suspend fun markDamage(sessionId: String, lineId: String, quantity: Int, note: String?): DamageResultView =
+        throw UnsupportedOperationException()
+    override suspend fun submitReport(
+        sessionId: String, description: String?, observation: String?, photos: List<ReportPhotoInput>,
+    ): ReceivingReportView = throw UnsupportedOperationException()
 }

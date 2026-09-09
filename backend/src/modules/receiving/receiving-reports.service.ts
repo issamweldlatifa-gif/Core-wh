@@ -10,6 +10,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AssignmentsService } from '../assignments/assignments.service';
 import { PushService } from '../notifications/push.service';
+import { WorkflowService } from '../workflow/workflow.service';
 import { computeLineVerification, receivingTaskStatus } from './verification-status';
 
 export interface ReportActor {
@@ -65,6 +66,7 @@ export class ReceivingReportsService {
     private readonly audit: AuditService,
     private readonly assignments: AssignmentsService,
     private readonly push: PushService,
+    private readonly workflow: WorkflowService,
   ) {}
 
   // ---------- helpers ----------
@@ -103,6 +105,66 @@ export class ReceivingReportsService {
   }
 
   /** Live verification computation from the current session state. */
+  /**
+   * Output A (Carton Flow): per-carton verification detail for the report.
+   * Received scans enriched with their expected card; missing = expected
+   * cards never scanned. Computed from append-only history — no snapshot
+   * table needed. Additive key: clients ignore nothing they already use.
+   */
+  private cartonSection(session: any) {
+    const expected = (session.expectedArrival?.shipments ?? []).flatMap((s: any) =>
+      (s.cartons ?? []).map((c: any) => ({ ...c, shipmentCode: s.code ?? null })),
+    );
+    const norm = (v: any) => String(v ?? '').trim().toUpperCase();
+    const receivedScans = (session.cartons ?? []).filter((c: any) => c.status === 'RECEIVED');
+    const matched = new Set<string>();
+    const received = receivedScans.map((scan: any) => {
+      const code = norm(scan.scannedCode);
+      const card = expected.find(
+        (c: any) =>
+          !matched.has(c.id) &&
+          (norm(c.externalCartonId) === code ||
+            norm(c.cartonReference) === code ||
+            norm(c.qrCodeValue) === code ||
+            norm(c.barcodeValue) === code),
+      );
+      if (card) matched.add(card.id);
+      return {
+        scannedCode: scan.scannedCode,
+        status: scan.status,
+        scanType: scan.scanType,
+        source: scan.source,
+        receivedAt: scan.receivedAt,
+        receivedBy: scan.receivedBy,
+        carton: card
+          ? {
+              id: card.id,
+              externalCartonId: card.externalCartonId,
+              cartonReference: card.cartonReference,
+              cartonNumber: card.cartonNumber,
+              totalCartons: card.totalCartons,
+              suiviCode: card.suiviCode ?? null,
+              trackingCode: card.trackingCode ?? null,
+              shipmentCode: card.shipmentCode,
+            }
+          : null,
+      };
+    });
+    const missing = expected
+      .filter((c: any) => !matched.has(c.id))
+      .map((c: any) => ({
+        id: c.id,
+        externalCartonId: c.externalCartonId,
+        cartonReference: c.cartonReference,
+        cartonNumber: c.cartonNumber,
+        totalCartons: c.totalCartons,
+        suiviCode: c.suiviCode ?? null,
+        trackingCode: c.trackingCode ?? null,
+        shipmentCode: c.shipmentCode,
+      }));
+    return { received, missing };
+  }
+
   private async computeLive(db: Db, sessionId: string) {
     const session = await db.receivingSession.findUnique({
       where: { id: sessionId },
@@ -231,6 +293,8 @@ export class ReceivingReportsService {
             note: l.note,
           }))
         : live.lines,
+      // Output A — Carton Flow detail (cartons end here: report -> admin).
+      cartons: this.cartonSection(live.session),
       manual: {
         description: persisted?.description ?? null,
         observation: persisted?.observation ?? null,
@@ -485,6 +549,12 @@ export class ReceivingReportsService {
           })),
         });
       }
+      // Phase 2 — Receiving Output -> Temporary Storage Input, atomically
+      // with the verification lock (same transaction, idempotent per session).
+      const handoff = await this.workflow.handoffReceivingToStaging(tx, sessionId, {
+        id: actor.id,
+        ip: actor.ip ?? null,
+      });
       await this.audit.log(
         {
           actorUserId: actor.id,
@@ -497,6 +567,7 @@ export class ReceivingReportsService {
             arrival: live.session.expectedArrival.code,
             totals: live.totals,
             handoff: 'CONFIRMED lines ready for Temporary Storage',
+            handoffMoves: handoff.moved,
           },
         },
         tx,

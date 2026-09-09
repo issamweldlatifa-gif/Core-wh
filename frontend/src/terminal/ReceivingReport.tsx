@@ -94,8 +94,8 @@ export default function ReceivingReport() {
       try {
         const v = await receivingApi.report(id);
         setView(v);
-        setDescription(v.manual.description ?? '');
-        setObservation(v.manual.observation ?? '');
+        setDescription(v.manual?.description ?? '');
+        setObservation(v.manual?.observation ?? '');
         setPhotos(
           (v.photos ?? []).map((p) => ({ dataUrl: p.dataUrl, caption: p.caption ?? null, lineId: p.lineId ?? null })),
         );
@@ -255,20 +255,20 @@ export default function ReceivingReport() {
                 </h2>
                 <p className="os-muted">
                   Tâche: <strong>{view.taskStatus}</strong> · Rapport: <strong>{view.reportStatus}</strong>
-                  {view.actor.stationCode ? ` · Station ${view.actor.stationCode}` : ''}
-                  {view.actor.workerName ? ` · ${view.actor.workerName}` : ''}
+                  {view.actor?.stationCode ? ` · Station ${view.actor.stationCode}` : ''}
+                  {view.actor?.workerName ? ` · ${view.actor.workerName}` : ''}
                 </p>
               </div>
               {!editable && <span className="os-tag os-tag--info">VERROUILLÉ</span>}
             </div>
             <div className="rr-totals">
               {[
-                ['Attendus', view.totals.expectedUnits],
-                ['Scannés', view.totals.scannedUnits],
-                ['Confirmés', view.totals.confirmedUnits],
-                ['Manquants', view.totals.missingUnits],
-                ['Endommagés', view.totals.damagedUnits],
-                ['Cartons', `${view.totals.receivedCartons}/${view.totals.expectedCartons}`],
+                ['Attendus', view.totals?.expectedUnits ?? 0],
+                ['Scannés', view.totals?.scannedUnits ?? 0],
+                ['Confirmés', view.totals?.confirmedUnits ?? 0],
+                ['Manquants', view.totals?.missingUnits ?? 0],
+                ['Endommagés', view.totals?.damagedUnits ?? 0],
+                ['Cartons', `${view.totals?.receivedCartons ?? 0}/${view.totals?.expectedCartons ?? 0}`],
               ].map(([label, value]) => (
                 <div key={label as string} className="rr-total">
                   <span className="rr-total-v">{value}</span>
@@ -279,7 +279,7 @@ export default function ReceivingReport() {
           </section>
 
           <section className="os-card">
-            <h2 className="os-card-title">Produits ({view.lines.length})</h2>
+            <h2 className="os-card-title">Produits ({(view.lines ?? []).length})</h2>
             <div className="rr-table-wrap">
               <table className="os-table">
                 <thead>
@@ -296,7 +296,7 @@ export default function ReceivingReport() {
                   </tr>
                 </thead>
                 <tbody>
-                  {view.lines.map((l) => (
+                  {(view.lines ?? []).map((l) => (
                     <tr key={l.receivingProductId ?? `${l.sku}-${l.reference}`}>
                       <td className="mono">{l.sku ?? l.reference ?? '—'}</td>
                       <td>{l.productName ?? '—'}</td>
@@ -351,7 +351,7 @@ export default function ReceivingReport() {
                       )}
                     </tr>
                   ))}
-                  {view.lines.length === 0 && (
+                  {(view.lines ?? []).length === 0 && (
                     <tr>
                       <td colSpan={editable ? 9 : 8} className="os-empty">
                         Aucune ligne produit.
