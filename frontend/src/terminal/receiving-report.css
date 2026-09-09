@@ -33,3 +33,19 @@
 @media (max-width: 700px) {
   .rr-totals { grid-template-columns: repeat(3, 1fr); }
 }
+
+/* Terminal error box with an explicit RETRY (never an endless spinner). */
+.rt-error {
+  border: 1px solid var(--error);
+  background: rgba(255, 59, 48, 0.08);
+  color: var(--error);
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-weight: 600;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rt-error .os-btn--primary {
+  align-self: flex-start;
+}

@@ -239,6 +239,36 @@ export interface ReceivingReportPhotoView {
   takenAt: string;
 }
 
+/** Per-carton verification row of the report (Output A — Carton Flow). */
+export interface ReceivingReportCartonView {
+  /** Received scan rows: the scanned identifier + its matched expected card. */
+  scannedCode?: string | null;
+  status?: string | null;
+  scanType?: string | null;
+  source?: string | null;
+  receivedAt?: string | null;
+  receivedBy?: string | null;
+  carton?: {
+    id: string;
+    externalCartonId: string;
+    cartonReference: string | null;
+    cartonNumber: number;
+    totalCartons: number;
+    suiviCode: string | null;
+    trackingCode: string | null;
+    shipmentCode: string | null;
+  } | null;
+  /** Missing rows: expected carton cards never scanned. */
+  id?: string;
+  externalCartonId?: string;
+  cartonReference?: string | null;
+  cartonNumber?: number;
+  totalCartons?: number;
+  suiviCode?: string | null;
+  trackingCode?: string | null;
+  shipmentCode?: string | null;
+}
+
 export interface ReceivingReportView {
   session: {
     id: string; code: string; status: string; startedAt: string; completedAt: string | null;
@@ -250,6 +280,8 @@ export interface ReceivingReportView {
   reportId: string | null;
   totals: ReceivingReportTotals;
   lines: ReceivingReportLineView[];
+  /** Output A — Carton Flow detail: received scans + expected cartons never scanned. */
+  cartons?: { received: ReceivingReportCartonView[]; missing: ReceivingReportCartonView[] };
   manual: { description: string | null; observation: string | null };
   photos: ReceivingReportPhotoView[];
   actor: {
@@ -298,6 +330,16 @@ export const api = {
     client
       .get<ReceivingSessionDetail | null>(`/v1/receiving/arrivals/${encodeURIComponent(idOrCode)}/active`)
       .then((r) => (r.data ? r.data : null)),
+  /**
+   * ORDER 04 — the worker's ACTIVE receiving session in ONE call (null when
+   * none). The report screen uses this first and only falls back to the
+   * per-arrival probes when an older backend lacks the route.
+   */
+  activeSession: () =>
+    client
+      .get<ReceivingSessionDetail | null>('/v1/receiving/sessions/active')
+      .then((r) => (r.data ? r.data : null))
+      .catch(() => null),
   start: (idOrCode: string, device?: { deviceType?: string; deviceName?: string; scanSource?: string }) =>
     client
       .post<ReceivingSessionDetail>(`/v1/receiving/arrivals/${encodeURIComponent(idOrCode)}/start`, device ?? {})

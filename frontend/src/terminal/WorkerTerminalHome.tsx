@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useTerminalUi } from './WorkerShell';
 import { terminalApi, type TerminalAssignment, type WorkCount } from './api';
@@ -178,36 +178,52 @@ export default function WorkerTerminalHome() {
             }
             const counts = work?.find((w) => w.key === t.key);
             return (
-              <button
-                key={t.key}
-                type="button"
-                className="wt-task-card"
-                disabled={!t.ready}
-                onClick={() => navigate(t.path)}
-              >
-                <span className="wt-task-name">{t.label}</span>
-                <span className="wt-task-dept os-muted">{t.department}</span>
-                {counts && (counts.assigned > 0 || counts.available > 0 || (counts.mine ?? 0) > 0) ? (
-                  <span className="wt-task-counters">
-                    {counts.assigned > 0 && (
-                      <span className="wt-task-count"><b>{counts.assigned}</b><span className="os-muted">ASSIGNED</span></span>
-                    )}
-                    {counts.available > 0 && (
-                      <span className="wt-task-count"><b>{counts.available}</b><span className="os-muted">AVAILABLE</span></span>
-                    )}
-                    {(counts.mine ?? 0) > 0 && (
-                      <span className="wt-task-count"><b>{counts.mine}</b><span className="os-muted">MINE</span></span>
-                    )}
-                  </span>
-                ) : null}
-                {openCode ? (
-                  <span className="os-tag os-tag--warn">IN PROGRESS · {openCode}</span>
-                ) : (
-                  <span className={`os-tag ${t.ready ? 'os-tag--ok' : 'os-tag--muted'}`}>
-                    {t.ready ? 'OPEN' : 'SOON'}
-                  </span>
+              <Fragment key={t.key}>
+                <button
+                  type="button"
+                  className="wt-task-card"
+                  disabled={!t.ready}
+                  onClick={() => navigate(t.path)}
+                >
+                  <span className="wt-task-name">{t.label}</span>
+                  <span className="wt-task-dept os-muted">{t.department}</span>
+                  {counts && (counts.assigned > 0 || counts.available > 0 || (counts.mine ?? 0) > 0) ? (
+                    <span className="wt-task-counters">
+                      {counts.assigned > 0 && (
+                        <span className="wt-task-count"><b>{counts.assigned}</b><span className="os-muted">ASSIGNED</span></span>
+                      )}
+                      {counts.available > 0 && (
+                        <span className="wt-task-count"><b>{counts.available}</b><span className="os-muted">AVAILABLE</span></span>
+                      )}
+                      {(counts.mine ?? 0) > 0 && (
+                        <span className="wt-task-count"><b>{counts.mine}</b><span className="os-muted">MINE</span></span>
+                      )}
+                    </span>
+                  ) : null}
+                  {openCode ? (
+                    <span className="os-tag os-tag--warn">IN PROGRESS · {openCode}</span>
+                  ) : (
+                    <span className={`os-tag ${t.ready ? 'os-tag--ok' : 'os-tag--muted'}`}>
+                      {t.ready ? 'OPEN' : 'SOON'}
+                    </span>
+                  )}
+                </button>
+                {/* RAPPORT VÉRIFICATION — independent entry next to RECEIVING
+                    (never nested inside a lane or its report screen): the
+                    verification report is auto-filled from the scans and opens
+                    on its own page. */}
+                {t.key === 'receiving' && (
+                  <button
+                    type="button"
+                    className="wt-task-card"
+                    onClick={() => navigate('/terminal/receiving/report')}
+                  >
+                    <span className="wt-task-name">Verification Report</span>
+                    <span className="wt-task-dept os-muted">RECEIVING · REPORT</span>
+                    <span className="os-tag os-tag--ok">OPEN</span>
+                  </button>
                 )}
-              </button>
+              </Fragment>
             );
           })}
         </div>

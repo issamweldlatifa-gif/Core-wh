@@ -64,6 +64,22 @@ export default function ReceivingReport() {
     setLoading(true);
     setError(null);
     try {
+      // ORDER 04 — the report resolves the worker's open session with ONE
+      // call. The per-arrival probe loop below is only the fallback for old
+      // backends; a probe failure never aborts the resolution.
+      const direct = await receivingApi.activeSession();
+      if (direct) {
+        setChoices([
+          {
+            sessionId: direct.id,
+            sessionCode: direct.code,
+            sessionStatus: direct.status,
+            arrivalCode: direct.arrival.code,
+            customerName: direct.arrival.customerName,
+          },
+        ]);
+        return;
+      }
       const arrivals = await receivingApi.arrivals();
       const settled = await Promise.allSettled(arrivals.map((a) => receivingApi.active(a.code)));
       const list: SessionChoice[] = [];
@@ -213,7 +229,25 @@ export default function ReceivingReport() {
       </header>
 
       {loading && <div className="os-empty">Chargement…</div>}
-      {error && <div className="rt-error">{error}</div>}
+      {error && (
+        <div className="rt-error">
+          {error}
+          {/* Terminal error is never a dead end: an explicit RETRY re-runs the
+              whole open sequence (resolve session + load). */}
+          <div className="os-row">
+            <button
+              type="button"
+              className="os-btn os-btn--primary"
+              onClick={() => {
+                if (sessionId) void loadView(sessionId);
+                else void loadChoices();
+              }}
+            >
+              RETRY
+            </button>
+          </div>
+        </div>
+      )}
       {done && <div className="rr-done">{done}</div>}
 
       {/* ---------- session picker ---------- */}
@@ -258,6 +292,17 @@ export default function ReceivingReport() {
                   {view.actor?.stationCode ? ` · Station ${view.actor.stationCode}` : ''}
                   {view.actor?.workerName ? ` · ${view.actor.workerName}` : ''}
                 </p>
+                {view.session.startedAt && (
+                  <p className="os-muted">
+                    Démarré: <strong className="mono">{new Date(view.session.startedAt).toLocaleString()}</strong>
+                    {view.submittedAt ? (
+                      <>
+                        {' '}· Envoyé:{' '}
+                        <strong className="mono">{new Date(view.submittedAt).toLocaleString()}</strong>
+                      </>
+                    ) : null}
+                  </p>
+                )}
               </div>
               {!editable && <span className="os-tag os-tag--info">VERROUILLÉ</span>}
             </div>
@@ -275,6 +320,67 @@ export default function ReceivingReport() {
                   <span className="rr-total-l">{label}</span>
                 </div>
               ))}
+            </div>
+          </section>
+
+          {/* Output A — Carton Flow detail: every expected carton appears with
+              its own identity (suivi / tracking). Auto-filled from the
+              verification — no manual entry. */}
+          <section className="os-card">
+            <h2 className="os-card-title">
+              Cartons ({view.totals.receivedCartons}/{view.totals.expectedCartons} reçus)
+            </h2>
+            <div className="rr-table-wrap">
+              <table className="os-table">
+                <thead>
+                  <tr>
+                    <th>Carton</th>
+                    <th>Réf / N°</th>
+                    <th>Suivi</th>
+                    <th>Résultat</th>
+                    <th>Date / Heure</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(view.cartons?.received ?? []).map((c, i) => (
+                    <tr key={`r-${c.scannedCode ?? i}`}>
+                      <td className="mono">{c.carton?.externalCartonId ?? c.scannedCode ?? '—'}</td>
+                      <td className="mono">
+                        {c.carton?.cartonReference ??
+                          `Carton ${c.carton?.cartonNumber ?? ''}/${c.carton?.totalCartons ?? ''}`}
+                      </td>
+                      <td className="mono">{c.carton?.suiviCode ?? c.carton?.trackingCode ?? '—'}</td>
+                      <td>
+                        <span className="os-tag os-tag--ok">{c.status === 'RECEIVED' ? 'REÇU' : c.status}</span>
+                      </td>
+                      <td className="mono">{c.receivedAt ? new Date(c.receivedAt).toLocaleString() : '—'}</td>
+                    </tr>
+                  ))}
+                  {(view.cartons?.missing ?? []).map((c) => (
+                    <tr key={`m-${c.id ?? c.externalCartonId}`}>
+                      <td className="mono">{c.externalCartonId ?? '—'}</td>
+                      <td className="mono">
+                        {c.cartonReference ?? `Carton ${c.cartonNumber ?? ''}/${c.totalCartons ?? ''}`}
+                      </td>
+                      <td className="mono">{c.suiviCode ?? c.trackingCode ?? '—'}</td>
+                      <td>
+                        <span className="os-tag os-tag--err">MANQUANT</span>
+                      </td>
+                      <td className="mono">—</td>
+                    </tr>
+                  ))}
+                  {(view.cartons?.received.length === 0 && view.cartons?.missing.length === 0) ||
+                  !view.cartons ? (
+                    <tr>
+                      <td colSpan={5} className="os-empty">
+                        {view.totals.expectedCartons > 0
+                          ? 'Aucun détail carton disponible.'
+                          : 'Aucun carton attendu sur cette réception.'}
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
             </div>
           </section>
 
