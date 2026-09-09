@@ -456,7 +456,11 @@ private fun ReportPhotos(
 @Composable
 private fun PhotoThumb(dataUrl: String) {
     val bitmap by produceState<Bitmap?>(initialValue = null, dataUrl) {
-        value = withContext(Dispatchers.Default) { decodeThumb(dataUrl) }
+        // Decode off the main thread; assign AFTER the suspend call so the
+        // Compose lint rule (ProduceStateDoesNotAssignValue) sees the
+        // assignment directly in the producer body.
+        val thumb = withContext(Dispatchers.Default) { decodeThumb(dataUrl) }
+        value = thumb
     }
     Box(Modifier.size(72.dp).background(TerminalTokens.surface, MaterialTheme.shapes.small),
         contentAlignment = Alignment.Center) {
