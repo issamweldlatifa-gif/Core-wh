@@ -23,7 +23,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -455,12 +454,13 @@ private fun ReportPhotos(
 
 @Composable
 private fun PhotoThumb(dataUrl: String) {
-    val bitmap by produceState<Bitmap?>(initialValue = null, dataUrl) {
-        // Decode off the main thread; assign AFTER the suspend call so the
-        // Compose lint rule (ProduceStateDoesNotAssignValue) sees the
-        // assignment directly in the producer body.
-        val thumb = withContext(Dispatchers.Default) { decodeThumb(dataUrl) }
-        value = thumb
+    // Decode off the main thread. Uses LaunchedEffect + state instead of
+    // produceState: the Compose lint rule ProduceStateDoesNotAssignValue
+    // mis-analyzes suspend decodes inside the producer lambda (false
+    // positive), and LaunchedEffect has identical cancellation semantics.
+    var bitmap by remember(dataUrl) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(dataUrl) {
+        bitmap = withContext(Dispatchers.Default) { decodeThumb(dataUrl) }
     }
     Box(Modifier.size(72.dp).background(TerminalTokens.surface, MaterialTheme.shapes.small),
         contentAlignment = Alignment.Center) {
