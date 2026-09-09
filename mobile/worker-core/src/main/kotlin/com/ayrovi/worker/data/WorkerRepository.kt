@@ -1,7 +1,9 @@
 package com.ayrovi.worker.data
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 
 /** Single native API repository, extracted in place from :app. No UI or Android dependency. */
@@ -160,6 +162,12 @@ class WorkerRepository(
         return json.decodeFromString(ReceivingSession.serializer(), raw)
     }
 
+    override suspend fun activeReceivingSession(): ReceivingSession? {
+        val raw = get("/v1/receiving/sessions/active")
+        if (raw.isBlank() || raw == "null") return null
+        return json.decodeFromString(ReceivingSession.serializer(), raw)
+    }
+
     override suspend fun startReceiving(arrivalIdOrCode: String): ReceivingSession {
         val raw = post(
             "/v1/receiving/arrivals/${urlEncode(arrivalIdOrCode)}/start",
@@ -226,6 +234,58 @@ class WorkerRepository(
             ReceivingSession.serializer(),
             post("/v1/receiving/sessions/${urlEncode(sessionId)}/$command", "{}"),
         )
+
+    // ---------------- CONFIRMATION REPORT (ORDER 01 verification report) ----------------
+    override suspend fun report(sessionId: String): ReceivingReportView = json.decodeFromString(
+        ReceivingReportView.serializer(), get("/v1/receiving/sessions/${urlEncode(sessionId)}/report"),
+    )
+
+    override suspend fun saveReportDraft(
+        sessionId: String, description: String?, observation: String?, photos: List<ReportPhotoInput>,
+    ): ReceivingReportView {
+        // The photo body can be multi-megabyte Base64: build it off the main
+        // thread so SAVE DRAFT never freezes the report screen.
+        val body = withContext(Dispatchers.IO) { draftBody(description, observation, photos) }
+        return json.decodeFromString(
+            ReceivingReportView.serializer(),
+            put("/v1/receiving/sessions/${urlEncode(sessionId)}/report", body),
+        )
+    }
+
+    override suspend fun markDamage(sessionId: String, lineId: String, quantity: Int, note: String?): DamageResultView {
+        val body = "{\"quantity\":$quantity,\"note\":${if (note.isNullOrBlank()) "null" else jq(note)}}"
+        return json.decodeFromString(
+            DamageResultView.serializer(),
+            post("/v1/receiving/sessions/${urlEncode(sessionId)}/lines/${urlEncode(lineId)}/damage", body),
+        )
+    }
+
+    override suspend fun submitReport(
+        sessionId: String, description: String?, observation: String?, photos: List<ReportPhotoInput>,
+    ): ReceivingReportView {
+        // Same as the draft path: the photo body is built off the main thread.
+        val body = withContext(Dispatchers.IO) { draftBody(description, observation, photos) }
+        return json.decodeFromString(
+            ReceivingReportView.serializer(),
+            post("/v1/receiving/sessions/${urlEncode(sessionId)}/report/submit", body),
+        )
+    }
+
+    private fun draftBody(description: String?, observation: String?, photos: List<ReportPhotoInput>): String = buildString {
+        append("{\"description\":")
+        if (description.isNullOrBlank()) append("null") else append(jq(description))
+        append(",\"observation\":")
+        if (observation.isNullOrBlank()) append("null") else append(jq(observation))
+        append(",\"photos\":[")
+        photos.forEachIndexed { i, photo ->
+            if (i > 0) append(",")
+            append("{\"dataUrl\":").append(jq(photo.dataUrl))
+            append(",\"caption\":").append(if (photo.caption.isNullOrBlank()) "null" else jq(photo.caption))
+            append(",\"lineId\":").append(if (photo.lineId.isNullOrBlank()) "null" else jq(photo.lineId))
+            append("}")
+        }
+        append("]}")
+    }
 
     // ---------------- FULFILLMENT / OPERATIONAL FLOW ----------------
     // Containers (receiving totes + customer bins)
@@ -303,6 +363,7 @@ class WorkerRepository(
     }
 
     private suspend fun get(path: String): String = transport.request("GET", path)
+    private suspend fun put(path: String, body: String): String = transport.request("PUT", path, body)
     private suspend fun post(path: String, body: String, auth: Boolean = true): String =
         transport.request("POST", path, body, authenticated = auth)
 

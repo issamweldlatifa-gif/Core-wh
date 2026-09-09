@@ -235,6 +235,33 @@ class ReceivingHomeWorkflow(
         signal(MessageTone.ERROR, "NOT MATCHED", "Logged. Check the label or ask your supervisor.", term)
     }
 
+    /**
+     * Re-submit the failed attempt after a red error (RETRY). The review kept
+     * by the failure path is re-entered and confirmed again with a fresh
+     * operation id. A no-op unless a failed attempt is pending — success and
+     * lane changes clear the review, so RETRY can never double-count.
+     */
+    fun retry() {
+        // No pending attempt -> leave the lane (and its success message)
+        // untouched. Never entered through `run`, so nothing is cleared.
+        if (mutable.value.productReview == null && mutable.value.cartonReview == null) return
+        run {
+            when {
+            mutable.value.productReview != null -> {
+                mutable.update { it.copy(step = HomeStep.REVIEW_PRODUCT,
+                    message = OperationalMessage("RETRYING", "Verifying and recording automatically...", MessageTone.INFO)) }
+                confirmProduct()
+            }
+            mutable.value.cartonReview != null -> {
+                mutable.update { it.copy(step = HomeStep.REVIEW_CARTON,
+                    message = OperationalMessage("RETRYING", "Verifying and recording automatically...", MessageTone.INFO)) }
+                confirmCarton()
+            }
+            else -> Unit
+            }
+        }
+    }
+
     fun confirm() = run {
         when (mutable.value.step) {
             HomeStep.REVIEW_PRODUCT -> confirmProduct()
@@ -266,17 +293,22 @@ class ReceivingHomeWorkflow(
         val home = result.home ?: runCatching { gateway.receivingHome() }.getOrNull()
         if (home != null) mutable.update { it.copy(home = home) }
         mutable.update { it.copy(productReview = null, cartonReview = null, step = laneStep, scanEpoch = it.scanEpoch + 1) }
-        when (result.flash?.kind) {
-            "MATCH" -> signal(MessageTone.SUCCESS, if (lane == "PRODUCT") "PRODUCT RECEIVED" else "CARTON RECEIVED",
-                result.flash?.message ?: "Verified and recorded.", result.flash?.code)
-            "CARD_ALREADY_COMPLETE" -> signal(MessageTone.WARNING, "CARD ALREADY COMPLETE", "Nothing was counted again.", result.flash?.code)
-            "TRACKING_AMBIGUOUS" -> signal(MessageTone.WARNING, "SEVERAL CARTONS MATCH",
-                result.flash?.message ?: "Scan the specific carton.", result.flash?.code)
-            "WRONG_SHIPMENT" -> signal(MessageTone.ERROR, "WRONG SHIPMENT",
-                result.flash?.message ?: "This carton belongs to another arrival.", result.flash?.code)
-            else -> signal(MessageTone.ERROR, "NOT MATCHED",
-                result.flash?.message ?: "The backend could not match this identifier.", result.flash?.code)
+        // The verdict is VISIBLE on the lane (green success / red error), not
+        // just a sound/signal: the worker always sees WHAT the backend decided.
+        val flash = result.flash
+        val verdict = when (flash?.kind) {
+            "MATCH" -> Triple(MessageTone.SUCCESS, if (lane == "PRODUCT") "PRODUCT RECEIVED" else "CARTON RECEIVED",
+                flash.message ?: "Verified and recorded.")
+            "CARD_ALREADY_COMPLETE" -> Triple(MessageTone.WARNING, "CARD ALREADY COMPLETE", "Nothing was counted again.")
+            "TRACKING_AMBIGUOUS" -> Triple(MessageTone.WARNING, "SEVERAL CARTONS MATCH",
+                flash.message ?: "Scan the specific carton.")
+            "WRONG_SHIPMENT" -> Triple(MessageTone.ERROR, "WRONG SHIPMENT",
+                flash.message ?: "This carton belongs to another arrival.")
+            else -> Triple(MessageTone.ERROR, "NOT MATCHED",
+                flash?.message ?: "The backend could not match this identifier.")
         }
+        mutable.update { it.copy(message = OperationalMessage(verdict.second, verdict.third, verdict.first, scanned = flash?.code)) }
+        signal(verdict.first, verdict.second, verdict.third, flash?.code)
     }
 
     @Synchronized
@@ -299,7 +331,17 @@ class ReceivingHomeWorkflow(
                 }
                 val message = failure.toOperationalMessage()
                 mutable.update {
-                    it.copy(message = message, authExpired = (failure is WorkerRepository.ApiException && failure.code == 401))
+                    it.copy(message = message, authExpired = (failure is WorkerRepository.ApiException && failure.code == 401),
+                        // A failed VERIFY must never strand the lane on its
+                        // "Verifying..." review: fall back to the lane scanner
+                        // with the red error. The review itself is KEPT so RETRY
+                        // can re-submit the exact same attempt.
+                        step = when (it.step) {
+                            HomeStep.REVIEW_PRODUCT -> HomeStep.PRODUCT_SCAN
+                            HomeStep.REVIEW_CARTON -> HomeStep.CARTON_SCAN
+                            else -> it.step
+                        },
+                        scanEpoch = it.scanEpoch + 1)
                 }
                 signal(message.tone, message.title, message.detail, message.scanned)
             } finally {

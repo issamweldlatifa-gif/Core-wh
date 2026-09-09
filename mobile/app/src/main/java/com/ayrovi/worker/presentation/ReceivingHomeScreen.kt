@@ -55,6 +55,7 @@ fun ReceivingHomeScreen(
     appVersion: String = "",
     deviceCode: String = "",
     repository: com.ayrovi.worker.data.WorkerRepository? = null,
+    onOpenReport: (() -> Unit)? = null,
 ) {
     val state by model.state.collectAsStateWithLifecycle()
     val industrial = device == WorkerDevice.CT40
@@ -112,11 +113,12 @@ fun ReceivingHomeScreen(
     ) {
         when {
             !state.loaded -> LoadingState("OPENING RECEIVING…")
-            lane == "PRODUCT" -> ProductLane(state, capture, model.captureAllowed)
-            lane == "CARTON" -> CartonLane(state, capture, model.captureAllowed)
+            lane == "PRODUCT" -> ProductLane(state, capture, model.captureAllowed, { model.send(ReceivingHomeIntent.Retry) })
+            lane == "CARTON" -> CartonLane(state, capture, model.captureAllowed, { model.send(ReceivingHomeIntent.Retry) })
             else -> HomeDashboard(state, industrial,
                 openProduct = { model.send(ReceivingHomeIntent.OpenProduct) },
-                openCarton = { model.send(ReceivingHomeIntent.OpenCarton) })
+                openCarton = { model.send(ReceivingHomeIntent.OpenCarton) },
+                openReport = onOpenReport)
         }
         if (settings) {
             // Shared worker Settings (Send Report / Report a Problem / Switch
@@ -146,6 +148,7 @@ private fun HomeDashboard(
     industrial: Boolean,
     openProduct: () -> Unit,
     openCarton: () -> Unit,
+    openReport: (() -> Unit)? = null,
 ) {
     val home = state.home
     Column(Modifier.fillMaxWidth().testTag("RECEIVING_HOME"), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
@@ -166,13 +169,19 @@ private fun HomeDashboard(
             PrimaryAction("SCAN CARTON", openCarton, state.canMutate, Modifier.weight(1f).testTag("OPEN_CARTON"))
         }
 
+        // Confirmation report (ORDER 01): verification view for this worker's
+        // open receiving session — read-only once the report is sent.
+        if (openReport != null) {
+            SecondaryAction("📋 CONFIRMATION REPORT", openReport, state.canMutate, Modifier.testTag("OPEN_REPORT"))
+        }
+
         HomeCardLists(state)
     }
 }
 
 /** PRODUIT lane: scanner area + device match/review. Product matching ONLY. */
 @Composable
-private fun ProductLane(state: com.ayrovi.worker.domain.ReceivingHomeState, capture: ScannerCapture, enabled: Boolean) {
+private fun ProductLane(state: com.ayrovi.worker.domain.ReceivingHomeState, capture: ScannerCapture, enabled: Boolean, onRetry: () -> Unit) {
     Column(Modifier.fillMaxWidth().testTag("PRODUCT_SCANNER"), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
         TaskInstruction("PRODUCT SCANNER", "Scan a product QR / barcode, or read the SKU or reference with OCR.")
         state.message?.let { OperationalMessageViewHome(it) }
@@ -190,14 +199,17 @@ private fun ProductLane(state: com.ayrovi.worker.domain.ReceivingHomeState, capt
                 }
             }
         } else {
-            ScannerArea(capture, enabled)
+            // A kept review means a VERIFY failed: the lane offers RETRY for
+            // the exact same attempt (success clears the review, so the button
+            // can never replay a completed scan).
+            ScannerArea(capture, enabled, state.message, state.productReview != null, onRetry)
         }
     }
 }
 
 /** CARTON lane: scanner area + device match/review. Carton matching ONLY. */
 @Composable
-private fun CartonLane(state: com.ayrovi.worker.domain.ReceivingHomeState, capture: ScannerCapture, enabled: Boolean) {
+private fun CartonLane(state: com.ayrovi.worker.domain.ReceivingHomeState, capture: ScannerCapture, enabled: Boolean, onRetry: () -> Unit) {
     Column(Modifier.fillMaxWidth().testTag("CARTON_SCANNER"), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
         TaskInstruction("📦 CARTON RECEIVING", "Scan a carton QR / barcode, carton reference, suivi or tracking. Auto verify → Auto approve → Next.")
         state.message?.let { OperationalMessageViewHome(it) }
@@ -225,14 +237,24 @@ private fun CartonLane(state: com.ayrovi.worker.domain.ReceivingHomeState, captu
                 }
             }
         } else {
-            ScannerArea(capture, enabled)
+            ScannerArea(capture, enabled, state.message, state.cartonReview != null, onRetry)
         }
     }
 }
 
 /** Scanner/camera + OCR + manual entry — the EXISTING capture stack, unchanged. */
 @Composable
-private fun ScannerArea(capture: ScannerCapture, enabled: Boolean) {
+private fun ScannerArea(capture: ScannerCapture, enabled: Boolean, verdict: OperationalMessage?, canRetry: Boolean, onRetry: () -> Unit) {
+    // Verdict-aware: the idle area always reflects the LAST outcome — green
+    // check after a success, red error after a failure — never a static
+    // scanner residue. A failed attempt offers RETRY for the same scan; the
+    // capture buttons stay so the worker can also scan a new code.
+    val statusIcon = when (verdict?.tone) {
+        MessageTone.SUCCESS -> TerminalIcon.SUCCESS to TerminalTokens.success
+        MessageTone.ERROR -> TerminalIcon.ERROR to TerminalTokens.error
+        MessageTone.WARNING -> TerminalIcon.WARNING to TerminalTokens.warning
+        else -> TerminalIcon.SCANNER to TerminalTokens.instruction
+    }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
         when {
             capture.manualOpen -> ManualScan(capture, enabled)
@@ -243,8 +265,9 @@ private fun ScannerArea(capture: ScannerCapture, enabled: Boolean) {
             capture.ocrOpen -> OcrScan(capture, enabled)
             else -> {
                 Box(Modifier.fillMaxWidth().height(TerminalTokens.stateIcon), contentAlignment = Alignment.Center) {
-                    WorkerIcon(TerminalIcon.SCANNER, "Scanner", Modifier.size(TerminalTokens.stateIcon), TerminalTokens.instruction)
+                    WorkerIcon(statusIcon.first, "Scanner status", Modifier.size(TerminalTokens.stateIcon), statusIcon.second)
                 }
+                if (canRetry) PrimaryAction("RETRY LAST SCAN", onRetry, enabled, Modifier.testTag("LANE_RETRY"))
                 PrimaryAction("SOFTWARE SCAN", capture.softwareScan, enabled)
                 SecondaryAction("USE CAMERA", capture.camera, enabled)
                 SecondaryAction("MANUAL CODE", capture.manual, enabled)
