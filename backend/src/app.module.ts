@@ -19,6 +19,8 @@ import { PutawayModule } from './modules/putaway/putaway.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { FulfillmentModule } from './modules/fulfillment/fulfillment.module';
+import { TemporaryStorageModule } from './modules/temporary-storage/temporary-storage.module';
+import { WorkflowModule } from './modules/workflow/workflow.module';
 import { DevicesModule } from './modules/devices/devices.module';
 import { CartonCardsModule } from './modules/carton-cards/carton-cards.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
@@ -63,6 +65,8 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     CategoriesModule,
     OrdersModule,
     FulfillmentModule,
+    TemporaryStorageModule,
+    WorkflowModule,
     DevicesModule,
   ],
   providers: [

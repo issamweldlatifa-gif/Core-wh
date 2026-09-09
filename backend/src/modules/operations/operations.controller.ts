@@ -8,6 +8,8 @@ import { CorrectionsService } from './corrections.service';
 import { TerminalService } from './terminal.service';
 import { AssignmentsService, WORKER_ISSUE_TYPES } from '../assignments/assignments.service';
 import { ReceivingReportsService } from '../receiving/receiving-reports.service';
+import { TemporaryStorageService } from '../temporary-storage/temporary-storage.service';
+import { WorkflowService } from '../workflow/workflow.service';
 import { TASK_REGISTRY } from './task-registry';
 import { RequireApplication } from '../../common/decorators/require-application.decorator';
 
@@ -184,6 +186,8 @@ export class OperationsController {
     private readonly correctionsSvc: CorrectionsService,
     private readonly assignmentsSvc: AssignmentsService,
     private readonly reportsSvc: ReceivingReportsService,
+    private readonly tempSvc: TemporaryStorageService,
+    private readonly workflowSvc: WorkflowService,
   ) {}
 
   @Get('overview')
@@ -546,5 +550,33 @@ export class OperationsController {
   @ApiOperation({ summary: 'ORDER 01: CLOSE a reviewed/submitted report.' })
   closeReport(@Param('id') id: string, @Req() req: any) {
     return this.reportsSvc.closeReport(id, { id: actorOf(req).id });
+  }
+
+  // WORKFLOW SEPARATION — Temporary Storage + flow ledger (Admin read).
+  // The worker surface lives in TemporaryStorageController; admins observe
+  // the same backend truth here (operations.view — every admin role has it).
+  @Get('temporary-storage/intakes')
+  @RequirePermissions('operations.view')
+  @ApiOperation({ summary: 'List Temporary Storage product intakes (Receiving Output B trace).' })
+  tempIntakes(
+    @Query('status') status?: string,
+    @Query('q') q?: string,
+    @Query('receivingSessionId') receivingSessionId?: string,
+  ) {
+    return this.tempSvc.listIntakes({ status, q, receivingSessionId });
+  }
+
+  @Get('temporary-storage/intakes/:code')
+  @RequirePermissions('operations.view')
+  @ApiOperation({ summary: 'Temporary Storage intake detail + workflow history.' })
+  tempIntake(@Param('code') code: string) {
+    return this.tempSvc.getIntake(code);
+  }
+
+  @Get('workflow/sessions/:sessionId')
+  @RequirePermissions('operations.view')
+  @ApiOperation({ summary: 'Flow ledger for one receiving session (Carton flow + Product flow, labelled).' })
+  workflowForSession(@Param('sessionId') sessionId: string) {
+    return this.workflowSvc.historyForSession(sessionId);
   }
 }

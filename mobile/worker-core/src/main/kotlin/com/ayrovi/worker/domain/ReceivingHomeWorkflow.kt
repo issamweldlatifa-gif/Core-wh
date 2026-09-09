@@ -119,6 +119,33 @@ class ReceivingHomeWorkflow(
         mutable.update { it.copy(authorized = requiredPermissions.all(permissions::contains), serverAvailable = serverAvailable) }
     }
 
+    /**
+     * ORDER 04 — terminal offline state. Called when the host reports the
+     * server unavailable BEFORE any feed ever loaded: without this the screen
+     * sits on "OPENING RECEIVING…" forever (loaded stays false and the
+     * CONNECTION UNAVAILABLE notice is unreachable). loaded=true makes the
+     * error branch reachable; already-loaded data is kept untouched and no
+     * stale banner is written over it — the header already shows the
+     * connection, and actions stay gated by canMutate until the server
+     * returns (the host then re-runs activate -> initialize).
+     */
+    fun markUnavailable() {
+        val offline = OperationalMessage(
+            "CONNECTION UNAVAILABLE",
+            "Check the connection, then RETRY.",
+            MessageTone.ERROR,
+        )
+        mutable.update {
+            it.copy(
+                serverAvailable = false,
+                busy = false,
+                loaded = true,
+                message = if (it.home == null) offline else it.message,
+            )
+        }
+        if (mutable.value.home == null) signal(MessageTone.ERROR, offline.title, offline.detail, null)
+    }
+
     fun initialize() = run(readOnly = true) { loadHome() }
 
     fun refresh() = run(readOnly = true) { loadHome() }

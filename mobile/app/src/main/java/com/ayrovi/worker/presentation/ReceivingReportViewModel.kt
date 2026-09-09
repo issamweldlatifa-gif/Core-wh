@@ -57,11 +57,19 @@ class ReceivingReportViewModel(
 
     fun activate(permissions: Set<String>, available: Boolean) {
         workflow.updateAccess(permissions)
+        if (!available) {
+            // ORDER 04: terminal offline state — never infinite
+            // "OPENING REPORT…". The host re-fires activate() when the
+            // server returns (initialized is still false, so initialize()
+            // then runs and opens normally).
+            workflow.markUnavailable()
+            return
+        }
         // The report starts with loading=true, so gating on !loading here
         // NEVER opens (that clause was copied from the home screen, whose
         // initial busy=false). The initialized flag is the only guard:
         // open once when the lane is available.
-        if (available && !initialized) {
+        if (!initialized) {
             initialized = true
             workflow.initialize()
         }

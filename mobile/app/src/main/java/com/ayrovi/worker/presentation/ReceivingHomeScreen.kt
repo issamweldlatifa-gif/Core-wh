@@ -113,6 +113,18 @@ fun ReceivingHomeScreen(
     ) {
         when {
             !state.loaded -> LoadingState("OPENING RECEIVING…")
+            // ORDER 04 — terminal offline state: the feed never arrived, so
+            // explain the failure and offer RETRY (never an empty dashboard
+            // with zeroed counters, never infinite loading). RETRY re-runs
+            // refresh(); the host also re-opens automatically when the
+            // server returns.
+            !state.serverAvailable && state.home == null -> {
+                val offline = state.message ?: OperationalMessage(
+                    "CONNECTION UNAVAILABLE", "Check the connection, then RETRY.", MessageTone.ERROR,
+                )
+                OperationalMessageViewHome(offline)
+                PrimaryAction("RETRY", { model.send(ReceivingHomeIntent.Refresh) }, true, Modifier.testTag("HOME_RETRY"))
+            }
             lane == "PRODUCT" -> ProductLane(state, capture, model.captureAllowed, { model.send(ReceivingHomeIntent.Retry) })
             lane == "CARTON" -> CartonLane(state, capture, model.captureAllowed, { model.send(ReceivingHomeIntent.Retry) })
             else -> HomeDashboard(state, industrial,

@@ -12,6 +12,7 @@ import { AuditService } from '../audit/audit.service';
 import { CategoriesService } from '../categories/categories.service';
 import { AssignmentsService } from '../assignments/assignments.service';
 import { TaskDispatchService } from '../assignments/dispatch.service';
+import { WorkflowService } from '../workflow/workflow.service';
 import { OPERATIONAL_ERRORS, normalizeScan } from '../../common/scan-normalizer';
 
 /**
@@ -76,7 +77,23 @@ export class FulfillmentService {
     private readonly events: EventEmitter2,
     private readonly assignments: AssignmentsService,
     private readonly dispatch: TaskDispatchService,
+    private readonly workflow: WorkflowService,
   ) {}
+
+  /**
+   * WORKFLOW SEPARATION — guard on miss. Called only when a product /
+   * container / shipment lookup MISSED: a carton identifier scanned at a
+   * product-only station is rejected explicitly (409, audited guard row)
+   * because its flow ended at the verification report; any other code
+   * passes through silently so the caller's own not-found path runs.
+   */
+  private async rejectIfCartonAtProductStation(
+    rawCode: string,
+    station: string,
+    actor?: { id?: string | null; ip?: string | null },
+  ): Promise<void> {
+    await this.workflow.assertNotCartonIdentifier(rawCode, station, actor);
+  }
 
   // ------------------------------------------------------------------
   // code generators (same pattern as putaway PUT-xxxxxx)
@@ -274,6 +291,12 @@ export class FulfillmentService {
     const line = await this.prisma.receivingProduct.findFirst({
       where: { receivingSessionId: sessionId, sku: { equals: sku, mode: 'insensitive' } },
     });
+    if (!line) {
+      // No product line: a carton identifier scanned as a product is rejected
+      // explicitly (its flow ended at the verification report); anything else
+      // continues down the UNEXPECTED path below.
+      await this.rejectIfCartonAtProductStation(sku, 'RECEIVING', actor);
+    }
 
     return this.prisma.$transaction(async (tx) => {
       let matched = true;
@@ -431,7 +454,10 @@ export class FulfillmentService {
       where: { code: normalizeScan(containerCode).toUpperCase() },
       include: { _count: { select: { articles: { where: { status: 'IN_CONTAINER' } } } } },
     });
-    if (!container) throw new NotFoundException(OPERATIONAL_ERRORS.containerNotFound);
+    if (!container) {
+      await this.rejectIfCartonAtProductStation(containerCode, 'RECEIVING', actor);
+      throw new NotFoundException(OPERATIONAL_ERRORS.containerNotFound);
+    }
     if (container.type !== 'RECEIVING') {
       throw new ConflictException(`${container.code} is a ${container.type} container — only receiving totes close here.`);
     }
@@ -490,7 +516,10 @@ export class FulfillmentService {
       where: { code: containerCode.trim().toUpperCase() },
       include: { _count: { select: { articles: { where: { status: 'IN_CONTAINER' } } } } },
     });
-    if (!container) throw new NotFoundException(OPERATIONAL_ERRORS.containerNotFound);
+    if (!container) {
+      await this.rejectIfCartonAtProductStation(containerCode, 'STAGING', actor);
+      throw new NotFoundException(OPERATIONAL_ERRORS.containerNotFound);
+    }
     if (container.type !== 'RECEIVING') {
       throw new ConflictException(`${container.code} is a ${container.type} container — only receiving totes are staged here.`);
     }
@@ -594,7 +623,10 @@ export class FulfillmentService {
 
   /** Scan an article: the SYSTEM decides where it goes. */
   async sortingScanArticle(articleCode: string) {
-    const article = await this.getArticle(normalizeScan(articleCode));
+    // Guard on miss: a carton identifier is rejected explicitly (409) —
+    // its flow ended at the verification report; anything else behaves
+    // exactly as before (read-only scan: null-actor audit).
+    const article = await this.getProductArticleOrRejectCarton(articleCode, 'SORTING');
 
     if (!['IN_CONTAINER', 'RECEIVED'].includes(article.status)) {
       return {
@@ -640,7 +672,7 @@ export class FulfillmentService {
     input: { articleCode: string; locationCode: string },
     actor: FulfillmentActor,
   ) {
-    const article = await this.getArticle(normalizeScan(input.articleCode));
+    const article = await this.getProductArticleOrRejectCarton(input.articleCode, 'SORTING', actor);
     if (!['IN_CONTAINER', 'RECEIVED'].includes(article.status)) {
       throw new ConflictException(`Article is ${article.status} — cannot store.`);
     }
@@ -716,7 +748,8 @@ export class FulfillmentService {
    * orders come from the existing Orders projection.
    */
   async orderSortingScanArticle(articleCode: string) {
-    const article = await this.getArticle(normalizeScan(articleCode));
+    // Guard on miss (read-only scan: null-actor audit).
+    const article = await this.getProductArticleOrRejectCarton(articleCode, 'ORDER_SORTING');
 
     if (article.status === 'IN_CUSTOMER_BIN' || article.status === 'PACKED' || article.status === 'SHIPPED') {
       return {
@@ -760,7 +793,7 @@ export class FulfillmentService {
     input: { articleCode: string; containerCode: string },
     actor: FulfillmentActor,
   ) {
-    const article = await this.getArticle(normalizeScan(input.articleCode));
+    const article = await this.getProductArticleOrRejectCarton(input.articleCode, 'ORDER_SORTING', actor);
     if (['IN_CUSTOMER_BIN', 'PACKED', 'SHIPPED'].includes(article.status)) {
       throw new ConflictException(OPERATIONAL_ERRORS.articleNotReady);
     }
@@ -900,7 +933,17 @@ export class FulfillmentService {
 
   /** Scan the bin QR: shows customer + order + required vs present items. */
   async packingScanContainer(containerCode: string) {
-    const bin = await this.containerDetail(containerCode);
+    // Guard on miss: a carton identifier is rejected explicitly (409);
+    // anything else keeps the original not-found (read-only scan).
+    let bin;
+    try {
+      bin = await this.containerDetail(containerCode);
+    } catch (e) {
+      if (e instanceof NotFoundException) {
+        await this.rejectIfCartonAtProductStation(containerCode, 'PACKING');
+      }
+      throw e;
+    }
     if (bin.type !== 'CUSTOMER') throw new ConflictException(`${bin.code} is not a customer bin.`);
     if (!bin.order) throw new ConflictException(`Bin ${bin.code} has no order attached.`);
 
@@ -937,7 +980,10 @@ export class FulfillmentService {
         articles: { where: { status: 'IN_CUSTOMER_BIN' } },
       },
     });
-    if (!bin) throw new NotFoundException(OPERATIONAL_ERRORS.containerNotFound);
+    if (!bin) {
+      await this.rejectIfCartonAtProductStation(containerCode, 'PACKING', actor);
+      throw new NotFoundException(OPERATIONAL_ERRORS.containerNotFound);
+    }
     if (bin.type !== 'CUSTOMER' || !bin.order) throw new ConflictException('Not a customer bin.');
     if (bin.status === 'PACKED' || bin.status === 'CLOSED') {
       throw new ConflictException(`Bin ${bin.code} is already ${bin.status}.`);
@@ -1077,9 +1123,28 @@ export class FulfillmentService {
     return shipment;
   }
 
+  /**
+   * Shipment resolution with the carton guard on miss: an unknown code that
+   * turns out to be a carton identifier is rejected explicitly (409) instead
+   * of a generic not-found.
+   */
+  private async resolveShipmentOrRejectCarton(
+    rawCode: string,
+    actor?: { id?: string | null; ip?: string | null },
+  ) {
+    try {
+      return await this.resolveShipmentByScan(rawCode);
+    } catch (e) {
+      if (e instanceof NotFoundException) {
+        await this.rejectIfCartonAtProductStation(rawCode, 'SHIPPING', actor);
+      }
+      throw e;
+    }
+  }
+
   /** Worker scans (label or customer QR) → the shipment card to verify. */
   async shippingScan(code: string) {
-    const shipment = await this.resolveShipmentByScan(code);
+    const shipment = await this.resolveShipmentOrRejectCarton(code);
     return {
       code: shipment.code,
       status: shipment.status,
@@ -1105,7 +1170,7 @@ export class FulfillmentService {
    * rejected — no unverified dispatch.
    */
   async shippingVerify(code: string, actor: FulfillmentActor) {
-    const shipment = await this.resolveShipmentByScan(code);
+    const shipment = await this.resolveShipmentOrRejectCarton(code, actor);
     if (shipment.status === 'SHIPPED') throw new ConflictException(OPERATIONAL_ERRORS.shipmentAlreadyShipped);
     if (!shipment.container) {
       throw new ConflictException('This shipment has no customer container to verify.');
@@ -1172,7 +1237,10 @@ export class FulfillmentService {
       where: { code: normalizeScan(code).toUpperCase() },
       include: { order: true, container: true, articles: { select: { code: true, sku: true } } },
     });
-    if (!shipment) throw new NotFoundException(OPERATIONAL_ERRORS.shipmentNotFound);
+    if (!shipment) {
+      await this.rejectIfCartonAtProductStation(code, 'SHIPPING', actor);
+      throw new NotFoundException(OPERATIONAL_ERRORS.shipmentNotFound);
+    }
     if (shipment.status === 'SHIPPED') {
       throw new ConflictException(OPERATIONAL_ERRORS.shipmentAlreadyShipped);
     }
@@ -1265,7 +1333,7 @@ export class FulfillmentService {
   // ------------------------------------------------------------------
 
   async bordereau(code: string) {
-    const shipment = await this.resolveShipmentByScan(code);
+    const shipment = await this.resolveShipmentOrRejectCarton(code);
     const order = await this.prisma.warehouseOrder.findUnique({
       where: { id: shipment.orderId },
       include: { items: { include: { product: { select: { name: true, externalProductCode: true } } } } },
@@ -1551,6 +1619,26 @@ export class FulfillmentService {
     });
     if (!article) throw new NotFoundException('Article not found — scan a valid ART code.');
     return article;
+  }
+
+  /**
+   * Product-article lookup with the carton guard on miss: an unknown code
+   * that turns out to be a carton identifier is rejected explicitly (409);
+   * anything else rethrows the original not-found.
+   */
+  private async getProductArticleOrRejectCarton(
+    rawCode: string,
+    station: 'SORTING' | 'ORDER_SORTING' | 'PACKING' | 'SHIPPING',
+    actor?: { id?: string | null; ip?: string | null },
+  ) {
+    try {
+      return await this.getArticle(normalizeScan(rawCode));
+    } catch (e) {
+      if (e instanceof NotFoundException) {
+        await this.rejectIfCartonAtProductStation(rawCode, station, actor);
+      }
+      throw e;
+    }
   }
 
   private publicArticle(a: {

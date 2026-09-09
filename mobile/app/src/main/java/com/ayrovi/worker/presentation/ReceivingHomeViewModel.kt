@@ -65,7 +65,15 @@ class ReceivingHomeViewModel(
 
     fun activate(permissions: Set<String>, available: Boolean, connection: ConnectionState = ConnectionState.ONLINE) {
         workflow.updateAccess(permissions, available)
-        if (available && !initialized && !state.value.busy) {
+        if (!available) {
+            // ORDER 04: terminal offline state — never infinite
+            // "OPENING RECEIVING…". The host re-fires activate() when the
+            // server returns (initialized is still false, so initialize()
+            // then runs and opens normally).
+            workflow.markUnavailable()
+            return
+        }
+        if (!initialized && !state.value.busy) {
             initialized = true
             workflow.initialize()
         }

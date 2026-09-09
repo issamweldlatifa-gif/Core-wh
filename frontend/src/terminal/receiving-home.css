@@ -113,6 +113,38 @@
 .rh-scanner-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .rh-scanner-title { margin: 0; font-size: 1.05rem; letter-spacing: 0.16em; }
 
+/* ---- scan outcome flash (ORDER 04): big green / red verdict banner ------ */
+/* ReceivingHome.tsx renders .rt-outcome after every CONFIRM; these classes
+   were missing so the MATCH (green) / MISMATCH (red) flash was invisible.
+   Terminal states only: MATCH=green, mismatch/error=red, already/ambiguous=amber. */
+.rt-outcome {
+  border-radius: var(--os-radius);
+  padding: 18px 20px;
+  font-size: 1.25rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-align: center;
+  border: 2px solid var(--border);
+  background: var(--surface);
+}
+.rt-outcome--ok {
+  border-color: #16a34a;
+  background: rgba(22, 163, 74, 0.16);
+  color: #4ade80;
+  box-shadow: 0 0 24px rgba(22, 163, 74, 0.35);
+}
+.rt-outcome--bad {
+  border-color: #dc2626;
+  background: rgba(220, 38, 38, 0.16);
+  color: #f87171;
+  box-shadow: 0 0 24px rgba(220, 38, 38, 0.35);
+}
+.rt-outcome--info {
+  border-color: #d97706;
+  background: rgba(217, 119, 6, 0.14);
+  color: #fbbf24;
+}
+
 /* ---- match review (CONFIRM is the only write path) ---------------------- */
 .rh-review { display: grid; gap: 12px; }
 .rh-review-card { padding: 16px; display: grid; gap: 4px; }

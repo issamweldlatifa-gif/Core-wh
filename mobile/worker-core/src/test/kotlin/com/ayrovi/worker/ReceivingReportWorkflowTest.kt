@@ -329,6 +329,37 @@ class ReceivingReportWorkflowTest {
         assertNotNull(flow.state.value.message)
     }
 
+    // ----------------- OFFLINE (ORDER 04: no infinite loading) --------------
+    @Test fun `markUnavailable reaches a terminal offline state instead of hanging`() = runTest {
+        val flow = workflow(backend())
+        flow.markUnavailable(); runCurrent()
+        // The screen's error branch is reachable: loading is OFF (no endless
+        // "OPENING REPORT…"), no report, and a worker-safe message for RETRY.
+        assertFalse(flow.state.value.loading)
+        assertNull(flow.state.value.report)
+        assertEquals("CONNECTION UNAVAILABLE", flow.state.value.message?.title)
+        assertEquals(MessageTone.ERROR, flow.state.value.message?.tone)
+    }
+
+    @Test fun `markUnavailable keeps an opened report untouched`() = runTest {
+        val flow = workflow(backend())
+        flow.initialize(); runCurrent()
+        assertNotNull(flow.state.value.report)
+        flow.markUnavailable(); runCurrent()
+        assertNotNull(flow.state.value.report, "the opened report stays visible while offline")
+        assertFalse(flow.state.value.loading)
+    }
+
+    @Test fun `report recovers when the server returns after markUnavailable`() = runTest {
+        val flow = workflow(backend())
+        flow.markUnavailable(); runCurrent()
+        assertNull(flow.state.value.report)
+        // The host re-runs activate -> initialize when available flips true.
+        flow.initialize(); runCurrent()
+        assertEquals("s1", flow.state.value.sessionId)
+        assertNotNull(flow.state.value.report)
+    }
+
     // ------------------------------ CONTRACT ---------------------------------
     @Test fun `report json decodes including unknown submit extras`() {
         val raw = """

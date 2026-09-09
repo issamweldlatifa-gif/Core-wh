@@ -69,14 +69,19 @@ class ReceivingReportViewModelTest {
         assertNotNull(vm.state.value.report)
     }
 
-    @Test fun `activate while unavailable waits, then opens when available`() = runTest {
+    @Test fun `activate while unavailable shows a terminal error, then opens when available`() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val gateway = FakeReportGateway()
         val vm = ReceivingReportViewModel(gateway, perms)
+        // ORDER 04: unavailable must NEVER hang on OPENING REPORT — the
+        // screen reaches its error branch (loading=false + message + RETRY).
         vm.activate(perms, false)
         advanceUntilIdle()
-        assertTrue(vm.state.value.loading)
+        assertFalse(vm.state.value.loading, "offline must clear loading so the error branch shows")
+        assertEquals("CONNECTION UNAVAILABLE", vm.state.value.message?.title)
         assertEquals(0, gateway.reportCalls)
+        // The host re-fires activate() when the server returns: the report
+        // then opens normally (initialized was never consumed).
         vm.activate(perms, true)
         advanceUntilIdle()
         assertFalse(vm.state.value.loading)

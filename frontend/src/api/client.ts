@@ -27,6 +27,9 @@ const AUTH_ENDPOINTS = ['/v1/auth/login', '/v1/auth/refresh', '/v1/auth/logout']
 const client = axios.create({
   baseURL: BASE,
   headers: { 'Content-Type': 'application/json' },
+  // No request may hang forever: a stalled network surfaces as a catchable
+  // timeout error (Loading -> Error + Retry) instead of an endless spinner.
+  timeout: 30000,
 });
 
 // Inject access token on every request.

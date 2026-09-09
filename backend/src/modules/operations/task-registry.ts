@@ -58,6 +58,19 @@ export const TASK_REGISTRY: OperationalTask[] = [
     subtaskOf: 'receiving',
   },
   {
+    // ORDER 04 — standalone RAPPORT tile: the verification report is its own
+    // task beside Receiving, never nested inside the Produit/Carton pages.
+    // It shares receiving.execute so every receiving worker sees it, and it
+    // is NOT a subtaskOf anything so routing never folds it into Receiving.
+    key: 'receiving-report',
+    label: 'Rapport',
+    path: '/terminal/receiving/report',
+    department: 'RECEIVING',
+    permission: 'receiving.execute',
+    ready: true,
+    shared: true,
+  },
+  {
     key: 'sorting',
     label: 'Sorting',
     path: '/terminal/sorting',

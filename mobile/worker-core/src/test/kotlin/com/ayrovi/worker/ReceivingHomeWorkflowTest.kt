@@ -337,4 +337,42 @@ class ReceivingHomeWorkflowTest {
         assertEquals(MessageTone.SUCCESS, flow.state.value.message?.tone)
     }
 
+    // ----------------- OFFLINE (ORDER 04: no infinite loading) --------------
+    @Test fun `markUnavailable reaches a terminal offline state instead of hanging`() = runTest {
+        val flow = ReceivingHomeWorkflow(HomeBackend(), "worker", perms, this)
+        flow.updateAccess(perms, false)
+        flow.markUnavailable(); runCurrent()
+        // The screen's error branch is reachable: loaded is ON (no endless
+        // "OPENING RECEIVING…"), nothing spins, the failure is explained.
+        assertTrue(flow.state.value.loaded)
+        assertFalse(flow.state.value.busy)
+        assertFalse(flow.state.value.serverAvailable)
+        assertEquals("CONNECTION UNAVAILABLE", flow.state.value.message?.title)
+        assertEquals(MessageTone.ERROR, flow.state.value.message?.tone)
+        assertFalse(flow.state.value.canScan)
+        assertFalse(flow.state.value.canMutate)
+    }
+
+    @Test fun `markUnavailable keeps already-loaded data untouched`() = runTest {
+        val flow = workflow()
+        assertNotNull(flow.state.value.home)
+        flow.updateAccess(perms, false)
+        flow.markUnavailable(); runCurrent()
+        assertNotNull(flow.state.value.home, "loaded cards stay visible while offline")
+        assertNull(flow.state.value.message, "no stale banner is written over loaded data")
+    }
+
+    @Test fun `home recovers when the server returns after markUnavailable`() = runTest {
+        val flow = ReceivingHomeWorkflow(HomeBackend(), "worker", perms, this)
+        flow.updateAccess(perms, false)
+        flow.markUnavailable(); runCurrent()
+        assertNull(flow.state.value.home)
+        // The host re-runs activate -> initialize when available flips true.
+        flow.updateAccess(perms, true)
+        flow.initialize(); runCurrent()
+        assertNotNull(flow.state.value.home)
+        assertEquals(1, flow.state.value.home?.productCardsPending)
+        assertTrue(flow.state.value.canMutate)
+    }
+
 }

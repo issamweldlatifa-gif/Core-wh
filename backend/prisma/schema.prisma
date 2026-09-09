@@ -230,6 +230,14 @@ enum AuditAction {
   REPORT_REVIEWED // admin/supervisor reviewed the submitted report
   REPORT_CLOSED // report closed (verification cycle complete)
   DAMAGE_RECORDED // worker declared damaged units on a receiving product line
+  // WORKFLOW SEPARATION — Carton flow ends at Receiving/Report; Product flow
+  // continues Receiving -> Temporary Storage -> Sorting -> Packing -> Shipping.
+  WORKFLOW_CARTON_FLOW_ENDED // a carton reached its end of flow (reported, available to Admin)
+  WORKFLOW_GUARD_REJECTED // a carton identifier was rejected at a product-only station
+  TEMP_INTAKE_CREATED // Receiving Output B handed a verified product (+card) to Temporary Storage
+  TEMP_INTAKE_STAGED // a product intake was placed at a temporary-storage station/section/location
+  TEMP_INTAKE_READY_FOR_SORTING // a product intake is ready for the Sorting station
+  TEMP_INTAKE_MOVED_TO_SORTING // a product intake left Temporary Storage toward Sorting
 }
 
 enum ApiClientStatus {
@@ -633,6 +641,8 @@ model Zone {
   locations        Location[]
   categoryMappings CategoryZoneMapping[]
   stations         Station[]
+  /// WORKFLOW SEPARATION — Temporary Storage intakes placed in this zone.
+  tempIntakes TemporaryStorageIntake[] @relation("TempIntakeZone")
 
   @@unique([warehouseId, code])
   @@index([warehouseId])
@@ -728,6 +738,7 @@ model Location {
   cartons       WarehouseCarton[] // cartons currently stored here (written by Putaway)
   placements    CartonPlacement[]
   articleUnits  ArticleUnit[] // per-piece storage (written by Sorting/Storage)
+  tempIntakes   TemporaryStorageIntake[] @relation("TempIntakeLocation")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1887,12 +1898,17 @@ model ReceivingReport {
   /// Next-stage handoff marker: CONFIRMED lines prepared for Temporary
   /// Storage (the physical move itself belongs to the next station).
   handoffReadyAt DateTime?
+  /// WORKFLOW SEPARATION — Output A end marker: set at submit, the carton
+  /// flow ends at this report (CARTON never moves past Receiving).
+  cartonFlowEndedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   lines  ReceivingReportLine[]
   photos ReceivingReportPhoto[]
+  /// WORKFLOW SEPARATION — per-carton verification snapshot (Output A).
+  cartonLines ReceivingReportCartonLine[]
 
   @@index([status])
   @@map("receiving_reports")
@@ -1936,6 +1952,140 @@ model ReceivingReportPhoto {
 
   @@index([reportId])
   @@map("receiving_report_photos")
+}
+
+/// WORKFLOW SEPARATION — per-carton verification result (snapshot at submit).
+///
+/// Output A of Receiving: Carton -> Rapport Verification -> Admin -> END.
+/// Every expected carton of the arrival gets one row: received cartons are
+/// CONFIRMED, expected-but-not-received cartons are MISSING with an error
+/// detail. This is the carton's end of flow — no handoff to Temporary
+/// Storage, Sorting, Packing or Shipping ever reads this table.
+model ReceivingReportCartonLine {
+  id               String @id @default(uuid())
+  reportId         String
+  report           ReceivingReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  cartonId         String?
+  externalCartonId String?
+  reference        String?
+  trackingNumber   String?
+  expected         Boolean @default(true)
+  received         Boolean @default(false)
+  result           ReceivingVerificationResult @default(PENDING)
+  scannedAt        DateTime?
+  /// Error detail when the carton is MISSING (or any verification anomaly).
+  errorDetail      String?
+  note             String?
+
+  @@index([reportId])
+  @@index([cartonId])
+  @@map("receiving_report_carton_lines")
+}
+
+// ------------------------------------------------------------------
+// WORKFLOW SEPARATION — Carton flow vs Product flow.
+//
+//   CARTON FLOW : Receiving -> Verification -> Rapport Verification -> Admin -> END
+//   PRODUCT FLOW: Receiving -> Temporary Storage -> Sorting -> Packing -> Ready to Shipping
+//
+// Cartons and products NEVER share a workflow state after Receiving. The
+// WorkflowEvent ledger records every flow transition per item (IDs + history
+// + status) so each path is traceable without mixing.
+// ------------------------------------------------------------------
+
+/// Which independent flow a workflow event belongs to.
+enum WorkflowFlow {
+  CARTON
+  PRODUCT
+}
+
+enum TempStorageIntakeStatus {
+  RECEIVED // handed from Receiving Output B, waiting for placement
+  STAGED // placed at a station / section / location
+  READY_FOR_SORTING // verified complete, waiting for the Sorting pull
+  MOVED_TO_SORTING // left Temporary Storage toward Sorting (Sorting input)
+  VOIDED // admin voided the intake (wrong / duplicate) — kept for audit
+}
+
+/// Append-only workflow ledger: one row per flow transition of one item.
+/// `event` vocabulary (stable strings, enforced at the service layer):
+///   RECEIVING_VERIFIED | CARTON_FLOW_ENDED | PRODUCT_HANDOFF_TEMP |
+///   TEMP_STORAGE_RECEIVED | TEMP_STORAGE_STAGED | TEMP_STORAGE_READY |
+///   TEMP_STORAGE_MOVED_TO_SORTING | GUARD_REJECTED_CARTON
+model WorkflowEvent {
+  id                 String      @id @default(uuid())
+  flow               WorkflowFlow
+  event              String
+  /// carton | product | report | temp_intake
+  entityType         String
+  entityId           String?
+  entityCode         String?
+  receivingSessionId String?
+  /// Station codes (snapshots, never FKs: history survives reconfiguration).
+  fromStation        String?
+  toStation          String?
+  actorId            String?
+  metadata           Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([flow, event])
+  @@index([entityType, entityId])
+  @@index([receivingSessionId])
+  @@index([createdAt])
+  @@map("workflow_events")
+}
+
+/// Temporary Storage intake — PRODUCT ONLY (Receiving Output B).
+///
+/// This table has NO carton FK and NO carton code column BY DESIGN: a carton
+/// can never be represented here. Each row is one verified Produit + Carte
+/// handed from Receiving (report submit auto-creates CONFIRMED lines; a
+/// manual re-push endpoint exists for supervisors). Section/location stay
+/// expandable: free `section` label + optional Zone/Location FKs.
+model TemporaryStorageIntake {
+  id     String @id @default(uuid())
+  /// Human/scannable code TMP-XXXXXX, generated server-side, immutable.
+  code   String @unique
+  status TempStorageIntakeStatus @default(RECEIVED)
+
+  // --- provenance (Receiving Output B: Produit + Carte) ---
+  receivingSessionId  String?
+  receivingProductId  String?
+  receivingReportId   String?
+  receivingReportLineId String?
+  sku                 String?
+  reference           String?
+  productName         String?
+  quantity            Int @default(1)
+  verificationResult  ReceivingVerificationResult @default(CONFIRMED)
+
+  // --- placement (server-resolved, expandable) ---
+  stationId  String?
+  station    Station?  @relation("TempIntakeStation", fields: [stationId], references: [id], onDelete: SetNull)
+  zoneId     String?
+  zone       Zone?     @relation("TempIntakeZone", fields: [zoneId], references: [id], onDelete: SetNull)
+  /// Expandable section label inside the zone (e.g. "A-03", "QUARANTINE").
+  section    String?
+  locationId String?
+  location   Location? @relation("TempIntakeLocation", fields: [locationId], references: [id], onDelete: SetNull)
+
+  receivedBy String?
+  receivedAt DateTime @default(now())
+  stagedBy   String?
+  stagedAt   DateTime?
+  readyAt    DateTime?
+  movedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([receivingSessionId])
+  @@index([receivingProductId])
+  @@index([stationId])
+  @@index([zoneId])
+  @@map("temporary_storage_intakes")
 }
 
 enum CardType {
@@ -2112,6 +2262,8 @@ model Station {
   taskAssignments  WorkerTaskAssignment[] @relation("AssignmentStation")
   stagedContainers OperationalContainer[] @relation("ContainerStaging")
   exceptions       OperationalException[] @relation("ExceptionStation")
+  /// WORKFLOW SEPARATION — Temporary Storage intakes staged at this station.
+  tempIntakes TemporaryStorageIntake[] @relation("TempIntakeStation")
 
   @@index([department])
   @@index([status])
@@ -2175,4 +2327,12 @@ model OperationCorrection {
   @@index([adminId])
   @@index([createdAt])
   @@map("operation_corrections")
+}
+}
+ndex([entityType, entityId])
+  @@index([receivingSessionId])
+  @@index([adminId])
+  @@index([createdAt])
+  @@map("operation_corrections")
+}
 }

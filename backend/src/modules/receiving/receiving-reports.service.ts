@@ -10,6 +10,9 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AssignmentsService } from '../assignments/assignments.service';
 import { PushService } from '../notifications/push.service';
+import { TemporaryStorageService } from '../temporary-storage/temporary-storage.service';
+import { WorkflowService } from '../workflow/workflow.service';
+import { sameScanCode } from '../../common/scan-normalizer';
 import { computeLineVerification, receivingTaskStatus } from './verification-status';
 
 export interface ReportActor {
@@ -65,6 +68,8 @@ export class ReceivingReportsService {
     private readonly audit: AuditService,
     private readonly assignments: AssignmentsService,
     private readonly push: PushService,
+    private readonly temp: TemporaryStorageService,
+    private readonly workflow: WorkflowService,
   ) {}
 
   // ---------- helpers ----------
@@ -151,7 +156,71 @@ export class ReceivingReportsService {
     };
     totals.missingCartons = Math.max(0, totals.expectedCartons - totals.receivedCartons);
 
-    return { session, lines, totals };
+    // WORKFLOW SEPARATION — Output A (Carton verification lines).
+    // Every expected carton gets one row: received -> CONFIRMED; expected but
+    // not received -> PENDING while the session is open, MISSING (with an
+    // error detail) once verification closes. Receipt scans with no expected
+    // row are kept as unexpected-but-received (never silently dropped).
+    const sessionOpen = session.status === 'RECEIVING' || session.status === 'PAUSED';
+    const receivedByCartonId = new Map<string, (typeof session.cartons)[number]>();
+    for (const rc of session.cartons) {
+      if (rc.cartonId && !receivedByCartonId.has(rc.cartonId)) receivedByCartonId.set(rc.cartonId, rc);
+    }
+    const cartonLines: Array<{
+      cartonId: string | null;
+      externalCartonId: string | null;
+      reference: string | null;
+      trackingNumber: string | null;
+      expected: boolean;
+      received: boolean;
+      result: 'PENDING' | 'CONFIRMED' | 'MISSING' | 'DAMAGED';
+      scannedAt: Date | null;
+      errorDetail: string | null;
+      note: string | null;
+    }> = [];
+    for (const s of session.expectedArrival.shipments) {
+      for (const c of s.cartons) {
+        const rc =
+          (c.id ? receivedByCartonId.get(c.id) : undefined) ??
+          session.cartons.find((r) => !r.cartonId && sameScanCode(r.scannedCode, c.externalCartonId)) ??
+          null;
+        const received = !!rc || c.status === 'RECEIVED' || c.status === 'STORED';
+        cartonLines.push({
+          cartonId: c.id,
+          externalCartonId: c.externalCartonId,
+          reference: c.cartonReference,
+          trackingNumber:
+            (c as { trackingCode?: string | null }).trackingCode ??
+            (c as { suiviCode?: string | null }).suiviCode ??
+            s.trackingNumber ??
+            (s as { suiviCode?: string | null }).suiviCode ??
+            null,
+          expected: true,
+          received,
+          result: received ? 'CONFIRMED' : sessionOpen ? 'PENDING' : 'MISSING',
+          scannedAt: rc?.receivedAt ?? c.receivedAt ?? null,
+          errorDetail: !received && !sessionOpen ? 'Carton expected but not received at verification.' : null,
+          note: null,
+        });
+      }
+    }
+    for (const rc of session.cartons) {
+      if (!rc.cartonId || cartonLines.some((l) => l.cartonId === rc.cartonId)) continue;
+      cartonLines.push({
+        cartonId: rc.cartonId,
+        externalCartonId: rc.scannedCode,
+        reference: null,
+        trackingNumber: null,
+        expected: false,
+        received: true,
+        result: 'CONFIRMED',
+        scannedAt: rc.receivedAt,
+        errorDetail: null,
+        note: 'Received without an expected carton row.',
+      });
+    }
+
+    return { session, lines, totals, cartonLines };
   }
 
   // ---------- worker: read ----------
@@ -168,7 +237,7 @@ export class ReceivingReportsService {
     });
     const persisted = await this.prisma.receivingReport.findUnique({
       where: { receivingSessionId: sessionId },
-      include: { lines: true, photos: { orderBy: { takenAt: 'asc' } } },
+      include: { lines: true, cartonLines: true, photos: { orderBy: { takenAt: 'asc' } } },
     });
     const live = await this.computeLive(this.prisma, sessionId);
     const locked = !!persisted && persisted.status !== 'DRAFT';
@@ -231,6 +300,24 @@ export class ReceivingReportsService {
             note: l.note,
           }))
         : live.lines,
+      // Output A — carton verification (the carton flow ends at this report).
+      // Locked snapshot when submitted, live computation while the session
+      // is still open. Same shape either way (worker web + mobile).
+      cartonLines: locked
+        ? persisted.cartonLines.map((l) => ({
+            cartonId: l.cartonId,
+            externalCartonId: l.externalCartonId,
+            reference: l.reference,
+            trackingNumber: l.trackingNumber,
+            expected: l.expected,
+            received: l.received,
+            result: l.result,
+            scannedAt: l.scannedAt,
+            errorDetail: l.errorDetail,
+            note: l.note,
+          }))
+        : live.cartonLines,
+      cartonFlow: { ended: !!persisted?.cartonFlowEndedAt, endedAt: persisted?.cartonFlowEndedAt ?? null },
       manual: {
         description: persisted?.description ?? null,
         observation: persisted?.observation ?? null,
@@ -392,10 +479,13 @@ export class ReceivingReportsService {
   // ---------- worker: CONFIRMER ET ENVOYER ----------
 
   /**
-   * Submit the verification report: locks a snapshot of every product
-   * result, records worker/station/device/date-time, emits the verification
-   * event, notifies admins and marks CONFIRMED lines ready for the
-   * Temporary Storage handoff. Idempotent guard: one locked report.
+   * Submit the verification report (CONFIRMER ET ENVOYER). Atomically:
+   *  - locks a snapshot of every PRODUCT result + every CARTON result,
+   *  - ends the CARTON flow at this report (Output A -> Admin, no handoff),
+   *  - hands every CONFIRMED product line to Temporary Storage (Output B),
+   *  - records worker/station/device/date-time + the workflow ledger rows,
+   *  - notifies admins (best-effort, never fails the submit).
+   * Idempotent guard: one locked report.
    */
   async submitReport(sessionId: string, input: SaveDraftInput, actor: ReportActor) {
     const session = await this.requireSession(sessionId);
@@ -411,7 +501,7 @@ export class ReceivingReportsService {
     }
     const photos = this.validatePhotos(input.photos);
 
-    const reportId = await this.prisma.$transaction(async (tx) => {
+    const submitted = await this.prisma.$transaction(async (tx) => {
       const live = await this.computeLive(tx, sessionId);
       const station = await this.stationSnapshot(tx, actor.id);
       const now = new Date();
@@ -432,6 +522,7 @@ export class ReceivingReportsService {
               submittedBy: actor.id,
               submittedAt: now,
               handoffReadyAt: now,
+              cartonFlowEndedAt: now,
             },
           })
         : await tx.receivingReport.create({
@@ -450,6 +541,7 @@ export class ReceivingReportsService {
               submittedBy: actor.id,
               submittedAt: now,
               handoffReadyAt: now,
+              cartonFlowEndedAt: now,
             },
           });
       if (input.photos) {
@@ -485,6 +577,81 @@ export class ReceivingReportsService {
           })),
         });
       }
+      // Output A — carton snapshot (the carton's end of flow).
+      await tx.receivingReportCartonLine.deleteMany({ where: { reportId: report.id } });
+      if (live.cartonLines.length > 0) {
+        await tx.receivingReportCartonLine.createMany({
+          data: live.cartonLines.map((l) => ({
+            reportId: report.id,
+            cartonId: l.cartonId,
+            externalCartonId: l.externalCartonId,
+            reference: l.reference,
+            trackingNumber: l.trackingNumber,
+            expected: l.expected,
+            received: l.received,
+            result: l.result,
+            scannedAt: l.scannedAt,
+            errorDetail: l.errorDetail,
+            note: l.note,
+          })),
+        });
+      }
+      // CARTON FLOW END — one ledger row per carton + one summary audit row.
+      for (const l of live.cartonLines) {
+        await this.workflow.logEvent(
+          {
+            flow: 'CARTON',
+            event: 'CARTON_FLOW_ENDED',
+            entityType: 'carton',
+            entityId: l.cartonId,
+            entityCode: l.externalCartonId,
+            receivingSessionId: sessionId,
+            fromStation: 'RECEIVING',
+            actorId: actor.id,
+            metadata: { result: l.result, received: l.received, reportId: report.id },
+          },
+          tx,
+        );
+      }
+      await this.audit.log(
+        {
+          actorUserId: actor.id,
+          action: 'WORKFLOW_CARTON_FLOW_ENDED',
+          entityType: 'receiving_report',
+          entityId: report.id,
+          ipAddress: actor.ip ?? null,
+          metadata: {
+            session: live.session.code,
+            cartons: live.cartonLines.length,
+            confirmed: live.cartonLines.filter((l) => l.result === 'CONFIRMED').length,
+            missing: live.cartonLines.filter((l) => l.result === 'MISSING').length,
+          },
+        },
+        tx,
+      );
+      // Output B — CONFIRMED product lines move to Temporary Storage now.
+      const createdLines = await tx.receivingReportLine.findMany({ where: { reportId: report.id } });
+      const lineIdByProduct = new Map(createdLines.map((l) => [l.receivingProductId, l.id]));
+      let tempIntakes = 0;
+      for (const l of live.lines) {
+        if (l.result !== 'CONFIRMED' || l.confirmedQuantity < 1) continue;
+        await this.temp.createIntakeFromReceiving(
+          tx,
+          {
+            receivingSessionId: sessionId,
+            receivingProductId: l.receivingProductId,
+            receivingReportId: report.id,
+            receivingReportLineId: lineIdByProduct.get(l.receivingProductId) ?? null,
+            sku: l.sku,
+            reference: l.reference,
+            productName: l.productName,
+            quantity: l.confirmedQuantity,
+            verificationResult: 'CONFIRMED',
+          },
+          { id: actor.id, ip: actor.ip ?? null },
+        );
+        tempIntakes += 1;
+      }
       await this.audit.log(
         {
           actorUserId: actor.id,
@@ -496,22 +663,22 @@ export class ReceivingReportsService {
             session: live.session.code,
             arrival: live.session.expectedArrival.code,
             totals: live.totals,
-            handoff: 'CONFIRMED lines ready for Temporary Storage',
+            handoff: `${tempIntakes} CONFIRMED line(s) handed to Temporary Storage`,
           },
         },
         tx,
       );
-      return report.id;
+      return { reportId: report.id, tempIntakes };
     });
 
     // Admin notification never fails the submit (best-effort delivery).
     let notifiedAdmins = 0;
     try {
-      notifiedAdmins = await this.notifyAdmins(reportId, actor);
+      notifiedAdmins = await this.notifyAdmins(submitted.reportId, actor);
     } catch (e) {
-      this.logger.warn(`Admin notification failed for report ${reportId}: ${(e as Error).message}`);
+      this.logger.warn(`Admin notification failed for report ${submitted.reportId}: ${(e as Error).message}`);
     }
-    return { ...(await this.getReport(sessionId, actor)), notifiedAdmins };
+    return { ...(await this.getReport(sessionId, actor)), notifiedAdmins, tempIntakesCreated: submitted.tempIntakes };
   }
 
   /** Push the submission to every admin-role user (plus audit trail). */
@@ -649,12 +816,13 @@ export class ReceivingReportsService {
     }));
   }
 
-  /** Full report detail (admin screen + print): totals, lines, photos, actor. */
+  /** Full report detail (admin screen + print): totals, lines, carton lines, photos, actor. */
   async reportDetail(reportId: string) {
     const r = await this.prisma.receivingReport.findUnique({
       where: { id: reportId },
       include: {
         lines: { orderBy: [{ sku: 'asc' }, { reference: 'asc' }] },
+        cartonLines: { orderBy: [{ externalCartonId: 'asc' }] },
         photos: { orderBy: { takenAt: 'asc' } },
         session: {
           include: { expectedArrival: { select: { id: true, code: true, customerName: true, storeName: true } } },
@@ -687,6 +855,9 @@ export class ReceivingReportsService {
         missingCartons: r.missingCartons,
       },
       lines: r.lines,
+      // Output A — carton verification snapshot (carton flow ends here).
+      cartonLines: r.cartonLines,
+      cartonFlow: { ended: !!r.cartonFlowEndedAt, endedAt: r.cartonFlowEndedAt },
       manual: { description: r.description, observation: r.observation },
       photos: r.photos,
       actor: {

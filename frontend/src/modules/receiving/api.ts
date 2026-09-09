@@ -239,6 +239,20 @@ export interface ReceivingReportPhotoView {
   takenAt: string;
 }
 
+/** WORKFLOW SEPARATION — Output A: per-carton verification row. */
+export interface ReceivingReportCartonLineView {
+  cartonId: string | null;
+  externalCartonId: string | null;
+  reference: string | null;
+  trackingNumber: string | null;
+  expected: boolean;
+  received: boolean;
+  result: 'PENDING' | 'CONFIRMED' | 'MISSING' | 'DAMAGED';
+  scannedAt: string | null;
+  errorDetail: string | null;
+  note: string | null;
+}
+
 export interface ReceivingReportView {
   session: {
     id: string; code: string; status: string; startedAt: string; completedAt: string | null;
@@ -250,6 +264,9 @@ export interface ReceivingReportView {
   reportId: string | null;
   totals: ReceivingReportTotals;
   lines: ReceivingReportLineView[];
+  /** Output A — carton verification (the carton flow ends at this report). */
+  cartonLines: ReceivingReportCartonLineView[];
+  cartonFlow: { ended: boolean; endedAt: string | null };
   manual: { description: string | null; observation: string | null };
   photos: ReceivingReportPhotoView[];
   actor: {
@@ -262,6 +279,8 @@ export interface ReceivingReportView {
   reviewNote: string | null;
   handoffReadyAt: string | null;
   notifiedAdmins?: number;
+  /** Output B — CONFIRMED product lines auto-handed to Temporary Storage at submit. */
+  tempIntakesCreated?: number;
 }
 
 export const api = {
@@ -298,6 +317,13 @@ export const api = {
     client
       .get<ReceivingSessionDetail | null>(`/v1/receiving/arrivals/${encodeURIComponent(idOrCode)}/active`)
       .then((r) => (r.data ? r.data : null)),
+  /**
+   * ORDER 04 — the reportable session in ONE call (open session, else the
+   * latest completed session with an actionable report), or null. The
+   * report opens directly from this instead of probing every arrival.
+   */
+  activeSession: () =>
+    client.get<ReceivingSessionDetail | null>('/v1/receiving/sessions/active').then((r) => r.data ?? null),
   start: (idOrCode: string, device?: { deviceType?: string; deviceName?: string; scanSource?: string }) =>
     client
       .post<ReceivingSessionDetail>(`/v1/receiving/arrivals/${encodeURIComponent(idOrCode)}/start`, device ?? {})

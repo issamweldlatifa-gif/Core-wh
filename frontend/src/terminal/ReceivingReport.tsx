@@ -63,7 +63,24 @@ export default function ReceivingReport() {
   const loadChoices = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setChoices(null);
     try {
+      // Fast path (ORDER 04): the reportable session in ONE call — the
+      // report opens directly instead of probing every arrival. A direct
+      // hit navigates straight to the report view (Loading -> Report).
+      try {
+        const direct = await receivingApi.activeSession();
+        if (direct) {
+          navigate(`/terminal/receiving/report/${direct.id}`, { replace: true });
+          return;
+        }
+      } catch (e) {
+        // Older backend (404) or transient failure of the direct call: fall
+        // through to the legacy arrivals + per-arrival probe loop below.
+        // A 401/403 is rethrown — probing would fail the same way.
+        const status = (e as { response?: { status?: number } })?.response?.status;
+        if (status === 401 || status === 403) throw e;
+      }
       const arrivals = await receivingApi.arrivals();
       const settled = await Promise.allSettled(arrivals.map((a) => receivingApi.active(a.code)));
       const list: SessionChoice[] = [];
@@ -78,13 +95,18 @@ export default function ReceivingReport() {
           });
         }
       });
+      // Exactly one reportable session: open it directly (Loading -> Report).
+      if (list.length === 1) {
+        navigate(`/terminal/receiving/report/${list[0].sessionId}`, { replace: true });
+        return;
+      }
       setChoices(list);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Chargement impossible.');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [navigate]);
 
   const loadView = useCallback(
     async (id: string) => {
@@ -183,7 +205,10 @@ export default function ReceivingReport() {
     try {
       const v = await receivingApi.submitReport(view.session.id, { description, observation, photos });
       setView(v);
-      setDone(`Rapport envoyé et verrouillé. Admins notifiés: ${v.notifiedAdmins ?? 0}.`);
+      setDone(
+        `Rapport envoyé et verrouillé. Admins notifiés: ${v.notifiedAdmins ?? 0}. ` +
+          `Produits transférés au stockage temporaire: ${v.tempIntakesCreated ?? 0}.`,
+      );
       beepSuccess();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Envoi impossible.');
@@ -191,6 +216,11 @@ export default function ReceivingReport() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const retry = () => {
+    if (sessionId) void loadView(sessionId);
+    else void loadChoices();
   };
 
   return (
@@ -213,34 +243,57 @@ export default function ReceivingReport() {
       </header>
 
       {loading && <div className="os-empty">Chargement…</div>}
-      {error && <div className="rt-error">{error}</div>}
+      {/* Terminal error state (never a second endless spinner): the failure
+          plus an explicit RETRY that re-runs the whole open sequence. */}
+      {!loading && error && (
+        <div className="os-card">
+          <div className="rt-error">{error}</div>
+          <div className="os-row" style={{ marginTop: 12 }}>
+            <button type="button" className="os-btn os-btn--primary" onClick={retry}>
+              🔄 RÉESSAYER
+            </button>
+            {sessionId && (
+              <button type="button" className="os-btn" onClick={() => navigate('/terminal/receiving/report')}>
+                SESSIONS
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       {done && <div className="rr-done">{done}</div>}
 
       {/* ---------- session picker ---------- */}
-      {!sessionId && choices && (
+      {!sessionId && !loading && !error && choices && choices.length === 0 && (
+        <section className="os-card">
+          <h2 className="os-card-title">Aucun rapport</h2>
+          <p className="os-muted">Aucune session active. Démarrez une réception d&apos;abord.</p>
+          <div className="os-row" style={{ marginTop: 12 }}>
+            <button type="button" className="os-btn os-btn--primary" onClick={retry}>
+              🔄 RAFRAÎCHIR
+            </button>
+          </div>
+        </section>
+      )}
+      {!sessionId && choices && choices.length > 0 && (
         <section className="os-card">
           <h2 className="os-card-title">Sessions de réception ({choices.length})</h2>
-          {choices.length === 0 ? (
-            <p className="os-muted">Aucune session active. Démarrez une réception d&apos;abord.</p>
-          ) : (
-            <ol className="rh-rows">
-              {choices.map((c) => (
-                <li key={c.sessionId} className="rh-row rr-choice">
-                  <span className="mono">{c.sessionCode}</span>
-                  <span className="os-muted rh-row-meta">
-                    {c.arrivalCode} · {c.customerName} · {c.sessionStatus}
-                  </span>
-                  <button
-                    type="button"
-                    className="os-btn os-btn--primary"
-                    onClick={() => navigate(`/terminal/receiving/report/${c.sessionId}`)}
-                  >
-                    OUVRIR
-                  </button>
-                </li>
-              ))}
-            </ol>
-          )}
+          <ol className="rh-rows">
+            {choices.map((c) => (
+              <li key={c.sessionId} className="rh-row rr-choice">
+                <span className="mono">{c.sessionCode}</span>
+                <span className="os-muted rh-row-meta">
+                  {c.arrivalCode} · {c.customerName} · {c.sessionStatus}
+                </span>
+                <button
+                  type="button"
+                  className="os-btn os-btn--primary"
+                  onClick={() => navigate(`/terminal/receiving/report/${c.sessionId}`)}
+                >
+                  OUVRIR
+                </button>
+              </li>
+            ))}
+          </ol>
         </section>
       )}
 
@@ -361,6 +414,73 @@ export default function ReceivingReport() {
                 </tbody>
               </table>
             </div>
+          </section>
+
+          {/* ---------- CARTON flow (ORDER 04): cartons END here — they are
+              never handed to Temporary Storage and never leave this report.
+              Field names mirror the backend verification contract exactly. */}
+          <section className="os-card">
+            <h2 className="os-card-title">
+              Cartons ({(view.cartonLines ?? []).length})
+              {view.cartonFlow?.ended ? (
+                <span className="os-tag os-tag--ok" title="Les cartons se terminent ici">TERMINÉ</span>
+              ) : (
+                <span className="os-muted"> · en cours</span>
+              )}
+            </h2>
+            <div className="rt-scroll">
+              <table className="rt-table">
+                <thead>
+                  <tr>
+                    <th>Carton</th>
+                    <th>Suivi / Tracking</th>
+                    <th>Attendu</th>
+                    <th>Reçu</th>
+                    <th>Statut</th>
+                    <th>Détail</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(view.cartonLines ?? []).map((l, i) => (
+                    <tr key={l.cartonId ?? `${l.externalCartonId ?? 'carton'}-${i}`}>
+                      <td className="mono">
+                        {l.externalCartonId ?? l.reference ?? '—'}
+                        {l.reference && l.reference !== l.externalCartonId ? (
+                          <div className="os-muted">{l.reference}</div>
+                        ) : null}
+                      </td>
+                      <td className="mono">{l.trackingNumber ?? '—'}</td>
+                      <td>{l.expected ? 'OUI' : 'NON'}</td>
+                      <td>{l.received ? 'OUI' : 'NON'}</td>
+                      <td>
+                        <span
+                          className={`os-tag ${
+                            l.result === 'CONFIRMED'
+                              ? 'os-tag--ok'
+                              : l.result === 'PENDING'
+                                ? 'os-tag--info'
+                                : 'os-tag--err'
+                          }`}
+                        >
+                          {RESULT_FR[l.result] ?? l.result}
+                        </span>
+                      </td>
+                      <td className="os-muted">{l.errorDetail ?? l.note ?? '—'}</td>
+                    </tr>
+                  ))}
+                  {(view.cartonLines ?? []).length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="os-empty">
+                        Aucun carton.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <p className="os-muted" style={{ marginTop: 8 }}>
+              Flux carton : Réception → Vérification → Rapport → Admin (fin du flux ici).
+            </p>
           </section>
 
           <section className="os-card">

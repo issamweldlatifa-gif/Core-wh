@@ -59,6 +59,29 @@ class ReceivingReportWorkflow(
         mutable.update { it.copy(authorized = requiredPermissions.all(permissions::contains)) }
     }
 
+    /**
+     * ORDER 04 — terminal offline state. Called when the host reports the
+     * server unavailable BEFORE the report ever opened: without this the
+     * screen sits on "OPENING REPORT…" forever (loading stays true with no
+     * error and no retry). loading=false reaches the report screen's error
+     * branch (message + RETRY); an already-opened report is kept untouched.
+     * The host re-runs activate -> initialize when the server returns.
+     */
+    fun markUnavailable() {
+        val offline = OperationalMessage(
+            "CONNECTION UNAVAILABLE",
+            "Check the connection, then RETRY.",
+            MessageTone.ERROR,
+        )
+        mutable.update {
+            it.copy(
+                loading = false,
+                message = if (it.report == null) offline else (it.message ?: offline),
+            )
+        }
+        _events.tryEmit(offline)
+    }
+
     fun initialize() {
         scope.launch {
             mutable.update { it.copy(loading = true, message = null, noSession = false, justSubmitted = false) }
