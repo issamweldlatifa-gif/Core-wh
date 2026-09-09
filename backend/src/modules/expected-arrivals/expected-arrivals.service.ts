@@ -192,15 +192,90 @@ export class ExpectedArrivalsService {
         idempotencyKey: principal.idempotencyKey,
         receivedViaApi: true,
         receivedViaApiAt: now,
-        items: { create: itemData },
       };
+
+      // ---- Customer Arrival Card is the AUTHORITATIVE product expectation ----
+      // A Shipment/Carton card can arrive FIRST and already hold manifest item
+      // rows on the provisional `shipment:<id>` arrival. Those manifest rows
+      // mirror the SAME physical products the card now declares, so the card
+      // must never be counted twice on top of them (Bug B family: expected
+      // quantities were inflated 10 -> 20 when Receiving aggregated both
+      // copies). Adoption therefore:
+      //   - MIRRORS a card line whose product identity already exists on the
+      //     arrival (validated classification is backfilled onto the existing
+      //     rows — never lost to the NEEDS_REVIEW manifest default);
+      //   - only ADDS the quantity the card declares ABOVE what the manifest
+      //     rows already carry, so the authoritative card total is the
+      //     ceiling, never exceeded.
+      const existingItems = provisional
+        ? await tx.expectedArrivalItem.findMany({
+            where: { arrivalId: provisional.id },
+            select: { id: true, sku: true, productId: true, reference: true, quantity: true },
+          })
+        : [];
+      const identityKey = (o: {
+        sku?: string | null; productId?: string | null; reference?: string | null;
+      }): string | null => {
+        const sku = o.sku?.trim();
+        const pid = o.productId?.trim();
+        const ref = o.reference?.trim();
+        if (sku) return `sku:${sku.toUpperCase()}`;
+        if (pid) return `pid:${pid.toUpperCase()}`;
+        if (ref) return `ref:${ref.toUpperCase()}`;
+        return null;
+      };
+      const rowsByKey = new Map<string, { ids: string[]; sum: number }>();
+      for (const row of existingItems) {
+        const key = identityKey(row);
+        if (!key) continue;
+        const group = rowsByKey.get(key) ?? { ids: [], sum: 0 };
+        group.ids.push(row.id);
+        group.sum += Number(row.quantity) || 0;
+        rowsByKey.set(key, group);
+      }
+      const itemsToCreate: typeof itemData = [];
+      let mirroredLines = 0;
+      let topUpLines = 0;
+      for (let i = 0; i < products.length; i++) {
+        const data = itemData[i];
+        const key = identityKey(products[i] as { sku?: string | null; productId?: string | null; reference?: string | null });
+        const group = key ? rowsByKey.get(key) : undefined;
+        if (!provisional || !group || group.ids.length === 0) {
+          // Normal first Customer Arrival Card (or genuinely new content):
+          // store the line exactly as before.
+          itemsToCreate.push(data);
+          continue;
+        }
+        // Mirror: the card line is already represented by manifest row(s).
+        mirroredLines += 1;
+        await tx.expectedArrivalItem.updateMany({
+          where: { arrivalId: provisional.id, id: { in: group.ids } },
+          data: {
+            category: verdicts[i].category,
+            subcategory: verdicts[i].subcategory,
+            categoryStatus: verdicts[i].status as never,
+            productName: products[i]?.product_name?.trim() || undefined,
+            storeId: (products[i] as any)?.store_id?.trim() || card.store?.id?.trim() || undefined,
+            storeName: (products[i] as any)?.store_name?.trim() || card.store?.name?.trim() || undefined,
+          },
+        });
+        const declared = Math.max(1, Math.floor(Number((products[i] as any)?.quantity) || 1));
+        if (declared > group.sum) {
+          itemsToCreate.push({ ...data, quantity: declared - group.sum });
+          topUpLines += 1;
+        }
+      }
+
       // Update the provisional shipment-backed arrival in place so its
       // shipment/cartons keep the same arrivalId and the single receiving
       // assignment remains valid. A normal first Customer Arrival Card still
       // creates a new row exactly as before.
       const record = provisional
-        ? await tx.expectedArrival.update({ where: { id: provisional.id }, data: arrivalData })
-        : await tx.expectedArrival.create({ data: { code, ...arrivalData } });
+        ? await tx.expectedArrival.update({
+            where: { id: provisional.id },
+            data: { ...arrivalData, ...(itemsToCreate.length ? { items: { create: itemsToCreate } } : {}) },
+          })
+        : await tx.expectedArrival.create({ data: { code, ...arrivalData, items: { create: itemsToCreate } } });
 
       // Atomic audit row (same tx as the mutation).
       await this.audit.log(
@@ -222,6 +297,8 @@ export class ExpectedArrivalsService {
             units: record.totalUnits,
             api_client: principal.name,
             received_via_api: true,
+            mirrored_lines: mirroredLines,
+            topped_up_lines: topUpLines,
           },
         },
         tx,

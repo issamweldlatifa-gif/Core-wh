@@ -91,6 +91,29 @@ function makeMocks() {
       },
       findMany: async () => [...rows].sort((a, b) => +b.receivedViaApiAt - +a.receivedViaApiAt),
     },
+      // Mock of the item relation used by the provisional-adoption mirror
+      // (Bug B family): rows live on the arrival row's .items array.
+      expectedArrivalItem: {
+        findMany: async ({ where }: any) => {
+          const row = rows.find((r) => r.id === where?.arrivalId);
+          return row ? [...(row.items ?? [])] : [];
+        },
+        create: async ({ data }: any) => {
+          const row = rows.find((r) => r.id === data?.arrivalId);
+          const item = { id: `itx_${counter}_${(row?.items ?? []).length}`, ...data };
+          row?.items?.push(item);
+          return item;
+        },
+        updateMany: async ({ where, data }: any) => {
+          let count = 0;
+          for (const row of rows) {
+            for (const it of row.items ?? []) {
+              if (where?.id?.in?.includes(it.id)) { Object.assign(it, data); count += 1; }
+            }
+          }
+          return { count };
+        },
+      },
   };
 
   const prisma: any = {
@@ -220,6 +243,83 @@ describe('ExpectedArrivalsService', () => {
     expect(rows[0].items).toHaveLength(2);
     expect(dispatched).toHaveLength(1);
     expect(dispatched[0].entity.arrivalId).toBe('ea-shipment-first');
+  });
+
+  it('shipment-first adoption MIRRORS manifest rows — no double counting (Bug B family)', async () => {
+    const { prisma, audit, dispatch, rows } = makeMocks();
+    // Provisional shipment-backed arrival already holds MANIFEST rows for the
+    // SAME SKUs the card will declare (SB-1 split 6 + 4 across two cartons,
+    // SB-2 = 5). The card (10 + 5) is the authoritative expectation: adopting
+    // it must not add duplicates that Receiving would aggregate twice.
+    rows.push({
+      id: 'ea-shipment-first', code: 'WAR-009999', customerArrivalCardId: 'shipment:SHP-001',
+      arrivalId: 'ARR-REV-1', arrivalReference: 'REV-1', customerId: 'pending',
+      customerName: 'Pending customer card', storeId: null, storeName: null, status: 'EXPECTED',
+      source: 'ARRIVAL_CRM', productCount: 0, totalUnits: 0, apiClientId: null, idempotencyKey: null,
+      receivedViaApi: true, receivedViaApiAt: new Date(), createdAt: new Date(), updatedAt: new Date(),
+      items: [
+        { id: 'm1', arrivalId: 'ea-shipment-first', cartonId: 'c1', sku: 'SB-1', productId: null, reference: 'SB-1', quantity: 6, category: null, subcategory: null, categoryStatus: 'NEEDS_REVIEW' },
+        { id: 'm2', arrivalId: 'ea-shipment-first', cartonId: 'c2', sku: 'SB-1', productId: null, reference: 'SB-1', quantity: 4, category: null, subcategory: null, categoryStatus: 'NEEDS_REVIEW' },
+        { id: 'm3', arrivalId: 'ea-shipment-first', cartonId: 'c2', sku: 'SB-2', productId: null, reference: 'SB-2', quantity: 5, category: null, subcategory: null, categoryStatus: 'NEEDS_REVIEW' },
+      ],
+    });
+    const service = new ExpectedArrivalsService(prisma, audit, dispatch, pushMock());
+    const card: any = dto();
+    card.arrival = { id: 'ARR-REV-1', reference: 'REV-1' };
+    card.customer_arrival_card.id = 'CARD-REV-1';
+    card.customer_arrival_card.products = [
+      { sku: 'SB-1', product_name: 'Product A', quantity: 10, category: 'CLOTHING' },
+      { sku: 'SB-2', product_name: 'Product B', quantity: 5, category: 'SHOES' },
+    ];
+    const res = await service.receiveCard(card, principal);
+    expect(res.created).toBe(true);
+    expect(res.warehouse_arrival_id).toBe('WAR-009999');
+    expect(rows).toHaveLength(1);
+    // Authoritative card totals stored on the arrival…
+    expect(rows[0]).toMatchObject({ productCount: 2, totalUnits: 15 });
+    // …but NO duplicate item rows: SB-1 still has exactly its 2 manifest rows.
+    const items = rows[0].items as any[];
+    expect(items.filter((i) => i.sku === 'SB-1')).toHaveLength(2);
+    expect(items.filter((i) => i.sku === 'SB-2')).toHaveLength(1);
+    // Manifest rows are backfilled with the card's classification so Receiving
+    // never re-verifies them as unclassified.
+    expect(items.find((i) => i.id === 'm1')).toMatchObject({ category: 'CLOTHING', categoryStatus: 'NEEDS_REVIEW' });
+    expect(items.find((i) => i.id === 'm2')).toMatchObject({ category: 'CLOTHING' });
+    expect(items.find((i) => i.id === 'm3')).toMatchObject({ category: 'SHOES' });
+  });
+
+  it('shipment-first adoption TOP-UPS when the card declares more than the manifest rows', async () => {
+    const { prisma, audit, dispatch, rows } = makeMocks();
+    rows.push({
+      id: 'ea-topup', code: 'WAR-010000', customerArrivalCardId: 'shipment:SHP-002',
+      arrivalId: 'ARR-REV-2', arrivalReference: 'REV-2', customerId: 'pending',
+      customerName: 'Pending customer card', storeId: null, storeName: null, status: 'EXPECTED',
+      source: 'ARRIVAL_CRM', productCount: 0, totalUnits: 0, apiClientId: null, idempotencyKey: null,
+      receivedViaApi: true, receivedViaApiAt: new Date(), createdAt: new Date(), updatedAt: new Date(),
+      items: [
+        { id: 't1', arrivalId: 'ea-topup', cartonId: 'c1', sku: 'SB-1', productId: null, reference: 'SB-1', quantity: 6, category: null, subcategory: null, categoryStatus: 'NEEDS_REVIEW' },
+      ],
+    });
+    const service = new ExpectedArrivalsService(prisma, audit, dispatch, pushMock());
+    const card: any = dto();
+    card.arrival = { id: 'ARR-REV-2', reference: 'REV-2' };
+    card.customer_arrival_card.id = 'CARD-REV-2';
+    card.customer_arrival_card.products = [
+      { sku: 'SB-1', product_name: 'Product A', quantity: 10, category: 'CLOTHING' },
+      { sku: 'SB-2', product_name: 'Product B', quantity: 5, category: 'SHOES' },
+    ];
+    await service.receiveCard(card, principal);
+    const items = rows[0].items as any[];
+    // SB-1: manifest 6 + ONE arrival-level top-up row of 4 = 10 (card ceiling).
+    const sb1 = items.filter((i) => i.sku === 'SB-1');
+    expect(sb1).toHaveLength(2);
+    const extra = sb1.find((i) => i.id !== 't1');
+    expect(extra).toMatchObject({ quantity: 4, category: 'CLOTHING' });
+    // SB-2: not on any manifest -> created normally.
+    const sb2 = items.filter((i) => i.sku === 'SB-2');
+    expect(sb2).toHaveLength(1);
+    expect(sb2[0].quantity).toBe(5);
+    expect(rows[0].totalUnits).toBe(15);
   });
 
   it('is idempotent: a double send of the same card returns the SAME Expected Arrival', async () => {

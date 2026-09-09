@@ -100,6 +100,29 @@ function makeMocks() {
       },
       findMany: async () => [...rows].sort((a, b) => +b.receivedViaApiAt - +a.receivedViaApiAt),
     },
+      // Mock of the item relation used by the provisional-adoption mirror
+      // (Bug B family): rows live on the arrival row's .items array.
+      expectedArrivalItem: {
+        findMany: async ({ where }: any) => {
+          const row = rows.find((r) => r.id === where?.arrivalId);
+          return row ? [...(row.items ?? [])] : [];
+        },
+        create: async ({ data }: any) => {
+          const row = rows.find((r) => r.id === data?.arrivalId);
+          const item = { id: `itx_${counter}_${(row?.items ?? []).length}`, ...data };
+          row?.items?.push(item);
+          return item;
+        },
+        updateMany: async ({ where, data }: any) => {
+          let count = 0;
+          for (const row of rows) {
+            for (const it of row.items ?? []) {
+              if (where?.id?.in?.includes(it.id)) { Object.assign(it, data); count += 1; }
+            }
+          }
+          return { count };
+        },
+      },
   };
 
   const prisma: any = {
