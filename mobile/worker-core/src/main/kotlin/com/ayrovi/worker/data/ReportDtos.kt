@@ -69,6 +69,43 @@ import kotlinx.serialization.Serializable
     val deviceType: String? = null,
     val deviceName: String? = null,
 )
+// ------- CARTON lane (Output A — Carton Flow): per-carton report detail -------
+// Every expected carton appears with its own identity (suivi/tracking code).
+// Mirrors the report payload `cartons: { received, missing }` — additive:
+// old backends simply send no cartons key and the section hides itself.
+@Serializable data class ReportCartonCardView(
+    val id: String? = null,
+    val externalCartonId: String? = null,
+    val cartonReference: String? = null,
+    val cartonNumber: Int? = null,
+    val totalCartons: Int? = null,
+    val suiviCode: String? = null,
+    val trackingCode: String? = null,
+    val shipmentCode: String? = null,
+)
+@Serializable data class ReportReceivedCartonView(
+    val scannedCode: String? = null,
+    val status: String? = null,
+    val scanType: String? = null,
+    val source: String? = null,
+    val receivedAt: String? = null,
+    val receivedBy: String? = null,
+    val carton: ReportCartonCardView? = null,
+)
+@Serializable data class ReportMissingCartonView(
+    val id: String? = null,
+    val externalCartonId: String? = null,
+    val cartonReference: String? = null,
+    val cartonNumber: Int? = null,
+    val totalCartons: Int? = null,
+    val suiviCode: String? = null,
+    val trackingCode: String? = null,
+    val shipmentCode: String? = null,
+)
+@Serializable data class ReportCartonsView(
+    val received: List<ReportReceivedCartonView> = emptyList(),
+    val missing: List<ReportMissingCartonView> = emptyList(),
+)
 @Serializable data class ReceivingReportView(
     val session: ReportSessionView,
     val arrival: ReportArrivalView? = null,
@@ -77,6 +114,7 @@ import kotlinx.serialization.Serializable
     val reportId: String? = null,
     val totals: ReportTotals = ReportTotals(),
     val lines: List<ReportLineView> = emptyList(),
+    val cartons: ReportCartonsView? = null,
     val manual: ReportManualView? = null,
     val photos: List<ReportPhotoView> = emptyList(),
     val actor: ReportActorView? = null,

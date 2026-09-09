@@ -179,8 +179,10 @@ fun ReceivingReportScreen(
                         "Locked and sent to supervisors. Confirmed products are ready for the next station.")
                     ReportHeader(state.sessionCode, state.arrivalCode, state.reportStatus,
                         state.report?.taskStatus, state.report?.actor?.workerName,
-                        state.report?.actor?.stationCode, state.report?.submittedAt)
+                        state.report?.actor?.stationCode, state.report?.session?.startedAt,
+                        state.report?.submittedAt)
                     ReportTotals(state)
+                    ReportCartons(state)
                     ReportLines(state, onDamage = { damageLine = it })
                     ReportManual(description, observation, state.canMutate && !state.loading,
                         { description = it }, { observation = it })
@@ -251,7 +253,7 @@ fun ReceivingReportScreen(
 @Composable
 private fun ReportHeader(
     session: String?, arrival: String?, status: String, task: String?,
-    workerName: String?, stationCode: String?, submittedAt: String?,
+    workerName: String?, stationCode: String?, startedAt: String?, submittedAt: String?,
 ) {
     TerminalPanel("REPORT") {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs),
@@ -263,10 +265,18 @@ private fun ReportHeader(
             style = MaterialTheme.typography.bodyMedium)
         Text("Worker ${workerName ?: "—"} · Station ${stationCode ?: "—"}",
             style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)
-        if (submittedAt != null) Text("Sent $submittedAt",
+        if (startedAt != null) Text("Opened ${shortStamp(startedAt)}",
+            style = MaterialTheme.typography.bodySmall, color = TerminalTokens.muted)
+        if (submittedAt != null) Text("Sent ${shortStamp(submittedAt)}",
             style = MaterialTheme.typography.bodySmall, color = TerminalTokens.muted)
     }
 }
+
+/** Compact local date+time stamp ("09 Sep 14:32") for report header/timestamps. */
+private fun shortStamp(iso: String): String = runCatching {
+    java.time.Instant.parse(iso).atZone(java.time.ZoneId.systemDefault())
+        .format(java.time.format.DateTimeFormatter.ofPattern("dd MMM HH:mm"))
+}.getOrDefault(iso)
 
 @Composable
 private fun ReportTotals(state: com.ayrovi.worker.domain.ReceivingReportState) {
@@ -287,6 +297,59 @@ private fun ReportTotals(state: com.ayrovi.worker.domain.ReceivingReportState) {
             style = MaterialTheme.typography.bodySmall, color = TerminalTokens.muted)
         if (t.missingCartons > 0) TerminalNotice("CARTONS MISSING",
             "${t.missingCartons} carton(s) not yet received.", TerminalTone.WARNING)
+    }
+}
+
+/**
+ * CARTON lane (Output A — Carton Flow): per-carton verification rows —
+ * received scans (scanned code, suivi/tracking, receipt time) and expected
+ * cartons never scanned (missing). Auto-filled from the verification, no
+ * manual entry. Hidden entirely when the backend sends no carton detail.
+ */
+@Composable
+private fun ReportCartons(state: com.ayrovi.worker.domain.ReceivingReportState) {
+    val cartons = state.report?.cartons ?: return
+    if (cartons.received.isEmpty() && cartons.missing.isEmpty()) return
+    TerminalPanel("CARTONS") {
+        if (cartons.received.isNotEmpty()) {
+            Text("RECEIVED", style = MaterialTheme.typography.labelMedium, color = TerminalTokens.muted)
+            cartons.received.forEach { row ->
+                val card = row.carton
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(card?.externalCartonId ?: row.scannedCode ?: "CARTON",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                        val suivi = card?.suiviCode ?: card?.trackingCode
+                        if (suivi != null) Text("Suivi $suivi",
+                            style = MaterialTheme.typography.bodySmall, color = TerminalTokens.muted)
+                    }
+                    row.receivedAt?.let {
+                        Text(shortStamp(it), style = MaterialTheme.typography.bodySmall,
+                            color = TerminalTokens.muted)
+                    }
+                    StatusBadge("RECEIVED", TerminalTone.SUCCESS)
+                }
+            }
+        }
+        if (cartons.missing.isNotEmpty()) {
+            Text("MISSING", style = MaterialTheme.typography.labelMedium, color = TerminalTokens.muted)
+            cartons.missing.forEach { row ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(row.externalCartonId ?: row.cartonReference ?: "CARTON",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                        val suivi = row.suiviCode ?: row.trackingCode
+                        if (suivi != null) Text("Suivi $suivi",
+                            style = MaterialTheme.typography.bodySmall, color = TerminalTokens.muted)
+                    }
+                    StatusBadge("MISSING", TerminalTone.ERROR)
+                }
+            }
+        }
     }
 }
 

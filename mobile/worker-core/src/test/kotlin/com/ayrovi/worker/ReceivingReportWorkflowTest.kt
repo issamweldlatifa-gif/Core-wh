@@ -367,4 +367,56 @@ class ReceivingReportWorkflowTest {
         val loading = open.copy(loading = true)
         assertFalse(loading.canMutate)
     }
+
+    // ------------------ CARTON lane contract (Output A) --------------------
+    @Test fun `report decodes the carton verification section with suivi codes`() {
+        val raw = """
+        {"session":{"id":"s1","code":"WRS-1","status":"RECEIVING","startedAt":"2026-09-09T00:00:00Z"},
+         "arrival":{"id":"a1","code":"WAR-001","customerName":"Client","storeName":"Store","status":"EXPECTED"},
+         "taskStatus":"IN_PROGRESS","reportStatus":"NONE","reportId":null,
+         "totals":{"expectedProducts":1,"confirmedProducts":1,"missingProducts":0,"damagedProducts":0,
+          "expectedUnits":5,"scannedUnits":5,"confirmedUnits":5,"missingUnits":0,"damagedUnits":0,
+          "expectedCartons":2,"receivedCartons":1,"missingCartons":1},
+         "lines":[{"receivingProductId":"p1","sku":"SKU-A","reference":"SKU-A","productName":"Shirt",
+          "expectedQuantity":5,"scannedQuantity":5,"confirmedQuantity":5,"missingQuantity":0,"damagedQuantity":0,
+          "result":"CONFIRMED","note":null}],
+         "cartons":{"received":[{"scannedCode":"CTN-000123","status":"RECEIVED","scanType":"QR","source":"CAMERA",
+           "receivedAt":"2026-09-09T01:30:00Z","receivedBy":"w1",
+           "carton":{"id":"c1","externalCartonId":"CTN-000123","cartonReference":"SHP-01","cartonNumber":1,
+            "totalCartons":2,"suiviCode":"TRK-938472","trackingCode":null,"shipmentCode":"WSH-000001"}}],
+          "missing":[{"id":"c2","externalCartonId":"CTN-000124","cartonReference":"SHP-02","cartonNumber":2,
+            "totalCartons":2,"suiviCode":"TRK-938473","trackingCode":null,"shipmentCode":"WSH-000001"}]},
+         "manual":null,"photos":[],"actor":{"workerId":"w1","workerName":"Worker"},
+         "submittedAt":null,"reviewedAt":null,"closedAt":null,"reviewNote":null,"handoffReadyAt":null}
+        """.trimIndent()
+        val view = json.decodeFromString(ReceivingReportView.serializer(), raw)
+        val cartons = checkNotNull(view.cartons)
+        // Received row keeps its own identity AND the matched carton card suivi.
+        val received = cartons.received.single()
+        assertEquals("CTN-000123", received.scannedCode)
+        assertEquals("RECEIVED", received.status)
+        assertEquals("QR", received.scanType)
+        assertEquals("CTN-000123", received.carton?.externalCartonId)
+        assertEquals("TRK-938472", received.carton?.suiviCode)
+        // Missing carton is reported by its expected identity (never dropped).
+        val missing = cartons.missing.single()
+        assertEquals("CTN-000124", missing.externalCartonId)
+        assertEquals("TRK-938473", missing.suiviCode)
+        assertEquals(1, view.totals.receivedCartons)
+    }
+
+    @Test fun `report without a carton section still decodes (old backend)`() {
+        val raw = """
+        {"session":{"id":"s1","code":"WRS-1","status":"RECEIVING","startedAt":"2026-09-09T00:00:00Z"},
+         "arrival":{"id":"a1","code":"WAR-001","customerName":"Client","storeName":"Store","status":"EXPECTED"},
+         "taskStatus":"IN_PROGRESS","reportStatus":"NONE","reportId":null,
+         "totals":{"expectedProducts":1,"confirmedProducts":1,"missingProducts":0,"damagedProducts":0,
+          "expectedUnits":5,"scannedUnits":5,"confirmedUnits":5,"missingUnits":0,"damagedUnits":0,
+          "expectedCartons":0,"receivedCartons":0,"missingCartons":0},
+         "lines":[],"manual":null,"photos":[],"actor":null}
+        """.trimIndent()
+        val view = json.decodeFromString(ReceivingReportView.serializer(), raw)
+        assertNull(view.cartons)
+        assertEquals(0, view.totals.expectedCartons)
+    }
 }
