@@ -306,7 +306,7 @@ class TsStorageWorkflow(
                     }
                     else -> {
                         mutable.update { it.copy(busy = false) }
-                        text(MessageTone.ERROR, "NOT SENT TO REVIEW", res.message ?: "Try again or rescan.")
+                        text(MessageTone.ERROR, "NOT SENT TO REVIEW", "Try again or rescan.")
                     }
                 }
             } catch (cancelled: CancellationException) {
