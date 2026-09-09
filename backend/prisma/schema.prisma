@@ -2328,11 +2328,3 @@ model OperationCorrection {
   @@index([createdAt])
   @@map("operation_corrections")
 }
-}
-ndex([entityType, entityId])
-  @@index([receivingSessionId])
-  @@index([adminId])
-  @@index([createdAt])
-  @@map("operation_corrections")
-}
-}
