@@ -233,6 +233,12 @@ enum AuditAction {
   // Product Flow — Receiving -> Temporary Storage handoff + intake.
   TEMPORARY_STORAGE_HANDOFF // locked CONFIRMED lines handed to the STAGING pool at report submit
   TEMPORARY_STORAGE_ACCEPTED // a STAGING station accepted a waiting product move
+  // Temporary Storage station — unit placement into section containers.
+  PRODUCT_STORED_IN_TEMP_CONTAINER // a confirmed product unit was placed in a Temporary Storage container
+  TEMP_SCAN_REJECTED // a Temporary Storage scan was rejected (wrong container / carton attempt / no budget / unknown) — nothing was stored
+  CONTAINER_FULL // a Temporary Storage container reached its capacity (target moves to the next one)
+  TEMPORARY_STORAGE_COMPLETED // worker closed the Temporary Storage shift with a Rapport de Fin
+  CARTON_CLOSED_AT_RECEIVING // carton path closed at Receiving (admin/blocked) — never enters Temporary Storage
 }
 
 enum ApiClientStatus {
@@ -1047,6 +1053,10 @@ model ExpectedArrival {
   arrivalReference      String?
   customerId            String // reference/projection only; no local customer row
   customerName          String
+  /// CRM customer surname projection (Nom + Prénom flow: CRM -> SQ card ->
+  /// Receiving -> Verification -> Temporary Storage). CRM is the only
+  /// writer; optional per store, never guessed.
+  customerSurname       String?
   storeId               String?
   storeName             String?
   status                ExpectedArrivalStatus @default(EXPECTED)
@@ -1977,6 +1987,10 @@ model ProductStationMove {
   reason  String?
   acceptedAt DateTime?
 
+  /// Temporary Storage placement ledger rows that consumed this move's
+  /// confirmed budget (one row per stored/reviewed unit).
+  tempStorageItems TemporaryStorageItem[]
+
   createdAt DateTime @default(now())
 
   @@index([toDepartment, acceptedAt])
@@ -1984,6 +1998,145 @@ model ProductStationMove {
   @@index([reportLineId])
   @@index([receivingSessionId])
   @@map("product_station_moves")
+}
+
+// ===========================================================================
+// TEMPORARY STORAGE STATION — containerized staging of CONFIRMED products
+// (Product Flow only). Routing key = Customer Nom from the SQ/arrival card:
+// first letter -> Section -> Temporary Container. Containers are created
+// dynamically from real data (never static mock A1/A2/...) and carry a
+// configurable capacity (SystemSetting `temporary_storage.container_capacity`,
+// default 20). Cartons NEVER enter this domain.
+// ===========================================================================
+
+/// One physical staging container inside a Temporary Storage station, e.g.
+/// A1 (Section A, first customer batch), 20 units capacity. A container is
+/// dedicated to ONE customer batch so customers never mix; numbering stays
+/// sequential per section letter within the station (A1..A3 for Ahmed,
+/// A4... for the next A customer). Status follows
+/// EMPTY -> ACTIVE -> FULL (-> REVIEW only via admin correction).
+enum TempContainerStatus {
+  EMPTY
+  ACTIVE
+  FULL
+  REVIEW
+}
+
+/// Placement ledger row: ONE confirmed product unit (qty 1 per scan) stored
+/// into a Temporary Storage container — or flagged REVIEW when it cannot be
+/// stored (unknown / unconfirmed / no customer mapping / workflow problem).
+enum TempStorageItemStatus {
+  STORED
+  REVIEW
+}
+
+model TemporaryStorageContainer {
+  id        String   @id @default(uuid())
+  /// Sequential per section letter at the station: A1, A2, A3, B1, ...
+  code            String
+  stationId       String
+  sectionLetter   String // A..Z (uppercase); '0' = non-Latin fallback section
+  /// Customer batch this container serves (CRM name projection, snapshot).
+  customerName    String
+  capacity        Int      @default(20)
+  currentQuantity Int      @default(0)
+  status          TempContainerStatus @default(ACTIVE)
+  openedAt        DateTime @default(now())
+  openedBy        String?
+  closedAt        DateTime?
+  closedBy        String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  items TemporaryStorageItem[]
+
+  @@unique([stationId, code])
+  @@index([stationId, status])
+  @@index([sectionLetter])
+  @@map("temporary_storage_containers")
+}
+
+model TemporaryStorageItem {
+  id           String @id @default(uuid())
+  /// Client-generated idempotency key (one physical scan = one key). A
+  /// retried HTTP call with the same key never double-counts.
+  operationId  String @unique
+  /// Station where the unit was scanned (scoping even for REVIEW rows that
+  /// have no container yet).
+  stationId    String?
+  containerId  String?
+  container    TemporaryStorageContainer? @relation(fields: [containerId], references: [id], onDelete: SetNull)
+  /// CONFIRMED receiving line the placed unit came from (budget owner).
+  productMoveId String?
+  productMove  ProductStationMove? @relation(fields: [productMoveId], references: [id], onDelete: SetNull)
+  /// Product identity snapshot.
+  sku          String?
+  reference    String?
+  productName  String?
+  /// Routing snapshot (Customer Nom -> first letter).
+  customerName String?
+  sectionLetter String?
+  quantity     Int @default(1)
+  status       TempStorageItemStatus @default(STORED)
+  reviewReason String?
+  scannedBy    String?
+  deviceType   String?
+  deviceName   String?
+  scannedAt    DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  @@index([containerId])
+  @@index([productMoveId])
+  @@index([stationId])
+  @@index([status])
+  @@map("temporary_storage_items")
+}
+
+/// Rapport de Fin — Temporary Storage (Output of the station, sent to
+/// Admin -> Reports). One row per station shift close; scope = everything
+/// placed/reviewed at the station since the previous report (or all time).
+model TemporaryStorageReport {
+  id          String @id @default(uuid())
+  stationId   String?
+  stationCode String?
+  workerId    String?
+  workerName  String?
+  deviceType  String?
+  deviceName  String?
+  status      TemporaryStorageReportStatus @default(SUBMITTED)
+  observation String?
+
+  /// Window covered: startedAt = previous report finishedAt (or null),
+  /// finishedAt = close time.
+  startedAt DateTime?
+  finishedAt DateTime?
+
+  sectionsProcessed Json? // [{letter, customerName, containers, stored}]
+  containersUsed   Int @default(0)
+  productsReceived Int @default(0) // confirmed units handed to the station in the window
+  productsStored   Int @default(0)
+  productsInReview Int @default(0)
+  exceptions       Int @default(0)
+
+  submittedBy String?
+  submittedAt DateTime?
+  reviewedBy  String?
+  reviewedAt  DateTime?
+  reviewNote  String?
+  closedBy    String?
+  closedAt    DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([stationId, finishedAt])
+  @@index([status])
+  @@map("temporary_storage_reports")
+}
+
+enum TemporaryStorageReportStatus {
+  SUBMITTED
+  REVIEWED
+  CLOSED
 }
 
 enum CardType {

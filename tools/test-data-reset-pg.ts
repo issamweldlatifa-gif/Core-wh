@@ -695,15 +695,15 @@ async function main() {
     testWorkerId = existing.rows[0].id;
     console.log(`  ✅ TEST_WORKER already exists (id: ${testWorkerId.slice(0,8)}...)`);
     await query(client, `
-      UPDATE users SET name = 'TEST_WORKER', "passwordHash" = $1, "pinHash" = NULL,
+      UPDATE users SET name = 'TEST_WORKER', "passwordHash" = $1, "pinHash" = NULL, "updatedAt" = now(),
              "credentialMode" = 'PASSWORD', status = 'ACTIVE'
       WHERE id = $2
     `, [hash, testWorkerId]);
     console.log(`  ✅ Updated to clean state`);
   } else {
     const result = await query(client, `
-      INSERT INTO users (id, name, "employeeCode", email, "passwordHash", "credentialMode", status)
-      VALUES (gen_random_uuid(), 'TEST_WORKER', $1, $1, $2, 'PASSWORD', 'ACTIVE')
+      INSERT INTO users (id, name, "employeeCode", email, "passwordHash", "credentialMode", status, "createdAt", "updatedAt")
+      VALUES (gen_random_uuid(), 'TEST_WORKER', $1, $1, $2, 'PASSWORD', 'ACTIVE', now(), now())
       RETURNING id
     `, [testWorkerCode, hash]);
     testWorkerId = result.rows[0].id;
