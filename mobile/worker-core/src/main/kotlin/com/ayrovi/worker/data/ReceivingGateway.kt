@@ -41,6 +41,12 @@ interface ReceivingGateway {
     suspend fun arrivals(): List<ArrivalRow>
     suspend fun receivingSession(sessionId: String): ReceivingSession
     suspend fun activeSession(arrivalIdOrCode: String): ReceivingSession?
+    /**
+     * ORDER 04 — the reportable receiving session in ONE call (no arrival
+     * loop). Null when nothing is reportable. Older backends answer 404: the
+     * caller falls back to the arrivals + activeSession loop.
+     */
+    suspend fun activeReceivingSession(): ReceivingSession?
     suspend fun startReceiving(arrivalIdOrCode: String): ReceivingSession
 
     /** PRODUIT lane: confirm a PRODUCT card matched on the device (QR / barcode / OCR SKU / reference). */
@@ -66,4 +72,20 @@ interface ReceivingGateway {
     suspend fun completeSession(sessionId: String): ReceivingSession
     suspend fun flagSession(sessionId: String, reason: String, sku: String? = null, code: String? = null): ReceivingSession
     suspend fun resolveDiscrepancy(discrepancyId: String, resolution: String): ReceivingSession
+
+    // ---------------- CONFIRMATION REPORT (ORDER 01 verification report) ----------------
+    /** Verification report view: live auto data, or the locked snapshot after submit. */
+    suspend fun report(sessionId: String): ReceivingReportView
+    /** Save manual fields + photos as DRAFT (replaces the photo set). */
+    suspend fun saveReportDraft(
+        sessionId: String, description: String?, observation: String?,
+        photos: List<ReportPhotoInput>,
+    ): ReceivingReportView
+    /** Declare damaged units on a verification line (open session, unlocked report). */
+    suspend fun markDamage(sessionId: String, lineId: String, quantity: Int, note: String?): DamageResultView
+    /** CONFIRM & SEND: lock the snapshot, record results, notify admins. */
+    suspend fun submitReport(
+        sessionId: String, description: String?, observation: String?,
+        photos: List<ReportPhotoInput>,
+    ): ReceivingReportView
 }

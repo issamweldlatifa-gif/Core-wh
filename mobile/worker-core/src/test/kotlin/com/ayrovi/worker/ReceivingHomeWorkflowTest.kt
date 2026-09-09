@@ -261,4 +261,80 @@ class ReceivingHomeWorkflowTest {
         flow.openProduct(); runCurrent()
         assertFalse(flow.state.value.canScan)
     }
+
+    // ---------------- VERDICTS + RETRY (ORDER 03) -------------------
+    // The backend verdict is VISIBLE on the lane (green/red), a failed VERIFY
+    // never strands the lane on "Verifying...", and RETRY re-submits the kept
+    // attempt — but can never replay a success.
+
+    @Test fun `successful product confirm shows a green success`() = runTest {
+        val backend = HomeBackend()
+        val flow = workflow(backend)
+        flow.openProduct(); runCurrent()
+        flow.scan(scan("SKU/A-01")); runCurrent()
+        assertEquals(HomeStep.PRODUCT_SCAN, flow.state.value.step)
+        assertEquals(MessageTone.SUCCESS, flow.state.value.message?.tone)
+        assertEquals("PRODUCT RECEIVED", flow.state.value.message?.title)
+    }
+
+    @Test fun `successful carton confirm shows a green success`() = runTest {
+        val backend = HomeBackend()
+        val flow = workflow(backend)
+        flow.openCarton(); runCurrent()
+        flow.scan(scan("CTN-001")); runCurrent()
+        assertEquals(HomeStep.CARTON_SCAN, flow.state.value.step)
+        assertEquals(MessageTone.SUCCESS, flow.state.value.message?.tone)
+        assertEquals("CARTON RECEIVED", flow.state.value.message?.title)
+    }
+
+    @Test fun `verdict kinds map to message tones`() = runTest {
+        val warnings = listOf("CARD_ALREADY_COMPLETE", "TRACKING_AMBIGUOUS")
+        val errors = listOf("WRONG_SHIPMENT", "MISMATCH")
+        (warnings + errors).forEach { kind ->
+            val inner = HomeBackend()
+            val gateway = object : ReceivingGateway by inner {
+                override suspend fun homeConfirmCarton(
+                    identifier: String, identifierType: String, operationId: String, source: String, startedAt: String?,
+                ): HomeScanResult = HomeScanResult(ok = kind != "MISMATCH",
+                    flash = FlashView(kind = kind, cardType = "CARTON", code = identifier), home = inner.receivingHome())
+            }
+            val flow = ReceivingHomeWorkflow(gateway, "worker", perms, this).also {
+                it.updateAccess(perms, true); it.initialize(); runCurrent()
+            }
+            flow.openCarton(); runCurrent()
+            flow.scan(scan("CTN-001")); runCurrent()
+            val expected = if (kind in warnings) MessageTone.WARNING else MessageTone.ERROR
+            assertEquals(expected, flow.state.value.message?.tone, "$kind must map to $expected")
+        }
+    }
+
+    @Test fun `failed confirm leaves review with a red error and offers retry`() = runTest {
+        val backend = HomeBackend()
+        backend.confirmFailure = WorkerRepository.ApiException(400, "bad request rehearsal")
+        val flow = workflow(backend)
+        flow.openProduct(); runCurrent()
+        flow.scan(scan("SKU/A-01")); runCurrent()
+        // Red error, review kept, lane back on its scanner (never stuck on "Verifying...").
+        assertEquals(MessageTone.ERROR, flow.state.value.message?.tone)
+        assertNotNull(flow.state.value.productReview)
+        assertEquals(HomeStep.PRODUCT_SCAN, flow.state.value.step)
+        // The retry re-submits the same attempt with a fresh operation id.
+        backend.confirmFailure = null
+        flow.retry(); runCurrent()
+        assertEquals(2, backend.calls.count { it == "home-product" })
+        assertEquals(MessageTone.SUCCESS, flow.state.value.message?.tone)
+        assertNull(flow.state.value.productReview)
+    }
+
+    @Test fun `retry() does not replay after success`() = runTest {
+        val backend = HomeBackend()
+        val flow = workflow(backend)
+        flow.openProduct(); runCurrent()
+        flow.scan(scan("SKU/A-01")); runCurrent()
+        val calls = backend.calls.count { it == "home-product" }
+        flow.retry(); runCurrent()
+        assertEquals(calls, backend.calls.count { it == "home-product" }, "retry after success must not re-submit")
+        assertEquals(MessageTone.SUCCESS, flow.state.value.message?.tone)
+    }
+
 }

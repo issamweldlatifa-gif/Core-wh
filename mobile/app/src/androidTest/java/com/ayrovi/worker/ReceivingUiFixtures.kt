@@ -78,6 +78,7 @@ internal class ReceivingUiGateway(expectedCartons: Int = 1, var empty: Boolean =
     override suspend fun arrivals() = listOf(ArrivalRow(id = "arrival", code = "WAR-TEST-001"))
     override suspend fun receivingSession(sessionId: String): ReceivingSession = throw UnsupportedOperationException("home flow")
     override suspend fun activeSession(arrivalIdOrCode: String): ReceivingSession? = null
+    override suspend fun activeReceivingSession(): ReceivingSession? = null
     override suspend fun startReceiving(arrivalIdOrCode: String): ReceivingSession = throw UnsupportedOperationException("home flow")
     override suspend fun confirmProduct(sessionId: String, identifier: String, identifierType: String, quantity: Int, operationId: String, source: String, startedAt: String?): ReceivingSession = throw UnsupportedOperationException("home flow")
     override suspend fun confirmCarton(sessionId: String, identifier: String, identifierType: String, operationId: String, source: String, startedAt: String?): ReceivingSession = throw UnsupportedOperationException("home flow")
@@ -90,6 +91,11 @@ internal class ReceivingUiGateway(expectedCartons: Int = 1, var empty: Boolean =
     // CARTON FIX + Push registration — no-op for UI fixtures
     override suspend fun registerPushToken(token: String, platform: String, deviceId: String?) {}
     override suspend fun unregisterPushToken(token: String) {}
+    // Confirmation report — unused by the home UI fixtures.
+    override suspend fun report(sessionId: String): ReceivingReportView = throw UnsupportedOperationException("home flow")
+    override suspend fun saveReportDraft(sessionId: String, description: String?, observation: String?, photos: List<ReportPhotoInput>): ReceivingReportView = throw UnsupportedOperationException("home flow")
+    override suspend fun markDamage(sessionId: String, lineId: String, quantity: Int, note: String?): DamageResultView = throw UnsupportedOperationException("home flow")
+    override suspend fun submitReport(sessionId: String, description: String?, observation: String?, photos: List<ReportPhotoInput>): ReceivingReportView = throw UnsupportedOperationException("home flow")
 }
 
 internal class RecordingAudio : AudioFeedback {

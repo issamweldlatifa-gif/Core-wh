@@ -48,8 +48,8 @@ android {
         applicationId = "com.ayrovi.worker"
         minSdk = 26
         targetSdk = 35
-        versionCode = 45
-        versionName = "1.5.1-rc1"
+        versionCode = 49
+        versionName = "1.5.5"
         buildConfigField("String", "API_BASE_URL", "\"${apiBaseUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
         buildConfigField("boolean", "WORKER_LEGACY_FALLBACK", legacyFallback.get().toString())
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -75,6 +75,9 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+    testOptions {
+        unitTests.all { it.useJUnitPlatform() }
     }
 }
 
@@ -110,6 +113,10 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
+    // JVM unit tests (ViewModel regression tests) — same stack as :worker-core.
+    testImplementation(kotlin("test-junit5"))
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.10.2")
 }
 
 // No debug-signed or unsigned artifact can be advertised as a successful Release build.

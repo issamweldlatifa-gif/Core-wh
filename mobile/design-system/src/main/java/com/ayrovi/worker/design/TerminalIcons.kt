@@ -16,7 +16,7 @@ enum class TerminalIcon(@DrawableRes val resource: Int) {
     SETTINGS(R.drawable.ic_terminal_settings), BACK(R.drawable.ic_terminal_back), MENU(R.drawable.ic_terminal_menu),
     CAMERA(R.drawable.ic_terminal_camera), MANUAL(R.drawable.ic_terminal_manual), QUEUE(R.drawable.ic_terminal_queue),
     CLOSE(R.drawable.ic_terminal_close), PAUSE(R.drawable.ic_terminal_pause), CHECK(R.drawable.ic_terminal_check),
-    ADD(R.drawable.ic_terminal_add), REMOVE(R.drawable.ic_terminal_remove),
+    ADD(R.drawable.ic_terminal_add), REMOVE(R.drawable.ic_terminal_remove), REPORT(R.drawable.ic_terminal_report),
 }
 
 @Composable

@@ -231,6 +231,16 @@ class WorkerAppViewModel(
         }
     }
 
+    /**
+     * A queue tile for a task that is not piloted on this handset yet
+     * (Sorting, Putaway, …). The tile stays pressable and answers with an
+     * explicit notice instead of silently opening Receiving — every lane keeps
+     * its own action.
+     */
+    fun noticeTask(label: String) {
+        mutable.update { it.copy(message = OperationalMessage(label.uppercase(), "This task is not piloted on this handset yet. Receiving stays available.", MessageTone.INFO)) }
+    }
+
     fun logout() {
         if (mutable.value.busy) return
         explicitSignOut = true
