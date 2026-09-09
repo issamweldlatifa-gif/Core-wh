@@ -964,6 +964,38 @@ export class ReceivingService {
     return s ? this.sessionDetail(s.id) : null;
   }
 
+  /**
+   * ORDER 04 — the worker's reportable receiving session in ONE call.
+   *
+   * The report used to resolve this with N+1 calls (arrivals + one
+   * active-session probe per arrival): slow to open on real networks and dead
+   * entirely when the arrival list stalls. This returns the latest open
+   * session directly, else the latest completed session whose report is still
+   * actionable (no locked report yet), else null. Receiving is a shared task
+   * (permission-checked at the route), so no per-worker filter applies.
+   */
+  async activeReceivingSession() {
+    const open = await this.prisma.receivingSession.findFirst({
+      where: { status: { in: ['RECEIVING', 'PAUSED'] } },
+      orderBy: { startedAt: 'desc' },
+    });
+    if (open) return this.sessionDetail(open.id);
+    const candidates = await this.prisma.receivingSession.findMany({
+      where: { status: { in: ['COMPLETED', 'COMPLETED_WITH_DISCREPANCY'] } },
+      orderBy: { startedAt: 'desc' },
+      take: 5,
+      select: { id: true },
+    });
+    for (const c of candidates) {
+      const rep = await this.prisma.receivingReport.findUnique({
+        where: { receivingSessionId: c.id },
+        select: { status: true },
+      });
+      if (!rep || rep.status === 'DRAFT') return this.sessionDetail(c.id);
+    }
+    return null;
+  }
+
   // ==================================================================
   // RECEIVING HOME — the automatic-dispatch worker feed.
   //

@@ -23,6 +23,7 @@ sealed interface ReceivingHomeIntent {
     data object BackHome : ReceivingHomeIntent
     data object Confirm : ReceivingHomeIntent
     data object Refresh : ReceivingHomeIntent
+    data object Retry : ReceivingHomeIntent
 }
 
 class ReceivingHomeViewModel(
@@ -95,6 +96,7 @@ class ReceivingHomeViewModel(
             ReceivingHomeIntent.BackHome -> { scanner.rearm(); workflow.backToHome() }
             ReceivingHomeIntent.Confirm -> workflow.confirm()
             ReceivingHomeIntent.Refresh -> workflow.refresh()
+            ReceivingHomeIntent.Retry -> { scanner.rearm(); workflow.retry() }
         }
     }
 }
