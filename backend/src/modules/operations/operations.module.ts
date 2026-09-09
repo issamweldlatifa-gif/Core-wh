@@ -6,6 +6,7 @@ import { OperationsService } from './operations.service';
 import { StationsService } from './stations.service';
 import { CorrectionsService } from './corrections.service';
 import { TerminalService } from './terminal.service';
+import { ReceivingModule } from '../receiving/receiving.module';
 import {
   OperationsController,
   StationsController,
@@ -21,7 +22,7 @@ import {
  * (§7/§8), keeping ReceivingService the single writer for normal scanning.
  */
 @Module({
-  imports: [PrismaModule, AuditModule, AssignmentsModule],
+  imports: [PrismaModule, AuditModule, AssignmentsModule, ReceivingModule],
   controllers: [TerminalController, StationsController, OperationsController],
   providers: [OperationsService, StationsService, CorrectionsService, TerminalService],
   exports: [StationsService, TerminalService],

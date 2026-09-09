@@ -393,6 +393,63 @@ export interface ContainerDetail {
   }>;
 }
 
+/** ORDER 01 — verification reports (admin surface). */
+export interface AdminReportTotals {
+  expectedProducts: number;
+  confirmedProducts: number;
+  missingProducts: number;
+  damagedProducts: number;
+  expectedUnits: number;
+  scannedUnits: number;
+  confirmedUnits: number;
+  missingUnits: number;
+  damagedUnits: number;
+  expectedCartons: number;
+  receivedCartons: number;
+  missingCartons: number;
+}
+
+export interface AdminReportRow {
+  id: string;
+  sessionId: string;
+  sessionCode: string;
+  sessionStatus: string;
+  arrivalCode: string;
+  customerName: string;
+  status: string;
+  totals: { expectedUnits: number; scannedUnits: number; confirmedUnits: number; missingUnits: number; damagedUnits: number };
+  workerName: string | null;
+  submittedAt: string | null;
+  reviewedAt: string | null;
+  closedAt: string | null;
+}
+
+export interface AdminReportDetail {
+  id: string;
+  status: string;
+  session: { id: string; code: string; status: string };
+  arrival: { id: string; code: string; customerName: string; storeName: string | null };
+  taskStatus: string;
+  totals: AdminReportTotals;
+  lines: Array<{
+    id: string; sku: string | null; reference: string | null; productName: string | null;
+    expectedQuantity: number; scannedQuantity: number; confirmedQuantity: number;
+    missingQuantity: number; damagedQuantity: number; result: string; note: string | null;
+  }>;
+  manual: { description: string | null; observation: string | null };
+  photos: Array<{ id: string; lineId: string | null; dataUrl: string; caption: string | null; takenBy: string | null; takenAt: string }>;
+  actor: {
+    workerId: string | null; workerName: string | null; stationId: string | null;
+    stationCode: string | null; deviceType: string | null; deviceName: string | null;
+  };
+  submittedAt: string | null;
+  reviewedAt: string | null;
+  reviewNote: string | null;
+  closedAt: string | null;
+  handoffReadyAt: string | null;
+  createdAt: string;
+}
+
 export const adminApi = {
   overview: () => client.get<OpsOverview>('/v1/operations/overview').then((r) => r.data),
   activity: (limit = 60) =>
@@ -484,6 +541,16 @@ export const adminApi = {
     client.get<ContainerDetail>(`/v1/operations/containers/${encodeURIComponent(code)}`).then((r) => r.data),
   containers: (params?: { type?: string; status?: string }) =>
     client.get<ContainerRow[]>('/v1/fulfillment/containers', { params }).then((r) => r.data),
+
+  // ORDER 01 — verification reports (Rapport de Confirme).
+  receivingReports: (params?: { status?: string; q?: string }) =>
+    client.get<AdminReportRow[]>('/v1/operations/receiving-reports', { params }).then((r) => r.data),
+  receivingReport: (id: string) =>
+    client.get<AdminReportDetail>(`/v1/operations/receiving-reports/${id}`).then((r) => r.data),
+  reviewReceivingReport: (id: string, note?: string) =>
+    client.post<AdminReportDetail>(`/v1/operations/receiving-reports/${id}/review`, { note }).then((r) => r.data),
+  closeReceivingReport: (id: string) =>
+    client.post<AdminReportDetail>(`/v1/operations/receiving-reports/${id}/close`, {}).then((r) => r.data),
 
   // Corrections — every one carries a mandatory reason (§39).
   reverseCarton: (receivingCartonId: string, reason: string) =>

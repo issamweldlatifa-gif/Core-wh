@@ -25,6 +25,7 @@ const WorkerTerminalHome = lazy(() => import('./terminal/WorkerTerminalHome'));
 // tiles with live counters + lane-specific scanners). The old arrival-picker
 // receiving screen is removed (terminal/ReceivingTask.tsx deleted).
 const ReceivingHome = lazy(() => import('./terminal/ReceivingHome'));
+const ReceivingReport = lazy(() => import('./terminal/ReceivingReport'));
 const PutawayTask = lazy(() => import('./terminal/PutawayTask'));
 const SortingTask = lazy(() => import('./terminal/SortingTask'));
 const OrderSortingTask = lazy(() => import('./terminal/OrderSortingTask'));
@@ -168,6 +169,10 @@ export default function App() {
             <Route
               path="receiving"
               element={<PermissionGate perm="receiving.execute"><ReceivingHome /></PermissionGate>}
+            />
+            <Route
+              path="receiving/report/:sessionId?"
+              element={<PermissionGate perm="receiving.execute"><ReceivingReport /></PermissionGate>}
             />
             <Route
               path="putaway"

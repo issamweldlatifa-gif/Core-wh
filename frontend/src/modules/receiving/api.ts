@@ -194,6 +194,76 @@ export interface HomeScanResult {
   home: ReceivingHome;
 }
 
+/** ORDER 01 — verification report (Rapport de Confirme) types. */
+export interface ReceivingReportLineView {
+  receivingProductId: string | null;
+  sku: string | null;
+  reference: string | null;
+  productName: string | null;
+  expectedQuantity: number;
+  scannedQuantity: number;
+  confirmedQuantity: number;
+  missingQuantity: number;
+  damagedQuantity: number;
+  result: 'PENDING' | 'CONFIRMED' | 'MISSING' | 'DAMAGED';
+  note: string | null;
+}
+
+export interface ReceivingReportTotals {
+  expectedProducts: number;
+  confirmedProducts: number;
+  missingProducts: number;
+  damagedProducts: number;
+  expectedUnits: number;
+  scannedUnits: number;
+  confirmedUnits: number;
+  missingUnits: number;
+  damagedUnits: number;
+  expectedCartons: number;
+  receivedCartons: number;
+  missingCartons: number;
+}
+
+export interface ReceivingReportPhotoInput {
+  dataUrl: string;
+  caption?: string | null;
+  lineId?: string | null;
+}
+
+export interface ReceivingReportPhotoView {
+  id: string;
+  lineId: string | null;
+  dataUrl: string;
+  caption: string | null;
+  takenBy: string | null;
+  takenAt: string;
+}
+
+export interface ReceivingReportView {
+  session: {
+    id: string; code: string; status: string; startedAt: string; completedAt: string | null;
+    deviceType: string | null; deviceName: string | null;
+  };
+  arrival: { id: string; code: string; customerName: string; storeName: string | null; status: string };
+  taskStatus: string;
+  reportStatus: string;
+  reportId: string | null;
+  totals: ReceivingReportTotals;
+  lines: ReceivingReportLineView[];
+  manual: { description: string | null; observation: string | null };
+  photos: ReceivingReportPhotoView[];
+  actor: {
+    workerId: string | null; workerName: string | null; stationId: string | null;
+    stationCode: string | null; deviceType: string | null; deviceName: string | null;
+  };
+  submittedAt: string | null;
+  reviewedAt: string | null;
+  closedAt: string | null;
+  reviewNote: string | null;
+  handoffReadyAt: string | null;
+  notifiedAdmins?: number;
+}
+
 export const api = {
   /** RECEIVING HOME: the worker's available PRODUCT + CARTON cards + counters. */
   home: () => client.get<ReceivingHome>('/v1/receiving/home').then((r) => r.data),
@@ -276,4 +346,21 @@ export const api = {
       .then((r) => r.data),
   complete: (sessionId: string) =>
     client.post<ReceivingSessionDetail>(`/v1/receiving/sessions/${encodeURIComponent(sessionId)}/complete`, {}).then((r) => r.data),
+  /** ORDER 01 — verification report view (live auto data or locked snapshot). */
+  report: (sessionId: string) =>
+    client.get<ReceivingReportView>(`/v1/receiving/sessions/${encodeURIComponent(sessionId)}/report`).then((r) => r.data),
+  /** ORDER 01 — save report draft (description / observation / photos). */
+  saveReport: (sessionId: string, body: { description?: string | null; observation?: string | null; photos?: ReceivingReportPhotoInput[] }) =>
+    client.put<ReceivingReportView>(`/v1/receiving/sessions/${encodeURIComponent(sessionId)}/report`, body).then((r) => r.data),
+  /** ORDER 01 — declare damaged units on a verification line. */
+  markDamage: (sessionId: string, lineId: string, body: { quantity: number; note?: string }) =>
+    client
+      .post<{ lineId: string; verification: { scanned: number; confirmed: number; missing: number; damaged: number; result: string } }>(
+        `/v1/receiving/sessions/${encodeURIComponent(sessionId)}/lines/${encodeURIComponent(lineId)}/damage`,
+        body,
+      )
+      .then((r) => r.data),
+  /** ORDER 01 — CONFIRMER ET ENVOYER. */
+  submitReport: (sessionId: string, body: { description?: string | null; observation?: string | null; photos?: ReceivingReportPhotoInput[] }) =>
+    client.post<ReceivingReportView>(`/v1/receiving/sessions/${encodeURIComponent(sessionId)}/report/submit`, body).then((r) => r.data),
 };

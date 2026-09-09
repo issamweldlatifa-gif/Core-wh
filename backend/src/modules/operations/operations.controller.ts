@@ -7,6 +7,7 @@ import { StationsService } from './stations.service';
 import { CorrectionsService } from './corrections.service';
 import { TerminalService } from './terminal.service';
 import { AssignmentsService, WORKER_ISSUE_TYPES } from '../assignments/assignments.service';
+import { ReceivingReportsService } from '../receiving/receiving-reports.service';
 import { TASK_REGISTRY } from './task-registry';
 import { RequireApplication } from '../../common/decorators/require-application.decorator';
 
@@ -182,6 +183,7 @@ export class OperationsController {
     private readonly ops: OperationsService,
     private readonly correctionsSvc: CorrectionsService,
     private readonly assignmentsSvc: AssignmentsService,
+    private readonly reportsSvc: ReceivingReportsService,
   ) {}
 
   @Get('overview')
@@ -509,5 +511,40 @@ export class OperationsController {
   @ApiOperation({ summary: 'Cancel an open assigned task (legacy alias).' })
   workerTaskCancel(@Param('id') id: string, @Body() body: { reason?: string }, @Req() req: any) {
     return this.ops.workerTaskCancel(id, actorOf(req), body?.reason);
+  }
+
+  // ----------------------------------------------------------------
+  // ORDER 01 — verification reports (Admin read + review + close).
+  // Mutations run through ReceivingReportsService (receiving stays the
+  // single writer); this controller only exposes the admin surface.
+  // ----------------------------------------------------------------
+  @Get('receiving-reports')
+  @RequirePermissions('operations.view')
+  @ApiOperation({ summary: 'ORDER 01: list receiving verification reports.' })
+  @ApiQuery({ name: 'status', required: false })
+  @ApiQuery({ name: 'q', required: false })
+  receivingReports(@Query('status') status?: string, @Query('q') q?: string) {
+    return this.reportsSvc.listReports({ status, q });
+  }
+
+  @Get('receiving-reports/:id')
+  @RequirePermissions('operations.view')
+  @ApiOperation({ summary: 'ORDER 01: full verification report detail (totals + lines + photos + actor).' })
+  receivingReportDetail(@Param('id') id: string) {
+    return this.reportsSvc.reportDetail(id);
+  }
+
+  @Post('receiving-reports/:id/review')
+  @RequirePermissions('operations.correct')
+  @ApiOperation({ summary: 'ORDER 01: mark a submitted report REVIEWED.' })
+  reviewReport(@Param('id') id: string, @Body() body: { note?: string }, @Req() req: any) {
+    return this.reportsSvc.reviewReport(id, { note: body?.note }, { id: actorOf(req).id });
+  }
+
+  @Post('receiving-reports/:id/close')
+  @RequirePermissions('operations.correct')
+  @ApiOperation({ summary: 'ORDER 01: CLOSE a reviewed/submitted report.' })
+  closeReport(@Param('id') id: string, @Req() req: any) {
+    return this.reportsSvc.closeReport(id, { id: actorOf(req).id });
   }
 }

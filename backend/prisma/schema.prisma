@@ -225,6 +225,11 @@ enum AuditAction {
   SHIPPING_VERIFIED // shipping pre-dispatch verification (customer/container/status)
   EXCEPTION_CREATED // worker-reported operational exception (any stage)
   EXCEPTION_RESOLVED // admin resolved an operational exception
+  // ORDER 01 — receiving verification report (Rapport de Confirme).
+  REPORT_SUBMITTED // worker submitted the receiving verification report (CONFIRMER ET ENVOYER)
+  REPORT_REVIEWED // admin/supervisor reviewed the submitted report
+  REPORT_CLOSED // report closed (verification cycle complete)
+  DAMAGE_RECORDED // worker declared damaged units on a receiving product line
 }
 
 enum ApiClientStatus {
@@ -1623,6 +1628,7 @@ model ReceivingSession {
   workerLogs    ReceivingWorkerLog[]
   corrections   OperationCorrection[]
   articleUnits  ArticleUnit[] // pieces born in this session
+  report        ReceivingReport?
   /// Station the session was executed at (§13). SetNull so retiring a
   /// station never destroys receiving history.
   stationId     String?
@@ -1705,6 +1711,12 @@ model ReceivingProduct {
   receivedQuantity Int                    @default(0)
   difference       Int                    @default(0)
   status           ReceivingProductStatus @default(EXPECTED)
+  /// ORDER 01 — damaged units declared by the worker on this line (a subset
+  /// of the scanned units; confirmed = received - damaged).
+  damagedQuantity Int     @default(0)
+  damageNote      String?
+
+  reportLines ReceivingReportLine[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1805,6 +1817,125 @@ model ReceivingWorkerLog {
   @@index([cardType, result])
   @@index([createdAt])
   @@map("receiving_worker_logs")
+}
+
+// ORDER 01 — verification vocabulary (§9). Kept SEPARATE from
+// ReceivingProductStatus/AssignmentStatus on purpose: those enums are shared
+// across stations, while this vocabulary belongs to the receiving
+// verification cycle only (mapping layer, no global renames).
+enum ReceivingVerificationResult {
+  PENDING
+  CONFIRMED
+  MISSING
+  DAMAGED
+}
+
+enum ReceivingReportStatus {
+  DRAFT
+  SUBMITTED
+  REVIEWED
+  CLOSED
+}
+
+/// ORDER 01 — "Rapport de Confirme": the receiving verification report.
+///
+/// One report per receiving session. Auto fields are snapshotted at submit
+/// time (immutable afterwards); manual fields (description / observation /
+/// photos) are filled by the worker. Actor fields are plain snapshots so
+/// history survives user/station/device deletions (same philosophy as
+/// ReceivingWorkerLog).
+model ReceivingReport {
+  id                 String               @id @default(uuid())
+  receivingSessionId String               @unique
+  session            ReceivingSession     @relation(fields: [receivingSessionId], references: [id], onDelete: Cascade)
+  status             ReceivingReportStatus @default(DRAFT)
+
+  // --- auto snapshot (computed at submit, immutable afterwards) ---
+  expectedProducts  Int @default(0)
+  confirmedProducts Int @default(0)
+  missingProducts   Int @default(0)
+  damagedProducts   Int @default(0)
+  expectedUnits     Int @default(0)
+  scannedUnits      Int @default(0)
+  confirmedUnits    Int @default(0)
+  missingUnits      Int @default(0)
+  damagedUnits      Int @default(0)
+  expectedCartons   Int @default(0)
+  receivedCartons   Int @default(0)
+  missingCartons    Int @default(0)
+
+  // --- manual (worker) ---
+  description String?
+  observation String?
+
+  // --- actor snapshot ---
+  workerId    String?
+  workerName  String?
+  stationId   String?
+  stationCode String?
+  deviceType  String?
+  deviceName  String?
+
+  // --- lifecycle ---
+  submittedBy String?
+  submittedAt DateTime?
+  reviewedBy  String?
+  reviewedAt  DateTime?
+  reviewNote  String?
+  closedBy    String?
+  closedAt    DateTime?
+  /// Next-stage handoff marker: CONFIRMED lines prepared for Temporary
+  /// Storage (the physical move itself belongs to the next station).
+  handoffReadyAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lines  ReceivingReportLine[]
+  photos ReceivingReportPhoto[]
+
+  @@index([status])
+  @@map("receiving_reports")
+}
+
+/// ORDER 01 — per-product verification result (snapshot at submit).
+model ReceivingReportLine {
+  id                 String @id @default(uuid())
+  reportId           String
+  report             ReceivingReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  receivingProductId String?
+  receivingProduct   ReceivingProduct? @relation(fields: [receivingProductId], references: [id], onDelete: SetNull)
+  sku                String?
+  reference          String?
+  productName        String?
+  expectedQuantity   Int @default(0)
+  scannedQuantity    Int @default(0)
+  confirmedQuantity  Int @default(0)
+  missingQuantity    Int @default(0)
+  damagedQuantity    Int @default(0)
+  result             ReceivingVerificationResult @default(PENDING)
+  note               String?
+
+  @@index([reportId])
+  @@index([receivingProductId])
+  @@map("receiving_report_lines")
+}
+
+/// ORDER 01 — report photos (base64 data URLs: works on CT40/web with no
+/// external object storage required).
+model ReceivingReportPhoto {
+  id      String @id @default(uuid())
+  reportId String
+  report   ReceivingReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  /// Optional receiving-product id this photo documents.
+  lineId  String?
+  dataUrl String
+  caption String?
+  takenBy String?
+  takenAt DateTime @default(now())
+
+  @@index([reportId])
+  @@map("receiving_report_photos")
 }
 
 enum CardType {

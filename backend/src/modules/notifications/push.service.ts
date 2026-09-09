@@ -100,6 +100,29 @@ export class PushService {
   }
 
   /**
+   * ORDER 01 — notify an explicit user list (e.g. admins on report submit).
+   * Additive helper: same transport + invalid-token cleanup as notifyTaskAudience.
+   */
+  async notifyUsers(userIds: string[], message: PushMessage): Promise<number> {
+    const unique = Array.from(new Set((userIds ?? []).filter(Boolean)));
+    if (unique.length === 0) return 0;
+    const tokens = await this.prisma.pushToken.findMany({
+      where: { userId: { in: unique } },
+      select: { token: true },
+    });
+    if (tokens.length === 0) {
+      this.logger.warn(`notifyUsers: ${unique.length} user(s) but no registered device token.`);
+      return 0;
+    }
+    const list = tokens.map((t) => t.token);
+    const { invalidTokens } = await this.transport.send(list, message);
+    if (invalidTokens.length) {
+      await this.prisma.pushToken.deleteMany({ where: { token: { in: invalidTokens } } });
+    }
+    return list.length - invalidTokens.length;
+  }
+
+  /**
    * CARTON FIX - Unified notifyNewCartonCard
    * Supports both signatures:
    *  - (shipmentCode, cartonCount, trackingNumber) -> legacy / remote

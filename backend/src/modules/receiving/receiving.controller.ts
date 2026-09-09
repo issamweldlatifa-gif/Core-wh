@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Param, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { RequireApplication } from '../../common/decorators/require-application.decorator';
 import { ReceivingService, CardConfirmInput, ProductConfirmInput, MismatchInput } from './receiving.service';
+import { ReceivingReportsService, SaveDraftInput, DamageInput } from './receiving-reports.service';
 
 /**
  * Receiving Terminal API (JWT).
@@ -25,7 +26,10 @@ import { ReceivingService, CardConfirmInput, ProductConfirmInput, MismatchInput 
 @Controller('receiving')
 @RequireApplication('WORKER_NATIVE')
 export class ReceivingController {
-  constructor(private readonly receiving: ReceivingService) {}
+  constructor(
+    private readonly receiving: ReceivingService,
+    private readonly reports: ReceivingReportsService,
+  ) {}
 
   private actor(req: any) {
     const user = req.user;
@@ -178,5 +182,42 @@ export class ReceivingController {
   @ApiOperation({ summary: 'Complete receiving (full match -> RECEIVED; else needs supervisor). Duplicate completion is rejected.' })
   complete(@Param('id') id: string, @Req() req: any) {
     return this.receiving.complete(id, this.actor(req));
+  }
+
+  // ----------------------------------------------------------------
+  // ORDER 01 — Rapport de Confirme (receiving verification report).
+  // Additive worker endpoints; existing flows untouched.
+  // ----------------------------------------------------------------
+  @Get('sessions/:id/report')
+  @RequirePermissions('receiving.view')
+  @ApiOperation({ summary: 'ORDER 01: verification report view (auto totals + lines + manual fields + photos).' })
+  report(@Param('id') id: string, @Req() req: any) {
+    return this.reports.getReport(id, this.actor(req));
+  }
+
+  @Put('sessions/:id/report')
+  @RequirePermissions('receiving.execute')
+  @ApiOperation({ summary: 'ORDER 01: save report draft (description / observation / photos).' })
+  saveReport(@Param('id') id: string, @Body() body: SaveDraftInput, @Req() req: any) {
+    return this.reports.saveDraft(id, body ?? {}, this.actor(req));
+  }
+
+  @Post('sessions/:id/lines/:lineId/damage')
+  @RequirePermissions('receiving.execute')
+  @ApiOperation({ summary: 'ORDER 01: declare damaged units on a verification line.' })
+  markDamage(
+    @Param('id') id: string,
+    @Param('lineId') lineId: string,
+    @Body() body: DamageInput,
+    @Req() req: any,
+  ) {
+    return this.reports.markDamage(id, lineId, body ?? {}, this.actor(req));
+  }
+
+  @Post('sessions/:id/report/submit')
+  @RequirePermissions('receiving.execute')
+  @ApiOperation({ summary: 'ORDER 01: CONFIRMER ET ENVOYER — lock the report, persist results, notify admins.' })
+  submitReport(@Param('id') id: string, @Body() body: SaveDraftInput | undefined, @Req() req: any) {
+    return this.reports.submitReport(id, body ?? {}, this.actor(req));
   }
 }

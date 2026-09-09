@@ -1,4 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   api as receivingApi,
   type CartonCard,
@@ -71,6 +72,7 @@ type Review =
 const POLL_MS = 20_000;
 
 export default function ReceivingHome() {
+  const navigate = useNavigate();
   const { setStatus, setLastAction, reload } = useTerminalUi();
   const caps = useMemo(() => detectCapabilities(), []);
 
@@ -283,7 +285,12 @@ export default function ReceivingHome() {
           <h1 className="rh-title">RECEIVING</h1>
           <p className="os-muted">Cards arrive automatically. Scan a product or a carton — the matching card is found for you.</p>
         </div>
-        <button type="button" className="os-btn" onClick={() => void load()}>REFRESH</button>
+        <div className="os-row">
+          <button type="button" className="os-btn os-btn--primary" onClick={() => navigate('/terminal/receiving/report')}>
+            📋 RAPPORT DE CONFIRMÉ
+          </button>
+          <button type="button" className="os-btn" onClick={() => void load()}>REFRESH</button>
+        </div>
       </header>
 
       {error && <div className="rt-error">{error}</div>}
