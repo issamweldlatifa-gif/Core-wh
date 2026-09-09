@@ -19,7 +19,7 @@ internal fun WorkerWorkQueue(
     state: WorkerAppState, device: WorkerDevice, connection: String, worker: String, station: String?,
     refresh: () -> Unit, logout: () -> Unit, settings: () -> Unit,
     completeInstruction: (String) -> Unit, receiving: () -> Unit, report: () -> Unit,
-    showReport: Boolean, otherTask: (String) -> Unit,
+    showReport: Boolean, temporaryStorage: () -> Unit, otherTask: (String) -> Unit,
 ) {
     val industrial = device == WorkerDevice.CT40
     Column(Modifier.fillMaxSize().background(TerminalTokens.background).safeDrawingPadding().testTag(if (industrial) "CT40_WORK_QUEUE" else "PHONE_WORK_QUEUE")) {
@@ -31,7 +31,7 @@ internal fun WorkerWorkQueue(
             state.message?.let { OperationalMessageView(it) }
             if (!state.verified && !state.busy) WarningState("CONNECTION UNAVAILABLE", "Refresh the connection before starting work.")
             if (state.me != null && state.queueItems.isEmpty() && !state.busy) EmptyState("NO WORK AVAILABLE", "Ask your supervisor to check your assignment.")
-            QueueTiles(state.queueItems, state.verified && !state.busy, receiving, report, showReport, otherTask)
+            QueueTiles(state.queueItems, state.verified && !state.busy, receiving, report, showReport, temporaryStorage, otherTask)
             state.context?.activeSession?.let { task ->
                 if (state.queueItems.any { it.key == "receiving" && it.available }) {
                     SecondaryAction("CONTINUE ${task.code}", receiving, state.verified && !state.busy)
@@ -60,7 +60,8 @@ internal fun WorkerWorkQueue(
 @Composable
 private fun QueueTiles(
     items: List<WorkerQueueItem>, enabled: Boolean,
-    receiving: () -> Unit, report: () -> Unit, showReport: Boolean, otherTask: (String) -> Unit,
+    receiving: () -> Unit, report: () -> Unit, showReport: Boolean,
+    temporaryStorage: () -> Unit, otherTask: (String) -> Unit,
 ) {
     // The queue is a row of INDEPENDENT entry points: Receiving, then the
     // standalone Rapport Vérification tile, then the remaining lanes. Every
@@ -81,12 +82,14 @@ private fun QueueTiles(
                 val action = when (item.key) {
                     "receiving" -> receiving
                     "report" -> report
+                    "temporary-storage" -> temporaryStorage
                     else -> ({ otherTask(item.label) })
                 }
                 WorkflowTile(item.label, when (item.key) {
                     "receiving" -> TerminalIcon.RECEIVING
                     "report" -> TerminalIcon.REPORT
                     "sorting" -> TerminalIcon.SORTING
+                    "temporary-storage" -> TerminalIcon.STORAGE
                     else -> TerminalIcon.PUTAWAY
                 }, item.badgeCount,
                     // Receiving keeps its real readiness; every other tile is a

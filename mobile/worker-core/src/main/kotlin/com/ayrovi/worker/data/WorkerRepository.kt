@@ -10,7 +10,7 @@ import kotlinx.serialization.json.Json
 class WorkerRepository(
     private val store: SessionStorage,
     val transport: WorkerTransport,
-) : ReceivingGateway {
+) : ReceivingGateway, TemporaryStorageGateway {
     constructor(store: SessionStorage, baseUrl: String) : this(store, HttpWorkerTransport.production(baseUrl, store))
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
@@ -360,6 +360,60 @@ class WorkerRepository(
         } finally {
             store.clearIfIdentity(identity)
         }
+    }
+
+    // ---------------- TEMPORARY STORAGE (product flow station) ----------------
+    override suspend fun tsHome(): TsHomePayload =
+        json.decodeFromString(TsHomePayload.serializer(), get("/v1/temporary-storage/home"))
+
+    override suspend fun tsSection(letter: String): TsSectionPayload =
+        json.decodeFromString(
+            TsSectionPayload.serializer(),
+            get("/v1/temporary-storage/sections/${urlEncode(letter)}"),
+        )
+
+    override suspend fun tsScanProduct(code: String, operationId: String): TsScanPayload {
+        val body = buildString {
+            append("{\"code\":").append(jq(code))
+            append(",\"operationId\":").append(jq(operationId))
+            append(",\"deviceType\":\"ANDROID_TERMINAL\"")
+            append(",\"deviceName\":").append(jq(store.deviceCode))
+            append("}")
+        }
+        return json.decodeFromString(TsScanPayload.serializer(), post("/v1/temporary-storage/scan", body))
+    }
+
+    override suspend fun tsPlace(code: String, containerCode: String, operationId: String): TsPlacePayload {
+        val body = buildString {
+            append("{\"code\":").append(jq(code))
+            append(",\"containerCode\":").append(jq(containerCode))
+            append(",\"operationId\":").append(jq(operationId))
+            append(",\"deviceType\":\"ANDROID_TERMINAL\"")
+            append(",\"deviceName\":").append(jq(store.deviceCode))
+            append("}")
+        }
+        return json.decodeFromString(TsPlacePayload.serializer(), post("/v1/temporary-storage/place", body))
+    }
+
+    override suspend fun tsReview(code: String, reason: String, operationId: String): TsReviewPayload {
+        val body = buildString {
+            append("{\"code\":").append(jq(code))
+            append(",\"reason\":").append(jq(reason))
+            append(",\"toReview\":true")
+            append(",\"operationId\":").append(jq(operationId))
+            append("}")
+        }
+        return json.decodeFromString(TsReviewPayload.serializer(), post("/v1/temporary-storage/review", body))
+    }
+
+    override suspend fun tsReportFin(observation: String?): TsReportPayload {
+        val body = buildString {
+            append("{\"observation\":").append(if (observation.isNullOrBlank()) "null" else jq(observation))
+            append(",\"deviceType\":\"ANDROID_TERMINAL\"")
+            append(",\"deviceName\":").append(jq(store.deviceCode))
+            append("}")
+        }
+        return json.decodeFromString(TsReportPayload.serializer(), post("/v1/temporary-storage/report", body))
     }
 
     private suspend fun get(path: String): String = transport.request("GET", path)

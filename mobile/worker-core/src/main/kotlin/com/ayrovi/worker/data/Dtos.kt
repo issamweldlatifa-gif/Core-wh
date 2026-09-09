@@ -300,3 +300,80 @@ import kotlinx.serialization.json.JsonElement
 )
 @Serializable data class TraceContainer(val code: String? = null, val type: String? = null, val label: String? = null)
 @Serializable data class TraceLocation(val code: String? = null, val zone: String? = null)
+
+// ---------------- TEMPORARY STORAGE (product flow station) ----------------
+// Mirrors GET/POST /v1/temporary-storage/* (WORKER_NATIVE). camelCase JSON.
+@Serializable data class TsStationRef(
+    val id: String? = null, val code: String? = null, val name: String? = null,
+    val department: String? = null,
+)
+@Serializable data class TsHeader(
+    val activeProducts: Int? = null, val containers: Int? = null,
+    val completed: Int? = null, val remaining: Int? = null, val review: Int? = null,
+)
+@Serializable data class TsCustomerSummary(
+    val customer: String? = null, val received: Int? = null, val remaining: Int? = null,
+)
+@Serializable data class TsSectionSummary(
+    val letter: String? = null, val products: Int? = null, val stored: Int? = null,
+    val customers: List<TsCustomerSummary> = emptyList(),
+)
+@Serializable data class TsHomePayload(
+    val station: TsStationRef? = null, val header: TsHeader? = null,
+    val currentSection: String? = null, val sections: List<TsSectionSummary> = emptyList(),
+)
+@Serializable data class TsContainerCard(
+    val code: String? = null, val current: Int? = null, val capacity: Int? = null,
+    val status: String? = null, val active: Boolean? = null,
+)
+@Serializable data class TsCustomerGroup(
+    val customer: String? = null, val surname: String? = null,
+    val received: Int? = null, val stored: Int? = null, val remaining: Int? = null,
+    val containers: List<TsContainerCard> = emptyList(), val hasReview: Boolean? = null,
+)
+@Serializable data class TsReviewRow(
+    val id: String? = null, val sku: String? = null, val reference: String? = null,
+    val productName: String? = null, val customerName: String? = null,
+    val reason: String? = null, val scannedAt: String? = null, val scannedBy: String? = null,
+)
+@Serializable data class TsSectionPayload(
+    val station: TsStationRef? = null, val letter: String? = null,
+    val reviewItems: List<TsReviewRow> = emptyList(),
+    val customers: List<TsCustomerGroup> = emptyList(),
+)
+@Serializable data class TsTargetContainer(
+    val code: String? = null, val current: Int? = null, val capacity: Int? = null,
+    val status: String? = null, val mustCreate: Boolean? = null,
+)
+@Serializable data class TsScanProductRef(
+    val sku: String? = null, val reference: String? = null, val productName: String? = null,
+    val customer: String? = null, val surname: String? = null, val section: String? = null,
+)
+@Serializable data class TsScanPayload(
+    val status: String? = null, val message: String? = null,
+    val product: TsScanProductRef? = null, val remaining: Int? = null,
+    val targetContainer: TsTargetContainer? = null,
+)
+@Serializable data class TsPlacedContainer(
+    val code: String? = null, val current: Int? = null, val capacity: Int? = null,
+    val status: String? = null,
+)
+@Serializable data class TsExpectedContainer(
+    val section: String? = null, val containerCode: String? = null,
+)
+@Serializable data class TsPlacePayload(
+    val status: String? = null, val message: String? = null, val itemId: String? = null,
+    val container: TsPlacedContainer? = null, val remaining: Int? = null,
+    val nextTarget: TsTargetContainer? = null, val expected: TsExpectedContainer? = null,
+)
+@Serializable data class TsReviewRef(
+    val itemId: String? = null, val exceptionCode: String? = null, val reason: String? = null,
+)
+@Serializable data class TsReviewPayload(
+    val status: String? = null, val review: TsReviewRef? = null,
+    val notifiedAdmins: Int? = null,
+)
+@Serializable data class TsReportPayload(
+    val id: String? = null, val status: String? = null, val stationCode: String? = null,
+    val notifiedAdmins: Int? = null, val message: String? = null,
+)

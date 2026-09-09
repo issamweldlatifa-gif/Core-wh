@@ -24,7 +24,10 @@ data class WorkerQueueItem(
 
 /** Presentation availability is not backend authorization. No made-up counts for absent contracts. */
 object WorkerQueuePolicy {
-    private val labels = mapOf("receiving" to "RECEIVING", "sorting" to "SORTING", "putaway" to "PUTAWAY")
+    private val labels = mapOf(
+        "receiving" to "RECEIVING", "sorting" to "SORTING", "putaway" to "PUTAWAY",
+        "temporary-storage" to "TEMP STORAGE",
+    )
     fun items(
         permittedTasks: List<TerminalTask>,
         receivingArrivals: Int?,

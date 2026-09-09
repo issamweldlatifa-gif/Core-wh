@@ -20,7 +20,7 @@ import com.ayrovi.worker.di.AppContainer
 import com.ayrovi.worker.domain.MessageTone
 import com.ayrovi.worker.domain.OperationalMessage
 
-private enum class TerminalRoute { QUEUE, RECEIVING, REPORT }
+private enum class TerminalRoute { QUEUE, RECEIVING, REPORT, TEMPORARY }
 
 internal fun <T : ViewModel> factory(create: () -> T): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST") override fun <V : ViewModel> create(modelClass: Class<V>): V = create() as V
@@ -87,6 +87,10 @@ fun WorkerTerminalApp(
     }
     LaunchedEffect(state.tasks) {
         if ((route == TerminalRoute.RECEIVING || route == TerminalRoute.REPORT) && state.me != null && state.tasks.none { it.key == "receiving" }) route = TerminalRoute.QUEUE
+        // Temporary Storage is STAGING-station work: if the backend no longer
+        // exposes the task (station changed / permission removed), never keep
+        // the worker on a screen they can no longer operate.
+        if (route == TerminalRoute.TEMPORARY && state.me != null && state.tasks.none { it.key == "temporary-storage" }) route = TerminalRoute.QUEUE
     }
     AyroviTerminalTheme(mode = theme, onToggleTheme = appearance::toggleTheme) {
         if (!state.signedIn) {
@@ -111,6 +115,24 @@ fun WorkerTerminalApp(
                 deviceCode = model.deviceCode,
                 repository = container.repository,
                 onOpenReport = { reportFrom = TerminalRoute.RECEIVING; route = TerminalRoute.REPORT })
+        } else if (route == TerminalRoute.TEMPORARY && state.me?.user?.id != null) {
+            // TEMPORARY STORAGE (native, CT40-first): scan product -> the
+            // target container lights up -> scan that container.
+            val workerId = state.me!!.user!!.id!!
+            val temp: TempStorageViewModel = viewModel(
+                key = "temp-storage-$workerId-${state.loginGeneration}",
+                factory = factory { TempStorageViewModel(container.repository, state.me!!.permissions.toSet(), container.audio) },
+            )
+            val tempAvailable = state.verified && connection !in setOf(ConnectionState.OFFLINE, ConnectionState.AUTH_ERROR, ConnectionState.SYNC_ERROR)
+            LaunchedEffect(state.me?.permissions, tempAvailable, connection) {
+                temp.activate(state.me!!.permissions.toSet(), tempAvailable, connection)
+            }
+            TempStorageScreen(temp, workerLabel(state), stationLabel(state), connection.name,
+                onBack = { route = TerminalRoute.QUEUE; model.refresh() }, onAuthExpired = model::expireSession,
+                industrial = container.device == WorkerDevice.CT40,
+                repository = container.repository, onToggleTheme = appearance::toggleTheme,
+                appVersion = com.ayrovi.worker.BuildConfig.VERSION_NAME,
+                deviceCode = model.deviceCode, device = container.device)
         } else if (route == TerminalRoute.REPORT && state.me?.user?.id != null) {
             // CONFIRMATION REPORT (ORDER 01): verification view for this
             // worker's open receiving session. Back returns to RECEIVING.
@@ -140,6 +162,10 @@ fun WorkerTerminalApp(
                 },
                 report = { reportFrom = TerminalRoute.QUEUE; route = TerminalRoute.REPORT },
                 showReport = state.tasks.any { it.key == "receiving" },
+                temporaryStorage = {
+                    if (state.tasks.any { it.key == "temporary-storage" }) route = TerminalRoute.TEMPORARY
+                    else model.noticeTask("Temporary Storage")
+                },
                 otherTask = model::noticeTask)
         }
         if (showSettings) WorkerSettingsDialog(
