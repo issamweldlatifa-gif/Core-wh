@@ -59,6 +59,21 @@ function scanSourceOf(source: string | undefined): typeof SCAN_SOURCES[number] {
   return SCAN_SOURCES.find((s) => s === (source ?? '').trim().toUpperCase()) ?? 'MANUAL';
 }
 
+const SCAN_TYPE_VALUES: ReadonlyArray<IdentifierType> = ['QR', 'BARCODE', 'MANUAL', 'OCR'];
+/**
+ * ReceivingCarton.scanType is a Prisma enum (QR | BARCODE | MANUAL | OCR).
+ * The API contract only allows those four values, but a client (or a future
+ * scanner lane) may send a semantic label such as "CARTON_REF", "SUIVI" or
+ * "TRACKING". Writing that straight into the enum made the whole carton
+ * verification crash with a Prisma 500. Unknown/missing input degrades to
+ * MANUAL — same philosophy as scanSourceOf: never a failed scan, never a 500.
+ * The raw label is still kept for audit in the worker-log metadata.
+ */
+function scanTypeOf(value: string | undefined): IdentifierType {
+  const v = (value ?? '').trim().toUpperCase();
+  return (SCAN_TYPE_VALUES as readonly string[]).includes(v) ? (v as IdentifierType) : 'MANUAL';
+}
+
 /**
  * Station the worker is physically standing at (§13).
  *
@@ -340,7 +355,7 @@ export class ReceivingService {
     const term = normalizeScan(input.identifier);
     if (!term) throw new BadRequestException(OPERATIONAL_ERRORS.productNotMatched);
     const qty = Math.max(1, Math.floor(Number(input.quantity) || 1));
-    const identifierType = (input.identifierType ?? 'MANUAL') as IdentifierType;
+    const identifierType = scanTypeOf(input.identifierType);
     const source = input.source ?? 'MANUAL';
     const startedAt = parseDate(input.startedAt);
 
@@ -469,7 +484,7 @@ export class ReceivingService {
     await this.assignments.assertOperationalAccess(actor.id, 'receiving', { arrivalId: session.arrivalId });
     const term = normalizeScan(input.identifier);
     if (!term) throw new BadRequestException(OPERATIONAL_ERRORS.cartonUnknown);
-    const identifierType = (input.identifierType ?? 'MANUAL') as IdentifierType;
+    const identifierType = scanTypeOf(input.identifierType);
     const source = input.source ?? 'MANUAL';
     const startedAt = parseDate(input.startedAt);
 
@@ -600,7 +615,10 @@ export class ReceivingService {
     await this.prisma.$transaction(async (tx) => {
       const rc = await tx.receivingCarton.create({ data: {
         receivingSessionId: sessionId, cartonId: carton.id, scannedCode: ref,
-        scanType: identifierType as never, source: scanSourceOf(source), status: 'RECEIVED',
+        // scanType is the physical presentation format (QR/BARCODE/OCR/MANUAL);
+        // the semantic label (e.g. CARTON_REF, SUIVI) is sanitized away so an
+        // out-of-contract value can never crash the write (see scanTypeOf).
+        scanType: scanTypeOf(identifierType), source: scanSourceOf(source), status: 'RECEIVED',
         receivedBy: actor.id, receivedAt: new Date(), operationId: input.operationId ?? null,
       } });
       await tx.warehouseCarton.update({ where: { id: carton.id }, data: { status: 'RECEIVED', receivedAt: new Date(), receivedBy: actor.id } });
@@ -638,7 +656,7 @@ export class ReceivingService {
     const term = normalizeScan(input.identifier);
     if (!term) throw new BadRequestException(OPERATIONAL_ERRORS.cartonUnknown);
     const cardType: CardType = input.cardType === 'CARTON' ? 'CARTON' : 'PRODUCT';
-    const identifierType = (input.identifierType ?? 'MANUAL') as IdentifierType;
+    const identifierType = scanTypeOf(input.identifierType);
     const source = input.source ?? 'MANUAL';
     const startedAt = parseDate(input.startedAt);
 
@@ -1319,7 +1337,7 @@ export class ReceivingService {
     const term = normalizeScan(input.identifier);
     if (!term) throw new BadRequestException('An identifier value is required.');
     const cardType: CardType = input.cardType === 'CARTON' ? 'CARTON' : 'PRODUCT';
-    const identifierType = (input.identifierType ?? 'MANUAL') as IdentifierType;
+    const identifierType = scanTypeOf(input.identifierType);
     const source = input.source ?? 'MANUAL';
     const startedAt = parseDate(input.startedAt);
 

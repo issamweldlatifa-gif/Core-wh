@@ -5,6 +5,7 @@ import { AuditService } from '../audit/audit.service';
 import { TaskDispatchService } from '../assignments/dispatch.service';
 import { PushService } from '../notifications/push.service';
 import { ShipmentCardEventDto } from '../../integrations/crm/dto/shipment-card.dto';
+import { linkCartonProductContents } from './carton-content';
 import type { IntegrationPrincipal } from '../expected-arrivals/expected-arrivals.service';
 
 const WSHP_PREFIX = 'WSHP-';
@@ -112,6 +113,10 @@ export class ShipmentsService {
         totalProductsInCartons += prods.reduce((sum, p) => sum + (Number(p.quantity) || 1), 0);
       }
     }
+    // Carton manifest accounting (carton-content.ts): created = content lines
+    // beyond the customer card; mirrored = lines already declared on it.
+    let cartonContentCreated = 0;
+    let cartonContentMirrored = 0;
 
     const record = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       if (!arrival) {
@@ -256,29 +261,16 @@ export class ShipmentsService {
         });
 
         if (productsInside && Array.isArray(productsInside) && productsInside.length > 0) {
-          for (const p of productsInside) {
-            const pAny = p as any;
-            await tx.expectedArrivalItem.create({
-              data: {
-                arrivalId: arrival!.id,
-                cartonId: cartonRecord.id,
-                productId: pAny.product_id?.trim() || null,
-                sku: pAny.sku?.trim() || null,
-                reference: pAny.reference?.trim() || null,
-                productName: pAny.product_name?.trim() || pAny.productName?.trim() || null,
-                quantity: Math.max(1, Number(pAny.quantity) || 1),
-                variant: pAny.variant?.trim() || null,
-                color: pAny.color?.trim() || null,
-                size: pAny.size?.trim() || null,
-                category: pAny.category?.trim()?.toUpperCase() || null,
-                subcategory: pAny.subcategory?.trim()?.toUpperCase() || null,
-                storeId: pAny.store_id?.trim() || null,
-                storeName: pAny.store_name?.trim() || null,
-                originalPayload: JSON.parse(JSON.stringify(p)) as any,
-                categoryStatus: 'NEEDS_REVIEW',
-              },
-            });
-          }
+          // Link manifest lines WITHOUT double counting lines the Customer
+          // Arrival Card already declared (see carton-content.ts policy).
+          const content = await linkCartonProductContents({
+            tx,
+            arrivalId: arrival!.id,
+            cartonId: cartonRecord.id,
+            products: productsInside as Array<Record<string, unknown>>,
+          });
+          cartonContentCreated += content.created;
+          cartonContentMirrored += content.mirrored;
         }
       }
 
@@ -303,6 +295,8 @@ export class ShipmentsService {
             products: created.totalProducts,
             units: created.totalUnits,
             products_inside_cartons: totalProductsInCartons,
+            carton_content_created: cartonContentCreated,
+            carton_content_mirrored: cartonContentMirrored,
             api_client: principal.name,
             received_via_api: true,
             entity_type: 'CARTON',

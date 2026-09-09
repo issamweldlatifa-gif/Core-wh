@@ -433,7 +433,9 @@ describe('ReceivingService (card-based, device-side matching)', () => {
       expect(res.cartonCards).toHaveLength(3);
       expect(res.cartonCards[0]).toMatchObject({
         externalCartonId: 'CTN-1', trackingNumber: 'TRK-1', senderName: 'Sender Co',
-        identifiers: ['CTN-1', 'REF-CTN-1', 'QR-CTN-1', 'BC-CTN-1'],
+        // card identity identifiers + the shipment tracking/suivi codes that
+        // the floor may also scan to open a carton card
+        identifiers: ['CTN-1', 'REF-CTN-1', 'QR-CTN-1', 'BC-CTN-1', 'TRK-1'],
       });
       expect(res.cartonCards[2]).toMatchObject({ externalCartonId: 'CTN-3', trackingNumber: 'TRK-2' });
       // the two card sets stay separate fields — never merged

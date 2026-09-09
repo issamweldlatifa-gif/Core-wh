@@ -99,6 +99,10 @@ describe('CARTON CARD — ingestion preserves the original data', () => {
     db.warehouseShipment.create.mockImplementation(async ({ data }: any) => ({
       id: 'shp-1', code: 'WSH-000001', ...data,
     }));
+    db.warehouseCarton.create.mockImplementation(async ({ data }: any) => ({
+      id: `carton-${data.externalCartonId}`, ...data,
+    }));
+    db.expectedArrivalItem = { create: jest.fn().mockResolvedValue({ id: 'item-1' }), findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) };
     push = { notifyNewCartonCard: jest.fn().mockResolvedValue(3) };
     svc = new ShipmentsService(db, { log: jest.fn() } as any, { dispatch: jest.fn() } as any, push);
   });
@@ -114,7 +118,9 @@ describe('CARTON CARD — ingestion preserves the original data', () => {
     expect(data.trackingNumber).toBe('TRK-938472');
     expect(data.externalShipmentId).toBe('SHP-2026-000145');
 
-    const rows = data.cartons.create;
+    // Cartons are stored as ONE warehouseCarton row each (the CARTON FIX
+    // refactor writes cartons separately, never as a nested create).
+    const rows = db.warehouseCarton.create.mock.calls.map((c: any) => c[0].data);
     expect(rows).toHaveLength(2);
     expect(rows[0]).toEqual(expect.objectContaining({
       externalCartonId: 'CTN-000123',
@@ -145,7 +151,7 @@ describe('CARTON CARD — ingestion preserves the original data', () => {
     delete noQr.shipment.cartons[0].qr_code_value;
     const dto = plainToInstance(ShipmentCardEventDto, noQr, { enableImplicitConversion: true });
     await svc.receiveShipment(dto as any, principal, null);
-    const rows = db.warehouseShipment.create.mock.calls[0][0].data.cartons.create;
+    const rows = db.warehouseCarton.create.mock.calls.map((c: any) => c[0].data);
     expect(rows[0].qrCodeValue).toBe('CTN-000123');
   });
 
