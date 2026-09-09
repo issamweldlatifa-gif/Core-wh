@@ -66,4 +66,20 @@ interface ReceivingGateway {
     suspend fun completeSession(sessionId: String): ReceivingSession
     suspend fun flagSession(sessionId: String, reason: String, sku: String? = null, code: String? = null): ReceivingSession
     suspend fun resolveDiscrepancy(discrepancyId: String, resolution: String): ReceivingSession
+
+    // ---------------- CONFIRMATION REPORT (ORDER 01 verification report) ----------------
+    /** Verification report view: live auto data, or the locked snapshot after submit. */
+    suspend fun report(sessionId: String): ReceivingReportView
+    /** Save manual fields + photos as DRAFT (replaces the photo set). */
+    suspend fun saveReportDraft(
+        sessionId: String, description: String?, observation: String?,
+        photos: List<ReportPhotoInput>,
+    ): ReceivingReportView
+    /** Declare damaged units on a verification line (open session, unlocked report). */
+    suspend fun markDamage(sessionId: String, lineId: String, quantity: Int, note: String?): DamageResultView
+    /** CONFIRM & SEND: lock the snapshot, record results, notify admins. */
+    suspend fun submitReport(
+        sessionId: String, description: String?, observation: String?,
+        photos: List<ReportPhotoInput>,
+    ): ReceivingReportView
 }

@@ -20,7 +20,7 @@ import com.ayrovi.worker.di.AppContainer
 import com.ayrovi.worker.domain.MessageTone
 import com.ayrovi.worker.domain.OperationalMessage
 
-private enum class TerminalRoute { QUEUE, RECEIVING }
+private enum class TerminalRoute { QUEUE, RECEIVING, REPORT }
 
 internal fun <T : ViewModel> factory(create: () -> T): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST") override fun <V : ViewModel> create(modelClass: Class<V>): V = create() as V
@@ -83,7 +83,7 @@ fun WorkerTerminalApp(
         }
     }
     LaunchedEffect(state.tasks) {
-        if (route == TerminalRoute.RECEIVING && state.me != null && state.tasks.none { it.key == "receiving" }) route = TerminalRoute.QUEUE
+        if ((route == TerminalRoute.RECEIVING || route == TerminalRoute.REPORT) && state.me != null && state.tasks.none { it.key == "receiving" }) route = TerminalRoute.QUEUE
     }
     AyroviTerminalTheme(mode = theme, onToggleTheme = appearance::toggleTheme) {
         if (!state.signedIn) {
@@ -106,7 +106,22 @@ fun WorkerTerminalApp(
                 device = container.device, onToggleTheme = appearance::toggleTheme,
                 appVersion = com.ayrovi.worker.BuildConfig.VERSION_NAME,
                 deviceCode = model.deviceCode,
-                repository = container.repository)
+                repository = container.repository,
+                onOpenReport = { route = TerminalRoute.REPORT })
+        } else if (route == TerminalRoute.REPORT && state.me?.user?.id != null) {
+            // CONFIRMATION REPORT (ORDER 01): verification view for this
+            // worker's open receiving session. Back returns to RECEIVING.
+            val report: ReceivingReportViewModel = viewModel(
+                key = "receiving-report-${state.loginGeneration}",
+                factory = factory { ReceivingReportViewModel(container.repository, state.me!!.permissions.toSet(), container.audio) },
+            )
+            val reportAvailable = state.verified && connection !in setOf(ConnectionState.OFFLINE, ConnectionState.AUTH_ERROR, ConnectionState.SYNC_ERROR)
+            LaunchedEffect(state.me?.permissions, reportAvailable) {
+                report.activate(state.me!!.permissions.toSet(), reportAvailable)
+            }
+            ReceivingReportScreen(report, workerLabel(state), stationLabel(state), connection.name,
+                onBack = { route = TerminalRoute.RECEIVING; model.refresh() }, onAuthExpired = model::expireSession,
+                industrial = container.device == WorkerDevice.CT40)
         } else {
             WorkerWorkQueue(state, container.device, connection.name, workerLabel(state), stationLabel(state),
                 model::refresh, model::logout, { showSettings = true }, model::completeAssignment) {

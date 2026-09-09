@@ -55,6 +55,7 @@ fun ReceivingHomeScreen(
     appVersion: String = "",
     deviceCode: String = "",
     repository: com.ayrovi.worker.data.WorkerRepository? = null,
+    onOpenReport: (() -> Unit)? = null,
 ) {
     val state by model.state.collectAsStateWithLifecycle()
     val industrial = device == WorkerDevice.CT40
@@ -116,7 +117,8 @@ fun ReceivingHomeScreen(
             lane == "CARTON" -> CartonLane(state, capture, model.captureAllowed)
             else -> HomeDashboard(state, industrial,
                 openProduct = { model.send(ReceivingHomeIntent.OpenProduct) },
-                openCarton = { model.send(ReceivingHomeIntent.OpenCarton) })
+                openCarton = { model.send(ReceivingHomeIntent.OpenCarton) },
+                openReport = onOpenReport)
         }
         if (settings) {
             // Shared worker Settings (Send Report / Report a Problem / Switch
@@ -146,6 +148,7 @@ private fun HomeDashboard(
     industrial: Boolean,
     openProduct: () -> Unit,
     openCarton: () -> Unit,
+    openReport: (() -> Unit)? = null,
 ) {
     val home = state.home
     Column(Modifier.fillMaxWidth().testTag("RECEIVING_HOME"), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
@@ -164,6 +167,12 @@ private fun HomeDashboard(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
             PrimaryAction("SCAN PRODUIT", openProduct, state.canMutate, Modifier.weight(1f).testTag("OPEN_PRODUCT"))
             PrimaryAction("SCAN CARTON", openCarton, state.canMutate, Modifier.weight(1f).testTag("OPEN_CARTON"))
+        }
+
+        // Confirmation report (ORDER 01): verification view for this worker's
+        // open receiving session — read-only once the report is sent.
+        if (openReport != null) {
+            SecondaryAction("📋 CONFIRMATION REPORT", openReport, state.canMutate, Modifier.testTag("OPEN_REPORT"))
         }
 
         HomeCardLists(state)

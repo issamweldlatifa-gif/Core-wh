@@ -227,6 +227,49 @@ class WorkerRepository(
             post("/v1/receiving/sessions/${urlEncode(sessionId)}/$command", "{}"),
         )
 
+    // ---------------- CONFIRMATION REPORT (ORDER 01 verification report) ----------------
+    override suspend fun report(sessionId: String): ReceivingReportView = json.decodeFromString(
+        ReceivingReportView.serializer(), get("/v1/receiving/sessions/${urlEncode(sessionId)}/report"),
+    )
+
+    override suspend fun saveReportDraft(
+        sessionId: String, description: String?, observation: String?, photos: List<ReportPhotoInput>,
+    ): ReceivingReportView = json.decodeFromString(
+        ReceivingReportView.serializer(),
+        put("/v1/receiving/sessions/${urlEncode(sessionId)}/report", draftBody(description, observation, photos)),
+    )
+
+    override suspend fun markDamage(sessionId: String, lineId: String, quantity: Int, note: String?): DamageResultView {
+        val body = "{\"quantity\":$quantity,\"note\":${if (note.isNullOrBlank()) "null" else jq(note)}}"
+        return json.decodeFromString(
+            DamageResultView.serializer(),
+            post("/v1/receiving/sessions/${urlEncode(sessionId)}/lines/${urlEncode(lineId)}/damage", body),
+        )
+    }
+
+    override suspend fun submitReport(
+        sessionId: String, description: String?, observation: String?, photos: List<ReportPhotoInput>,
+    ): ReceivingReportView = json.decodeFromString(
+        ReceivingReportView.serializer(),
+        post("/v1/receiving/sessions/${urlEncode(sessionId)}/report/submit", draftBody(description, observation, photos)),
+    )
+
+    private fun draftBody(description: String?, observation: String?, photos: List<ReportPhotoInput>): String = buildString {
+        append("{\"description\":")
+        if (description.isNullOrBlank()) append("null") else append(jq(description))
+        append(",\"observation\":")
+        if (observation.isNullOrBlank()) append("null") else append(jq(observation))
+        append(",\"photos\":[")
+        photos.forEachIndexed { i, photo ->
+            if (i > 0) append(",")
+            append("{\"dataUrl\":").append(jq(photo.dataUrl))
+            append(",\"caption\":").append(if (photo.caption.isNullOrBlank()) "null" else jq(photo.caption))
+            append(",\"lineId\":").append(if (photo.lineId.isNullOrBlank()) "null" else jq(photo.lineId))
+            append("}")
+        }
+        append("]}")
+    }
+
     // ---------------- FULFILLMENT / OPERATIONAL FLOW ----------------
     // Containers (receiving totes + customer bins)
     suspend fun containers(type: String? = null, status: String? = null): List<OpContainer> {
@@ -303,6 +346,7 @@ class WorkerRepository(
     }
 
     private suspend fun get(path: String): String = transport.request("GET", path)
+    private suspend fun put(path: String, body: String): String = transport.request("PUT", path, body)
     private suspend fun post(path: String, body: String, auth: Boolean = true): String =
         transport.request("POST", path, body, authenticated = auth)
 
