@@ -260,9 +260,12 @@ private fun TsBoardBody(
                     color = TerminalTokens.warning)
             }
         }
-    } else if (state.home?.currentSection != null && state.letter == state.home.currentSection) {
-        Text("This section is the ACTIVE TARGET — scan a product to place it.",
-            style = MaterialTheme.typography.bodySmall, color = TerminalTokens.warning)
+    } else {
+        val current = state.home?.currentSection
+        if (current != null && state.letter == current) {
+            Text("This section is the ACTIVE TARGET — scan a product to place it.",
+                style = MaterialTheme.typography.bodySmall, color = TerminalTokens.warning)
+        }
     }
 
     // ---- unknown scan → Review lane prompt ----
@@ -329,10 +332,12 @@ private fun TsBoardBody(
                 Column(Modifier.fillMaxWidth().padding(TerminalTokens.sm), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(review.productName ?: review.reference ?: review.sku ?: "unknown product",
                         style = MaterialTheme.typography.bodyMedium)
-                    if (review.customerName != null) Text("Customer ${review.customerName}",
-                        style = MaterialTheme.typography.bodySmall, color = TerminalTokens.muted)
-                    if (review.reason != null) Text(review.reason, style = MaterialTheme.typography.bodySmall,
-                        color = TerminalTokens.error)
+                    review.customerName?.let { name ->
+                        Text("Customer $name", style = MaterialTheme.typography.bodySmall, color = TerminalTokens.muted)
+                    }
+                    review.reason?.let { reason ->
+                        Text(reason, style = MaterialTheme.typography.bodySmall, color = TerminalTokens.error)
+                    }
                 }
             }
         }
