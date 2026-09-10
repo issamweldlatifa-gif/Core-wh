@@ -5,6 +5,8 @@ package com.ayrovi.worker.design
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -20,6 +22,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import kotlinx.coroutines.delay
@@ -348,6 +351,27 @@ private fun TerminalTone.icon() = when (this) {
 
 @Composable fun PrimaryAction(label: String, onClick: () -> Unit, enabled: Boolean = true, modifier: Modifier = Modifier.fillMaxWidth(), icon: TerminalIcon? = null) = TerminalAction(label, onClick, enabled, modifier, primary = true, icon = icon)
 @Composable fun SecondaryAction(label: String, onClick: () -> Unit, enabled: Boolean = true, modifier: Modifier = Modifier.fillMaxWidth(), icon: TerminalIcon? = null) = TerminalAction(label, onClick, enabled, modifier, icon = icon)
+
+/**
+ * GLARE BOOST footer toggle — the ONE shared sun at the thumb edge of every
+ * station's footer (Receiving, Temporary Storage, …). Same target size, same
+ * icon, same on/off look everywhere: extreme-contrast palette for harsh
+ * sunlight aisles, persisted by the appearance preference.
+ */
+@Composable
+fun GlareFooterAction(on: Boolean, onToggle: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier.size(TerminalTokens.touch)
+            .background(if (on) TerminalTokens.warning.copy(alpha = 0.16f) else Color.Transparent)
+            .border(2.dp, if (on) TerminalTokens.warning else TerminalTokens.border, MaterialTheme.shapes.small)
+            .testTag("GLARE_BUTTON")
+            .clickable { onToggle() },
+        contentAlignment = Alignment.Center,
+    ) {
+        WorkerIcon(TerminalIcon.GLARE, null, Modifier.size(26.dp),
+            if (on) TerminalTokens.warning else TerminalTokens.muted)
+    }
+}
 @Composable fun DangerAction(label: String, onClick: () -> Unit, enabled: Boolean = true, modifier: Modifier = Modifier.fillMaxWidth(), icon: TerminalIcon? = null) = TerminalAction(label, onClick, enabled, modifier, danger = true, icon = icon)
 @Composable fun ConfirmAction(label: String = "CONFIRM", onClick: () -> Unit, enabled: Boolean = true) = PrimaryAction(label, onClick, enabled)
 @Composable fun RejectAction(onClick: () -> Unit, enabled: Boolean = true) = DangerAction("REJECT", onClick, enabled)

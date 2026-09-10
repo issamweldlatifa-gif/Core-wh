@@ -81,6 +81,9 @@ fun TempStorageScreen(
     forceHardwareScanner: Boolean? = null,
     gloveOn: Boolean = false,
     onToggleGlove: (() -> Unit)? = null,
+    /** GLARE BOOST — extreme-contrast palette for harsh sunlight aisles. */
+    glareOn: Boolean = false,
+    onToggleGlare: (() -> Unit)? = null,
 ) {
     val state by model.state.collectAsStateWithLifecycle()
     val owner = LocalLifecycleOwner.current
@@ -127,6 +130,10 @@ fun TempStorageScreen(
                     SecondaryAction(if (state.reportSent) "REPORT SUBMITTED" else "RAPPORT DE FIN", { reportOpen = true },
                         !state.busy && !state.reportSent, Modifier.weight(1f))
                     SecondaryAction("REFRESH", model.workflow::refresh, !state.busy, Modifier.weight(1f))
+                    // GLARE BOOST: same shared sun as every station's footer.
+                    if (onToggleGlare != null) {
+                        GlareFooterAction(glareOn, onToggleGlare)
+                    }
                 }
             }
         },

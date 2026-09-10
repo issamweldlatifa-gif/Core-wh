@@ -2,8 +2,6 @@ package com.ayrovi.worker.presentation
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -144,18 +142,7 @@ fun ReceivingHomeScreen(
                     // GLARE BOOST: one thumb-sized sun at the far edge — for
                     // harsh-sunlight aisles. Persisted like the glove mode.
                     if (onToggleGlare != null) {
-                        Box(
-                            Modifier
-                                .size(TerminalTokens.touch)
-                                .background(if (glareOn) TerminalTokens.warning.copy(alpha = 0.16f) else Color.Transparent)
-                                .border(2.dp, if (glareOn) TerminalTokens.warning else TerminalTokens.border, MaterialTheme.shapes.small)
-                                .testTag("GLARE_BUTTON")
-                                .clickable { onToggleGlare() },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            WorkerIcon(TerminalIcon.GLARE, null, Modifier.size(26.dp),
-                                if (glareOn) TerminalTokens.warning else TerminalTokens.muted)
-                        }
+                        GlareFooterAction(glareOn, onToggleGlare)
                     }
                 }
             }

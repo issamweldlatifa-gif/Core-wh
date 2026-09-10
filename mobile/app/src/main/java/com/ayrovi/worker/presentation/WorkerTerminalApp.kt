@@ -139,7 +139,8 @@ fun WorkerTerminalApp(
                 repository = container.repository, onToggleTheme = appearance::toggleTheme,
                 appVersion = com.ayrovi.worker.BuildConfig.VERSION_NAME,
                 deviceCode = model.deviceCode, device = container.device,
-                gloveOn = glove, onToggleGlove = appearance::toggleGlove)
+                gloveOn = glove, onToggleGlove = appearance::toggleGlove,
+                glareOn = glare, onToggleGlare = appearance::toggleGlare)
         } else if (route == TerminalRoute.REPORT && state.me?.user?.id != null) {
             // CONFIRMATION REPORT (ORDER 01): verification view for this
             // worker's open receiving session. Back returns to RECEIVING.

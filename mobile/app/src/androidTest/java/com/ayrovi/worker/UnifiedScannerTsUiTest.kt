@@ -50,10 +50,12 @@ class UnifiedScannerTsUiTest {
     val camera: GrantPermissionRule = GrantPermissionRule.grant(Manifest.permission.CAMERA)
 
     private lateinit var model: TempStorageViewModel
+    private var glare = false
 
     private fun openTempStorage() {
         model = TempStorageViewModel(TsUiGateway(), setOf("receiving.execute"))
         val repository = uiRepository()
+        glare = false
         compose.setContent {
             LaunchedEffect(Unit) { model.activate(setOf("receiving.execute"), true, ConnectionState.ONLINE) }
             Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
@@ -72,6 +74,8 @@ class UnifiedScannerTsUiTest {
                         device = WorkerDevice.CT40,
                         onToggleTheme = {},
                         forceHardwareScanner = true,
+                        glareOn = glare,
+                        onToggleGlare = { glare = !glare },
                     )
                 }
             }
@@ -88,6 +92,9 @@ class UnifiedScannerTsUiTest {
     @Test
     fun tempStorageOpensOnReadyToScanAndKeepsToolsInTheDrawer() {
         openTempStorage()
+
+        // The shared GLARE BOOST sun lives in this station's footer too.
+        compose.onNodeWithTag("GLARE_BUTTON").assertIsDisplayed()
 
         // The station board is the work interface and the scanner starts armed.
         compose.onAllNodesWithTag("TS_SECTION_A").assertCountEquals(1)
