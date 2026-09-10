@@ -1,5 +1,6 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service';
+import { LoginThrottleService } from './login-throttle.service';
 
 /** Unit policy evidence; transactional rollback/concurrency must also run on PostgreSQL. */
 describe('Session renewal hardening', () => {
@@ -27,7 +28,7 @@ describe('Session renewal hardening', () => {
       signAccessToken: jest.fn(() => 'new-access'),
       signRefreshToken: jest.fn(() => ({ token: 'new-refresh', expiresAt: new Date(Date.now() + 60000) })),
     };
-    return { service: new AuthService(db, tokens, { log: jest.fn() } as any), db, tokens };
+    return { service: new AuthService(db, tokens, { log: jest.fn() } as any, new LoginThrottleService()), db, tokens };
   }
   it('rotates only the matching stored refresh token and keeps server device/station bindings', async () => {
     const { service, db } = setup();

@@ -1,7 +1,8 @@
 import { Test } from '@nestjs/testing';
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { AuthService } from './auth.service';
+import { LoginThrottleService } from './login-throttle.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TokenService } from './token.service';
 import { AuditService } from '../audit/audit.service';
@@ -61,6 +62,7 @@ describe('AuthService — strict Admin/Worker application gate (Order #3)', () =
     const moduleRef = await Test.createTestingModule({
       providers: [
         AuthService,
+        LoginThrottleService,
         { provide: PrismaService, useValue: prisma },
         { provide: TokenService, useValue: tokens },
         { provide: AuditService, useValue: audit },
@@ -112,5 +114,77 @@ describe('AuthService — strict Admin/Worker application gate (Order #3)', () =
       }),
     );
     expect(tokens.signAccessToken).toHaveBeenCalledWith('user-1', expect.any(String), 'WORKER_NATIVE');
+  });
+});
+
+describe('AuthService — per-account login throttle (brute-force gate)', () => {
+  async function makeService() {
+    const prisma = prismaMock();
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'user-1',
+      employeeCode: 'W1',
+      name: 'Test',
+      email: 't',
+      status: 'ACTIVE',
+      credentialMode: 'PASSWORD',
+      passwordHash: HASH,
+      pinHash: null,
+    });
+    prisma.userRole.findMany.mockResolvedValue([{ role: { name: 'INBOUND_WORKER' } }]);
+
+    const tokens = {
+      signAccessToken: jest.fn().mockReturnValue('at'),
+      signRefreshToken: jest.fn().mockReturnValue({ token: 'rt', jti: 'j', hashed: 'h', expiresAt: new Date() }),
+      hashToken: jest.fn((t: string) => `hash:${t}`),
+    };
+    const audit = { log: jest.fn().mockResolvedValue(undefined) };
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        AuthService,
+        LoginThrottleService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: TokenService, useValue: tokens },
+        { provide: AuditService, useValue: audit },
+      ],
+    }).compile();
+
+    return { service: moduleRef.get(AuthService), prisma, audit };
+  }
+
+  it('locks sign-in after repeated failures — even with the CORRECT password', async () => {
+    const { service, audit } = await makeService();
+    for (let i = 0; i < 8; i++) {
+      await expect(service.login('W1', 'wrong-secret', 'password', {})).rejects.toThrow(UnauthorizedException);
+    }
+    // The lock fires BEFORE the credential check: a correct password does
+    // not bypass the gate, and the throttling is auditable.
+    await expect(service.login('W1', SECRET, 'password', {})).rejects.toMatchObject({ status: 429 });
+    await expect(service.login('W1', 'wrong-secret', 'password', {})).rejects.toMatchObject({ status: 429 });
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'USER_LOGIN_THROTTLED', metadata: expect.objectContaining({ reason: 'account_lock' }) }),
+    );
+  });
+
+  it('clears the failure history after a proven credential', async () => {
+    const { service } = await makeService();
+    for (let i = 0; i < 7; i++) {
+      await expect(service.login('W1', 'wrong-secret', 'password', {})).rejects.toThrow(UnauthorizedException);
+    }
+    await service.login('W1', SECRET, 'password', { app: 'WORKER_NATIVE' });
+    // History was wiped: another 7 failures stay below the threshold.
+    for (let i = 0; i < 7; i++) {
+      await expect(service.login('W1', 'wrong-secret', 'password', {})).rejects.toThrow(UnauthorizedException);
+    }
+    await expect(service.login('W1', SECRET, 'password', { app: 'WORKER_NATIVE' })).resolves.toMatchObject({ accessToken: 'at' });
+  });
+
+  it('counts an unknown employee code as a failure (no user enumeration)', async () => {
+    const { service, prisma } = await makeService();
+    prisma.user.findUnique.mockResolvedValue(null);
+    for (let i = 0; i < 8; i++) {
+      await expect(service.login('GHOST-CODE', 'x', 'password', {})).rejects.toThrow(UnauthorizedException);
+    }
+    await expect(service.login('GHOST-CODE', 'x', 'password', {})).rejects.toMatchObject({ status: 429 });
   });
 });

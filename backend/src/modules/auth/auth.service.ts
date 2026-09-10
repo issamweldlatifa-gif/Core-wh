@@ -6,6 +6,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { TokenService, RefreshTokenPayload } from './token.service';
+import { LoginThrottleService } from './login-throttle.service';
 import * as bcrypt from 'bcrypt';
 import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
@@ -45,6 +46,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly tokens: TokenService,
     private readonly audit: AuditService,
+    private readonly loginThrottle: LoginThrottleService,
   ) {}
 
   async login(
@@ -53,6 +55,23 @@ export class AuthService {
     mode?: 'password' | 'pin',
     ctx?: { ip?: string; ua?: string; app?: ApplicationKind; deviceId?: string },
   ): Promise<AuthTokens> {
+    // Per-account brute-force gate (defence in depth beyond the per-IP
+    // limiter on the controller): an attacker rotating IPs must not be able
+    // to guess one worker's credential without bound.
+    try {
+      this.loginThrottle.assertAllowed(identifier);
+    } catch (gateError) {
+      await this.audit.log({
+        actorUserId: null,
+        action: 'USER_LOGIN_THROTTLED' as never,
+        entityType: 'user',
+        entityId: null,
+        ipAddress: ctx?.ip,
+        metadata: { identifier, reason: 'account_lock' },
+      });
+      throw gateError;
+    }
+
     const user = await this.prisma.user.findUnique({
       where: { employeeCode: identifier },
     });
@@ -68,6 +87,7 @@ export class AuthService {
         ipAddress: ctx?.ip,
         metadata: { identifier, reason: 'unknown_user' },
       });
+      this.loginThrottle.failure(identifier);
       throw invalid;
     }
     if (user.status !== 'ACTIVE') {
@@ -97,6 +117,7 @@ export class AuthService {
         ipAddress: ctx?.ip,
         metadata: { reason: 'no_credential' },
       });
+      this.loginThrottle.failure(identifier);
       throw invalid;
     }
 
@@ -110,8 +131,12 @@ export class AuthService {
         ipAddress: ctx?.ip,
         metadata: { reason: 'bad_secret' },
       });
+      this.loginThrottle.failure(identifier);
       throw invalid;
     }
+
+    // The credential is proven — clear the account's failure history.
+    this.loginThrottle.success(identifier);
 
     // Strict application gate (Order #3): resolve the user's DB roles and the
     // requested application surface, then enforce the isolation rule BEFORE a

@@ -4,6 +4,7 @@ import { RequirePermissions } from '../../common/decorators/require-permissions.
 import { RequireApplication } from '../../common/decorators/require-application.decorator';
 import { ReceivingService, CardConfirmInput, ProductConfirmInput, MismatchInput } from './receiving.service';
 import { ReceivingReportsService, SaveDraftInput, DamageInput } from './receiving-reports.service';
+import { FlagInputDto, ResolveDiscrepancyInputDto, SessionStartInputDto } from './receiving.dto';
 
 /**
  * Receiving Terminal API (JWT).
@@ -103,7 +104,7 @@ export class ReceivingController {
   @ApiOperation({ summary: 'Start a Receiving Session for an Expected Arrival.' })
   start(
     @Param('idOrCode') idOrCode: string,
-    @Body() body: { deviceType?: string; deviceName?: string; scanSource?: string } | undefined,
+    @Body() body: SessionStartInputDto,
     @Req() req: any,
   ) {
     return this.receiving.start(idOrCode, this.actor(req), {
@@ -184,13 +185,13 @@ export class ReceivingController {
 
   @Post('sessions/:id/flag')
   @RequirePermissions('receiving.execute')
-  flag(@Param('id') id: string, @Body() body: { code?: string; sku?: string; reason?: string }, @Req() req: any) {
+  flag(@Param('id') id: string, @Body() body: FlagInputDto, @Req() req: any) {
     return this.receiving.flag(id, body, this.actor(req));
   }
 
   @Post('discrepancies/:id/resolve')
   @RequirePermissions('receiving.resolve_discrepancy')
-  resolve(@Param('id') id: string, @Body() body: { resolution?: string }, @Req() req: any) {
+  resolve(@Param('id') id: string, @Body() body: ResolveDiscrepancyInputDto, @Req() req: any) {
     return this.receiving.resolveDiscrepancy(id, body.resolution ?? 'Resolved', this.actor(req));
   }
 

@@ -85,9 +85,12 @@ async function bootstrap() {
   app.useGlobalFilters(new AllExceptionsFilter());
 
   // OpenAPI / Swagger documentation (http://localhost:3000/api/docs).
+  // Docs are a DEV tool: default ON outside production, OFF in production
+  // unless explicitly enabled — a public API map is recon gift-wrapping.
   // BUGFIX: SWAGGER_ENABLED was documented in .env.example and render.yaml
   // but never actually read — docs were always exposed. Now honoured.
-  if ((process.env.SWAGGER_ENABLED ?? 'true').toLowerCase() !== 'false') {
+  const swaggerDefault = process.env.NODE_ENV === 'production' ? 'false' : 'true';
+  if ((process.env.SWAGGER_ENABLED ?? swaggerDefault).toLowerCase() !== 'false') {
     const swaggerConfig = new DocumentBuilder()
       .setTitle('AYROVI Warehouse Core API')
       .setDescription('Phase 0 — Core system (auth, RBAC, audit, system). REST v1.')

@@ -46,7 +46,8 @@ services:
       - key: JWT_REFRESH_EXPIRES_IN
         value: 7d
       - key: SWAGGER_ENABLED
-        value: "true"
+        # Public API docs are recon material — keep them off in production.
+        value: "false"
       - key: CORS_ORIGINS
         value: https://ayrovi-warehouse-core.onrender.com
       - key: INITIAL_ADMIN_CODE
