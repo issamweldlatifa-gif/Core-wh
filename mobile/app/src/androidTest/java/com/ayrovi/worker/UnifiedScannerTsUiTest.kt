@@ -8,7 +8,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
-import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -90,7 +89,7 @@ class UnifiedScannerTsUiTest {
         openTempStorage()
 
         // The station board is the work interface and the scanner starts armed.
-        compose.onNodeWithTag("TS_SECTION_A").assertExists()
+        compose.onAllNodesWithTag("TS_SECTION_A").assertCountEquals(1)
         waitForTag("READY_TO_SCAN")
         compose.onNodeWithText("READY TO SCAN").assertIsDisplayed()
         compose.onNodeWithText("CT40").assertIsDisplayed()
@@ -116,7 +115,7 @@ class UnifiedScannerTsUiTest {
         compose.onNodeWithTag("TOOL_CLOSE").assertIsDisplayed()
         // The work interface is still behind the drawer — it is an overlay, the
         // station board is not replaced and nothing important is covered.
-        compose.onNodeWithTag("TS_SECTION_A").assertExists()
+        compose.onAllNodesWithTag("TS_SECTION_A").assertCountEquals(1)
 
         // §18: picking a tool closes the drawer and opens the tool.
         compose.onNodeWithTag("TOOL_MANUAL").performClick()
@@ -147,7 +146,7 @@ class UnifiedScannerTsUiTest {
         // target container and the board opens on that section.
         compose.runOnIdle { model.onScan(ScanResult("SKU-TEST", ScanSource.EXTERNAL_SCANNER)) }
         waitForTag("TS_TARGET_CONT-TEST")
-        compose.onNodeWithTag("TS_TARGET_CONT-TEST").assertExists()
+        compose.onAllNodesWithTag("TS_TARGET_CONT-TEST").assertCountEquals(1)
 
         // CT40 trigger read of the container: stored -> SUCCESS verdict.
         compose.runOnIdle { model.onScan(ScanResult("CONT-TEST", ScanSource.EXTERNAL_SCANNER)) }
@@ -183,6 +182,6 @@ class UnifiedScannerTsUiTest {
         compose.onNodeWithTag("RESULT_BACK").performClick()
         waitForTagGone("SCAN_RESULT")
         // Nothing was stored: the station is still asking for the right container.
-        compose.onNodeWithTag("TS_TARGET_CONT-TEST").assertExists()
+        compose.onAllNodesWithTag("TS_TARGET_CONT-TEST").assertCountEquals(1)
     }
 }
