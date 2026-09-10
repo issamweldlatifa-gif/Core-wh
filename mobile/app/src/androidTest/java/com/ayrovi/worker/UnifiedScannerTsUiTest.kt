@@ -91,11 +91,14 @@ class UnifiedScannerTsUiTest {
         // The station board is the work interface and the scanner starts armed.
         compose.onAllNodesWithTag("TS_SECTION_A").assertCountEquals(1)
         waitForTag("READY_TO_SCAN")
+        // The station home lists the sections above the scanner, so the panel is
+        // scrolled into view exactly like the operator would see it.
+        compose.onNodeWithTag("READY_TO_SCAN").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("READY TO SCAN").assertIsDisplayed()
         compose.onNodeWithText("CT40").assertIsDisplayed()
 
         // §16/§31: ONE small side button, finger-sized touch target.
-        compose.onNodeWithTag("SCAN_TOOLS_ARROW").assertIsDisplayed()
+        compose.onNodeWithTag("SCAN_TOOLS_ARROW").performScrollTo().assertIsDisplayed()
             .assertHeightIsAtLeast(TerminalTokens.touch)
             .assertWidthIsAtLeast(TerminalTokens.touch)
 
@@ -135,7 +138,7 @@ class UnifiedScannerTsUiTest {
         waitForTag("SCAN_TOOLS_DRAWER")
         compose.onNodeWithTag("TOOL_CLOSE").performClick()
         waitForTagGone("SCAN_TOOLS_DRAWER")
-        compose.onNodeWithTag("READY_TO_SCAN").assertIsDisplayed()
+        compose.onAllNodesWithTag("READY_TO_SCAN").assertCountEquals(1)
     }
 
     @Test
@@ -162,7 +165,7 @@ class UnifiedScannerTsUiTest {
 
         compose.onNodeWithTag("RESULT_BACK").performClick()
         waitForTagGone("SCAN_RESULT")
-        compose.onNodeWithTag("READY_TO_SCAN").assertIsDisplayed()
+        compose.onAllNodesWithTag("READY_TO_SCAN").assertCountEquals(1)
     }
 
     @Test
