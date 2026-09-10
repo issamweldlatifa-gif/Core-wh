@@ -32,4 +32,27 @@ class TerminalPreferences(context: Context, fileName: String = "ayrovi_terminal_
         runCatching { preferences.edit().putBoolean("glove_mode", enabled).commit() }
         gloveMutable.value = enabled
     }
+
+    /// GLARE BOOST (harsh-sunlight aisles): persisted like the glove mode so a
+    /// CT40 coming back from sleep keeps the operator's display choice.
+    private val glareMutable = MutableStateFlow(runCatching {
+        preferences.getBoolean("glare_boost", false)
+    }.getOrDefault(false))
+    val glare = glareMutable.asStateFlow()
+
+    @Synchronized fun setGlare(enabled: Boolean) {
+        runCatching { preferences.edit().putBoolean("glare_boost", enabled).commit() }
+        glareMutable.value = enabled
+    }
+
+    /// First-run coach marks: shown once per install, never again.
+    private val coachMutable = MutableStateFlow(runCatching {
+        !preferences.getBoolean("coach_marks_v2_done", false)
+    }.getOrDefault(true))
+    val coachPending = coachMutable.asStateFlow()
+
+    @Synchronized fun markCoachDone() {
+        runCatching { preferences.edit().putBoolean("coach_marks_v2_done", true).commit() }
+        coachMutable.value = false
+    }
 }

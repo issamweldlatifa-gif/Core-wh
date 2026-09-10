@@ -53,10 +53,33 @@ data class TerminalPalette(
             instruction = Color(0xFF8BD7F5), success = Color(0xFF38D17A), warning = Color(0xFFF2C46D),
             error = Color(0xFFFF5252), onError = Color(0xFF190505), border = Color(0xFF536575),
         )
-        fun forMode(mode: TerminalThemeMode) = when (mode) {
-            TerminalThemeMode.WHITE -> White
-            TerminalThemeMode.BLACK -> Black
-            TerminalThemeMode.INDUSTRIAL -> Industrial
+
+        /**
+         * GLARE BOOST (Phase C): extreme-contrast copy of a palette for harsh
+         * sunlight aisles. Pure-ink text on near-pure ground; nothing else
+         * changes — same hues, maximum separation.
+         */
+        fun forMode(mode: TerminalThemeMode, glareBoost: Boolean = false): TerminalPalette {
+            val base = when (mode) {
+                TerminalThemeMode.WHITE -> White
+                TerminalThemeMode.BLACK -> Black
+                TerminalThemeMode.INDUSTRIAL -> Industrial
+            }
+            if (!glareBoost) return base
+            return when (mode) {
+                TerminalThemeMode.WHITE -> base.copy(
+                    text = Color(0xFF000000), muted = Color(0xFF191D22), border = Color(0xFF000000),
+                )
+                TerminalThemeMode.BLACK -> base.copy(
+                    background = Color(0xFF000000), surface = Color(0xFF050505), raised = Color(0xFF0E0E0E),
+                    text = Color(0xFFFFFFFF), muted = Color(0xFFE4E7EA), border = Color(0xFFFFFFFF),
+                )
+                TerminalThemeMode.INDUSTRIAL -> base.copy(
+                    background = Color(0xFF000000), surface = Color(0xFF0A1016), raised = Color(0xFF111A22),
+                    text = Color(0xFFFFFFFF), muted = Color(0xFFD6DFE8), border = Color(0xFF9FB2C2),
+                    primary = Color(0xFFFFC286),
+                )
+            }
         }
     }
 }
@@ -112,8 +135,9 @@ object TerminalTokens {
     val reticle = 32.dp
 
     val typography = Typography(
-        displaySmall = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 32.sp, lineHeight = 38.sp),
-        headlineMedium = TextStyle(fontWeight = FontWeight.Bold, fontSize = 24.sp, lineHeight = 28.sp),
+        displayLarge = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 72.sp, lineHeight = 76.sp, fontFeature = "tnum"),
+        displaySmall = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 32.sp, lineHeight = 38.sp, fontFeature = "tnum"),
+        headlineMedium = TextStyle(fontWeight = FontWeight.Bold, fontSize = 28.sp, lineHeight = 32.sp),
         titleLarge = TextStyle(fontWeight = FontWeight.Bold, fontSize = 22.sp, lineHeight = 26.sp),
         titleMedium = TextStyle(fontWeight = FontWeight.Bold, fontSize = 18.sp, lineHeight = 24.sp),
         bodyLarge = TextStyle(fontSize = 16.sp, lineHeight = 22.sp),

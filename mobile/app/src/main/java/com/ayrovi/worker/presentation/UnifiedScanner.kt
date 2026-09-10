@@ -24,6 +24,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -418,9 +419,17 @@ private fun DrawerItem(label: String, icon: TerminalIcon, tag: String, enabled: 
 }
 
 /**
- * Scan RESULT (§27/§28): stays in the foreground with the rest of the interface
- * dimmed, and is NEVER auto-dismissed — it remains until the operator presses
- * BACK or triggers a new scan (which replaces it).
+ * Scan VERDICT — full-bleed, judged from arm's length (Phase B).
+ *
+ * MATCH (ok = true): the whole screen washes GREEN with a giant check and the
+ * verdict — readable under sunlight, from a loaded carry position, without
+ * reading text. The flash is momentary (~250ms) and the lane auto-rearms for
+ * the next unit; the permanent record lives in the LAST-scan line and the
+ * progress bar, so nothing is lost by the auto-clear. This is the operator-
+ * approved supersede of the old never-auto-dismiss rule for SUCCESS only.
+ *
+ * ERROR / stop verdicts: the screen washes RED and STAYS — never
+ * auto-dismissed — until BACK or the next hardware scan replaces it (§27/§28).
  */
 @Composable
 internal fun ScanResultOverlay(
@@ -431,32 +440,50 @@ internal fun ScanResultOverlay(
     onBack: () -> Unit,
 ) {
     val tone = if (ok) TerminalTokens.success else TerminalTokens.error
-    Box(Modifier.fillMaxSize().testTag("SCAN_RESULT").background(Color.Black.copy(alpha = 0.62f))) {
-        Surface(
-            Modifier.align(Alignment.Center).fillMaxWidth().padding(TerminalTokens.md),
-            color = TerminalTokens.surface, shape = MaterialTheme.shapes.medium,
-            border = BorderStroke(3.dp, tone),
+    // Full-bleed wash: the verdict owns the display, no fogged card.
+    Box(
+        Modifier.fillMaxSize().testTag("SCAN_RESULT").background(
+            if (ok) TerminalTokens.background.copy(alpha = 0.96f) else TerminalTokens.background.copy(alpha = 0.97f),
+        ),
+    ) {
+        // Tone wash band across the top half — the color signal seen from
+        // arm's length before any text is parsed.
+        Box(
+            Modifier.fillMaxWidth().fillMaxHeight(0.42f)
+                .background(tone.copy(alpha = if (ok) 0.30f else 0.34f)),
+        )
+        if (ok) {
+            // MATCH: re-arm the lane automatically. The scan loop never stops.
+            LaunchedEffect(title) { delay(250); onBack() }
+        }
+        Column(
+            Modifier.align(Alignment.Center).fillMaxWidth().padding(TerminalTokens.lg),
+            verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Column(Modifier.fillMaxWidth().padding(TerminalTokens.md), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm),
-                horizontalAlignment = Alignment.CenterHorizontally) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
-                    WorkerIcon(if (ok) TerminalIcon.SUCCESS else TerminalIcon.ERROR, null, Modifier.size(38.dp), tone)
-                    Text(
-                        if (ok) "✓ SUCCESS" else "✕ ERROR",
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Black),
-                        color = tone,
-                    )
-                }
-                Text(title, style = MaterialTheme.typography.titleMedium, color = TerminalTokens.text)
-                if (detail.isNotBlank()) {
-                    Text(detail, style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)
-                }
-                lines.forEach { line ->
-                    Text(line, style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-                        color = TerminalTokens.text)
-                }
+            WorkerIcon(if (ok) TerminalIcon.SUCCESS else TerminalIcon.ERROR, null,
+                Modifier.size(if (ok) 96.dp else 72.dp), tone)
+            Text(
+                if (ok) "✓" else "✕",
+                style = MaterialTheme.typography.displayLarge,
+                color = tone,
+            )
+            Text(title, style = MaterialTheme.typography.displaySmall, color = TerminalTokens.text,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            if (detail.isNotBlank()) {
+                Text(detail, style = MaterialTheme.typography.bodyLarge, color = TerminalTokens.muted,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            }
+            lines.forEach { line ->
+                Text(line, style = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),
+                    color = TerminalTokens.text)
+            }
+            if (ok) {
+                Text("SCAN NEXT — NO TOUCH NEEDED", style = MaterialTheme.typography.labelLarge,
+                    color = TerminalTokens.success)
+            } else {
                 Spacer(Modifier.height(2.dp))
-                PrimaryAction("BACK", onBack, true, Modifier.testTag("RESULT_BACK"))
+                PrimaryAction("BACK", onBack, true, Modifier.fillMaxWidth().testTag("RESULT_BACK"))
             }
         }
     }

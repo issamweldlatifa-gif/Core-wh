@@ -284,7 +284,9 @@ class UnifiedScannerUiTest {
 
         compose.runOnIdle { model.workflow.scan(ScanResult("SKU-TEST", ScanSource.EXTERNAL_SCANNER)) }
         waitForTag("SCAN_RESULT")
-        compose.onNodeWithTag("RESULT_BACK").performClick()
+        // Phase B: the green MATCH flash re-arms the lane BY ITSELF (~250ms)
+        // — zero-touch. No BACK press exists on the success verdict anymore.
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("SCAN_RESULT").fetchSemanticsNodes().isEmpty() }
         waitForTag("READY_TO_SCAN")
 
         compose.onNodeWithTag("LAST_SCAN").assertIsDisplayed()

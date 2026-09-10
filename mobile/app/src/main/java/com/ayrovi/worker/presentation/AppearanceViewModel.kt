@@ -9,8 +9,16 @@ import kotlinx.coroutines.flow.asStateFlow
 class AppearanceViewModel(private val preferences: TerminalPreferences) : ViewModel() {
     val theme = preferences.theme
     val glove = preferences.glove
+    val glare = preferences.glare
+    val coachPending = preferences.coachPending
     fun toggleGlove() {
         preferences.setGlove(!glove.value)
+    }
+    fun toggleGlare() {
+        preferences.setGlare(!glare.value)
+    }
+    fun markCoachDone() {
+        preferences.markCoachDone()
     }
     private val mutableWarning = MutableStateFlow<String?>(null)
     val warning = mutableWarning.asStateFlow()

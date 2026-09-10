@@ -141,6 +141,8 @@ fun WorkerSettingsDialog(
     onChangeDisplay: (() -> Unit)? = null,
     gloveOn: Boolean = false,
     onToggleGlove: (() -> Unit)? = null,
+    glareOn: Boolean = false,
+    onToggleGlare: (() -> Unit)? = null,
 ) {
     val vm: WorkerSettingsViewModel? = if (repository != null) viewModel(
         factory = factory {

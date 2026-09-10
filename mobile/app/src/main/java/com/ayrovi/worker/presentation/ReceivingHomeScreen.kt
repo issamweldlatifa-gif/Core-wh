@@ -2,6 +2,8 @@ package com.ayrovi.worker.presentation
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -10,6 +12,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -75,6 +78,12 @@ fun ReceivingHomeScreen(
     /** Glove mode (wired from the persisted appearance preference). */
     gloveOn: Boolean = false,
     onToggleGlove: (() -> Unit)? = null,
+    /** GLARE BOOST — extreme-contrast palette for harsh sunlight aisles. */
+    glareOn: Boolean = false,
+    onToggleGlare: (() -> Unit)? = null,
+    /** First-run coach marks (shown once per install, then never again). */
+    coachPending: Boolean = false,
+    onCoachDone: (() -> Unit)? = null,
 ) {
     val state by model.state.collectAsStateWithLifecycle()
     val industrial = device == WorkerDevice.CT40
@@ -132,6 +141,22 @@ fun ReceivingHomeScreen(
                     SecondaryAction(if (lane != null) "BACK TO RECEIVING" else "BACK", {
                         if (lane != null) model.send(ReceivingHomeIntent.BackHome) else onBack()
                     }, !state.busy, Modifier.weight(1f), icon = TerminalIcon.BACK)
+                    // GLARE BOOST: one thumb-sized sun at the far edge — for
+                    // harsh-sunlight aisles. Persisted like the glove mode.
+                    if (onToggleGlare != null) {
+                        Box(
+                            Modifier
+                                .size(TerminalTokens.touch)
+                                .background(if (glareOn) TerminalTokens.warning.copy(alpha = 0.16f) else Color.Transparent)
+                                .border(2.dp, if (glareOn) TerminalTokens.warning else TerminalTokens.border, MaterialTheme.shapes.small)
+                                .testTag("GLARE_BUTTON")
+                                .clickable { onToggleGlare() },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            WorkerIcon(TerminalIcon.GLARE, null, Modifier.size(26.dp),
+                                if (glareOn) TerminalTokens.warning else TerminalTokens.muted)
+                        }
+                    }
                 }
             }
         },
@@ -164,6 +189,8 @@ fun ReceivingHomeScreen(
                 onChangeDisplay = onToggleTheme,
                 gloveOn = gloveOn,
                 onToggleGlove = onToggleGlove,
+                glareOn = glareOn,
+                onToggleGlare = onToggleGlare,
             )
         }
     }
@@ -182,6 +209,12 @@ fun ReceivingHomeScreen(
 
         // §17: side drawer overlays the screen; the work interface is untouched.
         if (scanTools) ScanToolsDrawer(capture, model.captureAllowed, onClose = { scanTools = false })
+
+        // Phase D (lite): first-minute coach marks — once per install, then
+        // never again. Three lines, one GOT IT, no training session needed.
+        if (coachPending && onCoachDone != null) {
+            CoachMarks(onDone = onCoachDone)
+        }
 
         // §27/§28: the scan verdict stays in the foreground until BACK (no
         // timer), and the next hardware scan replaces it.
@@ -402,8 +435,44 @@ internal fun OperationalMessageViewHome(message: OperationalMessage) {
  * no dialog — the header keeps the full connection line.
  */
 @Composable
-private fun FooterStatus(connection: String) {
-    val online = connection == "ONLINE"
+/**
+ * Phase D (lite): the first minute on the floor — three rules, one tap,
+ * then never again. No paragraph walls, no duplicated headers: the Zebra
+ * onboarding pattern (explain by doing, get out of the way).
+ */
+@Composable
+private fun CoachMarks(onDone: () -> Unit) {
+    Box(
+        Modifier.fillMaxSize().testTag("COACH_MARKS")
+            .background(TerminalTokens.background.copy(alpha = 0.97f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(TerminalTokens.lg),
+            verticalArrangement = Arrangement.spacedBy(TerminalTokens.md),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text("FIRST MINUTE ON THE FLOOR", style = MaterialTheme.typography.titleLarge,
+                letterSpacing = 3.sp, textAlign = TextAlign.Center)
+            CoachRule(TerminalIcon.PRODUCT, "A matched scan IS the confirmation. Just keep scanning.")
+            CoachRule(TerminalIcon.SUCCESS, "GREEN flash = received · RED = stopped — scan again or call your supervisor.")
+            CoachRule(TerminalIcon.GLARE, "Sun in your eyes? Tap the ☀ button in the footer for GLARE BOOST.")
+            Spacer(Modifier.height(TerminalTokens.xs))
+            PrimaryAction("GOT IT — START SCANNING", onDone, true, Modifier.testTag("COACH_OK"))
+        }
+    }
+}
+
+@Composable
+private fun CoachRule(icon: TerminalIcon, text: String) {
+    Row(verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
+        WorkerIcon(icon, null, Modifier.size(34.dp), TerminalTokens.primary)
+        Text(text, style = MaterialTheme.typography.bodyLarge, color = TerminalTokens.text)
+    }
+}
+
+private fun FooterStatus(connection: String) {    val online = connection == "ONLINE"
     val battery = rememberBatteryPct()
     Row(horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs),
         verticalAlignment = Alignment.CenterVertically,

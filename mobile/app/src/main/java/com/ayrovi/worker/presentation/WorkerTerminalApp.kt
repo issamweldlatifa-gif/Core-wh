@@ -116,7 +116,9 @@ fun WorkerTerminalApp(
                 deviceCode = model.deviceCode,
                 repository = container.repository,
                 onOpenReport = { reportFrom = TerminalRoute.RECEIVING; route = TerminalRoute.REPORT },
-                gloveOn = glove, onToggleGlove = appearance::toggleGlove)
+                gloveOn = glove, onToggleGlove = appearance::toggleGlove,
+                glareOn = glare, onToggleGlare = appearance::toggleGlare,
+                coachPending = coachPending, onCoachDone = appearance::markCoachDone)
         } else if (route == TerminalRoute.TEMPORARY && state.me?.user?.id != null) {
             // TEMPORARY STORAGE (native, CT40-first): scan product -> the
             // target container lights up -> scan that container.

@@ -1,0 +1,9 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <!-- Sun / GLARE BOOST: industrial high-contrast display toggle. -->
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M12,7.5c-2.485,0 -4.5,2.015 -4.5,4.5s2.015,4.5 4.5,4.5 4.5,-2.015 4.5,-4.5 -2.015,-4.5 -4.5,-4.5zM12,14.5c-1.379,0 -2.5,-1.121 -2.5,-2.5s1.121,-2.5 2.5,-2.5 2.5,1.121 2.5,2.5 -1.121,2.5 -2.5,2.5z"/>
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M11,2h2v3h-2zM11,19h2v3h-2zM2,11h3v2h-2zM19,11h3v2h-2zM4.575,5.99l1.415,-1.413 2.12,2.122 -1.413,1.414zM16.006,17.303l1.414,-1.414 2.121,2.121 -1.414,1.414zM17.302,6.697l2.121,-2.121 1.414,1.414 -2.121,2.121zM4.575,18.01l2.122,-2.121 1.413,1.414 -2.12,2.121z"/>
+</vector>

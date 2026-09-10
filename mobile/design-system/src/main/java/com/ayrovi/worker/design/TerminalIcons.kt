@@ -19,6 +19,7 @@ enum class TerminalIcon(@DrawableRes val resource: Int) {
     ADD(R.drawable.ic_terminal_add), REMOVE(R.drawable.ic_terminal_remove), REPORT(R.drawable.ic_terminal_report),
     STORAGE(R.drawable.ic_terminal_storage),
     PRODUCT(R.drawable.ic_terminal_product), CARTON(R.drawable.ic_terminal_carton),
+    GLARE(R.drawable.ic_terminal_glare),
 }
 
 @Composable
