@@ -67,17 +67,22 @@ internal fun ScannerPanel(
         subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = TerminalTokens.muted) }
 
         when {
-            // A selected tool is open: it owns the panel only while it is used.
-            capture.manualOpen -> ManualScan(capture, enabled)
-            capture.cameraOpen -> {
-                QrCaptureArea(preview = capture.preview, label = "QR / BARCODE")
-                Text(
-                    "Frame the QR / barcode. The CT40 trigger stays the primary scanner.",
-                    style = MaterialTheme.typography.bodySmall, color = TerminalTokens.muted,
-                )
-                SecondaryAction("CLOSE TOOL", capture.cancel, enabled)
+            // A selected tool owns the panel only while it is used, but the
+            // small side button stays available: the operator can jump straight
+            // from a tool back to the CT40 hardware default (§18/§19) without
+            // closing and re-opening the drawer.
+            capture.manualOpen -> ToolRail(onOpenTools) { ManualScan(capture, enabled) }
+            capture.cameraOpen -> ToolRail(onOpenTools) {
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+                    QrCaptureArea(preview = capture.preview, label = "QR / BARCODE")
+                    Text(
+                        "Frame the QR / barcode. The CT40 trigger stays the primary scanner.",
+                        style = MaterialTheme.typography.bodySmall, color = TerminalTokens.muted,
+                    )
+                    SecondaryAction("CLOSE TOOL", capture.cancel, enabled)
+                }
             }
-            capture.ocrOpen -> OcrScan(capture, enabled)
+            capture.ocrOpen -> ToolRail(onOpenTools) { OcrScan(capture, enabled) }
             else -> ReadyToScanPanel(capture, enabled, onOpenTools = onOpenTools)
         }
 
@@ -105,7 +110,7 @@ internal fun ReadyToScanPanel(capture: ScannerCapture, enabled: Boolean, onOpenT
     ) {
         Box(Modifier.fillMaxWidth()) {
             Column(
-                Modifier.fillMaxWidth().padding(TerminalTokens.md),
+                Modifier.fillMaxWidth().padding(TerminalTokens.md).padding(end = ToolsRail),
                 verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -133,7 +138,7 @@ internal fun ReadyToScanPanel(capture: ScannerCapture, enabled: Boolean, onOpenT
                     }
                 }
             }
-            ScanToolsArrow(Modifier.align(Alignment.CenterEnd).padding(end = 2.dp), onOpenTools)
+            ScanToolsArrow(Modifier.align(Alignment.CenterEnd), onOpenTools)
         }
     }
 }
@@ -156,17 +161,42 @@ private fun Ct40Glyph(available: Boolean) {
     }
 }
 
-/** The single, small, semi-transparent side button (§16). */
+/** Width of the reserved side rail: the button never overlaps a control (§31). */
+private val ToolsRail = 48.dp
+
+/**
+ * A tool is open: the tool content gets a reserved right rail and the SAME side
+ * button is drawn in it, so the drawer is always one small tap away without
+ * covering the tool the operator is currently using (§16/§18/§31).
+ */
+@Composable
+private fun ToolRail(onOpenTools: () -> Unit, content: @Composable () -> Unit) {
+    Box(Modifier.fillMaxWidth()) {
+        Box(Modifier.fillMaxWidth().padding(end = ToolsRail)) { content() }
+        ScanToolsArrow(Modifier.align(Alignment.CenterEnd), onOpenTools)
+    }
+}
+
+/**
+ * The single, small, semi-transparent side button (§16). The strip stays small
+ * (34 dp) but the touch target is finger-sized (48 × 72 dp) so it is easy to hit
+ * with gloves on while the CT40 is held one-handed (§31).
+ */
 @Composable
 private fun ScanToolsArrow(modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Surface(
-        modifier = modifier.size(width = 34.dp, height = 64.dp).testTag("SCAN_TOOLS_ARROW").clickable(onClick = onClick),
-        color = TerminalTokens.raised.copy(alpha = 0.55f),
-        shape = MaterialTheme.shapes.small,
-        border = BorderStroke(1.dp, TerminalTokens.border),
+    Box(
+        modifier.size(width = ToolsRail, height = 72.dp).testTag("SCAN_TOOLS_ARROW").clickable(onClick = onClick),
+        contentAlignment = Alignment.CenterEnd,
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            Text("◀", style = MaterialTheme.typography.titleMedium, color = TerminalTokens.instruction)
+        Surface(
+            modifier = Modifier.size(width = 34.dp, height = 64.dp),
+            color = TerminalTokens.raised.copy(alpha = 0.55f),
+            shape = MaterialTheme.shapes.small,
+            border = BorderStroke(1.dp, TerminalTokens.border),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text("◀", style = MaterialTheme.typography.titleMedium, color = TerminalTokens.instruction)
+            }
         }
     }
 }

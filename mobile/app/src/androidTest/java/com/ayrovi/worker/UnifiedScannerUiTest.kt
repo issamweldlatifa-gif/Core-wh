@@ -20,6 +20,8 @@ import com.ayrovi.worker.design.TerminalThemeMode
 import com.ayrovi.worker.domain.HomeStep
 import com.ayrovi.worker.presentation.ReceivingHomeScreen
 import com.ayrovi.worker.presentation.ReceivingHomeViewModel
+import com.ayrovi.worker.scanner.ScanResult
+import com.ayrovi.worker.scanner.ScanSource
 import org.junit.Rule
 import org.junit.Test
 
@@ -152,5 +154,48 @@ class UnifiedScannerUiTest {
         waitForTag("SCAN_TOOLS_DRAWER")
         compose.onNodeWithTag("TOOL_CLOSE").performClick()
         compose.onAllNodesWithTag("SCAN_TOOLS_DRAWER").assertCountEquals(0)
+    }
+
+    /**
+     * §27/§28 — the scan verdict NEVER dismisses itself: it stays in front of
+     * the operator until BACK, and a new hardware read replaces the old verdict
+     * instead of stacking on top of it.
+     */
+    @Test
+    fun resultStaysUntilBackAndNeverAutoDismisses() {
+        val model = ReceivingHomeViewModel(ReceivingUiGateway(), "worker", setOf("receiving.view", "receiving.execute"))
+        compose.setContent {
+            LaunchedEffect(Unit) { model.activate(setOf("receiving.view", "receiving.execute"), true) }
+            Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
+                AyroviTerminalTheme(TerminalThemeMode.WHITE, onToggleTheme = {}) {
+                    ReceivingHomeScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {})
+                }
+            }
+        }
+        compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
+        compose.onNodeWithTag("OPEN_PRODUCT").performClick()
+        compose.waitUntil(10_000) { model.state.value.step == HomeStep.PRODUCT_SCAN }
+        waitForTag("READY_TO_SCAN")
+
+        // A CT40 trigger read (hardware source) on the expected SKU.
+        compose.runOnIdle { model.workflow.scan(ScanResult("SKU-TEST", ScanSource.EXTERNAL_SCANNER)) }
+        waitForTag("SCAN_RESULT")
+        compose.onNodeWithTag("SCAN_RESULT").assertIsDisplayed()
+        compose.onNodeWithTag("RESULT_BACK").assertIsDisplayed()
+
+        // Far longer than the old 1.2 s flash timer: it must still be there.
+        Thread.sleep(3_000)
+        compose.waitForIdle()
+        compose.onNodeWithTag("SCAN_RESULT").assertIsDisplayed()
+
+        // …and the scanner never stays open behind the verdict (§21).
+        compose.onAllNodesWithTag("CAPTURE_QR_AREA").assertCountEquals(0)
+        compose.onAllNodesWithTag("MANUAL_SCAN").assertCountEquals(0)
+
+        // BACK closes it and the work interface is usable again.
+        compose.onNodeWithTag("RESULT_BACK").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("SCAN_RESULT").fetchSemanticsNodes().isEmpty() }
+        compose.onAllNodesWithTag("SCAN_RESULT").assertCountEquals(0)
+        waitForTag("READY_TO_SCAN")
     }
 }
