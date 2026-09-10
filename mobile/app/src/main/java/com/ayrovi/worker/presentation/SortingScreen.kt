@@ -78,7 +78,7 @@ fun SortingScreen(
         TerminalShell(
             header = {
                 TerminalHeader("CUSTOMER SORTING", worker, station, connection,
-                    industrial = industrial, onBack = onBack, onSettings = { settings = true })
+                    industrial = industrial, onBack = onBack, onSettings = { settings = true }, showSettingsIcon = false)
             },
             footer = {
                 TerminalFooter(if (state.busy) "PLEASE WAIT" else "") {

@@ -38,7 +38,7 @@ internal fun WorkerHomeScreen(
     state: WorkerAppState, device: WorkerDevice, connection: String, worker: String, station: String?,
     refresh: () -> Unit, logout: () -> Unit, settings: () -> Unit,
     completeInstruction: (String) -> Unit, receiving: () -> Unit, report: () -> Unit,
-    showReport: Boolean, openOcr: () -> Unit, openQr: () -> Unit,
+    openOcr: () -> Unit, openQr: () -> Unit,
     temporaryStorage: () -> Unit, otherTask: (String) -> Unit,
 ) {
     val industrial = device == WorkerDevice.CT40
@@ -73,32 +73,21 @@ internal fun WorkerHomeScreen(
             //      scanner DIRECTLY — no lane picker, no intermediate screen.
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
                 Box(Modifier.weight(1f).testTag("HOME_OCR")) {
-                    LaneTile("OCR", TerminalIcon.GLARE, state.verified && receivingReady, openOcr,
-                        Modifier.fillMaxWidth(), reason = if (receivingReady) null else "NO RECEIVING WORK")
+                    LaneTile("OCR", TerminalIcon.CAMERA, state.verified, openOcr, Modifier.fillMaxWidth())
                 }
                 Box(Modifier.weight(1f).testTag("HOME_QR")) {
-                    LaneTile("QR CODE", TerminalIcon.SCANNER, state.verified && receivingReady, openQr,
-                        Modifier.fillMaxWidth(), reason = if (receivingReady) null else "NO RECEIVING WORK")
+                    LaneTile("QR CODE", TerminalIcon.SCANNER, state.verified, openQr, Modifier.fillMaxWidth())
                 }
             }
+            // §8: RAPPORT and SETTINGS are INDEPENDENT Home entries — never
+            // gated behind another feature. The report screen itself explains
+            // when there is no session to report yet.
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-                if (showReport) {
-                    Box(Modifier.weight(1f).testTag("HOME_RAPPORT")) {
-                        LaneTile("RAPPORT", TerminalIcon.REPORT, state.verified, report, Modifier.fillMaxWidth())
-                    }
-                    Box(Modifier.weight(1f).testTag("HOME_SETTINGS")) {
-                        LaneTile("SETTINGS", TerminalIcon.SETTINGS, true, settings, Modifier.fillMaxWidth())
-                    }
-                } else {
-                    // Rapport is tied to Receiving (existing rule: it shows the
-                    // verification report of Receiving's completed work), so
-                    // without Receiving the row keeps its two-slot shape.
-                    Box(Modifier.weight(1f).testTag("HOME_RAPPORT")) {
-                        LaneTile("RAPPORT", TerminalIcon.REPORT, false, {}, Modifier.fillMaxWidth(), reason = "NEEDS RECEIVING")
-                    }
-                    Box(Modifier.weight(1f).testTag("HOME_SETTINGS")) {
-                        LaneTile("SETTINGS", TerminalIcon.SETTINGS, true, settings, Modifier.fillMaxWidth())
-                    }
+                Box(Modifier.weight(1f).testTag("HOME_RAPPORT")) {
+                    LaneTile("RAPPORT", TerminalIcon.REPORT, state.verified, report, Modifier.fillMaxWidth())
+                }
+                Box(Modifier.weight(1f).testTag("HOME_SETTINGS")) {
+                    LaneTile("SETTINGS", TerminalIcon.SETTINGS, true, settings, Modifier.fillMaxWidth())
                 }
             }
 

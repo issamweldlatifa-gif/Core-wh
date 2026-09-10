@@ -135,7 +135,7 @@ fun ReceivingReportScreen(
             // the toggle exists only as the separate "CHANGE DISPLAY" action
             // inside the settings dialog).
             TerminalHeader("CONFIRMATION REPORT", worker, station, connection,
-                industrial = industrial, onBack = onBack, onSettings = { settings = true })
+                industrial = industrial, onBack = onBack, onSettings = { settings = true }, showSettingsIcon = false)
         },
         footer = {
             TerminalFooter(if (state.loading) "PLEASE WAIT" else "") {

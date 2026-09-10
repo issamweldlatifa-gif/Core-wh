@@ -115,8 +115,7 @@ fun WorkerTerminalApp(
                 onToggleTheme = appearance::toggleTheme,
                 onToggleGlove = appearance::toggleGlove, onToggleGlare = appearance::toggleGlare,
                 coachPending = coachPending, onCoachDone = appearance::markCoachDone,
-                onBack = { route = TerminalRoute.QUEUE; model.refresh() },
-                onOpenReport = { reportFrom = TerminalRoute.RECEIVING; route = TerminalRoute.REPORT })
+                onBack = { route = TerminalRoute.QUEUE; model.refresh() })
         } else if (route == TerminalRoute.SCAN && state.me?.user?.id != null) {
             // §9/§14 HOME TOOLS — QR CODE / OCR: the scanner opens DIRECTLY
             // (no Receiving → Product → Carton steps). Scans run through the
@@ -127,8 +126,7 @@ fun WorkerTerminalApp(
                 onToggleTheme = appearance::toggleTheme,
                 onToggleGlove = appearance::toggleGlove, onToggleGlare = appearance::toggleGlare,
                 coachPending = false, onCoachDone = {},
-                onBack = { route = TerminalRoute.QUEUE; model.refresh() },
-                onOpenReport = { reportFrom = TerminalRoute.QUEUE; route = TerminalRoute.REPORT })
+                onBack = { route = TerminalRoute.QUEUE; model.refresh() })
         } else if (route == TerminalRoute.SHIPPING && state.me?.user?.id != null) {
             // SHIPPING (native, CT40-first): scan the label -> cards -> the
             // ONE deliberate confirm (dispatch is irreversible) -> green flash.
@@ -241,7 +239,6 @@ fun WorkerTerminalApp(
                     route = TerminalRoute.RECEIVING
                 },
                 report = { reportFrom = TerminalRoute.QUEUE; route = TerminalRoute.REPORT },
-                showReport = state.tasks.any { it.key == "receiving" },
                 // §9/§14: the tools open their scanner DIRECTLY (no lane
                 // picker) — QR CODE lands in the AUTO scanner, OCR opens the
                 // existing OCR flow on top of it.
@@ -338,7 +335,6 @@ private fun ReceivingHomeRoute(
     coachPending: Boolean,
     onCoachDone: () -> Unit,
     onBack: () -> Unit,
-    onOpenReport: () -> Unit,
 ) {
     val workerId = state.me!!.user!!.id!!
     val receiving: ReceivingHomeViewModel = viewModel(
@@ -352,10 +348,6 @@ private fun ReceivingHomeRoute(
     ReceivingHomeScreen(receiving, workerLabel(state), stationLabel(state), connection.name,
         onBack = onBack, onAuthExpired = model::expireSession,
         device = container.device, onToggleTheme = onToggleTheme,
-        appVersion = com.ayrovi.worker.BuildConfig.VERSION_NAME,
-        deviceCode = model.deviceCode,
-        repository = container.repository,
-        onOpenReport = onOpenReport,
         openWith = openWith, ocrFirst = ocrFirst,
         gloveOn = glove, onToggleGlove = onToggleGlove,
         glareOn = glare, onToggleGlare = onToggleGlare,

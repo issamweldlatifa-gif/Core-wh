@@ -69,7 +69,7 @@ fun ShippingScreen(
         TerminalShell(
             header = {
                 TerminalHeader("SHIPPING", worker, station, connection,
-                    industrial = industrial, onBack = onBack, onSettings = { settings = true })
+                    industrial = industrial, onBack = onBack, onSettings = { settings = true }, showSettingsIcon = false)
             },
             footer = {
                 TerminalFooter(if (state.busy) "PLEASE WAIT" else "") {

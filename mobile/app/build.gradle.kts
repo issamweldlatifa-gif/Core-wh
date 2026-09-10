@@ -48,8 +48,8 @@ android {
         applicationId = "com.ayrovi.worker"
         minSdk = 26
         targetSdk = 35
-        versionCode = 62
-        versionName = "1.7.1"
+        versionCode = 63
+        versionName = "1.7.2"
         buildConfigField("String", "API_BASE_URL", "\"${apiBaseUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
         buildConfigField("boolean", "WORKER_LEGACY_FALLBACK", legacyFallback.get().toString())
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

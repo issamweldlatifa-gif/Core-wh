@@ -50,20 +50,25 @@ class UnifiedScannerUiTest {
     @get:Rule
     val camera: GrantPermissionRule = GrantPermissionRule.grant(Manifest.permission.CAMERA)
 
-    private fun openProductScanner() {
+    /**
+     * UX CORRECTION §3/§9: every scanner test enters through the ONE scan
+     * tool — the AUTO scanner that Home QR CODE opens DIRECTLY (no lanes).
+     * Hardware override = the CT40 layout (no auto camera on the harness).
+     */
+    private fun openScanTool() {
         val model = ReceivingHomeViewModel(ReceivingUiGateway(), "worker", setOf("receiving.view", "receiving.execute"))
         compose.setContent {
             LaunchedEffect(Unit) { model.activate(setOf("receiving.view", "receiving.execute"), true) }
             Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
                 AyroviTerminalTheme(TerminalThemeMode.WHITE, onToggleTheme = {}) {
                     ReceivingHomeScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {},
-                        forceHardwareScanner = true)
+                        openWith = com.ayrovi.worker.presentation.ReceivingHomeIntent.OpenAutoScan,
+                        autoOpenCamera = false, forceHardwareScanner = true)
                 }
             }
         }
         compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
-        compose.onNodeWithTag("HOME_PRODUCT_TILE").performClick()
-        compose.waitUntil(10_000) { model.state.value.step == HomeStep.PRODUCT_SCAN }
+        compose.waitUntil(10_000) { model.state.value.step == HomeStep.AUTO_SCAN }
     }
 
     private fun waitForTag(tag: String) =
@@ -71,10 +76,10 @@ class UnifiedScannerUiTest {
 
     @Test
     fun scannerDefaultsToReadyToScanAndKeepsTheToolsInTheDrawer() {
-        openProductScanner()
+        openScanTool()
 
         // 1. DEFAULT: READY TO SCAN + CT40 indication + the single side button.
-        compose.onNodeWithTag("PRODUCT_SCANNER").assertIsDisplayed()
+        compose.onNodeWithTag("AUTO_SCANNER").assertIsDisplayed()
         waitForTag("READY_TO_SCAN")
         compose.onNodeWithTag("READY_TO_SCAN").assertIsDisplayed()
         compose.onNodeWithText("READY TO SCAN").assertIsDisplayed()
@@ -141,32 +146,6 @@ class UnifiedScannerUiTest {
         compose.onAllNodesWithTag("CAPTURE_QR_AREA").assertCountEquals(0)
     }
 
-    /** The same component serves the CARTON lane (§26) — one scanner UX, two lanes. */
-    @Test
-    fun cartonLaneUsesTheSameUnifiedScanner() {
-        val model = ReceivingHomeViewModel(ReceivingUiGateway(), "worker", setOf("receiving.view", "receiving.execute"))
-        compose.setContent {
-            LaunchedEffect(Unit) { model.activate(setOf("receiving.view", "receiving.execute"), true) }
-            Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
-                AyroviTerminalTheme(TerminalThemeMode.WHITE, onToggleTheme = {}) {
-                    ReceivingHomeScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {},
-                        forceHardwareScanner = true)
-                }
-            }
-        }
-        compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
-        compose.onNodeWithTag("HOME_CARTON_TILE").performClick()
-        compose.waitUntil(10_000) { model.state.value.step == HomeStep.CARTON_SCAN }
-
-        compose.onNodeWithTag("CARTON_SCANNER").assertIsDisplayed()
-        waitForTag("READY_TO_SCAN")
-        compose.onNodeWithTag("SCAN_TOOLS_ARROW").assertIsDisplayed()
-        compose.onNodeWithTag("SCAN_TOOLS_ARROW").performClick()
-        waitForTag("SCAN_TOOLS_DRAWER")
-        compose.onNodeWithTag("TOOL_CLOSE").performClick()
-        compose.onAllNodesWithTag("SCAN_TOOLS_DRAWER").assertCountEquals(0)
-    }
-
     /**
      * §27/§28 — the scan verdict NEVER dismisses itself: it stays in front of
      * the operator until BACK, and a new hardware read replaces the old verdict
@@ -185,8 +164,7 @@ class UnifiedScannerUiTest {
             }
         }
         compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
-        compose.onNodeWithTag("HOME_PRODUCT_TILE").performClick()
-        compose.waitUntil(10_000) { model.state.value.step == HomeStep.PRODUCT_SCAN }
+        compose.waitUntil(10_000) { model.state.value.step == HomeStep.AUTO_SCAN }
         waitForTag("READY_TO_SCAN")
 
         // GREEN MATCH (Phase B, zero-touch): the verdict flashes and the
@@ -231,13 +209,14 @@ class UnifiedScannerUiTest {
             LaunchedEffect(Unit) { model.activate(setOf("receiving.view", "receiving.execute"), true) }
             Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
                 AyroviTerminalTheme(TerminalThemeMode.WHITE, onToggleTheme = {}) {
-                    ReceivingHomeScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {})
+                    ReceivingHomeScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {},
+                        openWith = com.ayrovi.worker.presentation.ReceivingHomeIntent.OpenAutoScan,
+                        autoOpenCamera = false)
                 }
             }
         }
         compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
-        compose.onNodeWithTag("HOME_PRODUCT_TILE").performClick()
-        compose.waitUntil(10_000) { model.state.value.step == HomeStep.PRODUCT_SCAN }
+        compose.waitUntil(10_000) { model.state.value.step == HomeStep.AUTO_SCAN }
         waitForTag("READY_TO_SCAN")
 
         // Phone illustration, not the CT40 glyph — and no CT40 anywhere.
@@ -268,6 +247,33 @@ class UnifiedScannerUiTest {
     }
 
     /**
+     * UX CORRECTION §3: HOME → QR CODE → the CAMERA opens IMMEDIATELY on a
+     * phone (no hardware imager): no Start button, no extra confirmation,
+     * no intermediate screen. The existing capture surface is used as-is.
+     */
+    @Test
+    fun qrToolAutoOpensTheCameraImmediatelyOnAPhone() {
+        val model = ReceivingHomeViewModel(ReceivingUiGateway(), "worker", setOf("receiving.view", "receiving.execute"))
+        compose.setContent {
+            LaunchedEffect(Unit) { model.activate(setOf("receiving.view", "receiving.execute"), true) }
+            Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
+                AyroviTerminalTheme(TerminalThemeMode.WHITE, onToggleTheme = {}) {
+                    ReceivingHomeScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {},
+                        openWith = com.ayrovi.worker.presentation.ReceivingHomeIntent.OpenAutoScan)
+                }
+            }
+        }
+        compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
+        compose.waitUntil(10_000) { model.state.value.step == HomeStep.AUTO_SCAN }
+        // The real camera capture surface is up with NO further interaction.
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("CAPTURE_QR_AREA").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("CAPTURE_QR_AREA").assertIsDisplayed()
+        // No trigger button cluster and no work-center content behind it.
+        compose.onAllNodesWithTag("SHOW_TRIGGER").assertCountEquals(0)
+        compose.onAllNodesWithTag("RECEIVING_HOME").assertCountEquals(0)
+    }
+
+    /**
      * The LAST-scan reminder: absent before any read, then value + verdict
      * mark + time once a scan lands and its verdict is dismissed.
      */
@@ -284,8 +290,7 @@ class UnifiedScannerUiTest {
             }
         }
         compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
-        compose.onNodeWithTag("HOME_PRODUCT_TILE").performClick()
-        compose.waitUntil(10_000) { model.state.value.step == HomeStep.PRODUCT_SCAN }
+        compose.waitUntil(10_000) { model.state.value.step == HomeStep.AUTO_SCAN }
         waitForTag("READY_TO_SCAN")
         compose.onAllNodesWithTag("LAST_SCAN").assertCountEquals(0)
 

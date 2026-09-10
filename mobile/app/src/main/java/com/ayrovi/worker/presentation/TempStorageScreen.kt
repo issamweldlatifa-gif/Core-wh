@@ -119,7 +119,7 @@ fun TempStorageScreen(
         header = {
             TerminalHeader("TEMP STORAGE", worker, station, connection,
                 onBack = if (state.letter != null) ({ model.workflow.goHome() }) else onBack,
-                industrial = industrial, onSettings = { settings = true })
+                industrial = industrial, onSettings = { settings = true }, showSettingsIcon = false)
         },
         footer = {
             TerminalFooter(if (state.busy) "PLEASE WAIT" else "") {

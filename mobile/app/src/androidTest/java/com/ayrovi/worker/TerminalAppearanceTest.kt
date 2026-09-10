@@ -69,7 +69,7 @@ class TerminalAppearanceTest {
         } finally { context.deleteSharedPreferences(file) }
     }
 
-    @Test fun receivingHomeShowsTwoTilesAndBackOnlyThenOpensProductScanner() {
+    @Test fun receivingHomeShowsInfoOnlyWorkCenterWithoutHeaderSettings() {
         val backend = ReceivingUiGateway()
         val model = ReceivingHomeViewModel(backend, "worker", setOf("receiving.view", "receiving.execute"))
         var mode by mutableStateOf(TerminalThemeMode.WHITE)
@@ -93,23 +93,19 @@ class TerminalAppearanceTest {
         compose.onAllNodesWithText("PRODUCT").onFirst().assertExists()
         compose.onAllNodesWithText("CARTON").onFirst().assertExists()
         compose.onNodeWithContentDescription("Worker and settings").assertDoesNotExist()
-        compose.onNodeWithTag("HOME_PRODUCT_TILE").assertExists()
-            .assertHeightIsAtLeast(TerminalTokens.touch)
-        compose.onNodeWithTag("HOME_CARTON_TILE").assertExists()
-            .assertHeightIsAtLeast(TerminalTokens.touch)
-        // …and no scanner while the work center is open.
+        compose.onNodeWithTag("RECEIVING_CARD_PRODUCT_FIRST").assertExists()
+        compose.onNodeWithTag("RECEIVING_CARD_CARTON_FIRST").assertExists()
+        // §2: information ONLY — no lane tiles, no scanner, no camera behind
+        // Receiving, and no report shortcut on this screen (RAPPORT is a
+        // Home entry). The header carries NO settings icon.
+        compose.onAllNodesWithTag("HOME_PRODUCT_TILE").assertCountEquals(0)
+        compose.onAllNodesWithTag("HOME_CARTON_TILE").assertCountEquals(0)
+        compose.onAllNodesWithTag("HOME_REPORT_BUTTON").assertCountEquals(0)
         compose.onAllNodesWithTag("READY_TO_SCAN").assertCountEquals(0)
         compose.onAllNodesWithTag("SCAN_TOOLS_ARROW").assertCountEquals(0)
         compose.onAllNodesWithTag("SCAN_TOOLS_DRAWER").assertCountEquals(0)
-        compose.onAllNodesWithText("SCAN PRODUIT").assertCountEquals(0)
-        compose.onAllNodesWithText("SCAN CARTON").assertCountEquals(0)
-        compose.onAllNodesWithText("CONFIRMATION REPORT").assertCountEquals(0)
+        compose.onAllNodesWithText("SCAN PRODUCT OR CARTON").assertCountEquals(0)
         saveScreenshot("receiving-home-white")
-        // PRODUCT opens the PRODUCT scanner directly (no intermediate page).
-        compose.onNodeWithTag("HOME_PRODUCT_TILE").performClick()
-        compose.waitUntil(10_000) { model.state.value.step == com.ayrovi.worker.domain.HomeStep.PRODUCT_SCAN }
-        compose.onNodeWithTag("PRODUCT_SCANNER").assertIsDisplayed()
-        saveScreenshot("receiving-product-scanner-black")
     }
 
     @Test fun changeDisplaySwitchesPaletteThroughTheSettingsDialog() {
@@ -135,24 +131,24 @@ class TerminalAppearanceTest {
         compose.runOnIdle { assertEquals(Color.Black, observedBackground) }
     }
 
-    @Test fun cartonScanOpensDedicatedCartonScannerAtLargeFont() {
+    @Test fun scanToolKeepsTheUnifiedScannerUsableAtLargeFont() {
         val model = ReceivingHomeViewModel(ReceivingUiGateway(), "worker", setOf("receiving.view", "receiving.execute"))
         compose.setContent {
             LaunchedEffect(Unit) { model.activate(setOf("receiving.view", "receiving.execute"), true) }
             CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, fontScale = 1.5f)) {
                 Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
                     AyroviTerminalTheme(TerminalThemeMode.WHITE, onToggleTheme = {}) {
-                        ReceivingHomeScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {})
+                        ReceivingHomeScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {},
+                            openWith = com.ayrovi.worker.presentation.ReceivingHomeIntent.OpenAutoScan,
+                            autoOpenCamera = false, forceHardwareScanner = true)
                     }
                 }
             }
         }
         compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
-        compose.onNodeWithTag("HOME_CARTON_TILE").performScrollTo().assertHeightIsAtLeast(TerminalTokens.touch)
-        compose.onNodeWithTag("HOME_CARTON_TILE").performClick()
-        compose.waitUntil(10_000) { model.state.value.step == com.ayrovi.worker.domain.HomeStep.CARTON_SCAN }
-        compose.onNodeWithTag("CARTON_SCANNER").assertIsDisplayed()
-        saveScreenshot("receiving-carton-scanner-large-font")
+        compose.waitUntil(10_000) { model.state.value.step == com.ayrovi.worker.domain.HomeStep.AUTO_SCAN }
+        compose.onNodeWithTag("AUTO_SCANNER").assertIsDisplayed()
+        saveScreenshot("receiving-scan-tool-large-font")
     }
 
     private fun saveScreenshot(name: String) = saveNativeScreenshot(compose, name)

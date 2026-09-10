@@ -29,21 +29,26 @@ A debug APK is a QA artifact. Release builds are **not debug-signed**. Use the o
 
 ## Scope and important safety limits
 
-### UX restructure (v1.7.0) — HOME / RECEIVING / scan tools
+### UX CORRECTION (v1.7.2) — fully independent Home entries
 
-- **HOME** is a simple terminal: `RECEIVING` (main entry), the independent
-  tools `OCR` / `QR CODE` / `RAPPORT`, and `SETTINGS`. Settings is no longer
-  in the header — its single entry point is Home.
-- **RECEIVING** opens directly on the live work center: the dispatched cards
-  grouped **TO DO / ISSUES / DONE** from data the system already holds (the
-  home feed + the open-session tally the report already uses). A card opens
-  the EXISTING lane scanner; no START/CONFIRM steps were added.
-- **QR CODE** opens the AUTO scanner directly (product read → the PRODUCT
-  path, carton read → the CARTON path, unknown code → the existing
-  NOT MATCHED + "failure was logged" error, logged once).
+- **HOME** is a simple terminal: `RECEIVING` (information), the independent
+  tools `OCR` / `QR CODE`, and `RAPPORT` / `SETTINGS`. No Settings icon in
+  ANY header — its single entry point is Home.
+- **RECEIVING is INFORMATION ONLY** (§2): the dispatched cards grouped
+  **TO DO / ISSUES / DONE** with their live statuses. NO product/carton
+  selection, NO scanner, NO camera, NO scan button, and no automatic
+  redirect to scanning. Cards are read-only status cards.
+- **QR CODE** opens the EXISTING unified scanner DIRECTLY (the AUTO tool:
+  a product read follows the product path, a carton read the carton path,
+  an unknown code the existing NOT MATCHED + "failure was logged" error —
+  logged once). On phones without an imager the CAMERA opens immediately —
+  no Start button. CT40 keeps its instant hardware trigger.
+- **OCR** opens the EXISTING OCR flow directly (same chooser/camera/type
+  surfaces, the composite of the two lane templates — no new OCR shapes).
 - Success flow, error flow, failure logging, permissions, API and the
   scanner integrations (CT40 / phone) are unchanged. The other assigned
-  stations (Temporary Storage / Sorting / Packing) keep their Home tiles.
+  stations (Temporary Storage / Sorting / Packing / Shipping / Trace) keep
+  their Home tiles with their own routes.
 
 - New shell, work queue, secure auth, source-aware scanner, and one guided Receiving lane.
 - Carton identification is separate from physical confirmation.
