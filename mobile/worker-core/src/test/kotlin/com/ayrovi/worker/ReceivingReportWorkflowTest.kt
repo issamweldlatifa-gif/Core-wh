@@ -241,17 +241,19 @@ class ReceivingReportWorkflowTest {
         assertEquals(MessageTone.SUCCESS, flow.state.value.message?.tone)
     }
 
-    @Test fun `submit locks the report and disables mutations`() = runTest {
+    @Test fun `submit sends then purges the session from the device`() = runTest {
         val back = backend()
         val flow = workflow(back)
         flow.initialize(); runCurrent()
         flow.submit(null, "ok", emptyList()); runCurrent()
         val state = flow.state.value
-        assertEquals("SUBMITTED", state.reportStatus)
-        assertTrue(state.locked)
-        assertTrue(state.justSubmitted)
-        assertFalse(state.canMutate)
         assertTrue(back.calls.contains("submit"))
+        // Nothing stays: no report, no session, empty screen, success note.
+        assertNull(state.report)
+        assertNull(state.sessionId)
+        assertTrue(state.noSession)
+        assertFalse(state.canMutate)
+        assertEquals(MessageTone.SUCCESS, state.message?.tone)
     }
 
     @Test fun `locked report blocks every mutation`() = runTest {

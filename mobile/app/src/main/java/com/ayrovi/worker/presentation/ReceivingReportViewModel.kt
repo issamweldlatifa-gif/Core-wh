@@ -52,7 +52,16 @@ class ReceivingReportViewModel(
                 }
             }
         }
-        viewModelScope.launch { state.collect { reconcilePending() } }
+        viewModelScope.launch {
+            state.collect { current ->
+                reconcilePending()
+                // No open session/report: no photo picks may survive either.
+                if (!current.loading && current.noSession && current.report == null) {
+                    _pending.value = emptyList()
+                    lastSent = emptyList()
+                }
+            }
+        }
     }
 
     fun activate(permissions: Set<String>, available: Boolean) {
@@ -61,7 +70,9 @@ class ReceivingReportViewModel(
         // NEVER opens (that clause was copied from the home screen, whose
         // initial busy=false). The initialized flag is the only guard:
         // open once when the lane is available.
-        if (available && !initialized) {
+        // After a purge the screen is empty: revisit = fresh lookup, so a
+        // NEW session (if the worker started one) loads without a manual REFRESH.
+        if (available && (!initialized || (state.value.noSession && state.value.report == null))) {
             initialized = true
             workflow.initialize()
         }

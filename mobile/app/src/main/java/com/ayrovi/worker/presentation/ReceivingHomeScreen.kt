@@ -147,15 +147,26 @@ fun ReceivingHomeScreen(
         }
     }
 
+        // Camera tools take over the whole screen: fogged background, capture
+        // region + BACK only. Otherwise, while a lane scanner is on screen, the
+        // ONE tools button is pinned to the far right edge of the screen.
+        val cameraActive = capture.cameraOpen || capture.ocrCameraOpen
+        val verdict = state.message
+        val verdictShown = verdict != null && (verdict.tone == MessageTone.SUCCESS || verdict.tone == MessageTone.ERROR)
+        if (cameraActive) {
+            CameraToolOverlay(capture, model.captureAllowed)
+        } else if (lane != null && !scanTools && !verdictShown) {
+            ScanToolsEdgeButton { scanTools = true }
+        }
+
         // §17: side drawer overlays the screen; the work interface is untouched.
         if (scanTools) ScanToolsDrawer(capture, model.captureAllowed, onClose = { scanTools = false })
 
         // §27/§28: the scan verdict stays in the foreground until BACK (no
         // timer), and the next hardware scan replaces it.
-        val verdict = state.message
-        if (verdict != null && (verdict.tone == MessageTone.SUCCESS || verdict.tone == MessageTone.ERROR)) {
+        if (verdictShown) {
             ScanResultOverlay(
-                ok = verdict.tone == MessageTone.SUCCESS,
+                ok = verdict!!.tone == MessageTone.SUCCESS,
                 title = verdict.title,
                 detail = verdict.detail,
                 onBack = model.workflow::dismissResult,
@@ -216,7 +227,6 @@ private fun LaneTile(
 @Composable
 private fun ProductLane(state: com.ayrovi.worker.domain.ReceivingHomeState, capture: ScannerCapture, enabled: Boolean, onRetry: () -> Unit, onOpenScanTools: () -> Unit) {
     Column(Modifier.fillMaxWidth().testTag("PRODUCT_SCANNER"), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
-        TaskInstruction("PRODUCT SCANNER", "Scan a product QR / barcode, or read the SKU or reference with OCR.")
         state.message?.takeIf { it.tone == MessageTone.INFO }?.let { OperationalMessageViewHome(it) }
         if (state.step == HomeStep.REVIEW_PRODUCT) {
             state.productReview?.let { review ->
@@ -235,7 +245,7 @@ private fun ProductLane(state: com.ayrovi.worker.domain.ReceivingHomeState, capt
             // A kept review means a VERIFY failed: the lane offers RETRY for
             // the exact same attempt (success clears the review, so the button
             // can never replay a completed scan).
-            ScannerArea(capture, enabled, state.message, state.productReview != null, onRetry, lane = "PRODUCT", onOpenTools = onOpenScanTools)
+            ScannerArea(capture, enabled, state.productReview != null, onRetry, lane = "PRODUCT", onOpenTools = onOpenScanTools)
         }
     }
 }
@@ -244,7 +254,6 @@ private fun ProductLane(state: com.ayrovi.worker.domain.ReceivingHomeState, capt
 @Composable
 private fun CartonLane(state: com.ayrovi.worker.domain.ReceivingHomeState, capture: ScannerCapture, enabled: Boolean, onRetry: () -> Unit, onOpenScanTools: () -> Unit) {
     Column(Modifier.fillMaxWidth().testTag("CARTON_SCANNER"), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
-        TaskInstruction("📦 CARTON RECEIVING", "Scan a carton QR / barcode, carton reference, suivi or tracking. Auto verify → Auto approve → Next.")
         state.message?.takeIf { it.tone == MessageTone.INFO }?.let { OperationalMessageViewHome(it) }
         if (state.step == HomeStep.REVIEW_CARTON) {
             state.cartonReview?.let { review ->
@@ -270,7 +279,7 @@ private fun CartonLane(state: com.ayrovi.worker.domain.ReceivingHomeState, captu
                 }
             }
         } else {
-            ScannerArea(capture, enabled, state.message, state.cartonReview != null, onRetry, lane = "CARTON", onOpenTools = onOpenScanTools)
+            ScannerArea(capture, enabled, state.cartonReview != null, onRetry, lane = "CARTON", onOpenTools = onOpenScanTools)
         }
     }
 }
@@ -283,7 +292,7 @@ private fun CartonLane(state: com.ayrovi.worker.domain.ReceivingHomeState, captu
  */
 @Composable
 private fun ScannerArea(
-    capture: ScannerCapture, enabled: Boolean, verdict: OperationalMessage?, canRetry: Boolean, onRetry: () -> Unit,
+    capture: ScannerCapture, enabled: Boolean, canRetry: Boolean, onRetry: () -> Unit,
     lane: String, onOpenTools: () -> Unit,
 ) {
     // The retry slot is typed explicitly so the composable lambda keeps its
@@ -294,7 +303,6 @@ private fun ScannerArea(
         capture = capture,
         enabled = enabled,
         title = if (lane == "CARTON") "SCAN CARTON" else "SCAN PRODUCT",
-        subtitle = verdict?.takeIf { it.tone == MessageTone.INFO }?.detail,
         extra = retrySlot,
         onOpenTools = onOpenTools,
     )

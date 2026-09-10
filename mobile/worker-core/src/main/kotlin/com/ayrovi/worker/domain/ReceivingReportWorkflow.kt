@@ -164,11 +164,14 @@ class ReceivingReportWorkflow(
         scope.launch {
             mutable.update { it.copy(loading = true, message = null) }
             try {
-                val view = gateway.submitReport(id, description, observation, photos)
+                gateway.submitReport(id, description, observation, photos)
+                // The report is sent: NOTHING stays on this device. The session,
+                // the report and its history are purged, so reopening this
+                // screen never shows stale data from a finished session.
                 val done = OperationalMessage(
-                    "REPORT SENT", "Confirmation report locked and sent to supervisors.", MessageTone.SUCCESS,
+                    "REPORT SENT", "The session was cleared from this device.", MessageTone.SUCCESS,
                 )
-                mutable.update { it.copy(loading = false, report = view, message = done, justSubmitted = true) }
+                mutable.update { it.copy(loading = false, report = null, sessionId = null, message = done, justSubmitted = false, noSession = true) }
                 _events.tryEmit(done)
             } catch (failure: Exception) {
                 if (failure is CancellationException) throw failure

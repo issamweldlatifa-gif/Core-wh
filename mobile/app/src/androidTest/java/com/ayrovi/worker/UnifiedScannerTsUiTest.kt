@@ -98,7 +98,7 @@ class UnifiedScannerTsUiTest {
         compose.onNodeWithText("CT40").assertIsDisplayed()
 
         // §16/§31: ONE small side button, finger-sized touch target.
-        compose.onNodeWithTag("SCAN_TOOLS_ARROW").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("SCAN_TOOLS_ARROW").assertIsDisplayed()
             .assertHeightIsAtLeast(TerminalTokens.touch)
             .assertWidthIsAtLeast(TerminalTokens.touch)
 
@@ -109,7 +109,7 @@ class UnifiedScannerTsUiTest {
         compose.onAllNodesWithTag("CAPTURE_QR_AREA").assertCountEquals(0)
 
         // §17/§18: the drawer is the ONLY way to the other read methods.
-        compose.onNodeWithTag("SCAN_TOOLS_ARROW").performScrollTo().performClick()
+        compose.onNodeWithTag("SCAN_TOOLS_ARROW").performClick()
         waitForTag("SCAN_TOOLS_DRAWER")
         compose.onNodeWithTag("TOOL_QR").assertIsDisplayed()
         compose.onNodeWithTag("TOOL_OCR").assertIsDisplayed()
@@ -127,14 +127,14 @@ class UnifiedScannerTsUiTest {
 
         // §19/§31: back to the CT40 hardware default in ONE small tap, without
         // closing the tool first — the side button stays reachable.
-        compose.onNodeWithTag("SCAN_TOOLS_ARROW").performScrollTo().performClick()
+        compose.onNodeWithTag("SCAN_TOOLS_ARROW").performClick()
         waitForTag("SCAN_TOOLS_DRAWER")
         compose.onNodeWithTag("TOOL_CT40").performClick()
         waitForTag("READY_TO_SCAN")
         compose.onAllNodesWithTag("MANUAL_SCAN").assertCountEquals(0)
 
         // §18: FERMER alone closes the drawer without changing the scanner state.
-        compose.onNodeWithTag("SCAN_TOOLS_ARROW").performScrollTo().performClick()
+        compose.onNodeWithTag("SCAN_TOOLS_ARROW").performClick()
         waitForTag("SCAN_TOOLS_DRAWER")
         compose.onNodeWithTag("TOOL_CLOSE").performClick()
         waitForTagGone("SCAN_TOOLS_DRAWER")

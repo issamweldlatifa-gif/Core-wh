@@ -10,10 +10,10 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
 import androidx.test.rule.GrantPermissionRule
 import com.ayrovi.worker.design.AyroviTerminalTheme
 import com.ayrovi.worker.design.TerminalThemeMode
@@ -79,6 +79,8 @@ class UnifiedScannerUiTest {
         compose.onNodeWithText("READY TO SCAN").assertIsDisplayed()
         compose.onNodeWithText("CT40").assertIsDisplayed()
         compose.onNodeWithTag("SCAN_TOOLS_ARROW").assertIsDisplayed()
+        compose.onAllNodesWithText("Hardware Scanner").assertCountEquals(0)
+        compose.onAllNodesWithText("Use the CT40 side trigger — no screen button needed.").assertCountEquals(0)
 
         // …and NO tool surface, no big scan-button cluster (§20/§29).
         compose.onAllNodesWithTag("OCR_SCAN").assertCountEquals(0)
@@ -87,7 +89,7 @@ class UnifiedScannerUiTest {
         compose.onAllNodesWithTag("SCAN_TOOLS_DRAWER").assertCountEquals(0)
 
         // 2. Side tools -> drawer with icon + short label items only.
-        compose.onNodeWithTag("SCAN_TOOLS_ARROW").performScrollTo().performClick()
+        compose.onNodeWithTag("SCAN_TOOLS_ARROW").performClick()
         waitForTag("SCAN_TOOLS_DRAWER")
         compose.onNodeWithTag("TOOL_QR").assertIsDisplayed()
         compose.onNodeWithTag("TOOL_OCR").assertIsDisplayed()
@@ -99,31 +101,38 @@ class UnifiedScannerUiTest {
         compose.onNodeWithTag("TOOL_OCR").performClick()
         waitForTag("OCR_SCAN")
         compose.onNodeWithTag("OCR_SCAN").assertIsDisplayed()
+        compose.onNodeWithTag("TOOL_BACK").assertIsDisplayed()
         compose.onAllNodesWithTag("SCAN_TOOLS_DRAWER").assertCountEquals(0)
+        compose.onAllNodesWithText("OCR CAPTURE").assertCountEquals(0)
+        compose.onAllNodesWithText("READING… keep the SKU line inside the strip").assertCountEquals(0)
+        compose.onAllNodesWithText("CLOSE TOOL").assertCountEquals(0)
 
         // 7. Closing the tool returns to the hardware default.
-        compose.onNodeWithText("CLOSE TOOL").performScrollTo().performClick()
+        compose.onNodeWithTag("TOOL_BACK").performClick()
         waitForTag("READY_TO_SCAN")
         compose.onNodeWithTag("SCAN_TOOLS_ARROW").assertIsDisplayed()
 
         // 8. QR / BARCODE from the drawer — a tool, never the default.
-        compose.onNodeWithTag("SCAN_TOOLS_ARROW").performScrollTo().performClick()
+        compose.onNodeWithTag("SCAN_TOOLS_ARROW").performClick()
         waitForTag("SCAN_TOOLS_DRAWER")
         compose.onNodeWithTag("TOOL_QR").performClick()
         compose.waitUntil(10_000) { compose.onAllNodesWithTag("CAPTURE_QR_AREA").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("CAPTURE_QR_AREA").assertIsDisplayed()
+        compose.onNodeWithTag("TOOL_BACK").assertIsDisplayed()
         compose.onAllNodesWithTag("READY_TO_SCAN").assertCountEquals(0)
+        compose.onAllNodesWithText("QR / BARCODE").assertCountEquals(0)
+        compose.onAllNodesWithText("CLOSE TOOL").assertCountEquals(0)
 
         // 11. Manual fallback, then CT40 puts the hardware scanner back in front.
-        compose.onNodeWithText("CLOSE TOOL").performScrollTo().performClick()
+        compose.onNodeWithTag("TOOL_BACK").performClick()
         waitForTag("READY_TO_SCAN")
-        compose.onNodeWithTag("SCAN_TOOLS_ARROW").performScrollTo().performClick()
+        compose.onNodeWithTag("SCAN_TOOLS_ARROW").performClick()
         waitForTag("SCAN_TOOLS_DRAWER")
         compose.onNodeWithTag("TOOL_MANUAL").performClick()
         waitForTag("MANUAL_SCAN")
         compose.onNodeWithTag("MANUAL_SCAN").assertIsDisplayed()
 
-        compose.onNodeWithTag("SCAN_TOOLS_ARROW").performScrollTo().performClick()
+        compose.onNodeWithTag("SCAN_TOOLS_ARROW").performClick()
         waitForTag("SCAN_TOOLS_DRAWER")
         compose.onNodeWithTag("TOOL_CT40").performClick()
         waitForTag("READY_TO_SCAN")
@@ -150,7 +159,7 @@ class UnifiedScannerUiTest {
         compose.onNodeWithTag("CARTON_SCANNER").assertIsDisplayed()
         waitForTag("READY_TO_SCAN")
         compose.onNodeWithTag("SCAN_TOOLS_ARROW").assertIsDisplayed()
-        compose.onNodeWithTag("SCAN_TOOLS_ARROW").performScrollTo().performClick()
+        compose.onNodeWithTag("SCAN_TOOLS_ARROW").performClick()
         waitForTag("SCAN_TOOLS_DRAWER")
         compose.onNodeWithTag("TOOL_CLOSE").performClick()
         compose.onAllNodesWithTag("SCAN_TOOLS_DRAWER").assertCountEquals(0)

@@ -1,11 +1,13 @@
 package com.ayrovi.worker.presentation
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -27,12 +29,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ayrovi.worker.design.BarcodeDisplay
+import com.ayrovi.worker.design.ErrorState
 import com.ayrovi.worker.design.PrimaryAction
 import com.ayrovi.worker.design.SecondaryAction
 import com.ayrovi.worker.design.TerminalIcon
@@ -44,9 +51,14 @@ import com.ayrovi.worker.scanner.ScannerCapture
  * MASTER ORDER §§14–35 — ONE unified Scanner UX for the whole Worker app.
  *
  * The scanner screen is not a dashboard and not a tool list (§29): it shows
- * READY TO SCAN + the CT40 indication + ONE small side button. Camera / OCR /
- * manual entry live in a side drawer that opens only when the operator asks for
- * it (§17) and close themselves as soon as the read is done (§21).
+ * READY TO SCAN + the terminal illustration and NOTHING else — no descriptive
+ * sentences, no buttons. The ONE small tools button is pinned to the far right
+ * edge of the SCREEN (not to the panel) by the station screen.
+ *
+ * Camera tools TAKE OVER the screen: the whole background is fogged and only
+ * the capture region + a BACK button stay visible — the OCR strip on the full
+ * screen width, the QR / barcode square on about half the screen. The tools
+ * still close themselves as soon as the read is done (§21).
  *
  * The SAME panel is used by every station that scans — Receiving (product and
  * carton lanes), Temporary Storage, and any future station — so there is no
@@ -67,78 +79,61 @@ internal fun ScannerPanel(
         subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = TerminalTokens.muted) }
 
         when {
-            // A selected tool owns the panel only while it is used, but the
-            // small side button stays available: the operator can jump straight
-            // from a tool back to the CT40 hardware default (§18/§19) without
-            // closing and re-opening the drawer.
-            capture.manualOpen -> ToolRail(onOpenTools) { ManualScan(capture, enabled) }
-            capture.cameraOpen -> ToolRail(onOpenTools) {
-                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-                    QrCaptureArea(preview = capture.preview, label = "QR / BARCODE")
-                    Text(
-                        "Frame the QR / barcode. The CT40 trigger stays the primary scanner.",
-                        style = MaterialTheme.typography.bodySmall, color = TerminalTokens.muted,
-                    )
-                    SecondaryAction("CLOSE TOOL", capture.cancel, enabled)
-                }
-            }
-            capture.ocrOpen -> ToolRail(onOpenTools) { OcrScan(capture, enabled) }
-            else -> ReadyToScanPanel(capture, enabled, onOpenTools = onOpenTools)
+            // Manual entry is a small inline form (kept simple on purpose).
+            capture.manualOpen -> ManualScan(capture, enabled)
+            // Camera tools take over the whole screen (CameraToolOverlay, drawn
+            // at screen level by the station): inline only a quiet placeholder.
+            capture.cameraOpen || capture.ocrCameraOpen -> CameraToolPlaceholder()
+            // OCR selected but the camera not streaming yet (chooser / typing).
+            capture.ocrOpen -> OcrScan(capture, enabled)
+            else -> ReadyToScanPanel(capture, enabled)
         }
 
         extra?.invoke()
     }
 }
 
+/** Quiet inline placeholder while a camera tool owns the screen above. */
+@Composable
+private fun CameraToolPlaceholder() {
+    Spacer(Modifier.fillMaxWidth().height(120.dp))
+}
+
 /**
- * Default state (§15/§19/§29): READY TO SCAN, a small CT40 indication and the
- * single side-tools arrow. No big scan buttons — the operator uses the hardware
- * trigger of the terminal.
+ * Default state (§15/§19/§29): READY TO SCAN + the terminal illustration only.
+ * No descriptive text, no buttons — the operator uses the hardware trigger,
+ * and the tools button lives on the screen edge, outside this panel.
  *
- * If the terminal exposes no hardware scanner (emulator / plain phone), a small
- * TRIGGER line is shown instead of pretending a trigger exists: the software
- * trigger of the SAME scanner stack stays reachable without becoming the
- * default.
+ * If the terminal exposes no hardware scanner (emulator / plain phone), a
+ * phone illustration is drawn and a small TRIGGER line stays reachable without
+ * becoming the default.
  */
 @Composable
-internal fun ReadyToScanPanel(capture: ScannerCapture, enabled: Boolean, onOpenTools: () -> Unit) {
+internal fun ReadyToScanPanel(capture: ScannerCapture, enabled: Boolean) {
     var showTrigger by remember { mutableStateOf(false) }
     Surface(
         Modifier.fillMaxWidth().testTag("READY_TO_SCAN"),
         color = TerminalTokens.surface, shape = MaterialTheme.shapes.medium,
         border = BorderStroke(TerminalTokens.stroke, TerminalTokens.border),
     ) {
-        Box(Modifier.fillMaxWidth()) {
-            Column(
-                Modifier.fillMaxWidth().padding(TerminalTokens.md).padding(end = ToolsRail),
-                verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(
-                    "READY TO SCAN",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black),
-                    color = TerminalTokens.instruction,
-                )
-                Ct40Glyph(available = capture.hardwareAvailable)
-                Text(
-                    if (capture.hardwareAvailable) "Hardware Scanner" else "No hardware scanner detected",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (capture.hardwareAvailable) TerminalTokens.muted else TerminalTokens.warning,
-                )
-                Text(
-                    if (capture.hardwareAvailable) "Use the CT40 side trigger — no screen button needed."
-                    else "Use the trigger line below, or open the tools to scan another way.",
-                    style = MaterialTheme.typography.bodySmall, color = TerminalTokens.muted,
-                )
-                if (!capture.hardwareAvailable) {
-                    if (showTrigger) {
-                        PrimaryAction("TRIGGER SCAN", capture.softwareScan, enabled, Modifier.testTag("SOFTWARE_TRIGGER"))
-                    } else {
-                        SecondaryAction("SHOW TRIGGER", { showTrigger = true }, enabled, Modifier.testTag("SHOW_TRIGGER"))
-                    }
+        Column(
+            Modifier.fillMaxWidth().padding(TerminalTokens.md),
+            verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                "READY TO SCAN",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black),
+                color = TerminalTokens.instruction,
+            )
+            if (capture.hardwareAvailable) Ct40Glyph(available = true) else PhoneGlyph()
+            if (!capture.hardwareAvailable) {
+                if (showTrigger) {
+                    PrimaryAction("TRIGGER SCAN", capture.softwareScan, enabled, Modifier.testTag("SOFTWARE_TRIGGER"))
+                } else {
+                    SecondaryAction("SHOW TRIGGER", { showTrigger = true }, enabled, Modifier.testTag("SHOW_TRIGGER"))
                 }
             }
-            ScanToolsArrow(Modifier.align(Alignment.CenterEnd), onOpenTools)
         }
     }
 }
@@ -161,30 +156,29 @@ private fun Ct40Glyph(available: Boolean) {
     }
 }
 
-/**
- * Width of the reserved side rail. It is the gloved-touch token (56 dp), so the
- * small button is comfortable to hit one-handed and the rail it lives in never
- * overlaps a control (§31).
- */
-private val ToolsRail = 56.dp
-
-/**
- * A tool is open: the tool content gets a reserved right rail and the SAME side
- * button is drawn in it, so the drawer is always one small tap away without
- * covering the tool the operator is currently using (§16/§18/§31).
- */
+/** Small phone illustration for terminals without a hardware scanner. */
 @Composable
-private fun ToolRail(onOpenTools: () -> Unit, content: @Composable () -> Unit) {
-    Box(Modifier.fillMaxWidth()) {
-        Box(Modifier.fillMaxWidth().padding(end = ToolsRail)) { content() }
-        ScanToolsArrow(Modifier.align(Alignment.CenterEnd), onOpenTools)
+private fun PhoneGlyph() {
+    Box(
+        Modifier.size(width = 32.dp, height = 58.dp)
+            .border(2.dp, TerminalTokens.muted, MaterialTheme.shapes.small)
+            .background(TerminalTokens.raised, MaterialTheme.shapes.small),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(Modifier.width(12.dp).height(3.dp).background(TerminalTokens.muted, MaterialTheme.shapes.small))
     }
 }
 
 /**
+ * Width of the side button touch target. It is the gloved-touch token
+ * (56 dp), so the small button is comfortable to hit one-handed (§31).
+ */
+private val ToolsRail = 56.dp
+
+/**
  * The single, small, semi-transparent side button (§16). The strip stays small
- * (34 dp) but the touch target is finger-sized (48 × 72 dp) so it is easy to hit
- * with gloves on while the CT40 is held one-handed (§31).
+ * (34 dp) but the touch target is finger-sized (56 × 72 dp) so it is easy to
+ * hit with gloves on while the terminal is held one-handed (§31).
  */
 @Composable
 private fun ScanToolsArrow(modifier: Modifier = Modifier, onClick: () -> Unit) {
@@ -200,6 +194,113 @@ private fun ScanToolsArrow(modifier: Modifier = Modifier, onClick: () -> Unit) {
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Text("◀", style = MaterialTheme.typography.titleMedium, color = TerminalTokens.instruction)
+            }
+        }
+    }
+}
+
+/**
+ * The tools button, pinned to the far right edge of the SCREEN (§16) — never
+ * attached to the scanner panel. The container itself is not clickable, so
+ * touches pass through everywhere except on the small button. Drawn at screen
+ * level by the station, only while the scanner is on screen and no camera tool
+ * owns it.
+ */
+@Composable
+internal fun ScanToolsEdgeButton(onOpenTools: () -> Unit) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterEnd) {
+        ScanToolsArrow(onClick = onOpenTools)
+    }
+}
+
+/**
+ * Camera tool TAKEOVER. The whole screen is fogged and ONLY the capture region
+ * + a BACK button stay visible:
+ *
+ *  - OCR: the capture strip on the FULL screen width (≈1–2 cm tall). While
+ *    aiming, nothing else shows; only after a shape-validated code is detected
+ *    do the code + CONFIRM appear above the strip (raw engine text never shows).
+ *  - QR / BARCODE: one square on about HALF the screen, centered. The read
+ *    submits itself on decode, so no confirm step is needed.
+ */
+@Composable
+internal fun CameraToolOverlay(capture: ScannerCapture, enabled: Boolean) {
+    val ocr = capture.ocrCameraOpen
+    Box(
+        Modifier.fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.92f))
+            .testTag(if (ocr) "OCR_SCAN" else "CAPTURE_QR_AREA"),
+    ) {
+        if (ocr) {
+            val candidate = capture.ocrSuggestion?.candidate
+            Column(
+                Modifier.align(Alignment.Center).fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                if (candidate != null) {
+                    // Only the shape-validated code is ever rendered.
+                    BarcodeDisplay(candidate)
+                    PrimaryAction(
+                        "CONFIRM CODE", capture.submitOcr, enabled,
+                        Modifier.fillMaxWidth().padding(horizontal = TerminalTokens.lg),
+                    )
+                } else {
+                    capture.ocrError?.let { ErrorState("NO CODE FOUND", it) }
+                }
+                OcrTakeoverStrip(capture.ocrPreview)
+            }
+        } else {
+            QrTakeoverSquare(capture.preview)
+        }
+        SecondaryAction(
+            "BACK", capture.cancel, enabled,
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                .padding(horizontal = TerminalTokens.lg, vertical = TerminalTokens.lg)
+                .testTag("TOOL_BACK"),
+        )
+    }
+}
+
+/** OCR strip: full screen width, the camera preview clipped to it only. */
+@Composable
+private fun OcrTakeoverStrip(preview: @Composable (Modifier) -> Unit) {
+    Box(Modifier.fillMaxWidth().height(64.dp)) {
+        preview(Modifier.matchParentSize())
+        Canvas(Modifier.matchParentSize()) {
+            drawRect(
+                color = Color.White.copy(alpha = 0.9f),
+                topLeft = Offset(2f, 2f),
+                size = Size(size.width - 4f, size.height - 4f),
+                style = Stroke(width = 3f),
+            )
+            val midY = size.height / 2f
+            drawLine(Color.White.copy(alpha = 0.55f), Offset(10f, midY), Offset(size.width - 10f, midY), strokeWidth = 1.5f)
+        }
+    }
+}
+
+/** QR / barcode square: about half the screen, centered, preview clipped to it. */
+@Composable
+private fun QrTakeoverSquare(preview: @Composable (Modifier) -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val side = (maxWidth * 0.86f).coerceAtMost(maxHeight * 0.52f)
+        Box(Modifier.align(Alignment.Center).size(side)) {
+            preview(Modifier.matchParentSize())
+            Canvas(Modifier.matchParentSize()) {
+                val s = size.width
+                val arm = s * 0.20f
+                val c = Color.White.copy(alpha = 0.95f)
+                val stroke = 5f
+                // Corner brackets: shows the operator where the QR must sit.
+                drawLine(c, Offset(0f, 0f), Offset(arm, 0f), strokeWidth = stroke)
+                drawLine(c, Offset(0f, 0f), Offset(0f, arm), strokeWidth = stroke)
+                drawLine(c, Offset(s, 0f), Offset(s - arm, 0f), strokeWidth = stroke)
+                drawLine(c, Offset(s, 0f), Offset(s, arm), strokeWidth = stroke)
+                drawLine(c, Offset(0f, s), Offset(arm, s), strokeWidth = stroke)
+                drawLine(c, Offset(0f, s), Offset(0f, s - arm), strokeWidth = stroke)
+                drawLine(c, Offset(s, s), Offset(s - arm, s), strokeWidth = stroke)
+                drawLine(c, Offset(s, s), Offset(s, s - arm), strokeWidth = stroke)
             }
         }
     }

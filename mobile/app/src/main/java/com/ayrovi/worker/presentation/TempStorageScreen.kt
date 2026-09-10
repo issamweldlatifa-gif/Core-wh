@@ -141,13 +141,24 @@ fun TempStorageScreen(
             submit = { model.workflow.submitReport(observation.trim().ifEmpty { null }); reportOpen = false })
     }
 
+        // Camera tools take over the whole screen: fogged background, capture
+        // region + BACK only. Otherwise the ONE tools button is pinned to the
+        // far right edge of the screen.
+        val cameraActive = capture.cameraOpen || capture.ocrCameraOpen
+        val result = state.message
+        val resultShown = result != null && (result.tone == MessageTone.SUCCESS || result.tone == MessageTone.ERROR)
+        if (cameraActive) {
+            CameraToolOverlay(capture, model.captureAllowed)
+        } else if (state.loaded && !scanTools && !resultShown) {
+            ScanToolsEdgeButton { scanTools = true }
+        }
+
         // §17: the side drawer overlays the screen (never pushes the work).
         if (scanTools) ScanToolsDrawer(capture, model.captureAllowed, onClose = { scanTools = false })
 
         // §27/§28: the result stays in the foreground (background dimmed) until
         // BACK — or until a new hardware scan replaces it.
-        val result = state.message
-        if (result != null && (result.tone == MessageTone.SUCCESS || result.tone == MessageTone.ERROR)) {
+        if (resultShown) {
             ScanResultOverlay(
                 ok = result.tone == MessageTone.SUCCESS,
                 title = result.title,

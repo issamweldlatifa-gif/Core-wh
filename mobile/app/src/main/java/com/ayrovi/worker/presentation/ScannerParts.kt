@@ -42,10 +42,11 @@ internal fun ManualScan(capture: ScannerCapture, enabled: Boolean) {
 }
 
 /**
- * OCR tool (§17/§22): a SHORT horizontal capture strip (≈1–2 cm) with the
- * surroundings dimmed — never a full-screen camera. ML Kit detects, the strict
- * pattern filters (`^s[a-z][0-9]{5,20}$`), and only the VALIDATED code is shown:
- * the raw engine text is never displayed.
+ * OCR tool, camera NOT streaming yet (§17/§22): the chooser / typing fallback.
+ * The live camera itself takes over the whole screen (CameraToolOverlay): the
+ * strip on the full screen width, everything else fogged, BACK only. ML Kit
+ * detects, the strict pattern filters (`^s[a-z][0-9]{5,20}$`), and only the
+ * VALIDATED code is shown: the raw engine text is never displayed.
  *
  * The tool closes itself as soon as a code is confirmed or a scan succeeds
  * (§21), so the operator lands on the result state of the current workflow.
@@ -56,24 +57,6 @@ internal fun OcrScan(capture: ScannerCapture, enabled: Boolean) {
     val candidate = capture.ocrSuggestion?.candidate
     Column(Modifier.fillMaxWidth().testTag("OCR_SCAN"), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
         when {
-            capture.ocrCameraOpen -> {
-                CaptureBand(preview = capture.ocrPreview, label = "OCR CAPTURE")
-                Text(
-                    if (candidate == null) "READING… keep the SKU line inside the strip"
-                    else "CODE DETECTED",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (candidate == null) TerminalTokens.muted else TerminalTokens.success,
-                )
-                // Only the shape-validated code is ever rendered.
-                candidate?.let { BarcodeDisplay(it) }
-                capture.ocrError?.let { ErrorState("NO CODE FOUND", it) }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-                    if (candidate != null) {
-                        PrimaryAction("CONFIRM CODE", capture.submitOcr, enabled, Modifier.weight(1f))
-                    }
-                    SecondaryAction("CLOSE TOOL", capture.cancel, enabled, Modifier.weight(1f))
-                }
-            }
             typed -> {
                 TerminalTextInput("LABEL TEXT", capture.ocrText, capture.setOcrText, enabled = enabled, singleLine = false, onSubmit = capture.submitOcr)
                 candidate?.let { BarcodeDisplay(it) }
