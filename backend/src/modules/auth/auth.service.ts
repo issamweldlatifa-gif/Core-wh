@@ -63,7 +63,7 @@ export class AuthService {
     } catch (gateError) {
       await this.audit.log({
         actorUserId: null,
-        action: 'USER_LOGIN_THROTTLED' as never,
+        action: 'USER_LOGIN_THROTTLED',
         entityType: 'user',
         entityId: null,
         ipAddress: ctx?.ip,

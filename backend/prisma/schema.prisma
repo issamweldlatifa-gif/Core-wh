@@ -74,6 +74,8 @@ enum AuditAction {
   USER_LOGIN
   USER_LOGOUT
   USER_LOGIN_FAILED
+  /// Per-account brute-force lock rejected a sign-in (LoginThrottleService).
+  USER_LOGIN_THROTTLED
   USER_LOGOUT_FAILED
   USER_CREATED
   USER_UPDATED

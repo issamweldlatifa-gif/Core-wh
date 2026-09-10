@@ -89,8 +89,16 @@ async function bootstrap() {
   // unless explicitly enabled — a public API map is recon gift-wrapping.
   // BUGFIX: SWAGGER_ENABLED was documented in .env.example and render.yaml
   // but never actually read — docs were always exposed. Now honoured.
-  const swaggerDefault = process.env.NODE_ENV === 'production' ? 'false' : 'true';
-  if ((process.env.SWAGGER_ENABLED ?? swaggerDefault).toLowerCase() !== 'false') {
+  // Docs are a DEV tool. Production hard-gate: OFF unless BOTH the legacy
+  // switch asks for them AND an explicit escape hatch is present. This keeps
+  // a stale/drifted SWAGGER_ENABLED=true (dashboard or blueprint) from ever
+  // re-exposing the API map on production.
+  const isProduction = process.env.NODE_ENV === 'production';
+  const swaggerDefault = isProduction ? 'false' : 'true';
+  const swaggerWanted = (process.env.SWAGGER_ENABLED ?? swaggerDefault).toLowerCase() !== 'false';
+  const swaggerEscapeHatch = (process.env.ENABLE_SWAGGER_IN_PRODUCTION ?? 'false').toLowerCase() === 'true';
+  const swaggerEnabled = isProduction ? swaggerWanted && swaggerEscapeHatch : swaggerWanted;
+  if (swaggerEnabled) {
     const swaggerConfig = new DocumentBuilder()
       .setTitle('AYROVI Warehouse Core API')
       .setDescription('Phase 0 — Core system (auth, RBAC, audit, system). REST v1.')
