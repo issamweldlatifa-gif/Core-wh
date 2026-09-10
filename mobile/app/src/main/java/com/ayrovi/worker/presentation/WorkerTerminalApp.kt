@@ -94,6 +94,7 @@ fun WorkerTerminalApp(
         // exposes the task (station changed / permission removed), never keep
         // the worker on a screen they can no longer operate.
         if (route == TerminalRoute.TEMPORARY && state.me != null && state.tasks.none { it.key == "temporary-storage" }) route = TerminalRoute.QUEUE
+        if (route == TerminalRoute.SORTING && state.me != null && state.tasks.none { it.key == "customer-sorting" }) route = TerminalRoute.QUEUE
     }
     AyroviTerminalTheme(mode = theme, onToggleTheme = appearance::toggleTheme, gloveMode = glove, glareBoost = glare) {
         if (!state.signedIn) {
@@ -180,7 +181,9 @@ fun WorkerTerminalApp(
                     if (state.tasks.any { it.key == "temporary-storage" }) route = TerminalRoute.TEMPORARY
                     else model.noticeTask("Temporary Storage")
                 },
-                otherTask = model::noticeTask)
+                otherTask = { key ->
+                    if (key == "customer-sorting") route = TerminalRoute.SORTING else model.noticeTask(key)
+                })
         }
         if (showSettings) WorkerSettingsDialog(
             repository = container.repository,
