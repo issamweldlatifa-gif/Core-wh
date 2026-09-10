@@ -126,8 +126,8 @@ fun TempStorageScreen(
     ) {
         when {
             !state.loaded -> LoadingState("OPENING TEMPORARY STORAGE…")
-            state.letter == null -> TsHomeBody(state, model, capture, industrial)
-            else -> TsBoardBody(state, model, capture, industrial)
+            state.letter == null -> TsHomeBody(state, model, capture, industrial) { scanTools = true }
+            else -> TsBoardBody(state, model, capture, industrial) { scanTools = true }
         }
         // §27: scan RESULTS (SUCCESS/ERROR) are shown in the foreground result
         // card below, never inline — inline messages are instructions only.
@@ -174,6 +174,7 @@ fun TempStorageScreen(
 private fun TsHomeBody(
     state: TsStorageState, model: TempStorageViewModel,
     capture: ScannerCapture, industrial: Boolean,
+    onOpenScanTools: () -> Unit,
 ) {
     val home = state.home
     if (home == null) return
@@ -218,7 +219,7 @@ private fun TsHomeBody(
         capture = capture, enabled = model.captureAllowed,
         title = "SCAN PRODUCT",
         subtitle = "Scan the product — the system resolves customer → section → target container.",
-        onOpenTools = { scanTools = true },
+        onOpenTools = onOpenScanTools,
     )
 }
 
@@ -305,6 +306,7 @@ private fun SectionIndicator(
 private fun TsBoardBody(
     state: TsStorageState, model: TempStorageViewModel,
     capture: ScannerCapture, industrial: Boolean,
+    onOpenScanTools: () -> Unit,
 ) {
     val board = state.board ?: return
     // ---- pending target banner: THE container to scan, amber pulse ----
@@ -428,7 +430,7 @@ private fun TsBoardBody(
         title = state.pending?.let { "SCAN CONTAINER ${it.targetCode}" } ?: "SCAN PRODUCT",
         subtitle = state.pending?.let { "Place the product, then scan the highlighted container." }
             ?: "Scan the next product to open its target container.",
-        onOpenTools = { scanTools = true },
+        onOpenTools = onOpenScanTools,
     )
 }
 
