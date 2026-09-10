@@ -681,6 +681,20 @@ function WorkerDetail({ id }: { id: string }) {
           <p className="ac-sub">
             {data.worker.employeeCode} · {data.worker.roles.join(', ')} ·{' '}
             {data.worker.station ? `Station ${data.worker.station.code}` : 'no station'}
+
+          {/* WORKER → STATION → OPERATION → WORK (reference workflow).
+              Comes from the same registry the terminal uses; a lane the
+              worker's station does not serve never appears here. */}
+          {(data.worker.operations ?? []).length > 0 && (
+            <div className="os-row" style={{ gap: 8, flexWrap: 'wrap', margin: '6px 0 12px' }}>
+              {(data.worker.operations ?? []).map((op) => (
+                <span key={op.key} className="os-tag os-tag--info" title={op.work ?? undefined}>
+                  {op.operation ?? op.label}
+                  {op.work ? <span className="os-muted"> — {op.work}</span> : null}
+                </span>
+              ))}
+            </div>
+          )}
           </p>
         </div>
         <button type="button" className="os-btn" onClick={() => navigate('/admin/workers')}>Back</button>

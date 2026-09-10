@@ -119,8 +119,11 @@ export default function OrderSortingTask() {
     if (!ref || busy) return;
     setBusy(true);
     try {
-      const bin = await fulfillmentApi.createContainer({ type: 'CUSTOMER', orderReference: ref });
-      report('ok', `BIN ${bin.code} → ${bin.label ?? ref}`);
+      // The customer container belongs to the SORTING operation: this call is
+      // gated on the sorting permission (picking.execute), not on receiving.
+      const res = await fulfillmentApi.orderSortingContainer(ref);
+      const bin = res.container;
+      report('ok', `${bin.code} → ${bin.label ?? ref}`);
       push(`bin ${bin.code} created for ${ref}`, 'ok');
       setNewBinRef('');
       await refreshBins();

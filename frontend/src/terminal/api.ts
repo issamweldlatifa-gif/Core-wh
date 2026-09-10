@@ -16,6 +16,10 @@ export interface TerminalTask {
   ready: boolean;
   /** Worker-visible sub-action sharing the parent's route (e.g. tote filling). */
   subtaskOf?: string | null;
+  /** Reference workflow: the OPERATION this lane executes (Admin/terminal display). */
+  operation?: string | null;
+  /** Reference workflow: the WORK executed inside that operation. */
+  work?: string | null;
 }
 
 export interface TerminalStation {

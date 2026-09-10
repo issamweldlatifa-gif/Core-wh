@@ -208,3 +208,14 @@
 .wt-task-count { display: flex; flex-direction: column; }
 .wt-task-count b { font-size: 1.15rem; line-height: 1.1; }
 .wt-task-count span { font-size: 0.62rem; font-weight: 700; letter-spacing: 0.07em; }
+
+/* Reference workflow line: OPERATION · WORK under the task name. Kept to one
+   ellipsised line so a 5-lane picker still fits a CT40 screen. */
+.wt-task-work {
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -536,8 +536,11 @@ export class AssignmentsService {
     const station = await this.prisma.station
       .findFirst({ where: { assignedWorkerId: user.id, status: 'ACTIVE' }, select: { department: true } })
       .catch(() => null);
-    const departmentAllows = (t: (typeof TASK_REGISTRY)[number]) =>
-      !t.stationDepartments || (station ? t.stationDepartments.includes(station.department) : false);
+    const departmentAllows = (t: (typeof TASK_REGISTRY)[number]) => {
+      if (!t.stationDepartments) return true;
+      if (!station) return t.stationRequired !== true;
+      return t.stationDepartments.includes(station.department);
+    };
     const tasks = TASK_REGISTRY.filter(
       (t) => !t.subtaskOf && user.permissions.includes(t.permission) && departmentAllows(t),
     );

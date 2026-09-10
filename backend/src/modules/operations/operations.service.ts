@@ -247,7 +247,19 @@ export class OperationsService {
         name: true,
         employeeCode: true,
         status: true,
-        roles: { select: { role: { select: { name: true } } } },
+        roles: {
+          select: {
+            role: {
+              select: {
+                name: true,
+                // Real permission graph (Role → Permission), so the drill-down
+                // can resolve the worker's OPERATIONS from the SAME registry
+                // the terminal uses — no parallel mapping table.
+                permissions: { select: { permission: { select: { key: true } } } },
+              },
+            },
+          },
+        },
         stationsAssigned: { select: { id: true, code: true, name: true, department: true } },
       },
     });
@@ -1879,6 +1891,8 @@ export class OperationsService {
           department: t.department,
           permission: t.permission,
           ready: t.ready,
+          operation: t.operation ?? null,
+          work: t.work ?? null,
           executors,
           stations: stationsByDeptMap.get(t.department as never) ?? 0,
           activeStations: activeByDeptMap.get(t.department as never) ?? 0,
@@ -1899,7 +1913,18 @@ export class OperationsService {
         name: true,
         employeeCode: true,
         status: true,
-        roles: { select: { role: { select: { name: true } } } },
+        // Role → Permission is loaded so the drill-down can resolve the
+        // worker's OPERATIONS from the SAME registry the terminal uses.
+        roles: {
+          select: {
+            role: {
+              select: {
+                name: true,
+                permissions: { select: { permission: { select: { key: true } } } },
+              },
+            },
+          },
+        },
         stationsAssigned: { select: { id: true, code: true, name: true, department: true } },
       },
     });
@@ -1927,6 +1952,28 @@ export class OperationsService {
       }),
     ]);
 
+    // The worker's OPERATIONS: registry lanes their roles actually unlock,
+    // gated by the station department exactly like the terminal picker.
+    const keys = new Set(
+      user.roles.flatMap((r) => r.role.permissions.map((p) => p.permission.key)),
+    );
+    const station = user.stationsAssigned[0] ?? null;
+    const departmentAllows = (t: (typeof TASK_REGISTRY)[number]) => {
+      if (!t.stationDepartments) return true;
+      if (!station) return t.stationRequired !== true;
+      return t.stationDepartments.includes(station.department);
+    };
+    const operations = TASK_REGISTRY.filter(
+      (t) => !t.subtaskOf && t.ready && keys.has(t.permission) && departmentAllows(t),
+    ).map((t) => ({
+      key: t.key,
+      label: t.label,
+      operation: t.operation ?? null,
+      work: t.work ?? null,
+      department: t.department,
+      path: t.path,
+    }));
+
     return {
       worker: {
         id: user.id,
@@ -1934,7 +1981,8 @@ export class OperationsService {
         employeeCode: user.employeeCode,
         status: user.status,
         roles: user.roles.map((r) => r.role.name),
-        station: user.stationsAssigned[0] ?? null,
+        station,
+        operations,
       },
       sessions: sessions.map((s) => ({
         id: s.id,

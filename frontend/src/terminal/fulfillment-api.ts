@@ -94,6 +94,14 @@ export const fulfillmentApi = {
       .then((r) => r.data),
   orderSortingAssign: (body: { articleCode: string; containerCode: string }) =>
     client.post(`${v1}/order-sorting/assign`, body).then((r) => r.data),
+  /** SORTING operation: resolve or create the CUSTOMER CONTAINER of an order. */
+  orderSortingContainer: (orderReference: string) =>
+    client
+      .post<{ created: boolean; container: { code: string; label: string | null; status: string } }>(
+        `${v1}/order-sorting/container`,
+        { orderReference },
+      )
+      .then((r) => r.data),
 
   // packing
   packingScan: (containerCode: string) =>

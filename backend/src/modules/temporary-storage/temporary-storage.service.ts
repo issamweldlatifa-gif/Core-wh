@@ -722,6 +722,32 @@ export class TemporaryStorageService {
           deviceName: device?.deviceName ?? null,
         },
       });
+      // ---- bridge into Sorting -> Packing -> Shipping --------------------
+      // The placed unit becomes a real ArticleUnit (one row per physical
+      // unit, the unit of account of the downstream operations). Category is
+      // copied from the product master when it is known; otherwise the unit
+      // stays NEEDS_REVIEW instead of inventing a classification.
+      const master = match.sku
+        ? await tx.product.findFirst({
+            where: { externalProductCode: { equals: match.sku.trim(), mode: 'insensitive' } },
+            select: { name: true, productType: true },
+          })
+        : null;
+      const article = await tx.articleUnit.create({
+        data: {
+          code: await this.genArticleCode(tx),
+          sku: match.sku ?? term,
+          productName: match.productName ?? master?.name ?? null,
+          category: master?.productType ?? null,
+          categoryStatus: master?.productType ? 'CONFIRMED' : 'NEEDS_REVIEW',
+          status: 'IN_CONTAINER',
+          receivingSessionId: match.receivingSessionId ?? null,
+        },
+      });
+      await tx.temporaryStorageItem.update({
+        where: { id: item.id },
+        data: { articleUnitId: article.id },
+      });
       const refreshed = await tx.temporaryStorageContainer.findUnique({ where: { id: container.id } });
       const nowQty = refreshed?.currentQuantity ?? 1;
       let nextTarget: { code: string; current: number; capacity: number; status: string } | null = null;
@@ -779,12 +805,31 @@ export class TemporaryStorageService {
       return {
         status: 'VALID' as const,
         itemId: item.id,
+        // The physical unit now exists downstream: this is the code the
+        // SORTING agent scans at the next operation.
+        article: { id: article.id, code: article.code, status: article.status },
         product: { sku: match.sku, reference: match.reference, productName: match.productName, customer: customerName, section: letter },
         container: { code: container.code, current: nowQty, capacity: refreshed?.capacity ?? 0, status: nowQty >= (refreshed?.capacity ?? 0) ? 'FULL' : 'ACTIVE' },
         remaining: Math.max(0, (await this.remainingAfter(tx, match.id))),
         nextTarget,
       };
     });
+  }
+
+  /**
+   * Materialize the REAL ArticleUnit for a unit the storage agent just put
+   * away. Without this row the reference chain stops at Temporary Storage:
+   * the sorting / packing / shipping operations work on ArticleUnits, so the
+   * placement must produce one (SKU + provenance) inside the same
+   * transaction as the placement ledger row.
+   */
+  private async genArticleCode(tx: Db): Promise<string> {
+    for (let i = 0; i < 5; i += 1) {
+      const count = await tx.articleUnit.count();
+      const code = `ART-${String(count + 1 + i).padStart(8, '0')}`;
+      if (!(await tx.articleUnit.findUnique({ where: { code } }))) return code;
+    }
+    return `ART-R${Date.now().toString().slice(-8)}`;
   }
 
   private async remainingAfter(tx: Db, moveId: string): Promise<number> {
@@ -802,7 +847,13 @@ export class TemporaryStorageService {
 
   /** Deterministic no-op answer for an already-processed scan (idempotency). */
   private async replay(
-    item: { id: string; status: string; containerId: string | null; reviewReason: string | null },
+    item: {
+      id: string;
+      status: string;
+      containerId: string | null;
+      reviewReason: string | null;
+      articleUnitId?: string | null;
+    },
     match: { sku: string | null; reference: string | null; productName: string | null },
     station: { code: string },
   ) {
@@ -813,11 +864,18 @@ export class TemporaryStorageService {
         review: { itemId: item.id, reason: item.reviewReason },
       };
     }
+    const article = item.articleUnitId
+      ? await this.prisma.articleUnit.findUnique({
+          where: { id: item.articleUnitId },
+          select: { id: true, code: true, status: true },
+        })
+      : null;
     return {
       status: 'VALID' as const,
       alreadyStored: true,
       message: 'This scan was already stored.',
       itemId: item.id,
+      article,
       product: { sku: match.sku, reference: match.reference, productName: match.productName },
     };
   }

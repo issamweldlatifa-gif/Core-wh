@@ -187,6 +187,11 @@ export default function WorkerTerminalHome() {
                 >
                   <span className="wt-task-name">{t.label}</span>
                   <span className="wt-task-dept os-muted">{t.department}</span>
+                  {(t.operation || t.work) && (
+                    <span className="wt-task-work os-muted" title={t.work ?? undefined}>
+                      {[t.operation, t.work].filter(Boolean).join(' · ')}
+                    </span>
+                  )}
                   {counts && (counts.assigned > 0 || counts.available > 0 || (counts.mine ?? 0) > 0) ? (
                     <span className="wt-task-counters">
                       {counts.assigned > 0 && (

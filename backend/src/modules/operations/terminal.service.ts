@@ -44,8 +44,15 @@ export class TerminalService {
     // normal state, not an error. Resolved FIRST so department-gated tasks
     // (Temporary Storage = STAGING) can be filtered authoritatively below.
     const station = await this.stations.forWorker(user.id).catch(() => null);
-    const departmentAllows = (t: OperationalTask) =>
-      !t.stationDepartments || (station ? t.stationDepartments.includes(station.department) : false);
+    // STATION ↔ OPERATION gate (reference workflow): a worker bound to a
+    // station only sees THAT station department's operation(s). A worker with
+    // NO station still works (station-less devices must not be blocked) except
+    // for station-bound tasks (Temporary Storage needs its STAGING station).
+    const departmentAllows = (t: OperationalTask) => {
+      if (!t.stationDepartments) return true;
+      if (!station) return t.stationRequired !== true;
+      return t.stationDepartments.includes(station.department);
+    };
     const tasks = TASK_REGISTRY.filter(
       (t) => user.permissions.includes(t.permission) && departmentAllows(t),
     );

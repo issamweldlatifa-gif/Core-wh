@@ -1323,6 +1323,9 @@ model ArticleUnit {
   outboundShipmentId String?
   outboundShipment   OutboundShipment? @relation(fields: [outboundShipmentId], references: [id], onDelete: SetNull)
 
+  /// Temporary Storage placement that produced this unit (bridging row).
+  temporaryStorageItem TemporaryStorageItem?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -2084,6 +2087,14 @@ model TemporaryStorageItem {
   deviceName   String?
   scannedAt    DateTime @default(now())
   createdAt    DateTime @default(now())
+
+  /// The REAL ArticleUnit materialized when this unit was put away. It is the
+  /// bridge from the Temporary Storage operation into the next operations of
+  /// the reference chain (Sorting -> Packing -> Shipping): the sorting worker
+  /// scans this code, the system resolves the customer container, packing
+  /// turns the container into a Colis and shipping dispatches it.
+  articleUnitId String?      @unique
+  articleUnit   ArticleUnit? @relation(fields: [articleUnitId], references: [id], onDelete: SetNull)
 
   @@index([containerId])
   @@index([productMoveId])

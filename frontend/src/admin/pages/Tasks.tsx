@@ -32,7 +32,7 @@ export default function Tasks() {
             <table className="os-table">
               <thead>
                 <tr>
-                  <th>Task</th><th>Department</th><th>Execute permission</th><th>Ready</th>
+                  <th>Task</th><th>Operation</th><th>Work</th><th>Department</th><th>Execute permission</th><th>Ready</th>
                   <th>Stations (active)</th><th>Workers w/ permission</th><th>Open work</th>
                 </tr>
               </thead>
@@ -43,6 +43,8 @@ export default function Tasks() {
                       <span className="mono">{t.key}</span>
                       <span className="os-muted" style={{ marginLeft: 8 }}>{t.path}</span>
                     </td>
+                    <td>{t.operation ?? '—'}</td>
+                    <td className="os-muted">{t.work ?? '—'}</td>
                     <td className="os-muted">{t.department}</td>
                     <td className="mono os-muted">{t.permission}</td>
                     <td>
@@ -61,7 +63,7 @@ export default function Tasks() {
                     </td>
                   </tr>
                 ))}
-                {data?.length === 0 && <tr><td colSpan={7} className="os-empty">No tasks registered.</td></tr>}
+                {data?.length === 0 && <tr><td colSpan={9} className="os-empty">No tasks registered.</td></tr>}
               </tbody>
             </table>
           </div>

@@ -42,6 +42,16 @@ export interface OperationalTask {
    * policy regardless; this only keeps the terminal picker honest.
    */
   stationDepartments?: string[];
+  /**
+   * True when the task NEEDS its station to exist at all (it cannot run from
+   * an unassigned device). Temporary Storage is station-bound: without an
+   * ACTIVE STAGING station the backend refuses every write.
+   */
+  stationRequired?: boolean;
+  /** Admin/terminal display: the OPERATION this task belongs to (§ reference workflow). */
+  operation?: string;
+  /** Admin/terminal display: the WORK executed inside the operation. */
+  work?: string;
 }
 
 export const TASK_REGISTRY: OperationalTask[] = [
@@ -53,6 +63,9 @@ export const TASK_REGISTRY: OperationalTask[] = [
     permission: 'receiving.execute',
     ready: true,
     shared: true,
+    operation: 'Receiving',
+    work: 'Verify SQ + products',
+    stationDepartments: ['RECEIVING'],
   },
   {
     key: 'receiving-container',
@@ -63,6 +76,9 @@ export const TASK_REGISTRY: OperationalTask[] = [
     ready: true,
     shared: true,
     subtaskOf: 'receiving',
+    operation: 'Receiving',
+    work: 'Verify cartons / totes',
+    stationDepartments: ['RECEIVING'],
   },
   {
     key: 'temporary-storage',
@@ -71,9 +87,12 @@ export const TASK_REGISTRY: OperationalTask[] = [
     department: 'STAGING',
     permission: 'receiving.execute',
     ready: true,
+    operation: 'Temporary Storage',
+    work: 'Répartition et rangement temporaire (Produit → Container)',
     // STAGING-station workers staff Temporary Storage (ST-STG-01). Receiving
     // workers with the same permission never see this task on their picker.
     stationDepartments: ['STAGING'],
+    stationRequired: true,
   },
   {
     key: 'sorting',
@@ -82,6 +101,9 @@ export const TASK_REGISTRY: OperationalTask[] = [
     department: 'SORTING',
     permission: 'stowing.execute',
     ready: true,
+    operation: 'Sorting',
+    work: 'Mise en zone de stockage (produit → emplacement)',
+    stationDepartments: ['SORTING'],
   },
   {
     key: 'putaway',
@@ -90,6 +112,9 @@ export const TASK_REGISTRY: OperationalTask[] = [
     department: 'PUTAWAY',
     permission: 'stowing.execute',
     ready: true,
+    operation: 'Putaway',
+    work: 'Rangement cartons (legacy inbound lane)',
+    stationDepartments: ['PUTAWAY'],
   },
   {
     key: 'order-sorting',
@@ -98,6 +123,11 @@ export const TASK_REGISTRY: OperationalTask[] = [
     department: 'SORTING',
     permission: 'picking.execute',
     ready: true,
+    operation: 'Sorting',
+    // Reference operation: TRI PAR CLIENT — the products stored by the
+    // Temporary Storage agent are placed in their CUSTOMER container.
+    work: 'Tri par client (Customer Container → Produits)',
+    stationDepartments: ['SORTING'],
   },
   {
     key: 'packing',
@@ -106,6 +136,9 @@ export const TASK_REGISTRY: OperationalTask[] = [
     department: 'PACKING',
     permission: 'packing.execute',
     ready: true,
+    operation: 'Packing',
+    work: 'Préparation de commande (Customer Container → Colis)',
+    stationDepartments: ['PACKING'],
   },
   {
     key: 'shipping',
@@ -114,6 +147,9 @@ export const TASK_REGISTRY: OperationalTask[] = [
     department: 'DISPATCH',
     permission: 'shipping.execute',
     ready: true,
+    operation: 'Shipping',
+    work: 'Contrôle et expédition (Colis → Expédition)',
+    stationDepartments: ['DISPATCH'],
   },
 ];
 

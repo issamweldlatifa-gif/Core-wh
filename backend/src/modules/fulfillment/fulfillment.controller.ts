@@ -113,6 +113,16 @@ export class FulfillmentController {
     return this.fulfillment.orderSortingScanArticle(code);
   }
 
+  @Post('order-sorting/container')
+  @RequirePermissions('picking.execute')
+  @ApiOperation({
+    summary:
+      'SORTING operation: resolve (or create) the CUSTOMER CONTAINER of an order — the object the sorting worker fills.',
+  })
+  orderSortingContainer(@Body() body: { orderReference: string }, @Req() req: any) {
+    return this.fulfillment.ensureCustomerContainer(body?.orderReference, this.actor(req));
+  }
+
   @Post('order-sorting/assign')
   @RequirePermissions('picking.execute')
   @ApiOperation({ summary: 'Confirm: article into the scanned customer bin (wrong bin rejected).' })

@@ -263,8 +263,29 @@ const ROLES: Array<{
     ],
   },
   {
+    name: 'TEMP_STORAGE_WORKER',
+    // Reference workflow: the "Agent de stockage temporaire" is the worker
+    // bound to the Temporary Storage station (ST-STG-01, department STAGING).
+    // Same operational vocabulary as RECEIVING_WORKER — the STATION binding
+    // and the STAGING department gate are what select this operation.
+    description: 'Temporary Storage agent: place CONFIRMED products into temporary containers by customer section (task: temporary-storage).',
+    isSystem: true,
+    applicationClass: 'OPERATIONAL',
+    permissions: [
+      ...ALL_STRUCT_VIEW,
+      ...VIEW_KEYS('inventory'),
+      ...PHASE2_VIEW,
+      ...VIEW_KEYS('receiving'), ...EXECUTE_KEYS('receiving'),
+      'expected_arrivals.view', 'shipments.view',
+    ],
+  },
+  {
     name: 'SORTING_WORKER',
-    description: 'Sorting worker: sort articles from totes to configured zones (task: sorting).',
+    // Reference workflow: the "Agent de tri" performs TRI PAR CLIENT — he takes
+    // the products stored by the Temporary Storage agent and puts each one in
+    // its CUSTOMER container. That is the order-sorting (picking) lane, so the
+    // role carries the picking permissions in addition to stowing.
+    description: 'Sorting worker: tri par client — sort products into customer containers (tasks: order-sorting, sorting).',
     isSystem: true,
     applicationClass: 'OPERATIONAL',
     permissions: [
@@ -272,6 +293,7 @@ const ROLES: Array<{
       ...VIEW_KEYS('inventory'),
       ...PHASE2_VIEW,
       ...VIEW_KEYS('stowing'), ...EXECUTE_KEYS('stowing'),
+      ...VIEW_KEYS('picking'), ...EXECUTE_KEYS('picking'),
     ],
   },
   {
@@ -616,49 +638,78 @@ async function main() {
       });
     }
 
-    // A receiving worker: proves a worker lands in the Terminal, never in the
-    // Admin dashboard, and that permissions are enforced by the backend.
+    // MASTER ORDER — WORKER -> STATION -> OPERATION -> WORK -> TASK.
+    // One demo worker per station, each carrying only the roles of the
+    // operation performed AT that station. The station binding is enforcing
+    // (terminal + assignment pickers gate on station.department), so these
+    // five workers cover the whole reference chain on the floor:
+    //   ST-REC-01 Receiving · ST-STG-01 Temporary Storage · ST-SRT-01 Sorting
+    //   ST-PCK-01 Packing · ST-SHP-01 Shipping-Dispatch
     const workerCode = process.env.SEED_WORKER_CODE ?? 'WORKER001';
     const workerPass = process.env.SEED_WORKER_PASSWORD!;
-    const inbound = await prisma.role.findUnique({ where: { name: 'INBOUND_WORKER' } });
     const hash = await bcrypt.hash(workerPass, 12);
-    const worker = await prisma.user.upsert({
-      where: { employeeCode: workerCode },
-      update: { name: 'TEST RECEIVING WORKER', passwordHash: hash, credentialMode: 'PASSWORD', status: 'ACTIVE' },
-      create: {
+    const workforce: Array<{ code: string; name: string; station: string; roles: string[] }> = [
+      {
+        code: workerCode,
         name: 'TEST RECEIVING WORKER',
-        employeeCode: workerCode,
-        email: workerCode,
-        passwordHash: hash,
-        credentialMode: 'PASSWORD',
-        status: 'ACTIVE',
+        station: 'ST-REC-01',
+        roles: ['INBOUND_WORKER', 'RECEIVING_WORKER'],
       },
-    });
-    if (inbound) {
-      await prisma.userRole.upsert({
-        where: { userId_roleId: { userId: worker.id, roleId: inbound.id } },
-        update: {},
-        create: { userId: worker.id, roleId: inbound.id },
+      {
+        code: 'WORKER002',
+        name: 'TEST TEMPORARY STORAGE WORKER',
+        station: 'ST-STG-01',
+        roles: ['TEMP_STORAGE_WORKER'],
+      },
+      {
+        code: 'WORKER003',
+        name: 'TEST SORTING WORKER',
+        station: 'ST-SRT-01',
+        roles: ['SORTING_WORKER', 'PICKER'],
+      },
+      {
+        code: 'WORKER004',
+        name: 'TEST PACKING WORKER',
+        station: 'ST-PCK-01',
+        roles: ['PACKING_WORKER'],
+      },
+      {
+        code: 'WORKER005',
+        name: 'TEST SHIPPING WORKER',
+        station: 'ST-SHP-01',
+        roles: ['SHIPPING_WORKER'],
+      },
+    ];
+    for (const w of workforce) {
+      const user = await prisma.user.upsert({
+        where: { employeeCode: w.code },
+        update: { name: w.name, passwordHash: hash, credentialMode: 'PASSWORD', status: 'ACTIVE' },
+        create: {
+          name: w.name,
+          employeeCode: w.code,
+          email: w.code,
+          passwordHash: hash,
+          credentialMode: 'PASSWORD',
+          status: 'ACTIVE',
+        },
+      });
+      for (const roleName of w.roles) {
+        const role = await prisma.role.findUnique({ where: { name: roleName } });
+        if (role) {
+          await prisma.userRole.upsert({
+            where: { userId_roleId: { userId: user.id, roleId: role.id } },
+            update: {},
+            create: { userId: user.id, roleId: role.id },
+          });
+        }
+      }
+      // The worker is bound to exactly one station: this binding is what the
+      // terminal picker reads to decide which OPERATIONS are on the floor.
+      await prisma.station.updateMany({
+        where: { code: w.station },
+        data: { assignedWorkerId: user.id },
       });
     }
-    // Worker operational model (§3): the seeded worker also carries the new
-    // granular roles so the operational task matrix is exercised end-to-end
-    // (INBOUND_WORKER stays attached for compatibility).
-    for (const roleName of ['RECEIVING_WORKER', 'SORTING_WORKER', 'PUTAWAY_WORKER']) {
-      const role = await prisma.role.findUnique({ where: { name: roleName } });
-      if (role) {
-        await prisma.userRole.upsert({
-          where: { userId_roleId: { userId: worker.id, roleId: role.id } },
-          update: {},
-          create: { userId: worker.id, roleId: role.id },
-        });
-      }
-    }
-    // Put the worker at a receiving station so the terminal shows a station.
-    await prisma.station.update({
-      where: { code: 'ST-REC-01' },
-      data: { assignedWorkerId: worker.id },
-    });
     console.log('  + Explicit demo stations and worker initialized (credentials are not logged).');
   };
   if (policy.demo) await osSeed();

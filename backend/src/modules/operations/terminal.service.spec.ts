@@ -78,6 +78,9 @@ describe('TerminalService.context routing', () => {
     expect(ctx.home).toBe('/terminal/putaway');
     expect(ctx.activeSession?.code).toBe('RCV-000202');
     expect(ctx.activePutaway?.code).toBe('PUT-000001');
+    // STATION ↔ OPERATION gate: this worker sits at ST-REC-01 (RECEIVING), so
+    // only Receiving work is offered — sorting/putaway lanes stay hidden.
+    expect(ctx.tasks.map((t) => t.key).sort()).toEqual(['receiving', 'receiving-container']);
   });
 
   it('resumes the receiving session when it started most recently', async () => {
@@ -100,10 +103,10 @@ describe('TerminalService.context routing', () => {
 
     const ctx = await service.context(user);
 
-    // Several ready tasks are permitted (receiving + its tote sub-action +
-    // sorting + putaway), so the default would be the home grid; the open
-    // putaway session must override that.
-    expect(ctx.readyTaskCount).toBe(4);
+    // The open putaway session overrides default routing even though the
+    // worker's STATION (ST-REC-01, RECEIVING) only offers that department's
+    // tasks — resume ALWAYS wins over the picker.
+    expect(ctx.readyTaskCount).toBe(2);
     expect(ctx.home).toBe('/terminal/putaway');
   });
 
@@ -123,8 +126,10 @@ describe('TerminalService.context routing', () => {
     expect(ctx.home).toBe('/terminal/receiving');
   });
 
-  it('shows the terminal home when several ready tasks and no open work', async () => {
-    const { service, user } = build({ receiving: null, putaway: null });
+  it('shows the terminal home when several ready tasks and no open work (station-less device)', async () => {
+    // A device without a station must not be blocked: the worker keeps every
+    // non-station-bound lane they are permitted to perform.
+    const { service, user } = build({ receiving: null, putaway: null, station: null });
 
     const ctx = await service.context(user);
 
@@ -142,11 +147,12 @@ describe('TerminalService.context routing', () => {
     expect(ctx.home).toBe('/terminal');
   });
 
-  it('only offers tasks the worker is permitted to perform', async () => {
+  it('only offers tasks the worker is permitted to perform (station-less device)', async () => {
     const { service, user } = build({
       permissions: ['stowing.execute'],
       receiving: null,
       putaway: null,
+      station: null,
     });
 
     const ctx = await service.context(user);
@@ -154,6 +160,40 @@ describe('TerminalService.context routing', () => {
     expect(ctx.tasks.map((t) => t.key).sort()).toEqual(['putaway', 'sorting']);
     // Sorting and putaway are both ready now -> several choices, home grid.
     expect(ctx.home).toBe('/terminal');
+  });
+
+  it('hides other operations from a worker bound to a specific station (WORKER → STATION → OPERATION)', async () => {
+    // Agent de tri at ST-SRT-01: sees Sorting only — never Putaway even with
+    // the same stowing.execute permission.
+    const sorting = build({
+      permissions: ['stowing.execute'],
+      receiving: null,
+      putaway: null,
+      station: { id: 's-srt', code: 'ST-SRT-01', name: 'Sorting Bench 1', department: 'SORTING', capabilities: [] },
+    });
+    const sortCtx = await sorting.service.context(sorting.user);
+    expect(sortCtx.tasks.map((t) => t.key)).toEqual(['sorting']);
+
+    // Same permission at a RECEIVING station: no stowing lane at all.
+    const recv = build({ permissions: ['stowing.execute'], receiving: null, putaway: null });
+    const recvCtx = await recv.service.context(recv.user);
+    expect(recvCtx.tasks).toEqual([]);
+
+    // Temporary Storage is STATION-BOUND: a STAGING agent sees it...
+    const staging = build({
+      permissions: ['receiving.execute'],
+      receiving: null,
+      putaway: null,
+      station: { id: 's-stg', code: 'ST-STG-01', name: 'Temporary Storage 1', department: 'STAGING', capabilities: [] },
+    });
+    const stgCtx = await staging.service.context(staging.user);
+    expect(stgCtx.tasks.map((t) => t.key)).toEqual(['temporary-storage']);
+
+    // ...and the SAME permission without that station does NOT (no STAGING
+    // station → the backend would refuse every write).
+    const noStation = build({ permissions: ['receiving.execute'], receiving: null, putaway: null, station: null });
+    const noneCtx = await noStation.service.context(noStation.user);
+    expect(noneCtx.tasks.map((t) => t.key)).toEqual(['receiving', 'receiving-container']);
   });
 
   it('scopes both session lookups to the requesting worker', async () => {

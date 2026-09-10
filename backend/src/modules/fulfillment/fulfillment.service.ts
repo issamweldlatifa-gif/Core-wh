@@ -753,6 +753,54 @@ export class FulfillmentService {
   }
 
   /**
+   * SORTING operation — resolve the CUSTOMER CONTAINER of an order and create
+   * it when the customer has none yet. The reference workflow describes the
+   * sorting operation as "Customer Container -> Produits" / the packing
+   * operation as "Customer Container -> Colis": the customer container is the
+   * object the SORTING worker opens, so the sorting permission must be able to
+   * create it (previously only receiving.execute could, which blocked the
+   * sorting station on an order whose bin did not exist yet).
+   */
+  async ensureCustomerContainer(orderReference: string, actor: FulfillmentActor) {
+    const ref = normalizeScan(orderReference).toUpperCase();
+    if (!ref) throw new BadRequestException('An order reference is required.');
+    const order = await this.prisma.warehouseOrder.findUnique({
+      where: { externalOrderReference: ref },
+    });
+    if (!order) throw new NotFoundException(`Order ${ref} not found.`);
+    const existing = await this.prisma.operationalContainer.findFirst({
+      where: { orderId: order.id, type: 'CUSTOMER', status: { in: ['ACTIVE', 'READY_FOR_PACKING'] } },
+      include: { order: { select: { externalOrderReference: true, externalCustomerReference: true } } },
+    });
+    if (existing) {
+      return {
+        created: false,
+        container: {
+          code: existing.code,
+          label: existing.label,
+          status: existing.status,
+          order: existing.order,
+        },
+      };
+    }
+    const created = await this.createContainer({ type: 'CUSTOMER', orderReference: ref }, actor);
+    return {
+      created: true,
+      container: {
+        code: created.code,
+        label: created.label,
+        status: created.status,
+        order: created.order
+          ? {
+              externalOrderReference: created.order.externalOrderReference,
+              externalCustomerReference: created.order.externalCustomerReference,
+            }
+          : null,
+      },
+    };
+  }
+
+  /**
    * Scan the bin: hard validation — the bin must be the one belonging to the
    * matched order. Wrong bin / wrong customer -> operation refused.
    */

@@ -188,7 +188,7 @@ export const WORKER_ROLE_OPTIONS = [
 ];
 
 export interface WorkerDetail {
-  worker: WorkerRow;
+  worker: WorkerRow & { operations?: WorkerOperation[] };
   sessions: Array<{
     id: string; code: string; status: string; startedAt: string; completedAt: string | null;
     arrival: { id: string; code: string; customerName: string } | null;
@@ -290,9 +290,23 @@ export interface DeviceRow {
 export interface TaskRow {
   key: string; label: string; path: string; department: string;
   permission: string; ready: boolean;
+  /** Reference workflow: OPERATION this task belongs to. */
+  operation: string | null;
+  /** Reference workflow: the WORK executed inside the operation. */
+  work: string | null;
   executors: number;
   stations: number; activeStations: number;
   open: number | null;
+}
+
+/** The worker's real operations (role → permission → registry lane). */
+export interface WorkerOperation {
+  key: string;
+  label: string;
+  operation: string | null;
+  work: string | null;
+  department: string;
+  path: string;
 }
 
 /**
