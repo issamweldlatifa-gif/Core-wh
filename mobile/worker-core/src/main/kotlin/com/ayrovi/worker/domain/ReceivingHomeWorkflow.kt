@@ -35,7 +35,7 @@ import java.util.UUID
  * state update, duplicate protection and the worker activity log. A MISMATCH
  * confirms nothing and completes nothing.
  */
-enum class HomeStep { HOME, PRODUCT_SCAN, CARTON_SCAN, REVIEW_PRODUCT, REVIEW_CARTON }
+enum class HomeStep { HOME, AUTO_SCAN, PRODUCT_SCAN, CARTON_SCAN, REVIEW_PRODUCT, REVIEW_CARTON }
 
 /** Device-side MATCH preview for the PRODUIT lane. */
 data class HomeProductReview(val scan: ScanResult, val card: ProductCard, val startedAt: Long)
@@ -60,10 +60,14 @@ data class ReceivingHomeState(
     /** Bumped after every scanner-relevant state change to re-arm the capture host. */
     val scanEpoch: Int = 0,
 ) {
-    /** Scanning is allowed only inside a dedicated lane scanner. */
+    /**
+     * Scanning is allowed only inside a dedicated lane scanner. AUTO_SCAN is
+     * the HOME "QR CODE" tool: ONE scanner that accepts a product OR a carton
+     * read (tried in that order) and then runs the exact same lane logic.
+     */
     val canScan: Boolean
         get() = loaded && !busy && authorized && serverAvailable && !authExpired &&
-            step in setOf(HomeStep.PRODUCT_SCAN, HomeStep.CARTON_SCAN)
+            step in setOf(HomeStep.AUTO_SCAN, HomeStep.PRODUCT_SCAN, HomeStep.CARTON_SCAN)
     val canMutate: Boolean
         get() = loaded && !busy && authorized && serverAvailable && !authExpired
     val canConfirm: Boolean
@@ -92,6 +96,13 @@ class ReceivingHomeWorkflow(
 
     private var autoRefresh: kotlinx.coroutines.Job? = null
     private var foreground = false
+
+    /**
+     * TRUE while the worker is in the AUTO tool (HOME "QR CODE"): a completed
+     * or failed verify returns to the AUTO scanner, never silently into a
+     * dedicated lane. Flipped by the lane-open functions only.
+     */
+    private var autoLane = false
 
     /**
      * §15 — unit-distinct identifiers already confirmed in [confirmedScope]
@@ -160,19 +171,35 @@ class ReceivingHomeWorkflow(
         mutable.update { it.copy(message = null) }
     }
 
+    /**
+     * UX RESTRUCTURE (§9): the HOME "QR CODE" tool — the scanner opens
+     * DIRECTLY with no lane picker. The read is matched product-first, then
+     * carton, by the exact same device matchers and the exact same
+     * confirm/verify/error paths as the dedicated lanes (§10/§11 unchanged).
+     */
+    fun openAutoScan() = run(readOnly = true) {
+        autoLane = true
+        mutable.update { it.copy(step = HomeStep.AUTO_SCAN, productReview = null, cartonReview = null,
+            message = OperationalMessage("SCAN", "Scan a product or a carton. The device matches it automatically.", MessageTone.INFO),
+            lastScanValue = null, lastScanAt = null, scanEpoch = it.scanEpoch + 1) }
+    }
+
     fun openProduct() = run(readOnly = true) {
+        autoLane = false
         mutable.update { it.copy(step = HomeStep.PRODUCT_SCAN, productReview = null, cartonReview = null,
             message = OperationalMessage("PRODUCT SCANNER", "Scan a product QR / barcode or read the SKU with OCR.", MessageTone.INFO),
             lastScanValue = null, lastScanAt = null, scanEpoch = it.scanEpoch + 1) }
     }
 
     fun openCarton() = run(readOnly = true) {
+        autoLane = false
         mutable.update { it.copy(step = HomeStep.CARTON_SCAN, productReview = null, cartonReview = null,
             message = OperationalMessage("CARTON SCANNER", "Scan a carton QR / barcode, carton reference or tracking number.", MessageTone.INFO),
             lastScanValue = null, lastScanAt = null, scanEpoch = it.scanEpoch + 1) }
     }
 
     fun backToHome() {
+        autoLane = false
         mutable.update { it.copy(step = HomeStep.HOME, productReview = null, cartonReview = null, message = null,
             lastScanValue = null, lastScanAt = null, scanEpoch = it.scanEpoch + 1) }
     }
@@ -181,6 +208,7 @@ class ReceivingHomeWorkflow(
         if (!mutable.value.canScan) return
         mutable.update { it.copy(lastScanValue = result.value, lastScanAt = clock()) }
         when (mutable.value.step) {
+            HomeStep.AUTO_SCAN -> reviewAuto(result)
             HomeStep.PRODUCT_SCAN -> reviewProduct(result)
             HomeStep.CARTON_SCAN -> reviewCarton(result)
             else -> Unit
@@ -194,11 +222,43 @@ class ReceivingHomeWorkflow(
         if (term.isEmpty()) return@run notice("EMPTY SCAN", "No code was read. Scan again.")
         val card = CardMatcher.matchProduct(home.productCards, term)
         val modelScan = card != null && (CardMatcher.sameCode(term, card.sku) || CardMatcher.sameCode(term, card.reference))
+        applyProductMatch(scan, term, card, modelScan, mismatchLabel = "PRODUCT")
+    }
+
+    // ---------- CARTON lane: device-side carton card matching ----------
+    private fun reviewCarton(scan: ScanResult) = run {
+        val home = mutable.value.home ?: return@run
+        val term = CardMatcher.normalize(scan.value)
+        if (term.isEmpty()) return@run notice("EMPTY SCAN", "No code was read. Scan again.")
+        applyCartonVerdict(scan, term, CardMatcher.matchCarton(home.cartonCards, term), mismatchLabel = "CARTON")
+    }
+
+    // ---------- AUTO lane (HOME "QR CODE" tool): product first, then carton ----------
+    private fun reviewAuto(scan: ScanResult) = run {
+        val home = mutable.value.home ?: return@run
+        val term = CardMatcher.normalize(scan.value)
+        if (term.isEmpty()) return@run notice("EMPTY SCAN", "No code was read. Scan again.")
+        val product = CardMatcher.matchProduct(home.productCards, term)
+        if (product != null) {
+            val modelScan = CardMatcher.sameCode(term, product.sku) || CardMatcher.sameCode(term, product.reference)
+            applyProductMatch(scan, term, product, modelScan, mismatchLabel = "PRODUCT")
+        } else {
+            applyCartonVerdict(scan, term, CardMatcher.matchCarton(home.cartonCards, term), mismatchLabel = "SCAN")
+        }
+    }
+
+    /**
+     * PRODUCT verdict — SHARED by the PRODUCT lane and the AUTO tool, so a
+     * product read behaves identically from both entries (§10: unchanged
+     * success flow; the auto-approve → verify → next loop is untouched).
+     * `mismatchLabel` only shapes the NOT MATCHED text if no card matched.
+     */
+    private suspend fun applyProductMatch(scan: ScanResult, term: String, card: ProductCard?, modelScan: Boolean, mismatchLabel: String) {
         if (card != null && !modelScan && confirmedUnits.contains(term.uppercase())) {
             mutable.update { it.copy(productReview = null, cartonReview = null, scanEpoch = it.scanEpoch + 1,
                 message = OperationalMessage("ALREADY SCANNED", "This unit was already received. Scan the next unit.", MessageTone.WARNING, scanned = term)) }
             signal(MessageTone.WARNING, "ALREADY SCANNED", "Scan the next unit.", term)
-            return@run
+            return
         }
         when {
             card != null && card.received < card.expected -> {
@@ -217,16 +277,16 @@ class ReceivingHomeWorkflow(
                     message = OperationalMessage("CARD ALREADY COMPLETE", "${card.sku ?: term} is fully received. Nothing was counted again.", MessageTone.WARNING, scanned = term)) }
                 signal(MessageTone.WARNING, "CARD ALREADY COMPLETE", "Nothing was counted again.", card.sku ?: term)
             }
-            else -> reportMismatch("PRODUCT", term, scan)
+            else -> reportMismatch(mismatchLabel, term, scan)
         }
     }
 
-    // ---------- CARTON lane: device-side carton card matching ----------
-    private fun reviewCarton(scan: ScanResult) = run {
-        val home = mutable.value.home ?: return@run
-        val term = CardMatcher.normalize(scan.value)
-        if (term.isEmpty()) return@run notice("EMPTY SCAN", "No code was read. Scan again.")
-        when (val verdict = CardMatcher.matchCarton(home.cartonCards, term)) {
+    /**
+     * CARTON verdict — SHARED by the CARTON lane and the AUTO tool, so a
+     * carton read behaves identically from both entries (§10/§11 unchanged).
+     */
+    private suspend fun applyCartonVerdict(scan: ScanResult, term: String, verdict: CardMatcher.CartonVerdict, mismatchLabel: String) {
+        when (verdict) {
             is CardMatcher.CartonVerdict.Card -> {
                 // AUTO-APPROVE (same rule as the PRODUIT lane).
                 mutable.update { it.copy(step = HomeStep.REVIEW_CARTON, cartonReview = HomeCartonReview(scan, verdict.card, verdict.matchedOn, clock()), productReview = null,
@@ -245,7 +305,7 @@ class ReceivingHomeWorkflow(
                     message = OperationalMessage("SEVERAL CARTONS MATCH", "The tracking number matches ${verdict.candidates.size} cartons. Scan the specific carton: $codes", MessageTone.WARNING, scanned = term)) }
                 signal(MessageTone.WARNING, "SEVERAL CARTONS MATCH", "Scan the specific carton: $codes", term)
             }
-            CardMatcher.CartonVerdict.NotMatched -> reportMismatch("CARTON", term, scan)
+            CardMatcher.CartonVerdict.NotMatched -> reportMismatch(mismatchLabel, term, scan)
         }
     }
 
@@ -299,18 +359,18 @@ class ReceivingHomeWorkflow(
         }
     }
 
-    private suspend fun confirmProduct() {
+    private suspend fun confirmProduct(returnStep: HomeStep = if (autoLane) HomeStep.AUTO_SCAN else HomeStep.PRODUCT_SCAN) {
         val review = mutable.value.productReview ?: return
         val term = CardMatcher.normalize(review.scan.value)
         val result = gateway.homeConfirmProduct(term, review.scan.scanType, 1, newId(), review.scan.source.name, iso(review.startedAt))
-        applyResult(result, HomeStep.PRODUCT_SCAN, "PRODUCT")
+        applyResult(result, returnStep, "PRODUCT")
     }
 
-    private suspend fun confirmCarton() {
+    private suspend fun confirmCarton(returnStep: HomeStep = if (autoLane) HomeStep.AUTO_SCAN else HomeStep.CARTON_SCAN) {
         val review = mutable.value.cartonReview ?: return
         val term = CardMatcher.normalize(review.scan.value)
         val result = gateway.homeConfirmCarton(term, review.scan.scanType, newId(), review.scan.source.name, iso(review.startedAt))
-        applyResult(result, HomeStep.CARTON_SCAN, "CARTON")
+        applyResult(result, returnStep, "CARTON")
     }
 
     private suspend fun applyResult(result: HomeScanResult, laneStep: HomeStep, lane: String) {
@@ -380,8 +440,8 @@ class ReceivingHomeWorkflow(
                         // with the red error. The review itself is KEPT so RETRY
                         // can re-submit the exact same attempt.
                         step = when (it.step) {
-                            HomeStep.REVIEW_PRODUCT -> HomeStep.PRODUCT_SCAN
-                            HomeStep.REVIEW_CARTON -> HomeStep.CARTON_SCAN
+                            HomeStep.REVIEW_PRODUCT -> if (autoLane) HomeStep.AUTO_SCAN else HomeStep.PRODUCT_SCAN
+                            HomeStep.REVIEW_CARTON -> if (autoLane) HomeStep.AUTO_SCAN else HomeStep.CARTON_SCAN
                             else -> it.step
                         },
                         scanEpoch = it.scanEpoch + 1)
@@ -407,7 +467,7 @@ class ReceivingHomeWorkflow(
     }
 
     companion object {
-        private val openSteps = setOf(HomeStep.PRODUCT_SCAN, HomeStep.CARTON_SCAN, HomeStep.REVIEW_PRODUCT, HomeStep.REVIEW_CARTON)
+        private val openSteps = setOf(HomeStep.AUTO_SCAN, HomeStep.PRODUCT_SCAN, HomeStep.CARTON_SCAN, HomeStep.REVIEW_PRODUCT, HomeStep.REVIEW_CARTON)
         private val requiredPermissions = setOf(WorkerAccess.VIEW_RECEIVING, WorkerAccess.EXECUTE_RECEIVING)
     }
 }

@@ -20,7 +20,7 @@ import com.ayrovi.worker.di.AppContainer
 import com.ayrovi.worker.domain.MessageTone
 import com.ayrovi.worker.domain.OperationalMessage
 
-private enum class TerminalRoute { QUEUE, RECEIVING, REPORT, TEMPORARY, SORTING, PACKING, SHIPPING, TRACE }
+private enum class TerminalRoute { QUEUE, RECEIVING, REPORT, TEMPORARY, SORTING, PACKING, SCAN, SHIPPING, TRACE }
 
 internal fun <T : ViewModel> factory(create: () -> T): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST") override fun <V : ViewModel> create(modelClass: Class<V>): V = create() as V
@@ -55,6 +55,9 @@ fun WorkerTerminalApp(
     val owner = LocalLifecycleOwner.current
     var showSettings by remember { mutableStateOf(false) }
     var route by rememberSaveable { mutableStateOf(TerminalRoute.QUEUE) }
+    // HOME scan tools (§9/§14): whether the OCR flow opens on top of the AUTO
+    // scanner (OCR tile) or the scanner stands alone (QR CODE tile).
+    var scanOcrFirst by rememberSaveable { mutableStateOf(false) }
     // Where the report was opened FROM (QUEUE tile or RECEIVING home): BACK
     // from the report always returns there — never to a wrong screen.
     var reportFrom by rememberSaveable { mutableStateOf(TerminalRoute.QUEUE) }
@@ -89,7 +92,7 @@ fun WorkerTerminalApp(
         }
     }
     LaunchedEffect(state.tasks) {
-        if ((route == TerminalRoute.RECEIVING || route == TerminalRoute.REPORT) && state.me != null && state.tasks.none { it.key == "receiving" }) route = TerminalRoute.QUEUE
+        if ((route == TerminalRoute.RECEIVING || route == TerminalRoute.SCAN || route == TerminalRoute.REPORT) && state.me != null && state.tasks.none { it.key == "receiving" }) route = TerminalRoute.QUEUE
         // Temporary Storage is STAGING-station work: if the backend no longer
         // exposes the task (station changed / permission removed), never keep
         // the worker on a screen they can no longer operate.
@@ -103,28 +106,64 @@ fun WorkerTerminalApp(
         if (!state.signedIn) {
             SignInScreen(state, model.deviceCode, connection.name, model::login, container.device)
         } else if (route == TerminalRoute.RECEIVING && state.me?.user?.id != null) {
-            val workerId = state.me!!.user!!.id!!
-            // RECEIVING HOME (card-based rebuild): RECEIVING never opens the
-            // scanner directly — it opens the home with PRODUIT / CARTON
-            // tiles, live counters and lane-specific scanners.
-            val receiving: ReceivingHomeViewModel = viewModel(
-                key = "receiving-home-$workerId-${state.loginGeneration}",
-                factory = factory { ReceivingHomeViewModel(container.repository, workerId, state.me!!.permissions.toSet(), container.audio) },
+            // RECEIVING WORK CENTER (UX RESTRUCTURE §5): opens DIRECTLY on the
+            // live receiving content — TO DO / ISSUES / DONE cards + the
+            // existing PRODUCT / CARTON lane scanners. No intermediate picker.
+            ReceivingHomeRoute(container, state, connection, model,
+                vmKey = "receiving-home", openWith = null, ocrFirst = false,
+                glove = glove, glare = glare,
+                onToggleTheme = appearance::toggleTheme,
+                onToggleGlove = appearance::toggleGlove, onToggleGlare = appearance::toggleGlare,
+                coachPending = coachPending, onCoachDone = appearance::markCoachDone,
+                onBack = { route = TerminalRoute.QUEUE; model.refresh() },
+                onOpenReport = { reportFrom = TerminalRoute.RECEIVING; route = TerminalRoute.REPORT })
+        } else if (route == TerminalRoute.SCAN && state.me?.user?.id != null) {
+            // §9/§14 HOME TOOLS — QR CODE / OCR: the scanner opens DIRECTLY
+            // (no Receiving → Product → Carton steps). Scans run through the
+            // EXISTING matching/verify/error logic; only the entry changed.
+            ReceivingHomeRoute(container, state, connection, model,
+                vmKey = "scan-tool", openWith = ReceivingHomeIntent.OpenAutoScan, ocrFirst = scanOcrFirst,
+                glove = glove, glare = glare,
+                onToggleTheme = appearance::toggleTheme,
+                onToggleGlove = appearance::toggleGlove, onToggleGlare = appearance::toggleGlare,
+                coachPending = false, onCoachDone = {},
+                onBack = { route = TerminalRoute.QUEUE; model.refresh() },
+                onOpenReport = { reportFrom = TerminalRoute.QUEUE; route = TerminalRoute.REPORT })
+        } else if (route == TerminalRoute.SHIPPING && state.me?.user?.id != null) {
+            // SHIPPING (native, CT40-first): scan the label -> cards -> the
+            // ONE deliberate confirm (dispatch is irreversible) -> green flash.
+            val ship: ShippingViewModel = viewModel(
+                key = "shipping-${state.loginGeneration}",
+                factory = factory { ShippingViewModel(RepoShippingGateway(container.repository), container.audio) },
             )
-            val available = state.verified && connection !in setOf(ConnectionState.OFFLINE, ConnectionState.AUTH_ERROR, ConnectionState.SYNC_ERROR)
-            LaunchedEffect(state.me?.permissions, available, connection) {
-                receiving.activate(state.me!!.permissions.toSet(), available, connection)
-            }
-            ReceivingHomeScreen(receiving, workerLabel(state), stationLabel(state), connection.name,
+            val shipAvailable = state.verified && connection !in setOf(ConnectionState.OFFLINE, ConnectionState.AUTH_ERROR, ConnectionState.SYNC_ERROR)
+            LaunchedEffect(shipAvailable) { ship.setAvailable(shipAvailable) }
+            ShippingScreen(ship, workerLabel(state), stationLabel(state), connection.name,
                 onBack = { route = TerminalRoute.QUEUE; model.refresh() }, onAuthExpired = model::expireSession,
-                device = container.device, onToggleTheme = appearance::toggleTheme,
-                appVersion = com.ayrovi.worker.BuildConfig.VERSION_NAME,
-                deviceCode = model.deviceCode,
+                industrial = container.device == WorkerDevice.CT40,
                 repository = container.repository,
-                onOpenReport = { reportFrom = TerminalRoute.RECEIVING; route = TerminalRoute.REPORT },
+                appVersion = com.ayrovi.worker.BuildConfig.VERSION_NAME,
+                deviceCode = model.deviceCode, device = container.device,
+                onToggleTheme = appearance::toggleTheme,
                 gloveOn = glove, onToggleGlove = appearance::toggleGlove,
-                glareOn = glare, onToggleGlare = appearance::toggleGlare,
-                coachPending = coachPending, onCoachDone = appearance::markCoachDone)
+                glareOn = glare, onToggleGlare = appearance::toggleGlare)
+        } else if (route == TerminalRoute.TRACE && state.me?.user?.id != null) {
+            // ARCHIVE / TRACE (native, read-only): scan an article -> full chain.
+            val trace: TraceViewModel = viewModel(
+                key = "trace-${state.loginGeneration}",
+                factory = factory { TraceViewModel(RepoTraceGateway(container.repository), container.audio) },
+            )
+            val traceAvailable = state.verified && connection !in setOf(ConnectionState.OFFLINE, ConnectionState.AUTH_ERROR, ConnectionState.SYNC_ERROR)
+            LaunchedEffect(traceAvailable) { trace.setAvailable(traceAvailable) }
+            TraceScreen(trace, workerLabel(state), stationLabel(state), connection.name,
+                onBack = { route = TerminalRoute.QUEUE; model.refresh() }, onAuthExpired = model::expireSession,
+                industrial = container.device == WorkerDevice.CT40,
+                repository = container.repository,
+                appVersion = com.ayrovi.worker.BuildConfig.VERSION_NAME,
+                deviceCode = model.deviceCode, device = container.device,
+                onToggleTheme = appearance::toggleTheme,
+                gloveOn = glove, onToggleGlove = appearance::toggleGlove,
+                glareOn = glare, onToggleGlare = appearance::toggleGlare)
         } else if (route == TerminalRoute.TEMPORARY && state.me?.user?.id != null) {
             // TEMPORARY STORAGE (native, CT40-first): scan product -> the
             // target container lights up -> scan that container.
@@ -164,41 +203,6 @@ fun WorkerTerminalApp(
                 onToggleTheme = appearance::toggleTheme,
                 gloveOn = glove, onToggleGlove = appearance::toggleGlove,
                 glareOn = glare, onToggleGlare = appearance::toggleGlare)
-        } else if (route == TerminalRoute.SHIPPING && state.me?.user?.id != null) {
-            // SHIPPING (native, CT40-first): scan the label -> cards -> the
-            // ONE deliberate confirm (dispatch is irreversible) -> green flash.
-            val ship: ShippingViewModel = viewModel(
-                key = "shipping-${state.loginGeneration}",
-                factory = factory { ShippingViewModel(RepoShippingGateway(container.repository), container.audio) },
-            )
-            val shipAvailable = state.verified && connection !in setOf(ConnectionState.OFFLINE, ConnectionState.AUTH_ERROR, ConnectionState.SYNC_ERROR)
-            LaunchedEffect(shipAvailable) { ship.setAvailable(shipAvailable) }
-            ShippingScreen(ship, workerLabel(state), stationLabel(state), connection.name,
-                onBack = { route = TerminalRoute.QUEUE; model.refresh() }, onAuthExpired = model::expireSession,
-                industrial = container.device == WorkerDevice.CT40,
-                repository = container.repository,
-                appVersion = com.ayrovi.worker.BuildConfig.VERSION_NAME,
-                deviceCode = model.deviceCode, device = container.device,
-                onToggleTheme = appearance::toggleTheme,
-                gloveOn = glove, onToggleGlove = appearance::toggleGlove,
-                glareOn = glare, onToggleGlare = appearance::toggleGlare)
-        } else if (route == TerminalRoute.TRACE && state.me?.user?.id != null) {
-            // ARCHIVE / TRACE (native, read-only): scan an article -> full chain.
-            val trace: TraceViewModel = viewModel(
-                key = "trace-${state.loginGeneration}",
-                factory = factory { TraceViewModel(RepoTraceGateway(container.repository), container.audio) },
-            )
-            val traceAvailable = state.verified && connection !in setOf(ConnectionState.OFFLINE, ConnectionState.AUTH_ERROR, ConnectionState.SYNC_ERROR)
-            LaunchedEffect(traceAvailable) { trace.setAvailable(traceAvailable) }
-            TraceScreen(trace, workerLabel(state), stationLabel(state), connection.name,
-                onBack = { route = TerminalRoute.QUEUE; model.refresh() }, onAuthExpired = model::expireSession,
-                industrial = container.device == WorkerDevice.CT40,
-                repository = container.repository,
-                appVersion = com.ayrovi.worker.BuildConfig.VERSION_NAME,
-                deviceCode = model.deviceCode, device = container.device,
-                onToggleTheme = appearance::toggleTheme,
-                gloveOn = glove, onToggleGlove = appearance::toggleGlove,
-                glareOn = glare, onToggleGlare = appearance::toggleGlare)
         } else if (route == TerminalRoute.REPORT && state.me?.user?.id != null) {
             // CONFIRMATION REPORT (ORDER 01): verification view for this
             // worker's open receiving session. Back returns to RECEIVING.
@@ -223,7 +227,11 @@ fun WorkerTerminalApp(
                 deviceCode = model.deviceCode, device = container.device,
                 gloveOn = glove, onToggleGlove = appearance::toggleGlove)
         } else {
-            WorkerWorkQueue(state, container.device, connection.name, workerLabel(state), stationLabel(state),
+            // HOME (UX RESTRUCTURE §3): RECEIVING / OCR / QR CODE / RAPPORT /
+            // SETTINGS — one clear terminal. The worker's other assigned
+            // stations keep their own tiles (§17) and every action keeps its
+            // existing handler.
+            WorkerHomeScreen(state, container.device, connection.name, workerLabel(state), stationLabel(state),
                 model::refresh, model::logout, { showSettings = true }, model::completeAssignment,
                 receiving = {
                     // Entering RECEIVING is the "read" event for the dispatched
@@ -234,6 +242,11 @@ fun WorkerTerminalApp(
                 },
                 report = { reportFrom = TerminalRoute.QUEUE; route = TerminalRoute.REPORT },
                 showReport = state.tasks.any { it.key == "receiving" },
+                // §9/§14: the tools open their scanner DIRECTLY (no lane
+                // picker) — QR CODE lands in the AUTO scanner, OCR opens the
+                // existing OCR flow on top of it.
+                openOcr = { scanOcrFirst = true; route = TerminalRoute.SCAN },
+                openQr = { scanOcrFirst = false; route = TerminalRoute.SCAN },
                 temporaryStorage = {
                     if (state.tasks.any { it.key == "temporary-storage" }) route = TerminalRoute.TEMPORARY
                     else model.noticeTask("Temporary Storage")
@@ -299,6 +312,54 @@ internal fun OperationalMessageView(message: OperationalMessage) {
         MessageTone.SUCCESS -> TerminalNotice(message.title, message.detail, TerminalTone.SUCCESS)
         MessageTone.INFO -> TerminalNotice(message.title, message.detail, TerminalTone.INSTRUCTION)
     }
+}
+
+/**
+ * RECEIVING route — SHARED by the RECEIVING work center and the HOME scan
+ * tools (§20: one route, no duplicated screens). One workflow, one scanner
+ * stack, one set of existing success/error flows; the only differences are
+ * the view-model instance key and the one-shot entry intent (AUTO scanner /
+ * OCR chooser) plus where BACK and the report return to.
+ */
+@Composable
+private fun ReceivingHomeRoute(
+    container: AppContainer,
+    state: WorkerAppState,
+    connection: ConnectionState,
+    model: WorkerAppViewModel,
+    vmKey: String,
+    openWith: ReceivingHomeIntent?,
+    ocrFirst: Boolean,
+    glove: Boolean,
+    glare: Boolean,
+    onToggleTheme: () -> Unit,
+    onToggleGlove: () -> Unit,
+    onToggleGlare: () -> Unit,
+    coachPending: Boolean,
+    onCoachDone: () -> Unit,
+    onBack: () -> Unit,
+    onOpenReport: () -> Unit,
+) {
+    val workerId = state.me!!.user!!.id!!
+    val receiving: ReceivingHomeViewModel = viewModel(
+        key = "$vmKey-$workerId-${state.loginGeneration}",
+        factory = factory { ReceivingHomeViewModel(container.repository, workerId, state.me!!.permissions.toSet(), container.audio) },
+    )
+    val available = state.verified && connection !in setOf(ConnectionState.OFFLINE, ConnectionState.AUTH_ERROR, ConnectionState.SYNC_ERROR)
+    LaunchedEffect(state.me?.permissions, available, connection) {
+        receiving.activate(state.me!!.permissions.toSet(), available, connection)
+    }
+    ReceivingHomeScreen(receiving, workerLabel(state), stationLabel(state), connection.name,
+        onBack = onBack, onAuthExpired = model::expireSession,
+        device = container.device, onToggleTheme = onToggleTheme,
+        appVersion = com.ayrovi.worker.BuildConfig.VERSION_NAME,
+        deviceCode = model.deviceCode,
+        repository = container.repository,
+        onOpenReport = onOpenReport,
+        openWith = openWith, ocrFirst = ocrFirst,
+        gloveOn = glove, onToggleGlove = onToggleGlove,
+        glareOn = glare, onToggleGlare = onToggleGlare,
+        coachPending = coachPending, onCoachDone = onCoachDone)
 }
 
 private fun workerLabel(state: WorkerAppState): String = state.me?.user?.let {

@@ -11,23 +11,53 @@ import com.ayrovi.worker.domain.ReceivingHomeWorkflow
 import com.ayrovi.worker.scanner.ScanResult
 import com.ayrovi.worker.scanner.ScannerManager
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * RECEIVING HOME — the new worker entry. The two intents are the two real
- * workflow entries: PRODUIT and CARTON. There is no arrival picker, no
- * manual "send": the card feed is dispatched automatically by the backend.
+ * RECEIVING HOME — the new worker entry. The intents are the real workflow
+ * entries: PRODUIT, CARTON and the AUTO scan tool (HOME "QR CODE"). There is
+ * no arrival picker, no manual "send": the card feed is dispatched
+ * automatically by the backend.
  */
 sealed interface ReceivingHomeIntent {
     data object OpenProduct : ReceivingHomeIntent
     data object OpenCarton : ReceivingHomeIntent
+    /** UX RESTRUCTURE §9: HOME "QR CODE" tool — scanner opens directly, product OR carton. */
+    data object OpenAutoScan : ReceivingHomeIntent
     data object BackHome : ReceivingHomeIntent
     data object Confirm : ReceivingHomeIntent
     data object Refresh : ReceivingHomeIntent
     data object Retry : ReceivingHomeIntent
 }
 
+/**
+ * RECEIVING WORK CENTER summary (UX RESTRUCTURE §6/§12) — built ONLY from the
+ * existing open-session data the report already uses. It feeds the DONE and
+ * ISSUES groups; null (no open session / older backend) simply hides them.
+ * No new business rules: the backend tally/discrepancies keep their meaning.
+ */
+data class ReceivingWorkSummary(
+    val sessionCode: String?,
+    val status: String?,
+    val unitsReceived: Int,
+    val unitsExpected: Int,
+    val cartonsReceived: Int,
+    val cartonsExpected: Int,
+    val openDiscrepancies: Int,
+)
+
+/**
+ * One persistent ISSUE row for the ISSUES group (§12): the device-side error
+ * state (e.g. NOT MATCHED — "The failure was logged."), kept after the scan
+ * verdict overlay so the worker sees the open issue inside Receiving until a
+ * successful scan resolves the work. Memory only — the backend log stays the
+ * record; nothing here changes the error flow itself.
+ */
+data class ReceivingIssueState(val title: String, val detail: String, val code: String?)
+
 class ReceivingHomeViewModel(
-    gateway: ReceivingGateway,
+    private val gateway: ReceivingGateway,
     workerId: String,
     permissions: Set<String>,
     private val audio: AudioFeedback = AudioFeedback.Silent,
@@ -36,8 +66,19 @@ class ReceivingHomeViewModel(
     val state = workflow.state
     val scanner = ScannerManager()
 
+    private val mutableSummary = MutableStateFlow<ReceivingWorkSummary?>(null)
+
+    /** Existing open-session tally (DONE group source of truth on device). */
+    val workSummary = mutableSummary.asStateFlow()
+
+    private val mutableIssue = MutableStateFlow<ReceivingIssueState?>(null)
+
+    /** Last device-side ERROR state (ISSUES group, §12) until a scan succeeds. */
+    val issue = mutableIssue.asStateFlow()
+
     private var initialized = false
     private var foreground = false
+    private var summaryLoading = false
 
     init {
         viewModelScope.launch {
@@ -48,8 +89,17 @@ class ReceivingHomeViewModel(
                         // foregrounded. Newly dispatched cards are announced by
                         // the whole-app WorkerAppViewModel (audio + tray on any
                         // screen); Receiving itself only updates its live feed.
-                        MessageTone.SUCCESS -> if (foreground) audio.success()
-                        MessageTone.ERROR -> if (foreground) audio.error()
+                        MessageTone.SUCCESS -> {
+                            if (foreground) audio.success()
+                            // A successful scan resolves the open issue state
+                            // and changes the session tally: refresh both.
+                            mutableIssue.value = null
+                            refreshSummary()
+                        }
+                        MessageTone.ERROR -> {
+                            if (foreground) audio.error()
+                            mutableIssue.value = ReceivingIssueState(event.title, event.detail, event.code)
+                        }
                         MessageTone.WARNING -> if (foreground) audio.warning()
                         MessageTone.INFO -> Unit
                     }
@@ -57,6 +107,7 @@ class ReceivingHomeViewModel(
             }
         }
         viewModelScope.launch { state.collect { updateScannerGate() } }
+        refreshSummary()
     }
 
     /** Scanning is only ever armed inside a dedicated lane scanner screen. */
@@ -69,6 +120,7 @@ class ReceivingHomeViewModel(
             initialized = true
             workflow.initialize()
         }
+        if (available) refreshSummary()
     }
 
     fun setForeground(value: Boolean) {
@@ -77,8 +129,34 @@ class ReceivingHomeViewModel(
         if (value) {
             workflow.startAutoRefresh()
             if (initialized && !state.value.busy) workflow.refresh()
+            refreshSummary()
         } else {
             workflow.stopAutoRefresh()
+        }
+    }
+
+    /**
+     * Pull the EXISTING reportable session (same call the confirmation report
+     * uses) for the DONE/ISSUES groups. Never throws into the workflow: any
+     * failure just leaves the previous summary (or hides the groups).
+     */
+    private fun refreshSummary() {
+        if (summaryLoading) return
+        summaryLoading = true
+        viewModelScope.launch {
+            try {
+                val session = runCatching { gateway.activeReceivingSession() }.getOrNull()
+                mutableSummary.value = session?.let { s ->
+                    ReceivingWorkSummary(
+                        sessionCode = s.code, status = s.status,
+                        unitsReceived = s.tally.receivedUnits, unitsExpected = s.tally.expectedUnits,
+                        cartonsReceived = s.tally.receivedCartons, cartonsExpected = s.tally.expectedCartons,
+                        openDiscrepancies = s.tally.openDiscrepancies,
+                    )
+                }
+            } finally {
+                summaryLoading = false
+            }
         }
     }
 
@@ -93,7 +171,8 @@ class ReceivingHomeViewModel(
         when (intent) {
             ReceivingHomeIntent.OpenProduct -> { scanner.rearm(); workflow.openProduct() }
             ReceivingHomeIntent.OpenCarton -> { scanner.rearm(); workflow.openCarton() }
-            ReceivingHomeIntent.BackHome -> { scanner.rearm(); workflow.backToHome() }
+            ReceivingHomeIntent.OpenAutoScan -> { scanner.rearm(); workflow.openAutoScan() }
+            ReceivingHomeIntent.BackHome -> { scanner.rearm(); workflow.backToHome(); refreshSummary() }
             ReceivingHomeIntent.Confirm -> workflow.confirm()
             ReceivingHomeIntent.Refresh -> workflow.refresh()
             ReceivingHomeIntent.Retry -> { scanner.rearm(); workflow.retry() }

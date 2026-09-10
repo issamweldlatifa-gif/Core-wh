@@ -29,6 +29,22 @@ A debug APK is a QA artifact. Release builds are **not debug-signed**. Use the o
 
 ## Scope and important safety limits
 
+### UX restructure (v1.7.0) — HOME / RECEIVING / scan tools
+
+- **HOME** is a simple terminal: `RECEIVING` (main entry), the independent
+  tools `OCR` / `QR CODE` / `RAPPORT`, and `SETTINGS`. Settings is no longer
+  in the header — its single entry point is Home.
+- **RECEIVING** opens directly on the live work center: the dispatched cards
+  grouped **TO DO / ISSUES / DONE** from data the system already holds (the
+  home feed + the open-session tally the report already uses). A card opens
+  the EXISTING lane scanner; no START/CONFIRM steps were added.
+- **QR CODE** opens the AUTO scanner directly (product read → the PRODUCT
+  path, carton read → the CARTON path, unknown code → the existing
+  NOT MATCHED + "failure was logged" error, logged once).
+- Success flow, error flow, failure logging, permissions, API and the
+  scanner integrations (CT40 / phone) are unchanged. The other assigned
+  stations (Temporary Storage / Sorting / Packing) keep their Home tiles.
+
 - New shell, work queue, secure auth, source-aware scanner, and one guided Receiving lane.
 - Carton identification is separate from physical confirmation.
 - Tote selection and one article per confirmed receipt use the real existing APIs.

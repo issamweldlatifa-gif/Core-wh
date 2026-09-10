@@ -30,25 +30,24 @@ import com.ayrovi.worker.scanner.WorkerDevice
 import com.ayrovi.worker.scanner.rememberScannerCapture
 
 /**
- * RECEIVING HOME — worker-first: two lane tiles + the report shortcut + BACK.
+ * RECEIVING WORK CENTER (UX restructure) — the worker lands DIRECTLY on the
+ * live receiving content, grouped by the state the system already holds:
  *
- *   ┌─────────────────┐
- *   │     ▌▌▌         │   PRODUCT → ProductScanner (direct, no intermediate page)
- *   │     PRODUCT     │
- *   └─────────────────┘
- *   ┌─────────────────┐
- *   │     ▣           │   CARTON  → CartonScanner (direct, no intermediate page)
- *   │     CARTON      │
- *   └─────────────────┘
- *   [ REPORT ]            → confirmation report (end of work)
- *   [ BACK ]              → previous Worker App screen
+ *   RECEIVING
+ *   ── TO DO    [ Product Card ] [ Carton Card ]   (the dispatched feed)
+ *   ── ISSUES   [ open error / discrepancy cards ]  (existing states only)
+ *   ── DONE     [ session received tally ]          (existing report data)
+ *   [ PRODUCT ] [ CARTON ]    ← the existing direct lane scanners
+ *   [ REPORT ]                ← end-of-work shortcut
  *
- * A green dot marks a lane with open work; a disabled tile names its reason.
- * No scan buttons, no tool buttons, no scanner and no card lists on this
- * screen. Each tile opens its lane-specific unified scanner directly
- * (PRODUCT scanner → product cards only; CARTON scanner → carton cards only);
- * the scan matches automatically on the device. Business logic, workflow,
- * API contracts and reports are untouched — this rebuild is UX only.
+ * A card opens the EXISTING workflow: a product card opens the PRODUCT lane
+ * scanner, a carton card opens the CARTON lane scanner — the scan still
+ * matches automatically on the device and the backend stays the authority.
+ * No START/CONFIRM buttons, no intermediate Product/Carton picker (§5/§7/§8).
+ *
+ * Business logic, workflow, API contracts, success flow, error flow
+ * (NOT MATCHED + "The failure was logged.") and reports are untouched —
+ * this rebuild is UX/navigation only (§3/§10/§11/§17).
  *
  * Shared by Phone and CT40: same components, state and intents. The CT40
  * physical trigger fires the ACTIVE scanner — the lane determines which
@@ -69,6 +68,18 @@ fun ReceivingHomeScreen(
     repository: com.ayrovi.worker.data.WorkerRepository? = null,
     onOpenReport: (() -> Unit)? = null,
     /**
+     * UX RESTRUCTURE (§9): one-shot intent applied once the feed is loaded —
+     * the HOME "QR CODE" tool lands DIRECTLY in the AUTO scanner
+     * (OpenAutoScan) with no intermediate step. Null = normal entry.
+     */
+    openWith: ReceivingHomeIntent? = null,
+    /**
+     * UX RESTRUCTURE (§14): OCR tool entry — opens the EXISTING OCR flow
+     * (the same chooser surface used inside the lanes) as soon as scanning
+     * is armed. No new OCR logic.
+     */
+    ocrFirst: Boolean = false,
+    /**
      * Deterministic hardware override for instrumented tests (null = sense
      * the real device). Production never passes this.
      */
@@ -84,9 +95,10 @@ fun ReceivingHomeScreen(
     onCoachDone: (() -> Unit)? = null,
 ) {
     val state by model.state.collectAsStateWithLifecycle()
+    val summary by model.workSummary.collectAsStateWithLifecycle()
+    val issue by model.issue.collectAsStateWithLifecycle()
     val industrial = device == WorkerDevice.CT40
     val owner = LocalLifecycleOwner.current
-    var settings by remember { mutableStateOf(false) }
     var scanTools by remember { mutableStateOf(false) }
 
     DisposableEffect(owner, model) {
@@ -104,7 +116,14 @@ fun ReceivingHomeScreen(
 
     LaunchedEffect(state.authExpired) { if (state.authExpired) onAuthExpired() }
 
+    // UX RESTRUCTURE §9: apply the one-shot tool entry (AUTO scanner) once
+    // the screen is real — never twice, never over an already-open lane.
+    LaunchedEffect(state.loaded, openWith) {
+        if (openWith != null && state.loaded && state.step == HomeStep.HOME) model.send(openWith)
+    }
+
     val lane = when (state.step) {
+        HomeStep.AUTO_SCAN -> "SCAN"
         HomeStep.PRODUCT_SCAN, HomeStep.REVIEW_PRODUCT -> "PRODUCT"
         HomeStep.CARTON_SCAN, HomeStep.REVIEW_CARTON -> "CARTON"
         else -> null
@@ -113,22 +132,38 @@ fun ReceivingHomeScreen(
         model.scanner, model.captureAllowed,
         "home:${state.step}:${state.scanEpoch}", model::onScan,
         // The PRODUCT lane reads the strict compact SKU shape; the CARTON
-        // lane reads carton / tracking identifiers. Each lane only ever
-        // shape-gates its own identifier family.
+        // lane reads carton / tracking identifiers; the AUTO tool reads both
+        // with the composite of the SAME two templates (no new shapes). Each
+        // lane only ever shape-gates its own identifier family.
         ocrTemplate = when (lane) {
             "CARTON" -> com.ayrovi.worker.scanner.CartonTemplate
+            "SCAN" -> com.ayrovi.worker.scanner.AutoScanTemplate
             else -> com.ayrovi.worker.scanner.CompactSkuTemplate
         },
         hardwareOverride = forceHardwareScanner,
     )
 
+    // UX RESTRUCTURE §14: OCR entry opens the EXISTING OCR chooser surface
+    // (the same one the tools drawer opens) as soon as the AUTO lane is armed.
+    var ocrAutoOpened by remember { mutableStateOf(false) }
+    LaunchedEffect(lane, model.captureAllowed, capture.ocrOpen, capture.cameraOpen, capture.ocrCameraOpen) {
+        if (ocrFirst && !ocrAutoOpened && lane == "SCAN" && model.captureAllowed &&
+            !capture.ocrOpen && !capture.cameraOpen && !capture.ocrCameraOpen
+        ) {
+            ocrAutoOpened = true
+            capture.ocr()
+        }
+    }
+
     Box(Modifier.fillMaxSize()) {
     TerminalShell(
-        header = { TerminalHeader("RECEIVING", worker, station, connection, industrial = industrial, onBack = onBack, onSettings = { settings = true }) },
+        // §4/§16: Settings is NOT in the header anymore — its ONE entry point
+        // is the Home screen. The header stays minimal.
+        header = { TerminalHeader("RECEIVING", worker, station, connection, industrial = industrial, onBack = onBack, showSettingsIcon = false) },
         footer = {
             TerminalFooter(if (state.busy) "PLEASE WAIT" else "") {
                 // BACK leaves RECEIVING for the previous screen; inside a lane
-                // it returns to the two tiles without cancelling a completed
+                // it returns to the work center without cancelling a completed
                 // scan. The arrow icon says "back", never "cancel".
                 // No CONFIRM/APPROVE button: a valid scan is verified and
                 // approved automatically, then the lane re-arms for the
@@ -151,34 +186,13 @@ fun ReceivingHomeScreen(
     ) {
         when {
             !state.loaded -> LoadingState("OPENING RECEIVING…")
+            lane == "SCAN" -> AutoLane(state, capture, model.captureAllowed, { model.send(ReceivingHomeIntent.Retry) }, { scanTools = true })
             lane == "PRODUCT" -> ProductLane(state, capture, model.captureAllowed, { model.send(ReceivingHomeIntent.Retry) }, { scanTools = true })
             lane == "CARTON" -> CartonLane(state, capture, model.captureAllowed, { model.send(ReceivingHomeIntent.Retry) }, { scanTools = true })
-            else -> HomeDashboard(state, connection,
+            else -> ReceivingWorkCenter(state, summary, issue, connection,
                 openProduct = { model.send(ReceivingHomeIntent.OpenProduct) },
                 openCarton = { model.send(ReceivingHomeIntent.OpenCarton) },
                 onOpenReport = onOpenReport)
-        }
-        if (settings) {
-            // Shared worker Settings (Send Report / Report a Problem / Switch
-            // Mode / clean system info). "Switch Mode" leaves Receiving for
-            // the work queue; permissions stay enforced by the backend. When
-            // no repository is wired (UI harnesses) the Support actions hide.
-            WorkerSettingsDialog(
-                repository = repository,
-                worker = worker,
-                station = station,
-                connection = connection,
-                appVersion = appVersion,
-                deviceCode = deviceCode,
-                device = device,
-                onSwitchMode = { settings = false; onBack() },
-                onClose = { settings = false },
-                onChangeDisplay = onToggleTheme,
-                gloveOn = gloveOn,
-                onToggleGlove = onToggleGlove,
-                glareOn = glareOn,
-                onToggleGlare = onToggleGlare,
-            )
         }
     }
 
@@ -218,10 +232,16 @@ fun ReceivingHomeScreen(
     }
 }
 
-/** RECEIVING HOME — the title, the two lane tiles, the report shortcut, nothing else. */
+/**
+ * RECEIVING WORK CENTER — the content the worker lands on DIRECTLY (§5/§6):
+ * the dispatched cards grouped TO DO / ISSUES / DONE from the data the system
+ * already holds, then the existing lane tiles and report shortcut.
+ */
 @Composable
-private fun HomeDashboard(
+private fun ReceivingWorkCenter(
     state: com.ayrovi.worker.domain.ReceivingHomeState,
+    summary: ReceivingWorkSummary?,
+    issue: ReceivingIssueState?,
     connection: String,
     openProduct: () -> Unit,
     openCarton: () -> Unit,
@@ -235,21 +255,233 @@ private fun HomeDashboard(
             modifier = Modifier.fillMaxWidth(),
             textAlign = TextAlign.Center,
         )
-        // Live dots only (no counters, no lists): a dot means open work is
-        // waiting in that lane right now.
         val home = state.home
-        val productOpen = home != null && (home.productCards.any { it.remaining > 0 } || home.productCardsPending > 0)
+        // ---------- TO DO: the dispatched cards (existing feed) ----------
+        val todoProducts = home?.productCards.orEmpty()
+        val todoCartons = home?.cartonCards.orEmpty()
+        SectionHeader("TO DO", todoProducts.size + todoCartons.size, Modifier.testTag("RECEIVING_TODO"))
+        todoProducts.forEachIndexed { index, card ->
+            ReceivingProductCard(card, openProduct, Modifier.testTag("RECEIVING_CARD_PRODUCT").let {
+                if (index == 0) it.testTag("RECEIVING_CARD_PRODUCT_FIRST") else it
+            })
+        }
+        todoCartons.forEachIndexed { index, card ->
+            ReceivingCartonCard(card, openCarton, Modifier.testTag("RECEIVING_CARD_CARTON").let {
+                if (index == 0) it.testTag("RECEIVING_CARD_CARTON_FIRST") else it
+            })
+        }
+
+        // ---------- ISSUES: existing error / review states only (§12) ----------
+        val needsReview = todoProducts.filter { it.categoryStatus?.equals("NEEDS_REVIEW", ignoreCase = true) == true }
+        val hasIssues = issue != null || (summary?.openDiscrepancies ?: 0) > 0 || needsReview.isNotEmpty()
+        if (hasIssues) {
+            SectionHeader("ISSUES", null, Modifier.testTag("RECEIVING_ISSUES"))
+            issue?.let {
+                IssueCard(it.title, it.detail, it.code?.let { c -> "Scanned: $c" }, tag = "RECEIVING_ISSUE_MISMATCH")
+            }
+            val openDiscrepancies = summary?.openDiscrepancies ?: 0
+            if (openDiscrepancies > 0 && onOpenReport != null) {
+                IssueCard("$openDiscrepancies OPEN DISCREPANC${if (openDiscrepancies == 1) "Y" else "IES"}",
+                    "Recorded during receiving. The RAPPORT has the details.",
+                    null, action = "OPEN RAPPORT", onAction = onOpenReport, tag = "RECEIVING_ISSUE_DISCREPANCIES")
+            }
+            needsReview.forEach { card ->
+                IssueCard("NEEDS REVIEW", "${card.productName ?: card.sku ?: card.reference ?: "Card"} — the category needs review. Ask your supervisor.",
+                    card.sku ?: card.reference, tag = "RECEIVING_ISSUE_CATEGORY")
+            }
+        }
+
+        // ---------- DONE: existing session tally (report data) ----------
+        val doneVisible = summary != null &&
+            (summary.unitsReceived > 0 || summary.cartonsReceived > 0 || summary.status.equals("COMPLETED", ignoreCase = true))
+        if (doneVisible && summary != null) {
+            SectionHeader("DONE", null, Modifier.testTag("RECEIVING_DONE"))
+            DoneCard(summary, onOpenReport)
+        }
+
+        val reason = tileReason(state, connection)
+        // Live dots only (no counters): a dot means open work is waiting in
+        // that lane right now (the same rule the previous dashboard used).
+        val productOpen = home != null && (todoProducts.any { it.remaining > 0 } || home.productCardsPending > 0)
         val cartonOpen = home != null && (home.cartonList.any { it.remaining > 0 } || home.cartonCardsPending > 0 ||
             (home.cartonCards.isNotEmpty() && home.cartonList.isEmpty()))
-        val reason = tileReason(state, connection)
-        LaneTile("PRODUCT", TerminalIcon.PRODUCT, state.canMutate, openProduct, Modifier.testTag("HOME_PRODUCT_TILE"),
-            dot = productOpen, reason = reason)
-        LaneTile("CARTON", TerminalIcon.CARTON, state.canMutate, openCarton, Modifier.testTag("HOME_CARTON_TILE"),
-            dot = cartonOpen, reason = reason)
+        // ---------- The existing direct lane scanners (kept feature) ----------
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+            Box(Modifier.weight(1f)) {
+                LaneTile("PRODUCT", TerminalIcon.PRODUCT, state.canMutate, openProduct, Modifier.testTag("HOME_PRODUCT_TILE"),
+                    dot = productOpen, reason = reason)
+            }
+            Box(Modifier.weight(1f)) {
+                LaneTile("CARTON", TerminalIcon.CARTON, state.canMutate, openCarton, Modifier.testTag("HOME_CARTON_TILE"),
+                    dot = cartonOpen, reason = reason)
+            }
+        }
         // End-of-work shortcut: the confirmation report, one tap away.
         // Hidden in harnesses where no report destination is wired.
         if (onOpenReport != null) {
             SecondaryAction("REPORT", onOpenReport, !state.busy, Modifier.testTag("HOME_REPORT_BUTTON"), icon = TerminalIcon.REPORT)
+        }
+    }
+}
+
+/** Small uppercase group header with an optional count — flat, no nested boxes. */
+@Composable
+private fun SectionHeader(title: String, count: Int?, modifier: Modifier = Modifier) {
+    Row(modifier.fillMaxWidth().padding(top = TerminalTokens.xs),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+        Text(title, style = MaterialTheme.typography.titleSmall, color = TerminalTokens.muted, letterSpacing = 2.sp)
+        count?.let { Text("· $it", style = MaterialTheme.typography.titleSmall, color = TerminalTokens.muted) }
+        Box(Modifier.weight(1f).height(1.dp).background(TerminalTokens.border))
+    }
+}
+
+/**
+ * One TO DO product card (§8): SKU / reference, live received/expected and
+ * status — the whole card is the touch target and opens the EXISTING product
+ * lane scanner (the scan still matches itself; no START/CONFIRM is added).
+ */
+@Composable
+private fun ReceivingProductCard(card: com.ayrovi.worker.data.ProductCard, onOpen: () -> Unit, modifier: Modifier = Modifier) {
+    val glove = LocalGloveMode.current
+    Surface(
+        onClick = onOpen,
+        enabled = true,
+        shape = MaterialTheme.shapes.medium,
+        color = TerminalTokens.surface,
+        border = BorderStroke(TerminalTokens.stroke, TerminalTokens.border),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(TerminalTokens.md), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xxs)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+                WorkerIcon(TerminalIcon.PRODUCT, "PRODUCT", Modifier.size(22.dp), TerminalTokens.success)
+                Text("PRODUCT", style = MaterialTheme.typography.labelLarge, letterSpacing = 2.sp)
+                Spacer(Modifier.weight(1f))
+                Text(cardStatus(card.received, card.expected), style = MaterialTheme.typography.labelMedium, color = TerminalTokens.muted)
+            }
+            Text(card.productName ?: card.sku ?: card.reference ?: "PRODUCT", style = MaterialTheme.typography.titleMedium)
+            (card.sku ?: card.reference)?.let { Text(it, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace, color = TerminalTokens.muted) }
+            if (glove) Spacer(Modifier.height(TerminalTokens.xs))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
+                QuantityDisplay("EXPECTED", card.expected.toString(), Modifier.weight(1f))
+                QuantityDisplay("RECEIVED", card.received.toString(), Modifier.weight(1f))
+                QuantityDisplay("REMAINING", card.remaining.toString(), Modifier.weight(1f))
+            }
+            CardProgress(card.received, card.expected)
+        }
+    }
+}
+
+/**
+ * One TO DO carton card (§8): tracking identity + product count + status —
+ * opens the EXISTING carton lane scanner.
+ */
+@Composable
+private fun ReceivingCartonCard(card: com.ayrovi.worker.data.CartonCard, onOpen: () -> Unit, modifier: Modifier = Modifier) {
+    val glove = LocalGloveMode.current
+    Surface(
+        onClick = onOpen,
+        enabled = true,
+        shape = MaterialTheme.shapes.medium,
+        color = TerminalTokens.surface,
+        border = BorderStroke(TerminalTokens.stroke, TerminalTokens.border),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(TerminalTokens.md), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xxs)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+                WorkerIcon(TerminalIcon.CARTON, "CARTON", Modifier.size(22.dp), TerminalTokens.instruction)
+                Text("CARTON", style = MaterialTheme.typography.labelLarge, letterSpacing = 2.sp)
+                Spacer(Modifier.weight(1f))
+                Text(card.status ?: "TO DO", style = MaterialTheme.typography.labelMedium, color = TerminalTokens.muted)
+            }
+            Text(card.externalCartonId ?: card.reference ?: "CARTON", style = MaterialTheme.typography.titleMedium)
+            val tracking = card.suiviCode ?: card.trackingCode ?: card.trackingNumber
+            tracking?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary, fontFamily = FontFamily.Monospace) }
+            if (glove) Spacer(Modifier.height(TerminalTokens.xs))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
+                card.productCount?.let { QuantityDisplay("PRODUCTS", it.toString(), Modifier.weight(1f)) }
+                if (card.totalCartons > 0) QuantityDisplay("CARTON", "${card.cartonNumber}/${card.totalCartons}", Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+/** Presentation of the existing received/expected numbers — no new meaning. */
+private fun cardStatus(received: Int, expected: Int): String = when {
+    received <= 0 -> "TO DO"
+    received < expected -> "IN PROGRESS"
+    else -> "COMPLETE"
+}
+
+/** Verification-card progress: received share of the open card (hidden when the card has no total). */
+@Composable
+private fun CardProgress(received: Int, expected: Int) {
+    if (expected <= 0) return
+    LinearProgressIndicator(
+        progress = { (received.coerceAtLeast(0).toFloat() / expected).coerceIn(0f, 1f) },
+        modifier = Modifier.fillMaxWidth(),
+        color = TerminalTokens.success,
+        trackColor = TerminalTokens.raised,
+    )
+}
+
+/** One ISSUE row (§12): the existing error / review state, rendered flat. */
+@Composable
+private fun IssueCard(
+    title: String,
+    detail: String,
+    code: String? = null,
+    action: String? = null,
+    onAction: (() -> Unit)? = null,
+    tag: String? = null,
+) {
+    Surface(
+        shape = MaterialTheme.shapes.medium,
+        color = TerminalTokens.surface,
+        border = BorderStroke(TerminalTokens.stroke, TerminalTokens.warning),
+        modifier = (tag?.let { Modifier.testTag(it) } ?: Modifier).fillMaxWidth(),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(TerminalTokens.md), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xxs)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+                WorkerIcon(TerminalIcon.WARNING, "ISSUE", Modifier.size(22.dp), TerminalTokens.warning)
+                Text(title, style = MaterialTheme.typography.titleSmall)
+            }
+            Text(detail, style = MaterialTheme.typography.bodyMedium)
+            code?.let { Text(it, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, color = TerminalTokens.muted) }
+            if (action != null && onAction != null) {
+                SecondaryAction(action, onAction, true, Modifier.padding(top = TerminalTokens.xxs))
+            }
+        }
+    }
+}
+
+/** One DONE row (§6): the existing session tally — tap opens the existing RAPPORT. */
+@Composable
+private fun DoneCard(summary: ReceivingWorkSummary, onOpenReport: (() -> Unit)?) {
+    Surface(
+        shape = MaterialTheme.shapes.medium,
+        color = TerminalTokens.surface,
+        border = BorderStroke(TerminalTokens.stroke, TerminalTokens.success),
+        modifier = Modifier.fillMaxWidth().testTag("RECEIVING_DONE_CARD"),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(TerminalTokens.md), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xxs)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+                WorkerIcon(TerminalIcon.SUCCESS, "DONE", Modifier.size(22.dp), TerminalTokens.success)
+                Text(summary.sessionCode?.let { "SESSION $it" } ?: "RECEIVED WORK", style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.weight(1f))
+                if (summary.status.equals("COMPLETED", ignoreCase = true)) {
+                    Text("COMPLETED", style = MaterialTheme.typography.labelMedium, color = TerminalTokens.success)
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
+                QuantityDisplay("UNITS", "${summary.unitsReceived}/${summary.unitsExpected}", Modifier.weight(1f))
+                QuantityDisplay("CARTONS", "${summary.cartonsReceived}/${summary.cartonsExpected}", Modifier.weight(1f))
+            }
+            if (onOpenReport != null) {
+                SecondaryAction("OPEN RAPPORT", onOpenReport, true, Modifier.padding(top = TerminalTokens.xxs))
+            }
         }
     }
 }
@@ -272,7 +504,7 @@ private fun tileReason(state: com.ayrovi.worker.domain.ReceivingHomeState, conne
  * dot marks a lane with open work; a disabled tile names its reason.
  */
 @Composable
-private fun LaneTile(
+internal fun LaneTile(
     label: String, icon: TerminalIcon, enabled: Boolean, onOpen: () -> Unit, modifier: Modifier = Modifier,
     dot: Boolean = false, reason: String? = null,
 ) {
@@ -306,25 +538,29 @@ private fun LaneTile(
     }
 }
 
+/** AUTO lane (HOME "QR CODE" tool): ONE scanner — a product OR carton read matches itself. */
+@Composable
+private fun AutoLane(state: com.ayrovi.worker.domain.ReceivingHomeState, capture: ScannerCapture, enabled: Boolean, onRetry: () -> Unit, onOpenScanTools: () -> Unit) {
+    Column(Modifier.fillMaxWidth().testTag("AUTO_SCANNER"), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
+        state.message?.takeIf { it.tone == MessageTone.INFO }?.let { OperationalMessageViewHome(it) }
+        when {
+            // The AUTO tool reuses the EXISTING review panels: what the worker
+            // sees after a match is exactly what the dedicated lanes show.
+            state.step == HomeStep.REVIEW_PRODUCT -> state.productReview?.let { ProductReviewPanel(it) }
+            state.step == HomeStep.REVIEW_CARTON -> state.cartonReview?.let { CartonReviewPanel(it) }
+            else -> ScannerArea(capture, enabled, state.productReview != null || state.cartonReview != null, onRetry,
+                lane = "SCAN", onOpenTools = onOpenScanTools, lastScan = lastScanOf(state))
+        }
+    }
+}
+
 /** PRODUIT lane: scanner area + device match/review. Product matching ONLY. */
 @Composable
 private fun ProductLane(state: com.ayrovi.worker.domain.ReceivingHomeState, capture: ScannerCapture, enabled: Boolean, onRetry: () -> Unit, onOpenScanTools: () -> Unit) {
     Column(Modifier.fillMaxWidth().testTag("PRODUCT_SCANNER"), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
         state.message?.takeIf { it.tone == MessageTone.INFO }?.let { OperationalMessageViewHome(it) }
         if (state.step == HomeStep.REVIEW_PRODUCT) {
-            state.productReview?.let { review ->
-                TerminalPanel("MATCHED PRODUCT CARD", icon = TerminalIcon.CHECK, borderTone = TerminalTone.SUCCESS) {
-                    ProductBlock(review.card.productName, review.card.sku ?: review.card.reference ?: review.scan.value)
-                    ReviewProgress(review.card.received, review.card.expected)
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
-                        QuantityDisplay("EXPECTED", review.card.expected.toString(), Modifier.weight(1f))
-                        QuantityDisplay("RECEIVED", review.card.received.toString(), Modifier.weight(1f))
-                        QuantityDisplay("REMAINING", review.card.remaining.toString(), Modifier.weight(1f))
-                    }
-                    Text("Scanned: ${review.scan.value} · ${review.scan.scanType}", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)
-                    Text("Verifying and recording one physical unit automatically...", style = MaterialTheme.typography.bodyMedium)
-                }
-            }
+            state.productReview?.let { review -> ProductReviewPanel(review) }
         } else {
             // A kept review means a VERIFY failed: the lane offers RETRY for
             // the exact same attempt (success clears the review, so the button
@@ -341,33 +577,53 @@ private fun CartonLane(state: com.ayrovi.worker.domain.ReceivingHomeState, captu
     Column(Modifier.fillMaxWidth().testTag("CARTON_SCANNER"), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
         state.message?.takeIf { it.tone == MessageTone.INFO }?.let { OperationalMessageViewHome(it) }
         if (state.step == HomeStep.REVIEW_CARTON) {
-            state.cartonReview?.let { review ->
-                TerminalPanel("CARTON RECEIVING — ${review.card.entityType ?: "CARTON"}", icon = TerminalIcon.CARTON, borderTone = TerminalTone.SUCCESS) {
-                    LocationBlock(review.card.externalCartonId ?: review.scan.value, label = "CARTON TO RECEIVE")
-                    ReviewProgress(review.card.cartonNumber, review.card.totalCartons)
-                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Carton: ${review.card.externalCartonId ?: "—"}", style = MaterialTheme.typography.titleMedium)
-                        Text("Suivi: ${review.card.suiviCode ?: review.card.trackingCode ?: review.card.trackingNumber ?: "—"}", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
-                        review.card.qrCodeValue?.let { Text("QR: $it", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace) }
-                        review.card.barcodeValue?.let { Text("Barcode: $it", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace) }
-                        review.card.productCount?.let { Text("Products: $it", style = MaterialTheme.typography.bodyMedium) }
-                        review.card.sourceProject?.let { Text("Source: $it", style = MaterialTheme.typography.bodySmall, color = TerminalTokens.muted) }
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
-                        QuantityDisplay("MATCHED ON", review.matchedOn, Modifier.weight(1f))
-                        QuantityDisplay("CARTON", "${review.card.cartonNumber}/${review.card.totalCartons}", Modifier.weight(1f))
-                    }
-                    review.card.trackingNumber?.let { Text("TRACKING · $it", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted) }
-                    review.card.suiviCode?.let { Text("SUIVI · $it", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted) }
-                    Text("Scanned: ${review.scan.value} · ${review.scan.scanType}", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)
-                    Text("Auto verifying → Auto approving → Next carton", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.success)
-                    Text("Recording this carton as received. It cannot be counted twice.", style = MaterialTheme.typography.bodySmall, color = TerminalTokens.muted)
-                }
-            }
+            state.cartonReview?.let { review -> CartonReviewPanel(review) }
         } else {
             ScannerArea(capture, enabled, state.cartonReview != null, onRetry, lane = "CARTON", onOpenTools = onOpenScanTools,
                 lastScan = lastScanOf(state))
         }
+    }
+}
+
+/** MATCHED PRODUCT review — the exact panel the PRODUCT lane always showed (unchanged). */
+@Composable
+private fun ProductReviewPanel(review: com.ayrovi.worker.domain.HomeProductReview) {
+    TerminalPanel("MATCHED PRODUCT CARD", icon = TerminalIcon.CHECK, borderTone = TerminalTone.SUCCESS) {
+        ProductBlock(review.card.productName, review.card.sku ?: review.card.reference ?: review.scan.value)
+        ReviewProgress(review.card.received, review.card.expected)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
+            QuantityDisplay("EXPECTED", review.card.expected.toString(), Modifier.weight(1f))
+            QuantityDisplay("RECEIVED", review.card.received.toString(), Modifier.weight(1f))
+            QuantityDisplay("REMAINING", review.card.remaining.toString(), Modifier.weight(1f))
+        }
+        Text("Scanned: ${review.scan.value} · ${review.scan.scanType}", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)
+        Text("Verifying and recording one physical unit automatically...", style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+/** CARTON RECEIVING review — the exact panel the CARTON lane always showed (unchanged). */
+@Composable
+private fun CartonReviewPanel(review: com.ayrovi.worker.domain.HomeCartonReview) {
+    TerminalPanel("CARTON RECEIVING — ${review.card.entityType ?: "CARTON"}", icon = TerminalIcon.CARTON, borderTone = TerminalTone.SUCCESS) {
+        LocationBlock(review.card.externalCartonId ?: review.scan.value, label = "CARTON TO RECEIVE")
+        ReviewProgress(review.card.cartonNumber, review.card.totalCartons)
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Carton: ${review.card.externalCartonId ?: "—"}", style = MaterialTheme.typography.titleMedium)
+            Text("Suivi: ${review.card.suiviCode ?: review.card.trackingCode ?: review.card.trackingNumber ?: "—"}", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
+            review.card.qrCodeValue?.let { Text("QR: $it", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace) }
+            review.card.barcodeValue?.let { Text("Barcode: $it", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace) }
+            review.card.productCount?.let { Text("Products: $it", style = MaterialTheme.typography.bodyMedium) }
+            review.card.sourceProject?.let { Text("Source: $it", style = MaterialTheme.typography.bodySmall, color = TerminalTokens.muted) }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
+            QuantityDisplay("MATCHED ON", review.matchedOn, Modifier.weight(1f))
+            QuantityDisplay("CARTON", "${review.card.cartonNumber}/${review.card.totalCartons}", Modifier.weight(1f))
+        }
+        review.card.trackingNumber?.let { Text("TRACKING · $it", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted) }
+        review.card.suiviCode?.let { Text("SUIVI · $it", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted) }
+        Text("Scanned: ${review.scan.value} · ${review.scan.scanType}", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)
+        Text("Auto verifying → Auto approving → Next carton", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.success)
+        Text("Recording this carton as received. It cannot be counted twice.", style = MaterialTheme.typography.bodySmall, color = TerminalTokens.muted)
     }
 }
 
@@ -389,11 +645,15 @@ private fun ScannerArea(
     ScannerPanel(
         capture = capture,
         enabled = enabled,
-        title = if (lane == "CARTON") "SCAN CARTON" else "SCAN PRODUCT",
+        title = when (lane) {
+            "CARTON" -> "SCAN CARTON"
+            "SCAN" -> "SCAN PRODUCT OR CARTON"
+            else -> "SCAN PRODUCT"
+        },
         extra = retrySlot,
         onOpenTools = onOpenTools,
-        // Green = PRODUCT, blue = CARTON: instant lane recognition.
-        accent = if (lane == "CARTON") TerminalTokens.instruction else TerminalTokens.success,
+        // Green = PRODUCT, blue = CARTON / AUTO: instant lane recognition.
+        accent = if (lane == "PRODUCT") TerminalTokens.success else TerminalTokens.instruction,
         lastScan = lastScan,
     )
 }

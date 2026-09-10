@@ -26,7 +26,7 @@ data class WorkerQueueItem(
 object WorkerQueuePolicy {
     private val labels = mapOf(
         "receiving" to "RECEIVING", "sorting" to "SORTING", "putaway" to "PUTAWAY",
-        "temporary-storage" to "TEMP STORAGE",
+        "temporary-storage" to "TEMP STORAGE", "shipping" to "SHIPPING", "archive-trace" to "TRACE",
     )
     fun items(
         permittedTasks: List<TerminalTask>,

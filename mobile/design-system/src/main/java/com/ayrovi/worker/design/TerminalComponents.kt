@@ -72,6 +72,13 @@ fun TerminalHeader(
     operation: String, worker: String, station: String?, connection: String,
     onBack: (() -> Unit)? = null, backEnabled: Boolean = true,
     industrial: Boolean = false, onSettings: (() -> Unit)? = null,
+    /**
+     * UX RESTRUCTURE (§4/§16): the Settings icon lives ONLY on the Home
+     * screen. Operational screens pass false so the header stays minimal and
+     * Settings keeps ONE clear entry point. Default true = unchanged behavior
+     * for every existing caller.
+     */
+    showSettingsIcon: Boolean = true,
 ) {
     val toggle = LocalTerminalThemeToggle.current
     Surface(color = TerminalTokens.background, modifier = Modifier.testTag(if (industrial) "CT40_HEADER" else "PHONE_HEADER")) {
@@ -84,7 +91,7 @@ fun TerminalHeader(
                     modifier = Modifier.weight(1f), color = TerminalTokens.muted)
                 else Spacer(Modifier.weight(1f))
                 val settings = onSettings ?: toggle
-                if (settings != null) TerminalIconAction(TerminalIcon.SETTINGS, "Worker and settings", settings)
+                if (settings != null && showSettingsIcon) TerminalIconAction(TerminalIcon.SETTINGS, "Worker and settings", settings)
             }
             Text(if (industrial) "$operation · ${station ?: "NO STATION"}" else worker,
                 style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)

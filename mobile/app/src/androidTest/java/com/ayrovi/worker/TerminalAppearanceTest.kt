@@ -15,6 +15,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -27,6 +28,7 @@ import com.ayrovi.worker.data.*
 import com.ayrovi.worker.design.*
 import com.ayrovi.worker.presentation.ReceivingHomeScreen
 import com.ayrovi.worker.presentation.ReceivingHomeViewModel
+import com.ayrovi.worker.presentation.WorkerSettingsDialog
 import com.ayrovi.worker.scanner.WorkerDevice
 import java.util.UUID
 import org.junit.Assert.*
@@ -82,35 +84,55 @@ class TerminalAppearanceTest {
                 }
             }
         }
-        // RECEIVING opens the HOME (not the scanner): title + two tiles + BACK.
+        // RECEIVING opens the WORK CENTER (not the scanner): title + card
+        // content + two tiles + BACK. UX RESTRUCTURE: Settings is NOT in the
+        // header anymore — its one entry point is the Home screen.
         compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
         compose.onNodeWithTag("RECEIVING_HOME").assertExists()
         compose.onNodeWithText("RECEIVING").assertIsDisplayed()
-        compose.onNodeWithText("PRODUCT").assertIsDisplayed()
-        compose.onNodeWithText("CARTON").assertIsDisplayed()
-        compose.onNodeWithTag("HOME_PRODUCT_TILE").assertIsDisplayed()
+        compose.onAllNodesWithText("PRODUCT").onFirst().assertExists()
+        compose.onAllNodesWithText("CARTON").onFirst().assertExists()
+        compose.onNodeWithContentDescription("Worker and settings").assertDoesNotExist()
+        compose.onNodeWithTag("HOME_PRODUCT_TILE").assertExists()
             .assertHeightIsAtLeast(TerminalTokens.touch)
-        compose.onNodeWithTag("HOME_CARTON_TILE").assertIsDisplayed()
+        compose.onNodeWithTag("HOME_CARTON_TILE").assertExists()
             .assertHeightIsAtLeast(TerminalTokens.touch)
-        // …and nothing else: no scanner, no scan/tool buttons, no counters, no lists.
+        // …and no scanner while the work center is open.
         compose.onAllNodesWithTag("READY_TO_SCAN").assertCountEquals(0)
         compose.onAllNodesWithTag("SCAN_TOOLS_ARROW").assertCountEquals(0)
         compose.onAllNodesWithTag("SCAN_TOOLS_DRAWER").assertCountEquals(0)
         compose.onAllNodesWithText("SCAN PRODUIT").assertCountEquals(0)
         compose.onAllNodesWithText("SCAN CARTON").assertCountEquals(0)
-        compose.onAllNodesWithText("REFRESH").assertCountEquals(0)
         compose.onAllNodesWithText("CONFIRMATION REPORT").assertCountEquals(0)
-        compose.onAllNodesWithText("CARDS").assertCountEquals(0)
         saveScreenshot("receiving-home-white")
-        compose.onNodeWithContentDescription("Worker and settings").performClick()
-        compose.onNodeWithText("CHANGE DISPLAY").performClick()
-        compose.runOnIdle { assertEquals(Color.Black, observedBackground) }
-        compose.onNodeWithText("CLOSE").performClick()
         // PRODUCT opens the PRODUCT scanner directly (no intermediate page).
         compose.onNodeWithTag("HOME_PRODUCT_TILE").performClick()
         compose.waitUntil(10_000) { model.state.value.step == com.ayrovi.worker.domain.HomeStep.PRODUCT_SCAN }
         compose.onNodeWithTag("PRODUCT_SCANNER").assertIsDisplayed()
         saveScreenshot("receiving-product-scanner-black")
+    }
+
+    @Test fun changeDisplaySwitchesPaletteThroughTheSettingsDialog() {
+        // UX RESTRUCTURE §4/§16: CHANGE DISPLAY moved INTO Settings (Home →
+        // SETTINGS). The palette switch behavior itself is unchanged.
+        var mode by mutableStateOf(TerminalThemeMode.WHITE)
+        var observedBackground: Color? = null
+        compose.setContent {
+            Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
+                AyroviTerminalTheme(mode, onToggleTheme = { mode = mode.next() }) {
+                    observedBackground = TerminalTokens.background
+                    WorkerSettingsDialog(repository = null, worker = "W-001 · UI TEST FIXTURE", station = "REC-01",
+                        connection = "ONLINE", appVersion = "test", deviceCode = "TEST-CODE",
+                        device = WorkerDevice.PHONE, onSwitchMode = {}, onClose = {},
+                        onChangeDisplay = { mode = mode.next() })
+                }
+            }
+        }
+        compose.waitUntil(10_000) { observedBackground != null }
+        val before = observedBackground
+        compose.onNodeWithText("CHANGE DISPLAY").performClick()
+        compose.waitUntil(10_000) { observedBackground != before }
+        compose.runOnIdle { assertEquals(Color.Black, observedBackground) }
     }
 
     @Test fun cartonScanOpensDedicatedCartonScannerAtLargeFont() {

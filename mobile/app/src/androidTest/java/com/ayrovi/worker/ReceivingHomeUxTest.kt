@@ -19,6 +19,7 @@ import com.ayrovi.worker.design.AyroviTerminalTheme
 import com.ayrovi.worker.design.TerminalThemeMode
 import com.ayrovi.worker.design.TerminalTokens
 import com.ayrovi.worker.domain.HomeStep
+import com.ayrovi.worker.presentation.ReceivingHomeIntent
 import com.ayrovi.worker.presentation.ReceivingHomeScreen
 import com.ayrovi.worker.presentation.ReceivingHomeViewModel
 import com.ayrovi.worker.scanner.WorkerDevice
@@ -27,8 +28,9 @@ import org.junit.Rule
 import org.junit.Test
 
 /**
- * RECEIVING UX order — the home screen is two tiles + BACK, and each tile
- * opens its own scanner directly (no intermediate page, no scanner picker,
+ * RECEIVING UX order (work-center restructure) — the worker lands DIRECTLY on
+ * the receiving content (TO DO / ISSUES / DONE cards) and every entry opens
+ * its existing scanner directly (no intermediate page, no scanner picker,
  * no scan button). Business logic is untouched; this only pins the UX.
  */
 class ReceivingHomeUxTest {
@@ -52,7 +54,7 @@ class ReceivingHomeUxTest {
     }
 
     @Test
-    fun homeShowsOnlyTitleTilesAndBack() {
+    fun homeShowsWorkCenterCardsTilesAndBack() {
         openHome()
 
         // Header stays: AYROVI + ONLINE + the RECEIVING line.
@@ -60,18 +62,22 @@ class ReceivingHomeUxTest {
         compose.onNodeWithText("ONLINE").assertIsDisplayed()
         compose.onNodeWithText("RECEIVING · REC-01").assertIsDisplayed()
 
-        // Main: the two big CT40-friendly tiles.
+        // Main: the work-center content (TO DO group + the dispatched cards)
+        // and the two big CT40-friendly lane tiles below it.
         compose.onNodeWithTag("RECEIVING_HOME").assertIsDisplayed()
         compose.onNodeWithText("RECEIVING").assertIsDisplayed()
-        compose.onNodeWithTag("HOME_PRODUCT_TILE").assertIsDisplayed()
+        compose.onNodeWithTag("RECEIVING_TODO").assertExists()
+        compose.onNodeWithTag("RECEIVING_CARD_PRODUCT_FIRST").assertExists()
+        compose.onNodeWithTag("RECEIVING_CARD_CARTON_FIRST").assertExists()
+        compose.onNodeWithTag("HOME_PRODUCT_TILE").assertExists()
             .assertHeightIsAtLeast(TerminalTokens.touch)
-        compose.onNodeWithTag("HOME_CARTON_TILE").assertIsDisplayed()
+        compose.onNodeWithTag("HOME_CARTON_TILE").assertExists()
             .assertHeightIsAtLeast(TerminalTokens.touch)
 
-        // Bottom: BACK is the only action.
+        // Bottom: BACK is the only footer action.
         compose.onNodeWithText("BACK").assertIsDisplayed()
 
-        // Nothing else: no scanner, no scan/tool buttons, no counters, no lists.
+        // No scanner while the work center is open.
         compose.onAllNodesWithTag("READY_TO_SCAN").assertCountEquals(0)
         compose.onAllNodesWithTag("PRODUCT_SCANNER").assertCountEquals(0)
         compose.onAllNodesWithTag("CARTON_SCANNER").assertCountEquals(0)
@@ -80,11 +86,6 @@ class ReceivingHomeUxTest {
         compose.onAllNodesWithTag("OCR_SCAN").assertCountEquals(0)
         compose.onAllNodesWithTag("MANUAL_SCAN").assertCountEquals(0)
         compose.onAllNodesWithTag("CAPTURE_QR_AREA").assertCountEquals(0)
-        compose.onAllNodesWithText("SCAN").assertCountEquals(0)
-        compose.onAllNodesWithText("OCR").assertCountEquals(0)
-        compose.onAllNodesWithText("MANUAL").assertCountEquals(0)
-        compose.onAllNodesWithText("REFRESH").assertCountEquals(0)
-        compose.onAllNodesWithText("CARDS").assertCountEquals(0)
     }
 
     @Test
@@ -106,7 +107,7 @@ class ReceivingHomeUxTest {
         compose.onNodeWithTag("PRODUCT_SCANNER").assertIsDisplayed()
         compose.onAllNodesWithTag("RECEIVING_HOME").assertCountEquals(0)
 
-        // Lane BACK -> the two tiles, without touching any completed work.
+        // Lane BACK -> the work center, without touching any completed work.
         compose.onNodeWithText("BACK TO RECEIVING").performClick()
         compose.waitUntil(10_000) { model.state.value.step == HomeStep.HOME }
         compose.onNodeWithTag("RECEIVING_HOME").assertIsDisplayed()
@@ -116,6 +117,46 @@ class ReceivingHomeUxTest {
         compose.waitUntil(10_000) { model.state.value.step == HomeStep.CARTON_SCAN }
         compose.onNodeWithTag("CARTON_SCANNER").assertIsDisplayed()
         compose.onAllNodesWithTag("PRODUCT_SCANNER").assertCountEquals(0)
+    }
+
+    @Test
+    fun receivingCardOpensTheExistingProductLane() {
+        val model = openHome()
+
+        // §7: a card opens the EXISTING workflow — the PRODUCT lane scanner —
+        // with no intermediate detail page, no START/CONFIRM button.
+        compose.onNodeWithTag("RECEIVING_CARD_PRODUCT_FIRST").performClick()
+        compose.waitUntil(10_000) { model.state.value.step == HomeStep.PRODUCT_SCAN }
+        compose.onNodeWithTag("PRODUCT_SCANNER").assertIsDisplayed()
+
+        // Lane BACK -> the work center content, without touching completed work.
+        compose.onNodeWithText("BACK TO RECEIVING").performClick()
+        compose.waitUntil(10_000) { model.state.value.step == HomeStep.HOME }
+        compose.onNodeWithTag("RECEIVING_HOME").assertIsDisplayed()
+    }
+
+    @Test
+    fun qrToolOpensTheScannerDirectly() {
+        // §9: HOME -> QR CODE -> the scanner opens DIRECTLY (the AUTO lane),
+        // with no Receiving/Product/Carton/scan-selection steps.
+        val model = ReceivingHomeViewModel(ReceivingUiGateway(), "worker", setOf("receiving.view", "receiving.execute"))
+        compose.setContent {
+            LaunchedEffect(Unit) { model.activate(setOf("receiving.view", "receiving.execute"), true) }
+            Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
+                AyroviTerminalTheme(TerminalThemeMode.WHITE, onToggleTheme = {}) {
+                    ReceivingHomeScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {},
+                        device = WorkerDevice.CT40, openWith = ReceivingHomeIntent.OpenAutoScan)
+                }
+            }
+        }
+        compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
+        compose.waitUntil(10_000) { model.state.value.step == HomeStep.AUTO_SCAN }
+        compose.onNodeWithTag("AUTO_SCANNER").assertIsDisplayed()
+        compose.onAllNodesWithTag("RECEIVING_HOME").assertCountEquals(0)
+        // The tool is the existing unified scanner: BACK returns to receiving.
+        compose.onNodeWithText("BACK TO RECEIVING").performClick()
+        compose.waitUntil(10_000) { model.state.value.step == HomeStep.HOME }
+        compose.onNodeWithTag("RECEIVING_HOME").assertIsDisplayed()
     }
 
     @Test
@@ -132,7 +173,7 @@ class ReceivingHomeUxTest {
             }
         }
         compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
-        compose.onNodeWithTag("HOME_REPORT_BUTTON").assertIsDisplayed()
+        compose.onNodeWithTag("HOME_REPORT_BUTTON").assertExists()
         compose.onNodeWithTag("HOME_REPORT_BUTTON").performClick()
         compose.waitUntil(10_000) { opened }
         assertTrue(opened)
