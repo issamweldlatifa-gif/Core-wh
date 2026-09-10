@@ -111,15 +111,16 @@ fun TraceScreen(
                             Text(it, style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)
                         }
                     }
-                    if (v.article?.status != null) {
-                        val tone = when (v.article!!.status) {
+                    val status = v.article?.status
+                    if (status != null) {
+                        val tone = when (status) {
                             "SHIPPED" -> TerminalTone.SUCCESS
                             "PACKED", "IN_CUSTOMER_BIN" -> TerminalTone.WARNING
                             "IN_CONTAINER" -> TerminalTone.INSTRUCTION
                             else -> TerminalTone.NEUTRAL
                         }
                         TerminalPanel("CURRENT STATUS", borderTone = tone) {
-                            Text(v.article.status!!, style = MaterialTheme.typography.titleLarge, color = tone.color())
+                            Text(status, style = MaterialTheme.typography.titleLarge, color = tone.color())
                         }
                     }
                     TerminalPanel("TIMELINE") {
