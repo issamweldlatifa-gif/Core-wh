@@ -58,14 +58,18 @@ class ShippingTraceUiTest {
     }
 
     private class FakeTraceGateway : TraceGateway {
-        override suspend fun trace(code: String): com.ayrovi.worker.data.TraceView =
-            com.ayrovi.worker.data.TraceView(
+        override suspend fun trace(code: String): com.ayrovi.worker.data.TraceView {
+            if (code.equals("SKU-404", ignoreCase = true)) {
+                throw com.ayrovi.worker.data.WorkerRepository.ApiException(404, "No chain for $code")
+            }
+            return com.ayrovi.worker.data.TraceView(
                 article = OpArticle(code = code.uppercase(), sku = code.uppercase(), productName = "Traced item", status = "IN_CONTAINER"),
                 trace = com.ayrovi.worker.data.TraceChain(
                     expectedArrival = "ARR-1", receivingSession = "REC-1",
                     container = com.ayrovi.worker.data.TraceContainer(code = "CTN-1", label = "War 1"),
                 ),
             )
+        }
     }
 
     private lateinit var ship: ShippingViewModel
