@@ -61,7 +61,7 @@ class UnifiedScannerUiTest {
             }
         }
         compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
-        compose.onNodeWithTag("OPEN_PRODUCT").performClick()
+        compose.onNodeWithTag("HOME_PRODUCT_TILE").performClick()
         compose.waitUntil(10_000) { model.state.value.step == HomeStep.PRODUCT_SCAN }
     }
 
@@ -144,7 +144,7 @@ class UnifiedScannerUiTest {
             }
         }
         compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
-        compose.onNodeWithTag("OPEN_CARTON").performClick()
+        compose.onNodeWithTag("HOME_CARTON_TILE").performClick()
         compose.waitUntil(10_000) { model.state.value.step == HomeStep.CARTON_SCAN }
 
         compose.onNodeWithTag("CARTON_SCANNER").assertIsDisplayed()
@@ -173,7 +173,7 @@ class UnifiedScannerUiTest {
             }
         }
         compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
-        compose.onNodeWithTag("OPEN_PRODUCT").performClick()
+        compose.onNodeWithTag("HOME_PRODUCT_TILE").performClick()
         compose.waitUntil(10_000) { model.state.value.step == HomeStep.PRODUCT_SCAN }
         waitForTag("READY_TO_SCAN")
 

@@ -26,21 +26,27 @@ import com.ayrovi.worker.scanner.WorkerDevice
 import com.ayrovi.worker.scanner.rememberScannerCapture
 
 /**
- * RECEIVING HOME (card-based receiving rebuild).
+ * RECEIVING HOME — worker-first, two choices only.
  *
- *   ┌──────── PRODUIT ────────┐   ┌──────── CARTON ────────┐
- *   │ Cards: N      [ SCAN ]  │   │ Cards: N     [ SCAN ]  │
- *   └─────────────────────────┘   └────────────────────────┘
+ *   ┌─────────────────┐
+ *   │      📦         │   PRODUCT → ProductScanner (direct, no intermediate page)
+ *   │     PRODUCT     │
+ *   └─────────────────┘
+ *   ┌─────────────────┐
+ *   │      ▣          │   CARTON  → CartonScanner (direct, no intermediate page)
+ *   │     CARTON      │
+ *   └─────────────────┘
+ *   [ BACK ]              → previous Worker App screen (the only extra action)
  *
- * RECEIVING never opens the scanner directly. Each SCAN opens a
- * lane-specific scanner (PRODUCT scanner → product cards only; CARTON
- * scanner → carton cards only). The lists are information only — the worker
- * never picks a card; the scan matches it automatically on the device.
+ * No scan buttons, no tool buttons, no scanner and no card lists on this
+ * screen. Each tile opens its lane-specific unified scanner directly
+ * (PRODUCT scanner → product cards only; CARTON scanner → carton cards only);
+ * the scan matches automatically on the device. Business logic, workflow,
+ * API contracts and reports are untouched — this rebuild is UX only.
  *
- * Shared by Phone and CT40: same components, state and intents; the
- * `industrial` flag only compacts spacing/typography (existing convention).
- * The CT40 physical trigger fires the ACTIVE scanner — the lane determines
- * which matcher is used, so a product lane trigger can never match a carton.
+ * Shared by Phone and CT40: same components, state and intents. The CT40
+ * physical trigger fires the ACTIVE scanner — the lane determines which
+ * matcher is used, so a product lane trigger can never match a carton.
  */
 @Composable
 fun ReceivingHomeScreen(
@@ -100,15 +106,15 @@ fun ReceivingHomeScreen(
         header = { TerminalHeader("RECEIVING", worker, station, connection, industrial = industrial, onBack = onBack, onSettings = { settings = true }) },
         footer = {
             TerminalFooter(if (state.busy) "PLEASE WAIT" else "") {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-                    SecondaryAction(if (lane != null) "BACK TO RECEIVING" else "BACK", {
-                        if (lane != null) model.send(ReceivingHomeIntent.BackHome) else onBack()
-                    }, !state.busy, Modifier.weight(1f))
-                    // No CONFIRM/APPROVE button: a valid scan is verified and
-                    // approved automatically, then the lane re-arms for the
-                    // next product. The worker only ever scans.
-                    SecondaryAction("REFRESH", { model.send(ReceivingHomeIntent.Refresh) }, !state.busy, Modifier.weight(1f))
-                }
+                // BACK is the only action here: on the home it leaves RECEIVING
+                // for the previous Worker App screen; inside a lane it returns
+                // to the two tiles without cancelling a completed scan.
+                // No CONFIRM/APPROVE button: a valid scan is verified and
+                // approved automatically, then the lane re-arms for the
+                // next unit. The worker only ever scans.
+                SecondaryAction(if (lane != null) "BACK TO RECEIVING" else "BACK", {
+                    if (lane != null) model.send(ReceivingHomeIntent.BackHome) else onBack()
+                }, !state.busy)
             }
         },
         scrollKey = state.step,
@@ -117,10 +123,9 @@ fun ReceivingHomeScreen(
             !state.loaded -> LoadingState("OPENING RECEIVING…")
             lane == "PRODUCT" -> ProductLane(state, capture, model.captureAllowed, { model.send(ReceivingHomeIntent.Retry) }, { scanTools = true })
             lane == "CARTON" -> CartonLane(state, capture, model.captureAllowed, { model.send(ReceivingHomeIntent.Retry) }, { scanTools = true })
-            else -> HomeDashboard(state, industrial,
+            else -> HomeDashboard(state.canMutate,
                 openProduct = { model.send(ReceivingHomeIntent.OpenProduct) },
-                openCarton = { model.send(ReceivingHomeIntent.OpenCarton) },
-                openReport = onOpenReport)
+                openCarton = { model.send(ReceivingHomeIntent.OpenCarton) })
         }
         if (settings) {
             // Shared worker Settings (Send Report / Report a Problem / Switch
@@ -159,198 +164,51 @@ fun ReceivingHomeScreen(
     }
 }
 
-/** RECEIVING HOME — the two lane tiles + counters + the visible card lists. */
+/** RECEIVING HOME — the title, the two lane tiles, nothing else. */
 @Composable
 private fun HomeDashboard(
-    state: com.ayrovi.worker.domain.ReceivingHomeState,
-    industrial: Boolean,
+    canMutate: Boolean,
     openProduct: () -> Unit,
     openCarton: () -> Unit,
-    openReport: (() -> Unit)? = null,
 ) {
-    val home = state.home
     Column(Modifier.fillMaxWidth().testTag("RECEIVING_HOME"), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
-        if (!industrial) Text("RECEIVING HOME", style = MaterialTheme.typography.titleLarge)
-        state.message?.takeIf { it.tone == MessageTone.INFO }?.let { OperationalMessageViewHome(it) }
-
-        // The two independent lanes — PRODUIT and CARTON.
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-            HomeTile("PRODUIT", home?.productCardsPending ?: 0, TerminalIcon.RECEIVING,
-                state.canMutate, industrial, Modifier.weight(1f).testTag("HOME_PRODUIT_TILE"))
-            HomeTile("CARTON", home?.cartonCardsPending ?: 0, TerminalIcon.PUTAWAY,
-                state.canMutate, industrial, Modifier.weight(1f).testTag("HOME_CARTON_TILE"))
-        }
-
-        // One dedicated scanner per lane — strict separation.
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-            PrimaryAction("SCAN PRODUIT", openProduct, state.canMutate, Modifier.weight(1f).testTag("OPEN_PRODUCT"))
-            PrimaryAction("SCAN CARTON", openCarton, state.canMutate, Modifier.weight(1f).testTag("OPEN_CARTON"))
-        }
-
-        // Confirmation report (ORDER 01): verification view for this worker's
-        // open receiving session — read-only once the report is sent.
-        if (openReport != null) {
-            SecondaryAction("📋 CONFIRMATION REPORT", openReport, state.canMutate, Modifier.testTag("OPEN_REPORT"))
-        }
-
-        HomeCardLists(state)
-    }
-}
-
-/** PRODUIT lane: scanner area + device match/review. Product matching ONLY. */
-@Composable
-private fun ProductLane(state: com.ayrovi.worker.domain.ReceivingHomeState, capture: ScannerCapture, enabled: Boolean, onRetry: () -> Unit, onOpenScanTools: () -> Unit) {
-    Column(Modifier.fillMaxWidth().testTag("PRODUCT_SCANNER"), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
-        TaskInstruction("PRODUCT SCANNER", "Scan a product QR / barcode, or read the SKU or reference with OCR.")
-        state.message?.takeIf { it.tone == MessageTone.INFO }?.let { OperationalMessageViewHome(it) }
-        if (state.step == HomeStep.REVIEW_PRODUCT) {
-            state.productReview?.let { review ->
-                TerminalPanel("MATCHED PRODUCT CARD") {
-                    ProductBlock(review.card.productName, review.card.sku ?: review.card.reference ?: review.scan.value)
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
-                        QuantityDisplay("EXPECTED", review.card.expected.toString(), Modifier.weight(1f))
-                        QuantityDisplay("RECEIVED", review.card.received.toString(), Modifier.weight(1f))
-                        QuantityDisplay("REMAINING", review.card.remaining.toString(), Modifier.weight(1f))
-                    }
-                    Text("Scanned: ${review.scan.value} · ${review.scan.scanType}", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)
-                    Text("Verifying and recording one physical unit automatically...", style = MaterialTheme.typography.bodyMedium)
-                }
-            }
-        } else {
-            // A kept review means a VERIFY failed: the lane offers RETRY for
-            // the exact same attempt (success clears the review, so the button
-            // can never replay a completed scan).
-            ScannerArea(capture, enabled, state.message, state.productReview != null, onRetry, lane = "PRODUCT", onOpenTools = onOpenScanTools)
-        }
-    }
-}
-
-/** CARTON lane: scanner area + device match/review. Carton matching ONLY. */
-@Composable
-private fun CartonLane(state: com.ayrovi.worker.domain.ReceivingHomeState, capture: ScannerCapture, enabled: Boolean, onRetry: () -> Unit, onOpenScanTools: () -> Unit) {
-    Column(Modifier.fillMaxWidth().testTag("CARTON_SCANNER"), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
-        TaskInstruction("📦 CARTON RECEIVING", "Scan a carton QR / barcode, carton reference, suivi or tracking. Auto verify → Auto approve → Next.")
-        state.message?.takeIf { it.tone == MessageTone.INFO }?.let { OperationalMessageViewHome(it) }
-        if (state.step == HomeStep.REVIEW_CARTON) {
-            state.cartonReview?.let { review ->
-                TerminalPanel("📦 CARTON RECEIVING — ${review.card.entityType ?: "CARTON"}") {
-                    LocationBlock(review.card.externalCartonId ?: review.scan.value, label = "CARTON TO RECEIVE")
-                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Carton: ${review.card.externalCartonId ?: "—"}", style = MaterialTheme.typography.titleMedium)
-                        Text("Suivi: ${review.card.suiviCode ?: review.card.trackingCode ?: review.card.trackingNumber ?: "—"}", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
-                        review.card.qrCodeValue?.let { Text("QR: $it", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace) }
-                        review.card.barcodeValue?.let { Text("Barcode: $it", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace) }
-                        review.card.productCount?.let { Text("Products: $it", style = MaterialTheme.typography.bodyMedium) }
-                        review.card.sourceProject?.let { Text("Source: $it", style = MaterialTheme.typography.bodySmall, color = TerminalTokens.muted) }
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
-                        QuantityDisplay("MATCHED ON", review.matchedOn, Modifier.weight(1f))
-                        QuantityDisplay("CARTON", "${review.card.cartonNumber}/${review.card.totalCartons}", Modifier.weight(1f))
-                    }
-                    review.card.trackingNumber?.let { Text("TRACKING · $it", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted) }
-                    review.card.suiviCode?.let { Text("SUIVI · $it", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted) }
-                    Text("Scanned: ${review.scan.value} · ${review.scan.scanType}", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)
-                    Text("✅ Auto verifying → Auto approving → Next carton", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
-                    Text("Recording this carton as received. It cannot be counted twice.", style = MaterialTheme.typography.bodySmall, color = TerminalTokens.muted)
-                }
-            }
-        } else {
-            ScannerArea(capture, enabled, state.message, state.cartonReview != null, onRetry, lane = "CARTON", onOpenTools = onOpenScanTools)
-        }
+        Text(
+            "RECEIVING",
+            style = MaterialTheme.typography.headlineSmall,
+            letterSpacing = 4.sp,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center,
+        )
+        LaneTile("PRODUCT", TerminalIcon.RECEIVING, canMutate, openProduct, Modifier.testTag("HOME_PRODUCT_TILE"))
+        LaneTile("CARTON", TerminalIcon.PUTAWAY, canMutate, openCarton, Modifier.testTag("HOME_CARTON_TILE"))
     }
 }
 
 /**
- * Scanner area — the SAME unified component as every other station (§14/§26):
- * READY TO SCAN + CT40 indication + one side tools button. The camera / OCR /
- * manual tools live in the drawer and close themselves after a read. A failed
- * attempt keeps RETRY for the exact same scan.
+ * One full-width lane tile: a big clear icon + a short label. The whole tile
+ * is the touch target (CT40-friendly) and opens its scanner directly.
  */
 @Composable
-private fun ScannerArea(
-    capture: ScannerCapture, enabled: Boolean, verdict: OperationalMessage?, canRetry: Boolean, onRetry: () -> Unit,
-    lane: String, onOpenTools: () -> Unit,
-) {
-    // The retry slot is typed explicitly so the composable lambda keeps its
-    // @Composable contract when it is null.
-    val retrySlot: (@Composable () -> Unit)? =
-        if (canRetry) ({ PrimaryAction("RETRY LAST SCAN", onRetry, enabled, Modifier.testTag("LANE_RETRY")) }) else null
-    ScannerPanel(
-        capture = capture,
-        enabled = enabled,
-        title = if (lane == "CARTON") "SCAN CARTON" else "SCAN PRODUCT",
-        subtitle = verdict?.takeIf { it.tone == MessageTone.INFO }?.detail,
-        extra = retrySlot,
-        onOpenTools = onOpenTools,
-    )
-}
-
-@Composable
-private fun HomeTile(
-    label: String, count: Int, icon: TerminalIcon, enabled: Boolean, industrial: Boolean, modifier: Modifier = Modifier,
+private fun LaneTile(
+    label: String, icon: TerminalIcon, enabled: Boolean, onOpen: () -> Unit, modifier: Modifier = Modifier,
 ) {
     Surface(
+        onClick = onOpen,
         modifier = modifier,
-        color = TerminalTokens.surface,
+        enabled = enabled,
         shape = MaterialTheme.shapes.medium,
+        color = TerminalTokens.surface,
         border = BorderStroke(TerminalTokens.stroke, if (enabled) TerminalTokens.border else TerminalTokens.muted),
     ) {
         Column(
-            Modifier.fillMaxWidth().padding(if (industrial) TerminalTokens.sm else TerminalTokens.md),
-            verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs),
+            Modifier.fillMaxWidth().heightIn(min = 128.dp).padding(TerminalTokens.md),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-                WorkerIcon(icon, label, Modifier.size(TerminalTokens.workflowIcon), TerminalTokens.primary)
-                Text(label, style = MaterialTheme.typography.titleLarge, letterSpacing = 2.sp)
-            }
-            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-                Text(count.toString(), style = MaterialTheme.typography.displaySmall.copy(fontFamily = FontFamily.Monospace), color = TerminalTokens.primary)
-                Text("CARDS", style = MaterialTheme.typography.labelMedium, color = TerminalTokens.muted)
-            }
+            WorkerIcon(icon, label, Modifier.size(64.dp), TerminalTokens.primary)
+            Spacer(Modifier.height(TerminalTokens.xs))
+            Text(label, style = MaterialTheme.typography.headlineSmall, letterSpacing = 3.sp)
         }
-    }
-}
-
-/** Read-only enumeration of the waiting cards (information only — never a picker). */
-@Composable
-private fun HomeCardLists(state: com.ayrovi.worker.domain.ReceivingHomeState) {
-    val home = state.home ?: return
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
-        CardListBlock("PRODUIT — ${home.productCardsPending} CARDS",
-            emptyText = if (home.productCardsPending == 0) "No product cards waiting." else null) {
-            home.productList.take(50).forEachIndexed { i, row ->
-                CardRow("#${i + 1}", row.reference ?: "—", listOfNotNull(row.label, row.arrivalCode).joinToString(" · "))
-            }
-        }
-        CardListBlock("📦 CARTON — ${home.cartonCardsPending} CARDS (CARTON FIX)",
-            emptyText = if (home.cartonCardsPending == 0) "No carton cards waiting." else null) {
-            home.cartonList.take(50).forEachIndexed { i, row ->
-                CardRow("#${i + 1}", row.reference ?: "—", listOfNotNull(row.tracking?.let { "SUIVI/TRK $it" }, row.arrivalCode, "📦 CARTON").joinToString(" · "))
-            }
-        }
-    }
-}
-
-@Composable
-private fun CardListBlock(title: String, emptyText: String?, rows: @Composable () -> Unit) {
-    TerminalPanel(title) {
-        if (emptyText != null) {
-            Text(emptyText, style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)
-        } else {
-            Column(verticalArrangement = Arrangement.spacedBy(TerminalTokens.xxs)) { rows() }
-        }
-    }
-}
-
-@Composable
-private fun CardRow(number: String, reference: String, meta: String) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-        Text(number, style = MaterialTheme.typography.labelMedium, color = TerminalTokens.muted,
-            fontFamily = FontFamily.Monospace, modifier = Modifier.width(36.dp))
-        Text(reference, style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace), modifier = Modifier.weight(1f))
-        Text(meta, style = MaterialTheme.typography.labelSmall, color = TerminalTokens.muted,
-            modifier = Modifier.weight(1f), textAlign = TextAlign.End)
     }
 }
 

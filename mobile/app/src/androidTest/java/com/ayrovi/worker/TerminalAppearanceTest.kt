@@ -9,9 +9,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -64,7 +67,7 @@ class TerminalAppearanceTest {
         } finally { context.deleteSharedPreferences(file) }
     }
 
-    @Test fun receivingHomeShowsBothLanesWithCountersAndOpensProductScanner() {
+    @Test fun receivingHomeShowsTwoTilesAndBackOnlyThenOpensProductScanner() {
         val backend = ReceivingUiGateway()
         val model = ReceivingHomeViewModel(backend, "worker", setOf("receiving.view", "receiving.execute"))
         var mode by mutableStateOf(TerminalThemeMode.WHITE)
@@ -79,27 +82,32 @@ class TerminalAppearanceTest {
                 }
             }
         }
-        // RECEIVING opens the HOME (not the scanner) with the two lane tiles + live counters.
+        // RECEIVING opens the HOME (not the scanner): title + two tiles + BACK.
         compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
         compose.onNodeWithTag("RECEIVING_HOME").assertExists()
-        compose.onNodeWithText("PRODUIT").assertIsDisplayed()
+        compose.onNodeWithText("RECEIVING").assertIsDisplayed()
+        compose.onNodeWithText("PRODUCT").assertIsDisplayed()
         compose.onNodeWithText("CARTON").assertIsDisplayed()
-        // Both lanes are visible with their counters (fixture: one product card
-        // AND one carton card each showing a pending count of 1).
-        compose.waitUntil(10_000) {
-            model.state.value.home?.productCardsPending == 1 && model.state.value.home?.cartonCardsPending == 1
-        }
-        compose.onNodeWithTag("HOME_PRODUIT_TILE").assertIsDisplayed()
+        compose.onNodeWithTag("HOME_PRODUCT_TILE").assertIsDisplayed()
+            .assertHeightIsAtLeast(TerminalTokens.touch)
         compose.onNodeWithTag("HOME_CARTON_TILE").assertIsDisplayed()
-        compose.onNodeWithTag("OPEN_PRODUCT").assertHeightIsAtLeast(TerminalTokens.touch)
-        compose.onNodeWithTag("OPEN_CARTON").assertHeightIsAtLeast(TerminalTokens.touch)
+            .assertHeightIsAtLeast(TerminalTokens.touch)
+        // …and nothing else: no scanner, no scan/tool buttons, no counters, no lists.
+        compose.onAllNodesWithTag("READY_TO_SCAN").assertCountEquals(0)
+        compose.onAllNodesWithTag("SCAN_TOOLS_ARROW").assertCountEquals(0)
+        compose.onAllNodesWithTag("SCAN_TOOLS_DRAWER").assertCountEquals(0)
+        compose.onAllNodesWithText("SCAN PRODUIT").assertCountEquals(0)
+        compose.onAllNodesWithText("SCAN CARTON").assertCountEquals(0)
+        compose.onAllNodesWithText("REFRESH").assertCountEquals(0)
+        compose.onAllNodesWithText("CONFIRMATION REPORT").assertCountEquals(0)
+        compose.onAllNodesWithText("CARDS").assertCountEquals(0)
         saveScreenshot("receiving-home-white")
         compose.onNodeWithContentDescription("Worker and settings").performClick()
         compose.onNodeWithText("CHANGE DISPLAY").performClick()
         compose.runOnIdle { assertEquals(Color.Black, observedBackground) }
         compose.onNodeWithText("CLOSE").performClick()
-        // PRODUIT SCAN opens the PRODUCT scanner only (no carton matching).
-        compose.onNodeWithTag("OPEN_PRODUCT").performClick()
+        // PRODUCT opens the PRODUCT scanner directly (no intermediate page).
+        compose.onNodeWithTag("HOME_PRODUCT_TILE").performClick()
         compose.waitUntil(10_000) { model.state.value.step == com.ayrovi.worker.domain.HomeStep.PRODUCT_SCAN }
         compose.onNodeWithTag("PRODUCT_SCANNER").assertIsDisplayed()
         saveScreenshot("receiving-product-scanner-black")
@@ -118,8 +126,8 @@ class TerminalAppearanceTest {
             }
         }
         compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
-        compose.onNodeWithTag("OPEN_CARTON").performScrollTo().assertHeightIsAtLeast(TerminalTokens.touch)
-        compose.onNodeWithTag("OPEN_CARTON").performClick()
+        compose.onNodeWithTag("HOME_CARTON_TILE").performScrollTo().assertHeightIsAtLeast(TerminalTokens.touch)
+        compose.onNodeWithTag("HOME_CARTON_TILE").performClick()
         compose.waitUntil(10_000) { model.state.value.step == com.ayrovi.worker.domain.HomeStep.CARTON_SCAN }
         compose.onNodeWithTag("CARTON_SCANNER").assertIsDisplayed()
         saveScreenshot("receiving-carton-scanner-large-font")
