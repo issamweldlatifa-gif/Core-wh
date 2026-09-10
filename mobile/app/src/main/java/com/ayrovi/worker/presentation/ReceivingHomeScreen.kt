@@ -212,6 +212,94 @@ private fun LaneTile(
     }
 }
 
+/** PRODUIT lane: scanner area + device match/review. Product matching ONLY. */
+@Composable
+private fun ProductLane(state: com.ayrovi.worker.domain.ReceivingHomeState, capture: ScannerCapture, enabled: Boolean, onRetry: () -> Unit, onOpenScanTools: () -> Unit) {
+    Column(Modifier.fillMaxWidth().testTag("PRODUCT_SCANNER"), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
+        TaskInstruction("PRODUCT SCANNER", "Scan a product QR / barcode, or read the SKU or reference with OCR.")
+        state.message?.takeIf { it.tone == MessageTone.INFO }?.let { OperationalMessageViewHome(it) }
+        if (state.step == HomeStep.REVIEW_PRODUCT) {
+            state.productReview?.let { review ->
+                TerminalPanel("MATCHED PRODUCT CARD") {
+                    ProductBlock(review.card.productName, review.card.sku ?: review.card.reference ?: review.scan.value)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
+                        QuantityDisplay("EXPECTED", review.card.expected.toString(), Modifier.weight(1f))
+                        QuantityDisplay("RECEIVED", review.card.received.toString(), Modifier.weight(1f))
+                        QuantityDisplay("REMAINING", review.card.remaining.toString(), Modifier.weight(1f))
+                    }
+                    Text("Scanned: ${review.scan.value} · ${review.scan.scanType}", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)
+                    Text("Verifying and recording one physical unit automatically...", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        } else {
+            // A kept review means a VERIFY failed: the lane offers RETRY for
+            // the exact same attempt (success clears the review, so the button
+            // can never replay a completed scan).
+            ScannerArea(capture, enabled, state.message, state.productReview != null, onRetry, lane = "PRODUCT", onOpenTools = onOpenScanTools)
+        }
+    }
+}
+
+/** CARTON lane: scanner area + device match/review. Carton matching ONLY. */
+@Composable
+private fun CartonLane(state: com.ayrovi.worker.domain.ReceivingHomeState, capture: ScannerCapture, enabled: Boolean, onRetry: () -> Unit, onOpenScanTools: () -> Unit) {
+    Column(Modifier.fillMaxWidth().testTag("CARTON_SCANNER"), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
+        TaskInstruction("📦 CARTON RECEIVING", "Scan a carton QR / barcode, carton reference, suivi or tracking. Auto verify → Auto approve → Next.")
+        state.message?.takeIf { it.tone == MessageTone.INFO }?.let { OperationalMessageViewHome(it) }
+        if (state.step == HomeStep.REVIEW_CARTON) {
+            state.cartonReview?.let { review ->
+                TerminalPanel("📦 CARTON RECEIVING — ${review.card.entityType ?: "CARTON"}") {
+                    LocationBlock(review.card.externalCartonId ?: review.scan.value, label = "CARTON TO RECEIVE")
+                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Carton: ${review.card.externalCartonId ?: "—"}", style = MaterialTheme.typography.titleMedium)
+                        Text("Suivi: ${review.card.suiviCode ?: review.card.trackingCode ?: review.card.trackingNumber ?: "—"}", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
+                        review.card.qrCodeValue?.let { Text("QR: $it", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace) }
+                        review.card.barcodeValue?.let { Text("Barcode: $it", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace) }
+                        review.card.productCount?.let { Text("Products: $it", style = MaterialTheme.typography.bodyMedium) }
+                        review.card.sourceProject?.let { Text("Source: $it", style = MaterialTheme.typography.bodySmall, color = TerminalTokens.muted) }
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
+                        QuantityDisplay("MATCHED ON", review.matchedOn, Modifier.weight(1f))
+                        QuantityDisplay("CARTON", "${review.card.cartonNumber}/${review.card.totalCartons}", Modifier.weight(1f))
+                    }
+                    review.card.trackingNumber?.let { Text("TRACKING · $it", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted) }
+                    review.card.suiviCode?.let { Text("SUIVI · $it", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted) }
+                    Text("Scanned: ${review.scan.value} · ${review.scan.scanType}", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)
+                    Text("✅ Auto verifying → Auto approving → Next carton", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                    Text("Recording this carton as received. It cannot be counted twice.", style = MaterialTheme.typography.bodySmall, color = TerminalTokens.muted)
+                }
+            }
+        } else {
+            ScannerArea(capture, enabled, state.message, state.cartonReview != null, onRetry, lane = "CARTON", onOpenTools = onOpenScanTools)
+        }
+    }
+}
+
+/**
+ * Scanner area — the SAME unified component as every other station (§14/§26):
+ * READY TO SCAN + CT40 indication + one side tools button. The camera / OCR /
+ * manual tools live in the drawer and close themselves after a read. A failed
+ * attempt keeps RETRY for the exact same scan.
+ */
+@Composable
+private fun ScannerArea(
+    capture: ScannerCapture, enabled: Boolean, verdict: OperationalMessage?, canRetry: Boolean, onRetry: () -> Unit,
+    lane: String, onOpenTools: () -> Unit,
+) {
+    // The retry slot is typed explicitly so the composable lambda keeps its
+    // @Composable contract when it is null.
+    val retrySlot: (@Composable () -> Unit)? =
+        if (canRetry) ({ PrimaryAction("RETRY LAST SCAN", onRetry, enabled, Modifier.testTag("LANE_RETRY")) }) else null
+    ScannerPanel(
+        capture = capture,
+        enabled = enabled,
+        title = if (lane == "CARTON") "SCAN CARTON" else "SCAN PRODUCT",
+        subtitle = verdict?.takeIf { it.tone == MessageTone.INFO }?.detail,
+        extra = retrySlot,
+        onOpenTools = onOpenTools,
+    )
+}
+
 @Composable
 internal fun OperationalMessageViewHome(message: OperationalMessage) {
     when (message.tone) {
