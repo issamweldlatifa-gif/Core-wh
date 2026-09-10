@@ -165,13 +165,20 @@ class ReceivingReportWorkflow(
             mutable.update { it.copy(loading = true, message = null) }
             try {
                 gateway.submitReport(id, description, observation, photos)
-                // The report is sent: NOTHING stays on this device. The session,
-                // the report and its history are purged, so reopening this
-                // screen never shows stale data from a finished session.
+                // The report is sent AND STAYS VISIBLE: the submitted view
+                // is re-read from the server (SUBMITTED = locked/read-only),
+                // so the worker still sees the backend data (session,
+                // arrival, totals, lines) — nothing is wiped from this
+                // device. Wiping here was a field-reported bug: the rapport
+                // page carries backend/admin data that must remain visible
+                // after sending. (The wipe was device-local only — the
+                // backend always kept everything — but it wrongly hid the
+                // submitted report from the worker.)
+                load(id)
                 val done = OperationalMessage(
-                    "REPORT SENT", "The session was cleared from this device.", MessageTone.SUCCESS,
+                    "REPORT SENT", "The report was sent and locked. The submitted report stays visible below.", MessageTone.SUCCESS,
                 )
-                mutable.update { it.copy(loading = false, report = null, sessionId = null, message = done, justSubmitted = false, noSession = true) }
+                mutable.update { it.copy(loading = false, message = done, justSubmitted = true) }
                 _events.tryEmit(done)
             } catch (failure: Exception) {
                 if (failure is CancellationException) throw failure

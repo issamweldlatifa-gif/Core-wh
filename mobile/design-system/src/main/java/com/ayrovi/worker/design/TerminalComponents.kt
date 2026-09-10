@@ -40,6 +40,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 @Composable
 fun TerminalShell(
@@ -344,17 +346,32 @@ private fun TerminalTone.icon() = when (this) {
 @Composable fun PauseAction(onClick: () -> Unit, enabled: Boolean = true) = SecondaryAction("PAUSE", onClick, enabled)
 
 @Composable
+/**
+ * Zebra-class industrial action: a flat solid slab with sharp 4dp corners, a
+ * bold tracked label and a glove-sized height. Primary = brand fill, danger =
+ * signal red, secondary = raised slab with a bright edge — NEVER a ghost
+ * outline (unreadable with gloves and sunlight on the line).
+ */
+@Composable
 private fun TerminalAction(label: String, onClick: () -> Unit, enabled: Boolean, modifier: Modifier, primary: Boolean = false, danger: Boolean = false) {
     val size = modifier.heightIn(min = if (primary) TerminalTokens.primaryTouch else TerminalTokens.touch)
-    val text: @Composable RowScope.() -> Unit = { Text(label, style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center) }
+    val style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 0.75.sp)
+    val text: @Composable RowScope.() -> Unit = { Text(label, style = style, textAlign = TextAlign.Center, maxLines = 2) }
+    val flat = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp,
+        focusedElevation = 0.dp, hoveredElevation = 0.dp, disabledElevation = 0.dp)
     if (primary || danger) Button(onClick, size, enabled,
         shape = MaterialTheme.shapes.small,
         colors = ButtonDefaults.buttonColors(containerColor = if (danger) TerminalTokens.error else TerminalTokens.primary,
-            contentColor = if (danger) TerminalTokens.onError else TerminalTokens.onPrimary),
+            contentColor = if (danger) TerminalTokens.onError else TerminalTokens.onPrimary,
+            disabledContainerColor = TerminalTokens.raised, disabledContentColor = TerminalTokens.muted),
+        elevation = flat,
         contentPadding = PaddingValues(TerminalTokens.md), content = text)
-    else OutlinedButton(onClick, size, enabled, shape = MaterialTheme.shapes.small,
+    else Button(onClick, size, enabled, shape = MaterialTheme.shapes.small,
         border = BorderStroke(TerminalTokens.stroke, TerminalTokens.border),
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = TerminalTokens.text),
+        colors = ButtonDefaults.buttonColors(containerColor = TerminalTokens.raised,
+            contentColor = TerminalTokens.text,
+            disabledContainerColor = TerminalTokens.surface, disabledContentColor = TerminalTokens.muted),
+        elevation = flat,
         contentPadding = PaddingValues(TerminalTokens.sm), content = text)
 }
 

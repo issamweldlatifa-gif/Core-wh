@@ -241,19 +241,25 @@ class ReceivingReportWorkflowTest {
         assertEquals(MessageTone.SUCCESS, flow.state.value.message?.tone)
     }
 
-    @Test fun `submit sends then purges the session from the device`() = runTest {
+    @Test fun `submit sends then keeps the submitted report visible`() = runTest {
         val back = backend()
         val flow = workflow(back)
         flow.initialize(); runCurrent()
         flow.submit(null, "ok", emptyList()); runCurrent()
         val state = flow.state.value
         assertTrue(back.calls.contains("submit"))
-        // Nothing stays: no report, no session, empty screen, success note.
-        assertNull(state.report)
-        assertNull(state.sessionId)
-        assertTrue(state.noSession)
+        // The submitted report STAYS: reloaded from the server (SUBMITTED,
+        // locked/read-only) with its session — nothing is wiped.
+        assertNotNull(state.report)
+        assertEquals("SUBMITTED", state.reportStatus)
+        assertNotNull(state.sessionId)
+        assertFalse(state.noSession)
+        assertTrue(state.locked)
+        assertTrue(state.justSubmitted)
         assertFalse(state.canMutate)
+        assertEquals("REPORT SENT", state.message?.title)
         assertEquals(MessageTone.SUCCESS, state.message?.tone)
+        assertTrue(back.calls.count { it == "report" } >= 2, "view must reload after submit")
     }
 
     @Test fun `locked report blocks every mutation`() = runTest {
