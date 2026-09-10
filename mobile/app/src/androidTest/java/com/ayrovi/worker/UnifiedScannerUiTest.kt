@@ -189,8 +189,15 @@ class UnifiedScannerUiTest {
         compose.waitUntil(10_000) { model.state.value.step == HomeStep.PRODUCT_SCAN }
         waitForTag("READY_TO_SCAN")
 
-        // A CT40 trigger read (hardware source) on the expected SKU.
+        // GREEN MATCH (Phase B, zero-touch): the verdict flashes and the
+        // lane re-arms BY ITSELF — no BACK even exists on a success verdict.
         compose.runOnIdle { model.workflow.scan(ScanResult("SKU-TEST", ScanSource.EXTERNAL_SCANNER)) }
+        waitForTag("SCAN_RESULT")
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("SCAN_RESULT").fetchSemanticsNodes().isEmpty() }
+        waitForTag("READY_TO_SCAN")
+
+        // RED STOP verdict (§27/§28 unchanged): never auto-dismissed…
+        compose.runOnIdle { model.workflow.scan(ScanResult("SKU-UNKNOWN", ScanSource.EXTERNAL_SCANNER)) }
         waitForTag("SCAN_RESULT")
         compose.onNodeWithTag("SCAN_RESULT").assertIsDisplayed()
         compose.onNodeWithTag("RESULT_BACK").assertIsDisplayed()
