@@ -7,6 +7,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -85,18 +86,18 @@ class SortingUiTest {
         waitForTag("READY_TO_SCAN")
 
         // STEP 1: a known article reveals the destination (guidance, no overlay).
-        compose.runOnIdle { model.scan(ScanResult("ART-OK", ScanSource.EXTERNAL_SCANNER)) }
+        compose.runOnIdle { model.onScan(ScanResult("ART-OK", ScanSource.EXTERNAL_SCANNER)) }
         waitForTag("DESTINATION_PANEL")
         compose.onAllNodesWithTag("SCAN_RESULT").assertCountEquals(0)
 
         // STEP 2: the location scan IS the confirmation — green flash re-arms alone.
-        compose.runOnIdle { model.scan(ScanResult("Z3-A1", ScanSource.EXTERNAL_SCANNER)) }
+        compose.runOnIdle { model.onScan(ScanResult("Z3-A1", ScanSource.EXTERNAL_SCANNER)) }
         waitForTag("SCAN_RESULT")
         compose.waitUntil(10_000) { compose.onAllNodesWithTag("SCAN_RESULT").fetchSemanticsNodes().isEmpty() }
         waitForTag("READY_TO_SCAN")
 
         // A rejected article stays full-bleed RED until BACK — never auto-dismissed.
-        compose.runOnIdle { model.scan(ScanResult("ART-BAD", ScanSource.EXTERNAL_SCANNER)) }
+        compose.runOnIdle { model.onScan(ScanResult("ART-BAD", ScanSource.EXTERNAL_SCANNER)) }
         waitForTag("SCAN_RESULT")
         Thread.sleep(1_500)
         compose.onNodeWithTag("SCAN_RESULT").assertIsDisplayed()
