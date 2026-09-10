@@ -74,6 +74,11 @@ fun TempStorageScreen(
     deviceCode: String,
     device: WorkerDevice,
     onToggleTheme: () -> Unit,
+    /**
+     * Deterministic hardware override for instrumented tests (null = sense
+     * the real device). Production never passes this.
+     */
+    forceHardwareScanner: Boolean? = null,
 ) {
     val state by model.state.collectAsStateWithLifecycle()
     val owner = LocalLifecycleOwner.current
@@ -101,6 +106,7 @@ fun TempStorageScreen(
     val capture = rememberScannerCapture(
         model.scanner, model.captureAllowed,
         "ts:${state.letter}:${state.pending?.targetCode}:${state.scanEpoch}", model::onScan,
+        hardwareOverride = forceHardwareScanner,
     )
 
     Box(Modifier.fillMaxSize()) {

@@ -47,6 +47,12 @@ fun rememberScannerCapture(
     onScan: (ScanResult) -> Unit,
     /** Lane template for OCR: strict compact product SKU (PRODUCT lane) or carton/tracking (CARTON lane). */
     ocrTemplate: OcrTemplate = CompactSkuTemplate,
+    /**
+     * Deterministic hardware override for tests/previews (null = sense the
+     * real device). The CI emulator has no imager, so instrumented tests of
+     * the CT40 layout pass `true` here; production always passes null.
+     */
+    hardwareOverride: Boolean? = null,
 ): ScannerCapture {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current
@@ -117,13 +123,14 @@ fun rememberScannerCapture(
     }
     DisposableEffect(lifecycle, service) {
         service.initialize()
+        fun sense() { hardwareAvailable = hardwareOverride ?: service.isAvailable() }
         val observer = LifecycleEventObserver { _, event -> when (event) {
-            Lifecycle.Event.ON_RESUME -> { resumed = true; service.start(); hardwareAvailable = service.isAvailable() }
-            Lifecycle.Event.ON_PAUSE -> { resumed = false; camera = false; hardwareAvailable = false; manager.setEnabled(false); service.stop() }
+            Lifecycle.Event.ON_RESUME -> { resumed = true; service.start(); sense() }
+            Lifecycle.Event.ON_PAUSE -> { resumed = false; camera = false; hardwareAvailable = hardwareOverride ?: false; manager.setEnabled(false); service.stop() }
             else -> Unit
         } }
         lifecycle.lifecycle.addObserver(observer)
-        if (resumed) { service.start(); hardwareAvailable = service.isAvailable() }
+        if (resumed) { service.start(); sense() }
         onDispose { lifecycle.lifecycle.removeObserver(observer); manager.setEnabled(false); service.stop() }
     }
     return ScannerCapture(camera, manual, code, hardwareAvailable, ocrOpen, ocrText, ocrSuggestion, ocrError, ocrCameraOpen, softwareScan = {

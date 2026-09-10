@@ -16,7 +16,16 @@ class ScannerService(context: Context, val coordinator: ScanCoordinator) {
     private var started = false
     private var initialized = false
     fun initialize() { if (!initialized) { coordinator.manager.setEnabled(false); initialized = true } }
-    fun isAvailable(): Boolean = started && (!HoneywellScanner.isHoneywellDevice() || honeywell.isActive)
+    /**
+     * Hardware is available ONLY when a real imager/DataWedge exists: a
+     * Honeywell terminal with its scanner claimed, or a Zebra device. A
+     * plain phone (or emulator) has no hardware trigger, so this is false
+     * there — the UI then shows the phone illustration + software trigger
+     * instead of the CT40 glyph. (The old `!isHoneywell || isActive`
+     * expression was true on every phone — the field-reported bug where the
+     * app claimed CT40 on a phone.)
+     */
+    fun isAvailable(): Boolean = started && ((HoneywellScanner.isHoneywellDevice() && honeywell.isActive) || ZebraDataWedgeScanner.isZebraDevice())
     fun start() {
         try { honeywell.start(); zebra.start(); started = true }
         catch (_: Exception) { started = false; coordinator.unavailable("Scanner unavailable. Use manual entry or ask your supervisor.") }

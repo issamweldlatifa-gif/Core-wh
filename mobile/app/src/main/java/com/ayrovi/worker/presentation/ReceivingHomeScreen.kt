@@ -62,6 +62,11 @@ fun ReceivingHomeScreen(
     deviceCode: String = "",
     repository: com.ayrovi.worker.data.WorkerRepository? = null,
     onOpenReport: (() -> Unit)? = null,
+    /**
+     * Deterministic hardware override for instrumented tests (null = sense
+     * the real device). Production never passes this.
+     */
+    forceHardwareScanner: Boolean? = null,
 ) {
     val state by model.state.collectAsStateWithLifecycle()
     val industrial = device == WorkerDevice.CT40
@@ -99,6 +104,7 @@ fun ReceivingHomeScreen(
             "CARTON" -> com.ayrovi.worker.scanner.CartonTemplate
             else -> com.ayrovi.worker.scanner.CompactSkuTemplate
         },
+        hardwareOverride = forceHardwareScanner,
     )
 
     Box(Modifier.fillMaxSize()) {

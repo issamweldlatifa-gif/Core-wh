@@ -262,6 +262,32 @@ class ReceivingReportWorkflowTest {
         assertTrue(back.calls.count { it == "report" } >= 2, "view must reload after submit")
     }
 
+    @Test fun `releaseFinished clears a finished report but keeps an open one`() = runTest {
+        val back = backend()
+        val flow = workflow(back)
+        flow.initialize(); runCurrent()
+        // Open report: leaving keeps it (resume where the worker left off).
+        flow.releaseFinished(); runCurrent()
+        assertNotNull(flow.state.value.report)
+        assertFalse(flow.state.value.noSession)
+        // Finished report: leaving auto-clears it — no old trace resurfaces.
+        flow.submit(null, "ok", emptyList()); runCurrent()
+        assertTrue(flow.state.value.locked)
+        flow.releaseFinished(); runCurrent()
+        val clean = flow.state.value
+        assertNull(clean.report)
+        assertNull(clean.sessionId)
+        assertTrue(clean.noSession)
+        assertFalse(clean.justSubmitted)
+        assertNull(clean.message)
+        // Revisit = fresh lookup (a NEW session loads, never the old one).
+        back.current = view(status = "DRAFT")
+        flow.initialize(); runCurrent()
+        assertNotNull(flow.state.value.report)
+        assertEquals("DRAFT", flow.state.value.reportStatus)
+        assertFalse(flow.state.value.noSession)
+    }
+
     @Test fun `locked report blocks every mutation`() = runTest {
         val back = backend(status = "SUBMITTED")
         val flow = workflow(back)

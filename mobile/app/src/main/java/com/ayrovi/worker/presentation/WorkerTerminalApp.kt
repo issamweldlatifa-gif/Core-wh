@@ -144,6 +144,11 @@ fun WorkerTerminalApp(
             LaunchedEffect(state.me?.permissions, reportAvailable) {
                 report.activate(state.me!!.permissions.toSet(), reportAvailable)
             }
+            // End-of-work cleanup on EVERY leave path (BACK, mode switch,
+            // forced redirect): a finished report is auto-cleared from the
+            // device, so no trace of the old transaction resurfaces. An
+            // open report is kept (resume). Never fires while viewing.
+            DisposableEffect(report) { onDispose { report.releaseFinished() } }
             ReceivingReportScreen(report, workerLabel(state), stationLabel(state), connection.name,
                 onBack = { route = reportFrom; model.refresh() }, onAuthExpired = model::expireSession,
                 industrial = container.device == WorkerDevice.CT40,

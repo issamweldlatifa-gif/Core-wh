@@ -43,8 +43,8 @@ internal fun ManualScan(capture: ScannerCapture, enabled: Boolean) {
 
 /**
  * OCR tool, camera NOT streaming yet (§17/§22): the chooser / typing fallback.
- * The live camera itself takes over the whole screen (CameraToolOverlay): the
- * strip on the full screen width, everything else fogged, BACK only. ML Kit
+ * The live camera itself shows ONLY inside a bounded centered aperture
+ * (CameraToolOverlay): black everywhere else, BACK only. ML Kit
  * detects, the strict pattern filters (`^s[a-z][0-9]{5,20}$`), and only the
  * VALIDATED code is shown: the raw engine text is never displayed.
  *

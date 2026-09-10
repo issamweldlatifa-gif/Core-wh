@@ -212,9 +212,12 @@ internal fun ScanToolsEdgeButton(onOpenTools: () -> Unit) {
  * Camera tool TAKEOVER. The whole screen is fogged and ONLY the capture region
  * + a BACK button stay visible:
  *
- *  - OCR: the capture strip on the FULL screen width (≈1–2 cm tall). While
- *    aiming, nothing else shows; only after a shape-validated code is detected
- *    do the code + CONFIRM appear above the strip (raw engine text never shows).
+ *  - OCR: one bounded horizontal aperture, centered with black all around
+ *    it (NOT screen-sized): the live camera shows ONLY inside that
+ *    rectangle — the camera opening the operator aims the SKU line with.
+ *    While aiming, nothing else shows; only after a shape-validated code
+ *    is detected do the code + CONFIRM appear above the aperture (raw
+ *    engine text never shows).
  *  - QR / BARCODE: one square on about HALF the screen, centered. The read
  *    submits itself on decode, so no confirm step is needed.
  */
@@ -257,10 +260,15 @@ internal fun CameraToolOverlay(capture: ScannerCapture, enabled: Boolean) {
     }
 }
 
-/** OCR strip: full screen width, the camera preview clipped to it only. */
+/**
+ * OCR aperture: a bounded horizontal rectangle, centered, black on every
+ * side — the ONLY camera opening (the live preview is clipped to it).
+ * Deliberately smaller than the screen: a full-width strip reads as a
+ * screen-sized camera, while this is a viewfinder window for one SKU line.
+ */
 @Composable
 private fun OcrTakeoverStrip(preview: @Composable (Modifier) -> Unit) {
-    Box(Modifier.fillMaxWidth().height(64.dp)) {
+    Box(Modifier.fillMaxWidth().padding(horizontal = 24.dp).height(112.dp)) {
         preview(Modifier.matchParentSize())
         Canvas(Modifier.matchParentSize()) {
             drawRect(
@@ -302,9 +310,11 @@ private fun QrTakeoverSquare(preview: @Composable (Modifier) -> Unit) {
 }
 
 /**
- * Side drawer (§17/§18/§20): QR / BARCODE, OCR, MANUEL, CT40, FERMER.
- * Icon + short label only. Picking a tool closes the drawer immediately and
- * opens that tool; CT40 returns to the hardware-scanner default.
+ * Side drawer (§17/§18/§20): QR / BARCODE, OCR, MANUEL, CT40 (hardware
+ * terminals only), FERMER. Icon + short label only. Picking a tool closes
+ * the drawer immediately and opens that tool; CT40 returns to the
+ * hardware-scanner default. On a plain phone the CT40 row is hidden — there
+ * is no hardware trigger to return to.
  *
  * COMPACT and proportional: a wrapped panel anchored to the right edge near
  * its control zone — never a full-height wall.
@@ -332,8 +342,10 @@ internal fun ScanToolsDrawer(capture: ScannerCapture, enabled: Boolean, onClose:
                 DrawerItem("MANUEL", TerminalIcon.MANUAL, "TOOL_MANUAL", enabled) {
                     onClose(); capture.manual()
                 }
-                DrawerItem("CT40", TerminalIcon.CHECK, "TOOL_CT40", enabled) {
-                    onClose(); capture.cancel() // back to the hardware scanner default
+                if (capture.hardwareAvailable) {
+                    DrawerItem("CT40", TerminalIcon.CHECK, "TOOL_CT40", enabled) {
+                        onClose(); capture.cancel() // back to the hardware scanner default
+                    }
                 }
                 HorizontalDivider(color = TerminalTokens.border)
                 DrawerItem("FERMER", TerminalIcon.CLOSE, "TOOL_CLOSE", true) { onClose() }

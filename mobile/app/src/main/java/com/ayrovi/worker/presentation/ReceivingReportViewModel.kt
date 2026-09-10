@@ -70,10 +70,11 @@ class ReceivingReportViewModel(
         // NEVER opens (that clause was copied from the home screen, whose
         // initial busy=false). The initialized flag is the only guard:
         // open once when the lane is available.
-        // After submit the submitted report stays visible (locked) — the
-        // screen is empty only when there is truly no session/report, in
-        // which case a revisit runs a fresh lookup so a NEW session (if
-        // the worker started one) loads without a manual REFRESH.
+        // After submit the submitted report stays visible (locked) for
+        // verification — until the worker leaves: leaving auto-clears a
+        // finished report (releaseFinished), so a revisit runs a fresh
+        // lookup and a NEW session (if the worker started one) loads
+        // without a manual REFRESH. No old trace ever resurfaces.
         if (available && (!initialized || (state.value.noSession && state.value.report == null))) {
             initialized = true
             workflow.initialize()
@@ -87,6 +88,9 @@ class ReceivingReportViewModel(
     fun refresh() = workflow.refresh()
 
     fun dismissMessage() = workflow.dismissMessage()
+
+    /** Auto-clear a finished report when the worker leaves the screen. */
+    fun releaseFinished() = workflow.releaseFinished()
 
     /** Full photo set for the next draft/submit (persisted re-sent + pending). */
     fun fullPhotos(): List<ReportPhotoInput> {

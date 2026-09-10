@@ -71,6 +71,7 @@ class UnifiedScannerTsUiTest {
                         deviceCode = "DEV-TEST",
                         device = WorkerDevice.CT40,
                         onToggleTheme = {},
+                        forceHardwareScanner = true,
                     )
                 }
             }

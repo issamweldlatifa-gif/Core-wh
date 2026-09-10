@@ -56,7 +56,8 @@ class UnifiedScannerUiTest {
             LaunchedEffect(Unit) { model.activate(setOf("receiving.view", "receiving.execute"), true) }
             Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
                 AyroviTerminalTheme(TerminalThemeMode.WHITE, onToggleTheme = {}) {
-                    ReceivingHomeScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {})
+                    ReceivingHomeScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {},
+                        forceHardwareScanner = true)
                 }
             }
         }
@@ -148,7 +149,8 @@ class UnifiedScannerUiTest {
             LaunchedEffect(Unit) { model.activate(setOf("receiving.view", "receiving.execute"), true) }
             Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
                 AyroviTerminalTheme(TerminalThemeMode.WHITE, onToggleTheme = {}) {
-                    ReceivingHomeScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {})
+                    ReceivingHomeScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {},
+                        forceHardwareScanner = true)
                 }
             }
         }
@@ -177,7 +179,8 @@ class UnifiedScannerUiTest {
             LaunchedEffect(Unit) { model.activate(setOf("receiving.view", "receiving.execute"), true) }
             Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
                 AyroviTerminalTheme(TerminalThemeMode.WHITE, onToggleTheme = {}) {
-                    ReceivingHomeScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {})
+                    ReceivingHomeScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {},
+                        forceHardwareScanner = true)
                 }
             }
         }
@@ -206,5 +209,54 @@ class UnifiedScannerUiTest {
         compose.waitUntil(10_000) { compose.onAllNodesWithTag("SCAN_RESULT").fetchSemanticsNodes().isEmpty() }
         compose.onAllNodesWithTag("SCAN_RESULT").assertCountEquals(0)
         waitForTag("READY_TO_SCAN")
+    }
+
+    /**
+     * Field bug: on a plain phone the app claimed CT40. With real hardware
+     * sensing (no override) the emulator — which has no imager — must show
+     * the PHONE layout: no CT40 anywhere, a reachable software trigger, and
+     * a drawer without the CT40 row.
+     */
+    @Test
+    fun phoneWithoutHardwareShowsPhoneLayoutAndSoftwareTrigger() {
+        val model = ReceivingHomeViewModel(ReceivingUiGateway(), "worker", setOf("receiving.view", "receiving.execute"))
+        compose.setContent {
+            LaunchedEffect(Unit) { model.activate(setOf("receiving.view", "receiving.execute"), true) }
+            Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
+                AyroviTerminalTheme(TerminalThemeMode.WHITE, onToggleTheme = {}) {
+                    ReceivingHomeScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {})
+                }
+            }
+        }
+        compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
+        compose.onNodeWithTag("HOME_PRODUCT_TILE").performClick()
+        compose.waitUntil(10_000) { model.state.value.step == HomeStep.PRODUCT_SCAN }
+        waitForTag("READY_TO_SCAN")
+
+        // Phone illustration, not the CT40 glyph — and no CT40 anywhere.
+        compose.onNodeWithTag("READY_TO_SCAN").assertIsDisplayed()
+        compose.onAllNodesWithText("CT40").assertCountEquals(0)
+
+        // The software trigger stays reachable (never the default).
+        compose.onNodeWithTag("SHOW_TRIGGER").assertIsDisplayed()
+        compose.onNodeWithTag("SHOW_TRIGGER").performClick()
+        compose.onNodeWithTag("SOFTWARE_TRIGGER").assertIsDisplayed()
+
+        // …and it opens the real camera adapter (same as the QR tool).
+        compose.onNodeWithTag("SOFTWARE_TRIGGER").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("CAPTURE_QR_AREA").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("CAPTURE_QR_AREA").assertIsDisplayed()
+        compose.onNodeWithTag("TOOL_BACK").performClick()
+        waitForTag("READY_TO_SCAN")
+
+        // The drawer offers the camera/manual tools — no CT40 row on a phone.
+        compose.onNodeWithTag("SCAN_TOOLS_ARROW").performClick()
+        waitForTag("SCAN_TOOLS_DRAWER")
+        compose.onNodeWithTag("TOOL_QR").assertIsDisplayed()
+        compose.onNodeWithTag("TOOL_OCR").assertIsDisplayed()
+        compose.onNodeWithTag("TOOL_MANUAL").assertIsDisplayed()
+        compose.onAllNodesWithTag("TOOL_CT40").assertCountEquals(0)
+        compose.onNodeWithTag("TOOL_CLOSE").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("SCAN_TOOLS_DRAWER").fetchSemanticsNodes().isEmpty() }
     }
 }

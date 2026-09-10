@@ -1,7 +1,10 @@
 package com.ayrovi.worker
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.ayrovi.worker.scanner.HoneywellScanner
+import com.ayrovi.worker.scanner.ScanCoordinator
+import com.ayrovi.worker.scanner.ScannerService
 import com.ayrovi.worker.scanner.WorkerDevice
 import org.junit.Assert.*
 import org.junit.Test
@@ -22,5 +25,18 @@ class DeviceDetectionTest {
         assertEquals(WorkerDevice.PHONE, HoneywellScanner.presentationMode(null, null, "CT40"))
         assertEquals(WorkerDevice.PHONE, HoneywellScanner.presentationMode("Unknown", "Unknown", "CT40"))
         // Width is not an input to this existing detection capability.
+    }
+    @Test fun plainPhoneReportsNoHardwareScanner() {
+        // The CI emulator is a plain phone: no Honeywell Aidc, no DataWedge.
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val service = ScannerService(context, ScanCoordinator({ _, _, _ -> }, {}))
+        service.initialize()
+        service.start()
+        try {
+            assertFalse(service.hasHardware)
+            assertFalse(service.isAvailable())
+        } finally {
+            service.stop()
+        }
     }
 }

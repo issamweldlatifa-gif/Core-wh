@@ -191,6 +191,22 @@ class ReceivingReportWorkflow(
         mutable.update { it.copy(message = null) }
     }
 
+    /**
+     * End-of-work cleanup: when the worker LEAVES the screen, a FINISHED
+     * (locked: SUBMITTED/REVIEWED/CLOSED) report is cleared from the device
+     * automatically, so no trace of the old transaction resurfaces — the
+     * next visit runs a fresh lookup (new session or empty state). An
+     * OPEN report (draft/work in progress) is kept so the worker resumes
+     * where they left off. Called from the screen's disposal (every leave
+     * path: BACK, mode switch, forced redirect); never while viewing.
+     */
+    fun releaseFinished() {
+        if (!mutable.value.locked) return
+        mutable.update {
+            it.copy(loading = false, report = null, sessionId = null, message = null, justSubmitted = false, noSession = true)
+        }
+    }
+
     private suspend fun load(sessionId: String) {
         val view = gateway.report(sessionId)
         mutable.update { it.copy(loading = false, report = view, noSession = false) }
