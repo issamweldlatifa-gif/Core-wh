@@ -345,7 +345,6 @@ private fun TerminalTone.icon() = when (this) {
 @Composable fun RetryAction(onClick: () -> Unit, enabled: Boolean = true, label: String = "RETRY") = SecondaryAction(label, onClick, enabled)
 @Composable fun PauseAction(onClick: () -> Unit, enabled: Boolean = true) = SecondaryAction("PAUSE", onClick, enabled)
 
-@Composable
 /**
  * Zebra-class industrial action: a flat solid slab with sharp 4dp corners, a
  * bold tracked label and a glove-sized height. Primary = brand fill, danger =
