@@ -20,7 +20,7 @@ import com.ayrovi.worker.di.AppContainer
 import com.ayrovi.worker.domain.MessageTone
 import com.ayrovi.worker.domain.OperationalMessage
 
-private enum class TerminalRoute { QUEUE, RECEIVING, REPORT, TEMPORARY }
+private enum class TerminalRoute { QUEUE, RECEIVING, REPORT, TEMPORARY, SORTING }
 
 internal fun <T : ViewModel> factory(create: () -> T): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST") override fun <V : ViewModel> create(modelClass: Class<V>): V = create() as V
