@@ -112,7 +112,7 @@ class PackingViewModel(
                 scanEpoch = mutable.value.scanEpoch + 1,
                 message = OperationalMessage(
                     "PACKED → $shipment",
-                    listOfNotNull(v.order.customer.takeIf { it.isNotBlank() }, r.shipment?.labelValue)
+                    listOfNotNull(v.order.customer?.takeIf { it.isNotBlank() }, r.shipment?.labelValue)
                         .joinToString(" · ").ifBlank { "Label ready." },
                     MessageTone.SUCCESS,
                 ),

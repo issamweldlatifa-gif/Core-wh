@@ -79,6 +79,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.ayrovi.worker.data.AssignmentsResponse
+import com.ayrovi.worker.design.TerminalIcon
+import com.ayrovi.worker.design.WorkerIcon
 import com.ayrovi.worker.data.MeResponse
 import com.ayrovi.worker.data.OpContainer
 import com.ayrovi.worker.data.OrderSortingResult
