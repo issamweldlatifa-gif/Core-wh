@@ -20,7 +20,7 @@ import com.ayrovi.worker.di.AppContainer
 import com.ayrovi.worker.domain.MessageTone
 import com.ayrovi.worker.domain.OperationalMessage
 
-private enum class TerminalRoute { QUEUE, RECEIVING, REPORT, TEMPORARY, SORTING, PACKING }
+private enum class TerminalRoute { QUEUE, RECEIVING, REPORT, TEMPORARY, SORTING, PACKING, SHIPPING, TRACE }
 
 internal fun <T : ViewModel> factory(create: () -> T): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST") override fun <V : ViewModel> create(modelClass: Class<V>): V = create() as V
@@ -96,6 +96,8 @@ fun WorkerTerminalApp(
         if (route == TerminalRoute.TEMPORARY && state.me != null && state.tasks.none { it.key == "temporary-storage" }) route = TerminalRoute.QUEUE
         if (route == TerminalRoute.SORTING && state.me != null && state.tasks.none { it.key == "customer-sorting" }) route = TerminalRoute.QUEUE
         if (route == TerminalRoute.PACKING && state.me != null && state.tasks.none { it.key == "packing" }) route = TerminalRoute.QUEUE
+        if (route == TerminalRoute.SHIPPING && state.me != null && state.tasks.none { it.key == "shipping" }) route = TerminalRoute.QUEUE
+        if (route == TerminalRoute.TRACE && state.me != null && state.tasks.none { it.key == "archive-trace" }) route = TerminalRoute.QUEUE
     }
     AyroviTerminalTheme(mode = theme, onToggleTheme = appearance::toggleTheme, gloveMode = glove, glareBoost = glare) {
         if (!state.signedIn) {
@@ -162,6 +164,41 @@ fun WorkerTerminalApp(
                 onToggleTheme = appearance::toggleTheme,
                 gloveOn = glove, onToggleGlove = appearance::toggleGlove,
                 glareOn = glare, onToggleGlare = appearance::toggleGlare)
+        } else if (route == TerminalRoute.SHIPPING && state.me?.user?.id != null) {
+            // SHIPPING (native, CT40-first): scan the label -> cards -> the
+            // ONE deliberate confirm (dispatch is irreversible) -> green flash.
+            val ship: ShippingViewModel = viewModel(
+                key = "shipping-${state.loginGeneration}",
+                factory = factory { ShippingViewModel(RepoShippingGateway(container.repository), container.audio) },
+            )
+            val shipAvailable = state.verified && connection !in setOf(ConnectionState.OFFLINE, ConnectionState.AUTH_ERROR, ConnectionState.SYNC_ERROR)
+            LaunchedEffect(shipAvailable) { ship.setAvailable(shipAvailable) }
+            ShippingScreen(ship, workerLabel(state), stationLabel(state), connection.name,
+                onBack = { route = TerminalRoute.QUEUE; model.refresh() }, onAuthExpired = model::expireSession,
+                industrial = container.device == WorkerDevice.CT40,
+                repository = container.repository,
+                appVersion = com.ayrovi.worker.BuildConfig.VERSION_NAME,
+                deviceCode = model.deviceCode, device = container.device,
+                onToggleTheme = appearance::toggleTheme,
+                gloveOn = glove, onToggleGlove = appearance::toggleGlove,
+                glareOn = glare, onToggleGlare = appearance::toggleGlare)
+        } else if (route == TerminalRoute.TRACE && state.me?.user?.id != null) {
+            // ARCHIVE / TRACE (native, read-only): scan an article -> full chain.
+            val trace: TraceViewModel = viewModel(
+                key = "trace-${state.loginGeneration}",
+                factory = factory { TraceViewModel(RepoTraceGateway(container.repository), container.audio) },
+            )
+            val traceAvailable = state.verified && connection !in setOf(ConnectionState.OFFLINE, ConnectionState.AUTH_ERROR, ConnectionState.SYNC_ERROR)
+            LaunchedEffect(traceAvailable) { trace.setAvailable(traceAvailable) }
+            TraceScreen(trace, workerLabel(state), stationLabel(state), connection.name,
+                onBack = { route = TerminalRoute.QUEUE; model.refresh() }, onAuthExpired = model::expireSession,
+                industrial = container.device == WorkerDevice.CT40,
+                repository = container.repository,
+                appVersion = com.ayrovi.worker.BuildConfig.VERSION_NAME,
+                deviceCode = model.deviceCode, device = container.device,
+                onToggleTheme = appearance::toggleTheme,
+                gloveOn = glove, onToggleGlove = appearance::toggleGlove,
+                glareOn = glare, onToggleGlare = appearance::toggleGlare)
         } else if (route == TerminalRoute.REPORT && state.me?.user?.id != null) {
             // CONFIRMATION REPORT (ORDER 01): verification view for this
             // worker's open receiving session. Back returns to RECEIVING.
@@ -205,6 +242,8 @@ fun WorkerTerminalApp(
                     when (key) {
                         "customer-sorting" -> route = TerminalRoute.SORTING
                         "packing" -> route = TerminalRoute.PACKING
+                        "shipping" -> route = TerminalRoute.SHIPPING
+                        "archive-trace" -> route = TerminalRoute.TRACE
                         else -> model.noticeTask(key)
                     }
                 })
