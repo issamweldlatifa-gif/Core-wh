@@ -99,6 +99,18 @@ object CompactSkuTemplate : OcrTemplate {
     /** True when the token has exactly the accepted compact-SKU shape. */
     fun isCompactSku(token: String): Boolean = SKU_PATTERN.matches(token.trim())
 
+    /**
+     * Case-INSENSITIVE mirror of the same shape, used ONLY to REFUSE a product
+     * SKU in another lane (never to accept one here). The carton lane
+     * uppercases its reads, so the product code arrives there as
+     * `SB25092090066487374` and must still be recognised as "belongs to the
+     * PRODUCT lane", exactly like the lowercase original.
+     */
+    private val RESERVED_SKU_PATTERN: Regex = Regex("(?i)^s[a-z][0-9]{5,20}$")
+
+    /** True when a token is product-SKU shaped in any case (refusal helper). */
+    fun looksLikeProductSku(token: String): Boolean = RESERVED_SKU_PATTERN.matches(token.trim())
+
     override fun score(token: String, baseConfidence: Double): Double? {
         if (!SKU_PATTERN.matches(token)) return null
         // Shape is exact, so a high floor confidence that stays under 1.0: OCR
@@ -133,7 +145,7 @@ object CartonTemplate : OcrTemplate {
     override fun score(token: String, baseConfidence: Double): Double? {
         if (token.length < 5 || token.length > 48) return null
         if (token.all { it.isDigit() }) return null                 // a quantity, never a carton id
-        if (CompactSkuTemplate.isCompactSku(token)) return null     // product SKU -> PRODUCT lane only
+        if (CompactSkuTemplate.looksLikeProductSku(token)) return null // product SKU (any case) -> PRODUCT lane only
         val hasDigit = token.any { it.isDigit() }
         val hasLetter = token.any { it.isLetter() }
         if (!hasLetter) return null

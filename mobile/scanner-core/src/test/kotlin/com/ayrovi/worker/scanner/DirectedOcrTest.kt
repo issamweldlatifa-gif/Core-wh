@@ -99,8 +99,9 @@ class DirectedOcrTest {
     fun defaultTemplateIsTheCompactSkuShape() {
         val result = compact.read("AYROVI LOGISTICS\nsb25092090066487374\nQTY 24")
         assertEquals("COMPACT_SKU", result.templateId)
-        // OCR normalises to uppercase before scoring, so the candidate is uppercase.
-        assertEquals("SB25092090066487374", result.candidate)
+        // §18: the accepted shape is case-sensitive, so the candidate keeps the
+        // printed case (the lane is fed a case-preserving normalisation).
+        assertEquals("sb25092090066487374", result.candidate)
         assertEquals(3, result.linesRead)
         assertFalse(result.confirmed, "OCR output is a suggestion until the operator confirms")
     }
@@ -164,7 +165,11 @@ class CartonTemplateTest {
 
     @Test
     fun rejectsProductSkuQuantitiesAndBareWords() {
+        // The product SKU shape is refused in the carton lane in BOTH cases:
+        // the carton lane uppercases reads, the product lane keeps the printed
+        // case (§18) — either way the label belongs to the PRODUCT lane.
         assertNull(CartonTemplate.score("SB25092090066487374", 0.95), "compact product SKU belongs to PRODUCT lane")
+        assertNull(CartonTemplate.score("sb25092090066487374", 0.95), "lowercase compact SKU is still a product")
         assertNull(CartonTemplate.score("12345", 0.9), "pure digits are a quantity")
         assertNull(CartonTemplate.score("CARTON", 0.9), "bare word with no digits")
         assertNull(CartonTemplate.score("QTY", 0.9), "short noise")
