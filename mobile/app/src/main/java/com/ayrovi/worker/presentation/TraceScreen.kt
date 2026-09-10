@@ -2,9 +2,7 @@ package com.ayrovi.worker.presentation
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -100,7 +98,7 @@ fun TraceScreen(
                 )
             } else {
                 Column(
-                    Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                    Modifier.fillMaxWidth()
                         .testTag("TRACE_PANEL"),
                     verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm),
                 ) {
