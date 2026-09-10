@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -177,10 +176,14 @@ internal fun ProgressBar(
     barColor: Color = TerminalTokens.success,
 ) {
     val ratio = if (total <= 0) 0f else (done.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+    // Palette entries are @Composable getters: read them during composition and
+    // hand plain Color values to the Canvas (a DrawScope is not composable).
+    val track = TerminalTokens.border
+    val fill = barColor
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Canvas(Modifier.fillMaxWidth().height(8.dp)) {
-            drawRect(TerminalTokens.border, Offset.Zero, Size(size.width, size.height))
-            drawRect(barColor, Offset.Zero, Size(size.width * ratio, size.height))
+            drawRect(track, Offset.Zero, Size(size.width, size.height))
+            drawRect(fill, Offset.Zero, Size(size.width * ratio, size.height))
         }
         Text(
             "$done / $total articles · ${(ratio * 100).toInt()}%",
