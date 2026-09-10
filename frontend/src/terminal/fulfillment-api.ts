@@ -25,6 +25,18 @@ export interface PublicArticle {
   status: string;
 }
 
+/**
+ * Customer container returned by the SORTING endpoint
+ * (POST /fulfillment/order-sorting/container). `order` is null only for a
+ * container that is not bound to an order.
+ */
+export interface CustomerContainerRef {
+  code: string;
+  label: string | null;
+  status: string;
+  order: { externalOrderReference: string; externalCustomerReference: string } | null;
+}
+
 export type SortingScanResult =
   | { kind: 'DESTINATION'; article: PublicArticle; zone: { id: string; code: string; name: string }; suggestedLocations: string[] }
   | { kind: 'NEEDS_REVIEW'; action: string; article: PublicArticle }
@@ -97,10 +109,9 @@ export const fulfillmentApi = {
   /** SORTING operation: resolve or create the CUSTOMER CONTAINER of an order. */
   orderSortingContainer: (orderReference: string) =>
     client
-      .post<{ created: boolean; container: { code: string; label: string | null; status: string } }>(
-        `${v1}/order-sorting/container`,
-        { orderReference },
-      )
+      .post<{ created: boolean; container: CustomerContainerRef }>(`${v1}/order-sorting/container`, {
+        orderReference,
+      })
       .then((r) => r.data),
 
   // packing
