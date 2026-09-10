@@ -83,7 +83,8 @@ class SortingViewModel(
     fun onScan(result: com.ayrovi.worker.scanner.ScanResult) = scan(result.value)
 
     fun scan(value: String) {
-        val current = mutable.value        if (current.busy) return
+        val current = mutable.value
+        if (current.busy) return
         val term = value.trim()
         if (term.isEmpty()) return
         // A new hardware scan replaces a shown verdict (never stacks on it).
