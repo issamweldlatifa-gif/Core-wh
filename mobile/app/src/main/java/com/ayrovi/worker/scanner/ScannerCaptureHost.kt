@@ -72,7 +72,12 @@ fun rememberScannerCapture(
     var trigger by remember { mutableIntStateOf(0) }
     val coordinator = remember(manager) {
         ScanCoordinator({ _, _, _ -> }, {}, manager, onResult = { result ->
-            camera = false; code = ""; ocrOpen = false; ocrText = ""; ocrSuggestion = null; ocrError = null
+            // MASTER ORDER §21: a scan tool is TEMPORARY. The moment a read is
+            // accepted every tool surface closes (camera, OCR, manual) so the
+            // workflow's result state takes over — no camera stays open behind
+            // the operator.
+            camera = false; code = ""; manual = false; ocrOpen = false; ocrText = ""; ocrSuggestion = null; ocrError = null
+            ocrCameraOpen = false
             if (latestEnabled.value) latestScan.value(result)
         }, onOcrReview = { block, result ->
             // First useful engine read fills the review field and stops the

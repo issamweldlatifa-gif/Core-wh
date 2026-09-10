@@ -138,6 +138,15 @@ class ReceivingHomeWorkflow(
     }
 
     /** Enter a lane scanner. PRODUIT only ever sees product cards; CARTON only carton cards. */
+    /**
+     * MASTER ORDER §27/§28: acknowledge the scan verdict shown in the
+     * foreground result. The work step itself is untouched — only the message
+     * (the verdict) is cleared.
+     */
+    fun dismissResult() {
+        mutable.update { it.copy(message = null) }
+    }
+
     fun openProduct() = run(readOnly = true) {
         mutable.update { it.copy(step = HomeStep.PRODUCT_SCAN, productReview = null, cartonReview = null,
             message = OperationalMessage("PRODUCT SCANNER", "Scan a product QR / barcode or read the SKU with OCR.", MessageTone.INFO),

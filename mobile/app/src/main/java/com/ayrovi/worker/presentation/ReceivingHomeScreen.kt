@@ -61,6 +61,7 @@ fun ReceivingHomeScreen(
     val industrial = device == WorkerDevice.CT40
     val owner = LocalLifecycleOwner.current
     var settings by remember { mutableStateOf(false) }
+    var scanTools by remember { mutableStateOf(false) }
 
     DisposableEffect(owner, model) {
         val observer = LifecycleEventObserver { _, event ->
@@ -94,6 +95,7 @@ fun ReceivingHomeScreen(
         },
     )
 
+    Box(Modifier.fillMaxSize()) {
     TerminalShell(
         header = { TerminalHeader("RECEIVING", worker, station, connection, industrial = industrial, onBack = onBack, onSettings = { settings = true }) },
         footer = {
@@ -113,8 +115,8 @@ fun ReceivingHomeScreen(
     ) {
         when {
             !state.loaded -> LoadingState("OPENING RECEIVING…")
-            lane == "PRODUCT" -> ProductLane(state, capture, model.captureAllowed, { model.send(ReceivingHomeIntent.Retry) })
-            lane == "CARTON" -> CartonLane(state, capture, model.captureAllowed, { model.send(ReceivingHomeIntent.Retry) })
+            lane == "PRODUCT" -> ProductLane(state, capture, model.captureAllowed, { model.send(ReceivingHomeIntent.Retry) }, { scanTools = true })
+            lane == "CARTON" -> CartonLane(state, capture, model.captureAllowed, { model.send(ReceivingHomeIntent.Retry) }, { scanTools = true })
             else -> HomeDashboard(state, industrial,
                 openProduct = { model.send(ReceivingHomeIntent.OpenProduct) },
                 openCarton = { model.send(ReceivingHomeIntent.OpenCarton) },
@@ -139,6 +141,22 @@ fun ReceivingHomeScreen(
             )
         }
     }
+
+        // §17: side drawer overlays the screen; the work interface is untouched.
+        if (scanTools) ScanToolsDrawer(capture, model.captureAllowed, onClose = { scanTools = false })
+
+        // §27/§28: the scan verdict stays in the foreground until BACK (no
+        // timer), and the next hardware scan replaces it.
+        val verdict = state.message
+        if (verdict != null && (verdict.tone == MessageTone.SUCCESS || verdict.tone == MessageTone.ERROR)) {
+            ScanResultOverlay(
+                ok = verdict.tone == MessageTone.SUCCESS,
+                title = verdict.title,
+                detail = verdict.detail,
+                onBack = model.workflow::dismissResult,
+            )
+        }
+    }
 }
 
 /** RECEIVING HOME — the two lane tiles + counters + the visible card lists. */
@@ -153,7 +171,7 @@ private fun HomeDashboard(
     val home = state.home
     Column(Modifier.fillMaxWidth().testTag("RECEIVING_HOME"), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
         if (!industrial) Text("RECEIVING HOME", style = MaterialTheme.typography.titleLarge)
-        state.message?.let { OperationalMessageViewHome(it) }
+        state.message?.takeIf { it.tone == MessageTone.INFO }?.let { OperationalMessageViewHome(it) }
 
         // The two independent lanes — PRODUIT and CARTON.
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
@@ -181,10 +199,10 @@ private fun HomeDashboard(
 
 /** PRODUIT lane: scanner area + device match/review. Product matching ONLY. */
 @Composable
-private fun ProductLane(state: com.ayrovi.worker.domain.ReceivingHomeState, capture: ScannerCapture, enabled: Boolean, onRetry: () -> Unit) {
+private fun ProductLane(state: com.ayrovi.worker.domain.ReceivingHomeState, capture: ScannerCapture, enabled: Boolean, onRetry: () -> Unit, onOpenScanTools: () -> Unit) {
     Column(Modifier.fillMaxWidth().testTag("PRODUCT_SCANNER"), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
         TaskInstruction("PRODUCT SCANNER", "Scan a product QR / barcode, or read the SKU or reference with OCR.")
-        state.message?.let { OperationalMessageViewHome(it) }
+        state.message?.takeIf { it.tone == MessageTone.INFO }?.let { OperationalMessageViewHome(it) }
         if (state.step == HomeStep.REVIEW_PRODUCT) {
             state.productReview?.let { review ->
                 TerminalPanel("MATCHED PRODUCT CARD") {
@@ -202,17 +220,17 @@ private fun ProductLane(state: com.ayrovi.worker.domain.ReceivingHomeState, capt
             // A kept review means a VERIFY failed: the lane offers RETRY for
             // the exact same attempt (success clears the review, so the button
             // can never replay a completed scan).
-            ScannerArea(capture, enabled, state.message, state.productReview != null, onRetry)
+            ScannerArea(capture, enabled, state.message, state.productReview != null, onRetry, lane = "PRODUCT", onOpenTools = onOpenScanTools)
         }
     }
 }
 
 /** CARTON lane: scanner area + device match/review. Carton matching ONLY. */
 @Composable
-private fun CartonLane(state: com.ayrovi.worker.domain.ReceivingHomeState, capture: ScannerCapture, enabled: Boolean, onRetry: () -> Unit) {
+private fun CartonLane(state: com.ayrovi.worker.domain.ReceivingHomeState, capture: ScannerCapture, enabled: Boolean, onRetry: () -> Unit, onOpenScanTools: () -> Unit) {
     Column(Modifier.fillMaxWidth().testTag("CARTON_SCANNER"), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
         TaskInstruction("📦 CARTON RECEIVING", "Scan a carton QR / barcode, carton reference, suivi or tracking. Auto verify → Auto approve → Next.")
-        state.message?.let { OperationalMessageViewHome(it) }
+        state.message?.takeIf { it.tone == MessageTone.INFO }?.let { OperationalMessageViewHome(it) }
         if (state.step == HomeStep.REVIEW_CARTON) {
             state.cartonReview?.let { review ->
                 TerminalPanel("📦 CARTON RECEIVING — ${review.card.entityType ?: "CARTON"}") {
@@ -237,44 +255,34 @@ private fun CartonLane(state: com.ayrovi.worker.domain.ReceivingHomeState, captu
                 }
             }
         } else {
-            ScannerArea(capture, enabled, state.message, state.cartonReview != null, onRetry)
+            ScannerArea(capture, enabled, state.message, state.cartonReview != null, onRetry, lane = "CARTON", onOpenTools = onOpenScanTools)
         }
     }
 }
 
-/** Scanner/camera + OCR + manual entry — the EXISTING capture stack, unchanged. */
+/**
+ * Scanner area — the SAME unified component as every other station (§14/§26):
+ * READY TO SCAN + CT40 indication + one side tools button. The camera / OCR /
+ * manual tools live in the drawer and close themselves after a read. A failed
+ * attempt keeps RETRY for the exact same scan.
+ */
 @Composable
-private fun ScannerArea(capture: ScannerCapture, enabled: Boolean, verdict: OperationalMessage?, canRetry: Boolean, onRetry: () -> Unit) {
-    // Verdict-aware: the idle area always reflects the LAST outcome — green
-    // check after a success, red error after a failure — never a static
-    // scanner residue. A failed attempt offers RETRY for the same scan; the
-    // capture buttons stay so the worker can also scan a new code.
-    val statusIcon = when (verdict?.tone) {
-        MessageTone.SUCCESS -> TerminalIcon.SUCCESS to TerminalTokens.success
-        MessageTone.ERROR -> TerminalIcon.ERROR to TerminalTokens.error
-        MessageTone.WARNING -> TerminalIcon.WARNING to TerminalTokens.warning
-        else -> TerminalIcon.SCANNER to TerminalTokens.instruction
-    }
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-        when {
-            capture.manualOpen -> ManualScan(capture, enabled)
-            capture.cameraOpen -> {
-                capture.preview(Modifier.fillMaxWidth().height(TerminalTokens.scanPreview))
-                SecondaryAction("CANCEL SCAN", capture.cancel, enabled)
-            }
-            capture.ocrOpen -> OcrScan(capture, enabled)
-            else -> {
-                Box(Modifier.fillMaxWidth().height(TerminalTokens.stateIcon), contentAlignment = Alignment.Center) {
-                    WorkerIcon(statusIcon.first, "Scanner status", Modifier.size(TerminalTokens.stateIcon), statusIcon.second)
-                }
-                if (canRetry) PrimaryAction("RETRY LAST SCAN", onRetry, enabled, Modifier.testTag("LANE_RETRY"))
-                PrimaryAction("SOFTWARE SCAN", capture.softwareScan, enabled)
-                SecondaryAction("USE CAMERA", capture.camera, enabled)
-                SecondaryAction("MANUAL CODE", capture.manual, enabled)
-                SecondaryAction("READ LABEL TEXT (OCR)", capture.ocr, enabled)
-            }
-        }
-    }
+private fun ScannerArea(
+    capture: ScannerCapture, enabled: Boolean, verdict: OperationalMessage?, canRetry: Boolean, onRetry: () -> Unit,
+    lane: String, onOpenTools: () -> Unit,
+) {
+    // The retry slot is typed explicitly so the composable lambda keeps its
+    // @Composable contract when it is null.
+    val retrySlot: (@Composable () -> Unit)? =
+        if (canRetry) ({ PrimaryAction("RETRY LAST SCAN", onRetry, enabled, Modifier.testTag("LANE_RETRY")) }) else null
+    ScannerPanel(
+        capture = capture,
+        enabled = enabled,
+        title = if (lane == "CARTON") "SCAN CARTON" else "SCAN PRODUCT",
+        subtitle = verdict?.takeIf { it.tone == MessageTone.INFO }?.detail,
+        extra = retrySlot,
+        onOpenTools = onOpenTools,
+    )
 }
 
 @Composable

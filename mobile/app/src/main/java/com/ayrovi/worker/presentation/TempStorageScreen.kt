@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -79,6 +80,7 @@ fun TempStorageScreen(
     var settings by remember { mutableStateOf(false) }
     var reportOpen by remember { mutableStateOf(false) }
     var observation by remember { mutableStateOf("") }
+    var scanTools by remember { mutableStateOf(false) }
 
     DisposableEffect(owner, model) {
         val observer = LifecycleEventObserver { _, event ->
@@ -101,11 +103,7 @@ fun TempStorageScreen(
         "ts:${state.letter}:${state.pending?.targetCode}:${state.scanEpoch}", model::onScan,
     )
 
-    // Flash feedback auto-clears after ~1.2s.
-    LaunchedEffect(state.flashOk, state.flashBad) {
-        if (state.flashOk != null || state.flashBad != null) { delay(1200); model.workflow.clearFlash() }
-    }
-
+    Box(Modifier.fillMaxSize()) {
     TerminalShell(
         header = {
             TerminalHeader("TEMP STORAGE", worker, station, connection,
@@ -131,12 +129,33 @@ fun TempStorageScreen(
             state.letter == null -> TsHomeBody(state, model, capture, industrial)
             else -> TsBoardBody(state, model, capture, industrial)
         }
-        state.message?.let { OperationalMessageView(it) }
+        // §27: scan RESULTS (SUCCESS/ERROR) are shown in the foreground result
+        // card below, never inline — inline messages are instructions only.
+        state.message
+            ?.takeIf { it.tone == MessageTone.INFO || it.tone == MessageTone.WARNING }
+            ?.let { OperationalMessageView(it) }
         if (state.letter == null && state.home?.header?.activeProducts == 0) {
             EmptyState("NO CONFIRMED PRODUCTS", "Nothing is waiting for Temporary Storage yet. Confirm products at Receiving first.")
         }
         if (reportOpen) ReportPanel(state, observation, { observation = it },
             submit = { model.workflow.submitReport(observation.trim().ifEmpty { null }); reportOpen = false })
+    }
+
+        // §17: the side drawer overlays the screen (never pushes the work).
+        if (scanTools) ScanToolsDrawer(capture, model.captureAllowed, onClose = { scanTools = false })
+
+        // §27/§28: the result stays in the foreground (background dimmed) until
+        // BACK — or until a new hardware scan replaces it.
+        val result = state.message
+        if (result != null && (result.tone == MessageTone.SUCCESS || result.tone == MessageTone.ERROR)) {
+            ScanResultOverlay(
+                ok = result.tone == MessageTone.SUCCESS,
+                title = result.title,
+                detail = result.detail,
+                lines = listOfNotNull(state.flashOk?.let { "Container $it" }),
+                onBack = model.workflow::dismissResult,
+            )
+        }
     }
 
     if (settings) {
@@ -195,7 +214,12 @@ private fun TsHomeBody(
             }
         }
     }
-    TsScannerControls(capture, state, model)
+    ScannerPanel(
+        capture = capture, enabled = model.captureAllowed,
+        title = "SCAN PRODUCT",
+        subtitle = "Scan the product — the system resolves customer → section → target container.",
+        onOpenTools = { scanTools = true },
+    )
 }
 
 @Composable
@@ -399,7 +423,13 @@ private fun TsBoardBody(
         }
     }
 
-    TsScannerControls(capture, state, model)
+    ScannerPanel(
+        capture = capture, enabled = model.captureAllowed,
+        title = state.pending?.let { "SCAN CONTAINER ${it.targetCode}" } ?: "SCAN PRODUCT",
+        subtitle = state.pending?.let { "Place the product, then scan the highlighted container." }
+            ?: "Scan the next product to open its target container.",
+        onOpenTools = { scanTools = true },
+    )
 }
 
 /**
@@ -463,46 +493,6 @@ private fun ContainerCard(
                         else -> TerminalTokens.border
                     }).copy(alpha = dimAlpha),
                 )
-            }
-        }
-    }
-}
-
-@Composable
-private fun TsScannerControls(capture: ScannerCapture, state: TsStorageState, model: TempStorageViewModel) {
-    val enabled = model.captureAllowed
-    val statusIcon = when (state.message?.tone) {
-        MessageTone.SUCCESS -> TerminalIcon.SUCCESS to TerminalTokens.success
-        MessageTone.ERROR -> TerminalIcon.ERROR to TerminalTokens.error
-        MessageTone.WARNING -> TerminalIcon.WARNING to TerminalTokens.warning
-        else -> TerminalIcon.SCANNER to TerminalTokens.instruction
-    }
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-        HorizontalDivider(color = TerminalTokens.border)
-        when {
-            capture.manualOpen -> ManualScan(capture, enabled)
-            capture.cameraOpen -> {
-                // §20/§21: the camera QR/barcode area is deliberately LARGER than
-                // the OCR strip, keeps the read region crisp and dims the rest.
-                QrCaptureArea(preview = capture.preview, label = "QR / BARCODE")
-                SecondaryAction("CANCEL SCAN", capture.cancel, enabled)
-            }
-            capture.ocrOpen -> OcrScan(capture, enabled)
-            else -> {
-                // §8/§23: no big scan box while idle — the CT40 trigger is the
-                // primary interaction, the screen only shows the target + state.
-                Text(if (state.pending != null) "SCAN CONTAINER ${state.pending!!.targetCode}" else "SCAN PRODUCT",
-                    style = MaterialTheme.typography.titleMedium, color = TerminalTokens.warning)
-                ScanReadyIndicator(
-                    text = if (state.pending != null) "READY TO SCAN CONTAINER" else "READY TO SCAN PRODUCT",
-                    tone = statusIcon.second,
-                )
-                PrimaryAction("SOFTWARE SCAN", capture.softwareScan, enabled)
-                Row(horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-                    SecondaryAction("USE CAMERA", capture.camera, enabled, Modifier.weight(1f))
-                    SecondaryAction("MANUAL CODE", capture.manual, enabled, Modifier.weight(1f))
-                }
-                SecondaryAction("READ LABEL TEXT (OCR)", capture.ocr, enabled)
             }
         }
     }

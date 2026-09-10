@@ -157,6 +157,15 @@ class TsStorageWorkflow(
         mutable.update { it.copy(flashOk = null, flashBad = null) }
     }
 
+    /**
+     * MASTER ORDER §27: a scan RESULT is acknowledged by the operator (BACK),
+     * never by a timer. It disappears on BACK and is replaced by the next
+     * hardware scan.
+     */
+    fun dismissResult() {
+        mutable.update { it.copy(flashOk = null, flashBad = null, message = null) }
+    }
+
     fun setReportOpen(open: Boolean) {
         mutable.update { it.copy(reportOpen = open) }
     }
