@@ -18,6 +18,7 @@ enum class TerminalIcon(@DrawableRes val resource: Int) {
     CLOSE(R.drawable.ic_terminal_close), PAUSE(R.drawable.ic_terminal_pause), CHECK(R.drawable.ic_terminal_check),
     ADD(R.drawable.ic_terminal_add), REMOVE(R.drawable.ic_terminal_remove), REPORT(R.drawable.ic_terminal_report),
     STORAGE(R.drawable.ic_terminal_storage),
+    PRODUCT(R.drawable.ic_terminal_product), CARTON(R.drawable.ic_terminal_carton),
 }
 
 @Composable

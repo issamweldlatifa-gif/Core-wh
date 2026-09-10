@@ -1,5 +1,7 @@
 package com.ayrovi.worker.presentation
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -32,6 +34,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -44,6 +47,7 @@ import com.ayrovi.worker.design.SecondaryAction
 import com.ayrovi.worker.design.TerminalIcon
 import com.ayrovi.worker.design.TerminalTokens
 import com.ayrovi.worker.design.WorkerIcon
+import com.ayrovi.worker.domain.MessageTone
 import com.ayrovi.worker.scanner.ScannerCapture
 
 /**
@@ -72,9 +76,17 @@ internal fun ScannerPanel(
     subtitle: String? = null,
     extra: (@Composable () -> Unit)? = null,
     onOpenTools: () -> Unit = {},
+    /**
+     * Lane accent: a thin bar above the title (green = PRODUCT, blue =
+     * CARTON). Null = no bar. Titles themselves always use the text color.
+     */
+    accent: Color? = null,
+    /** Last successful read, shown as a one-line reminder under READY (null = hidden). */
+    lastScan: LastScan? = null,
 ) {
     Column(modifier.fillMaxWidth().testTag("SCANNER_PANEL"), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-        Text(title, style = MaterialTheme.typography.titleMedium, color = TerminalTokens.warning)
+        if (accent != null) Box(Modifier.fillMaxWidth().height(4.dp).background(accent, MaterialTheme.shapes.small))
+        Text(title, style = MaterialTheme.typography.titleMedium, color = TerminalTokens.text)
         subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = TerminalTokens.muted) }
 
         when {
@@ -85,7 +97,7 @@ internal fun ScannerPanel(
             capture.cameraOpen || capture.ocrCameraOpen -> CameraToolPlaceholder()
             // OCR selected but the camera not streaming yet (chooser / typing).
             capture.ocrOpen -> OcrScan(capture, enabled)
-            else -> ReadyToScanPanel(capture, enabled)
+            else -> ReadyToScanPanel(capture, enabled, lastScan)
         }
 
         extra?.invoke()
@@ -98,6 +110,9 @@ private fun CameraToolPlaceholder() {
     Spacer(Modifier.fillMaxWidth().height(120.dp))
 }
 
+/** One-line reminder of the last read: value + time + verdict mark (or a neutral dot while verifying). */
+internal data class LastScan(val value: String, val atMillis: Long, val tone: MessageTone?)
+
 /**
  * Default state (§15/§19/§29): READY TO SCAN + the terminal illustration only.
  * No descriptive text, no buttons — the operator uses the hardware trigger,
@@ -105,11 +120,15 @@ private fun CameraToolPlaceholder() {
  *
  * If the terminal exposes no hardware scanner (emulator / plain phone), a
  * phone illustration is drawn and a small TRIGGER line stays reachable without
- * becoming the default.
+ * becoming the default. The trigger button pulses ONCE when the lane opens
+ * (a single visual hint, then it stays solid).
  */
 @Composable
-internal fun ReadyToScanPanel(capture: ScannerCapture, enabled: Boolean) {
+internal fun ReadyToScanPanel(capture: ScannerCapture, enabled: Boolean, lastScan: LastScan? = null) {
     var showTrigger by remember { mutableStateOf(false) }
+    var entered by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { entered = true }
+    val pulse by animateFloatAsState(if (entered) 1f else 0.35f, tween(700), label = "triggerPulse")
     // No card, no giant rectangle: the illustration is a small visual hint
     // integrated naturally into the lane.
     Column(
@@ -123,15 +142,43 @@ internal fun ReadyToScanPanel(capture: ScannerCapture, enabled: Boolean) {
             color = TerminalTokens.instruction,
         )
         if (capture.hardwareAvailable) Ct40Glyph(available = true) else PhoneGlyph()
+        if (lastScan != null) LastScanLine(lastScan)
         if (!capture.hardwareAvailable) {
             if (showTrigger) {
-                PrimaryAction("TRIGGER SCAN", capture.softwareScan, enabled, Modifier.testTag("SOFTWARE_TRIGGER"))
+                PrimaryAction("TRIGGER SCAN", capture.softwareScan, enabled,
+                    Modifier.graphicsLayer { alpha = pulse }.testTag("SOFTWARE_TRIGGER"))
             } else {
-                SecondaryAction("SHOW TRIGGER", { showTrigger = true }, enabled, Modifier.testTag("SHOW_TRIGGER"))
+                SecondaryAction("SHOW TRIGGER", { showTrigger = true }, enabled,
+                    Modifier.graphicsLayer { alpha = pulse }.testTag("SHOW_TRIGGER"))
             }
         }
     }
 }
+
+/** LAST read reminder: `LAST: <value> ✓ 14:32` — replaced by every new scan, never a history. */
+@Composable
+private fun LastScanLine(scan: LastScan) {
+    val (mark, color) = when (scan.tone) {
+        MessageTone.SUCCESS -> "✓" to TerminalTokens.success
+        MessageTone.ERROR -> "✕" to TerminalTokens.error
+        MessageTone.WARNING -> "!" to TerminalTokens.warning
+        MessageTone.INFO -> "•" to TerminalTokens.instruction
+        null -> "•" to TerminalTokens.muted
+    }
+    Row(Modifier.fillMaxWidth().testTag("LAST_SCAN"), horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically) {
+        Text("LAST: ", style = MaterialTheme.typography.bodySmall, color = TerminalTokens.muted)
+        Text(scan.value.take(20), style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+            color = TerminalTokens.text)
+        Text("  $mark ${shortTime(scan.atMillis)}", style = MaterialTheme.typography.bodySmall, color = color)
+    }
+}
+
+/** Compact local HH:MM stamp for the last-scan reminder. */
+private fun shortTime(millis: Long): String = runCatching {
+    java.time.Instant.ofEpochMilli(millis).atZone(java.time.ZoneId.systemDefault())
+        .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+}.getOrDefault("--:--")
 
 /** Small CT40 illustration (§15): device body + side trigger, drawn, not an image. */
 @Composable

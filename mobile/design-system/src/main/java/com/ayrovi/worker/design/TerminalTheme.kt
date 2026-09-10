@@ -63,6 +63,12 @@ data class TerminalPalette(
 
 private val LocalTerminalPalette = staticCompositionLocalOf { TerminalPalette.White }
 val LocalTerminalThemeMode = staticCompositionLocalOf { TerminalThemeMode.WHITE }
+/**
+ * Glove mode: all action targets grow (+8 dp) for thick warehouse gloves.
+ * Provided once at the app root from the persisted preference; default off
+ * (tests and previews keep the standard sizes).
+ */
+val LocalGloveMode = staticCompositionLocalOf { false }
 internal val LocalTerminalThemeToggle = staticCompositionLocalOf<(() -> Unit)?> { null }
 
 /** The only dimension/type owner. Palette getters react to the theme without recreating tasks. */
@@ -132,12 +138,13 @@ fun TerminalTone.color(): Color = when (this) {
 fun AyroviTerminalTheme(
     mode: TerminalThemeMode = TerminalThemeMode.WHITE,
     onToggleTheme: (() -> Unit)? = null,
+    gloveMode: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val palette = TerminalPalette.forMode(mode)
     val scheme = if (mode == TerminalThemeMode.WHITE) lightColorScheme() else darkColorScheme()
     CompositionLocalProvider(LocalTerminalPalette provides palette, LocalTerminalThemeMode provides mode,
-        LocalTerminalThemeToggle provides onToggleTheme) {
+        LocalTerminalThemeToggle provides onToggleTheme, LocalGloveMode provides gloveMode) {
         MaterialTheme(
             colorScheme = scheme.copy(
                 primary = palette.primary, onPrimary = palette.onPrimary,

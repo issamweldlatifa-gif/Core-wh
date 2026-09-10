@@ -43,6 +43,20 @@ class ReceivingHomeWorkflowTest {
         assertEquals("CTN-001", state.home?.cartonList?.first()?.reference)
     }
 
+    @Test fun `last scan records value and time and clears on lane leave`() = runTest {
+        val flow = workflow()
+        flow.openProduct(); runCurrent()
+        assertNull(flow.state.value.lastScanValue)
+        assertNull(flow.state.value.lastScanAt)
+        flow.scan(scan("sku/a-01")); runCurrent()
+        assertEquals("sku/a-01", flow.state.value.lastScanValue)
+        assertNotNull(flow.state.value.lastScanAt)
+        assertTrue(flow.state.value.lastScanAt!! > 0)
+        flow.backToHome(); runCurrent()
+        assertNull(flow.state.value.lastScanValue)
+        assertNull(flow.state.value.lastScanAt)
+    }
+
     @Test fun `receiving does not arm the scanner until a lane is opened`() = runTest {
         val flow = workflow()
         assertFalse(flow.state.value.canScan, "HOME must never be a capture step")

@@ -165,11 +165,20 @@ fun TerminalFooter(instruction: String, actions: @Composable ColumnScope.() -> U
 }
 
 @Composable
-fun TerminalPanel(title: String? = null, content: @Composable ColumnScope.() -> Unit) {
+fun TerminalPanel(title: String? = null, icon: TerminalIcon? = null, borderTone: TerminalTone? = null, content: @Composable ColumnScope.() -> Unit) {
     Surface(Modifier.fillMaxWidth(), color = TerminalTokens.surface, shape = MaterialTheme.shapes.medium,
-        border = BorderStroke(TerminalTokens.stroke, TerminalTokens.border)) {
+        border = BorderStroke(if (borderTone != null) TerminalTokens.stroke * 3 else TerminalTokens.stroke, borderTone?.color() ?: TerminalTokens.border)) {
         Column(Modifier.padding(TerminalTokens.sm), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-            if (title != null) Text(title, style = MaterialTheme.typography.labelMedium, color = TerminalTokens.muted)
+            if (title != null) {
+                if (icon != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+                        WorkerIcon(icon, null, Modifier.size(TerminalTokens.iconSmall), borderTone?.color() ?: TerminalTokens.muted)
+                        Text(title, style = MaterialTheme.typography.labelMedium, color = TerminalTokens.muted)
+                    }
+                } else {
+                    Text(title, style = MaterialTheme.typography.labelMedium, color = TerminalTokens.muted)
+                }
+            }
             content()
         }
     }
@@ -337,9 +346,9 @@ private fun TerminalTone.icon() = when (this) {
 @Composable fun SyncStatus(label: String) = StatusBadge(label, TerminalTone.INSTRUCTION)
 @Composable fun OfflineStatus() = StatusBadge("OFFLINE · RECEIVING STOPPED", TerminalTone.WARNING)
 
-@Composable fun PrimaryAction(label: String, onClick: () -> Unit, enabled: Boolean = true, modifier: Modifier = Modifier.fillMaxWidth()) = TerminalAction(label, onClick, enabled, modifier, primary = true)
-@Composable fun SecondaryAction(label: String, onClick: () -> Unit, enabled: Boolean = true, modifier: Modifier = Modifier.fillMaxWidth()) = TerminalAction(label, onClick, enabled, modifier)
-@Composable fun DangerAction(label: String, onClick: () -> Unit, enabled: Boolean = true, modifier: Modifier = Modifier.fillMaxWidth()) = TerminalAction(label, onClick, enabled, modifier, danger = true)
+@Composable fun PrimaryAction(label: String, onClick: () -> Unit, enabled: Boolean = true, modifier: Modifier = Modifier.fillMaxWidth(), icon: TerminalIcon? = null) = TerminalAction(label, onClick, enabled, modifier, primary = true, icon = icon)
+@Composable fun SecondaryAction(label: String, onClick: () -> Unit, enabled: Boolean = true, modifier: Modifier = Modifier.fillMaxWidth(), icon: TerminalIcon? = null) = TerminalAction(label, onClick, enabled, modifier, icon = icon)
+@Composable fun DangerAction(label: String, onClick: () -> Unit, enabled: Boolean = true, modifier: Modifier = Modifier.fillMaxWidth(), icon: TerminalIcon? = null) = TerminalAction(label, onClick, enabled, modifier, danger = true, icon = icon)
 @Composable fun ConfirmAction(label: String = "CONFIRM", onClick: () -> Unit, enabled: Boolean = true) = PrimaryAction(label, onClick, enabled)
 @Composable fun RejectAction(onClick: () -> Unit, enabled: Boolean = true) = DangerAction("REJECT", onClick, enabled)
 @Composable fun RetryAction(onClick: () -> Unit, enabled: Boolean = true, label: String = "RETRY") = SecondaryAction(label, onClick, enabled)
@@ -352,10 +361,20 @@ private fun TerminalTone.icon() = when (this) {
  * outline (unreadable with gloves and sunlight on the line).
  */
 @Composable
-private fun TerminalAction(label: String, onClick: () -> Unit, enabled: Boolean, modifier: Modifier, primary: Boolean = false, danger: Boolean = false) {
-    val size = modifier.heightIn(min = if (primary) TerminalTokens.primaryTouch else TerminalTokens.touch)
+private fun TerminalAction(label: String, onClick: () -> Unit, enabled: Boolean, modifier: Modifier, primary: Boolean = false, danger: Boolean = false, icon: TerminalIcon? = null) {
+    // Glove mode: every action target grows +8 dp (56→64, 64→72).
+    val size = modifier.heightIn(min = (if (primary) TerminalTokens.primaryTouch else TerminalTokens.touch) + if (LocalGloveMode.current) 8.dp else 0.dp)
     val style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 0.75.sp)
-    val text: @Composable RowScope.() -> Unit = { Text(label, style = style, textAlign = TextAlign.Center, maxLines = 2) }
+    val text: @Composable RowScope.() -> Unit = {
+        if (icon != null) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+                WorkerIcon(icon, null, Modifier.size(TerminalTokens.iconSmall), LocalContentColor.current)
+                Text(label, style = style, textAlign = TextAlign.Center, maxLines = 2)
+            }
+        } else {
+            Text(label, style = style, textAlign = TextAlign.Center, maxLines = 2)
+        }
+    }
     val flat = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp,
         focusedElevation = 0.dp, hoveredElevation = 0.dp, disabledElevation = 0.dp)
     if (primary || danger) Button(onClick, size, enabled,

@@ -14,6 +14,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.dp
 import com.ayrovi.worker.design.AyroviTerminalTheme
 import com.ayrovi.worker.design.TerminalThemeMode
 import com.ayrovi.worker.design.TerminalTokens
@@ -115,5 +116,43 @@ class ReceivingHomeUxTest {
         compose.waitUntil(10_000) { model.state.value.step == HomeStep.CARTON_SCAN }
         compose.onNodeWithTag("CARTON_SCANNER").assertIsDisplayed()
         compose.onAllNodesWithTag("PRODUCT_SCANNER").assertCountEquals(0)
+    }
+
+    @Test
+    fun reportButtonOpensTheReportFlow() {
+        var opened = false
+        val model = ReceivingHomeViewModel(ReceivingUiGateway(), "worker", setOf("receiving.view", "receiving.execute"))
+        compose.setContent {
+            LaunchedEffect(Unit) { model.activate(setOf("receiving.view", "receiving.execute"), true) }
+            Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
+                AyroviTerminalTheme(TerminalThemeMode.WHITE, onToggleTheme = {}) {
+                    ReceivingHomeScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {},
+                        device = WorkerDevice.CT40, onOpenReport = { opened = true })
+                }
+            }
+        }
+        compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
+        compose.onNodeWithTag("HOME_REPORT_BUTTON").assertIsDisplayed()
+        compose.onNodeWithTag("HOME_REPORT_BUTTON").performClick()
+        compose.waitUntil(10_000) { opened }
+        assertTrue(opened)
+    }
+
+    @Test
+    fun gloveModeEnlargesTilesAndActions() {
+        val model = ReceivingHomeViewModel(ReceivingUiGateway(), "worker", setOf("receiving.view", "receiving.execute"))
+        compose.setContent {
+            LaunchedEffect(Unit) { model.activate(setOf("receiving.view", "receiving.execute"), true) }
+            Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
+                AyroviTerminalTheme(TerminalThemeMode.WHITE, onToggleTheme = {}, gloveMode = true) {
+                    ReceivingHomeScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {},
+                        device = WorkerDevice.CT40)
+                }
+            }
+        }
+        compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
+        compose.onNodeWithTag("HOME_PRODUCT_TILE").assertHeightIsAtLeast(144.dp)
+        compose.onNodeWithTag("HOME_CARTON_TILE").assertHeightIsAtLeast(144.dp)
+        compose.onNodeWithText("BACK").assertHeightIsAtLeast(64.dp)
     }
 }

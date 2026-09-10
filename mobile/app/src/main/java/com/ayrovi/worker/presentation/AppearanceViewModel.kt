@@ -8,6 +8,10 @@ import kotlinx.coroutines.flow.asStateFlow
 /** Presentation preference, isolated from workflow/stock state and secure session storage. */
 class AppearanceViewModel(private val preferences: TerminalPreferences) : ViewModel() {
     val theme = preferences.theme
+    val glove = preferences.glove
+    fun toggleGlove() {
+        preferences.setGlove(!glove.value)
+    }
     private val mutableWarning = MutableStateFlow<String?>(null)
     val warning = mutableWarning.asStateFlow()
     fun toggleTheme() {

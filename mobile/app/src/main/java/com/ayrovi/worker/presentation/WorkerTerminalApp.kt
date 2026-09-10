@@ -43,6 +43,7 @@ fun WorkerTerminalApp(
     )
     val appearance: AppearanceViewModel = viewModel(factory = factory { AppearanceViewModel(container.appearance) })
     val theme by appearance.theme.collectAsStateWithLifecycle()
+    val glove by appearance.glove.collectAsStateWithLifecycle()
     val themeWarning by appearance.warning.collectAsStateWithLifecycle()
     val androidContext = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(themeWarning) { themeWarning?.let { android.widget.Toast.makeText(androidContext, it, android.widget.Toast.LENGTH_LONG).show() } }
@@ -92,7 +93,7 @@ fun WorkerTerminalApp(
         // the worker on a screen they can no longer operate.
         if (route == TerminalRoute.TEMPORARY && state.me != null && state.tasks.none { it.key == "temporary-storage" }) route = TerminalRoute.QUEUE
     }
-    AyroviTerminalTheme(mode = theme, onToggleTheme = appearance::toggleTheme) {
+    AyroviTerminalTheme(mode = theme, onToggleTheme = appearance::toggleTheme, gloveMode = glove) {
         if (!state.signedIn) {
             SignInScreen(state, model.deviceCode, connection.name, model::login, container.device)
         } else if (route == TerminalRoute.RECEIVING && state.me?.user?.id != null) {
@@ -114,7 +115,8 @@ fun WorkerTerminalApp(
                 appVersion = com.ayrovi.worker.BuildConfig.VERSION_NAME,
                 deviceCode = model.deviceCode,
                 repository = container.repository,
-                onOpenReport = { reportFrom = TerminalRoute.RECEIVING; route = TerminalRoute.REPORT })
+                onOpenReport = { reportFrom = TerminalRoute.RECEIVING; route = TerminalRoute.REPORT },
+                gloveOn = glove, onToggleGlove = appearance::toggleGlove)
         } else if (route == TerminalRoute.TEMPORARY && state.me?.user?.id != null) {
             // TEMPORARY STORAGE (native, CT40-first): scan product -> the
             // target container lights up -> scan that container.
@@ -132,7 +134,8 @@ fun WorkerTerminalApp(
                 industrial = container.device == WorkerDevice.CT40,
                 repository = container.repository, onToggleTheme = appearance::toggleTheme,
                 appVersion = com.ayrovi.worker.BuildConfig.VERSION_NAME,
-                deviceCode = model.deviceCode, device = container.device)
+                deviceCode = model.deviceCode, device = container.device,
+                gloveOn = glove, onToggleGlove = appearance::toggleGlove)
         } else if (route == TerminalRoute.REPORT && state.me?.user?.id != null) {
             // CONFIRMATION REPORT (ORDER 01): verification view for this
             // worker's open receiving session. Back returns to RECEIVING.
@@ -154,7 +157,8 @@ fun WorkerTerminalApp(
                 industrial = container.device == WorkerDevice.CT40,
                 repository = container.repository, onToggleTheme = appearance::toggleTheme,
                 appVersion = com.ayrovi.worker.BuildConfig.VERSION_NAME,
-                deviceCode = model.deviceCode, device = container.device)
+                deviceCode = model.deviceCode, device = container.device,
+                gloveOn = glove, onToggleGlove = appearance::toggleGlove)
         } else {
             WorkerWorkQueue(state, container.device, connection.name, workerLabel(state), stationLabel(state),
                 model::refresh, model::logout, { showSettings = true }, model::completeAssignment,
@@ -184,6 +188,8 @@ fun WorkerTerminalApp(
             onSwitchMode = { showSettings = false },
             onClose = { showSettings = false },
             onChangeDisplay = appearance::toggleTheme,
+            gloveOn = glove,
+            onToggleGlove = appearance::toggleGlove,
         )
     }
 }

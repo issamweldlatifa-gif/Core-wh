@@ -84,6 +84,8 @@ fun ReceivingReportScreen(
     appVersion: String = "",
     deviceCode: String = "",
     device: WorkerDevice = WorkerDevice.PHONE,
+    gloveOn: Boolean = false,
+    onToggleGlove: (() -> Unit)? = null,
 ) {
     val state by model.state.collectAsStateWithLifecycle()
     val pending by model.pendingPhotos.collectAsStateWithLifecycle()
@@ -207,6 +209,8 @@ fun ReceivingReportScreen(
             onSwitchMode = { settings = false; onBack() },
             onClose = { settings = false },
             onChangeDisplay = onToggleTheme,
+            gloveOn = gloveOn,
+            onToggleGlove = onToggleGlove,
         )
     }
 

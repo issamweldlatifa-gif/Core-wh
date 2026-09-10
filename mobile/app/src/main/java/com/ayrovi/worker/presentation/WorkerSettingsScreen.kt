@@ -139,6 +139,8 @@ fun WorkerSettingsDialog(
     onSwitchMode: () -> Unit,
     onClose: () -> Unit,
     onChangeDisplay: (() -> Unit)? = null,
+    gloveOn: Boolean = false,
+    onToggleGlove: (() -> Unit)? = null,
 ) {
     val vm: WorkerSettingsViewModel? = if (repository != null) viewModel(
         factory = factory {
@@ -165,6 +167,7 @@ fun WorkerSettingsDialog(
                 SettingsGroup("OPERATIONS") {
                     SecondaryAction("SWITCH MODE", onSwitchMode, !state.busy)
                     onChangeDisplay?.let { SecondaryAction("CHANGE DISPLAY", it, !state.busy) }
+                    onToggleGlove?.let { SecondaryAction(if (gloveOn) "GLOVE MODE: ON" else "GLOVE MODE: OFF", it, !state.busy) }
                 }
 
                 if (model != null) {

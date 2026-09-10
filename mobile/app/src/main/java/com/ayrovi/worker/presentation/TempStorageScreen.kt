@@ -79,6 +79,8 @@ fun TempStorageScreen(
      * the real device). Production never passes this.
      */
     forceHardwareScanner: Boolean? = null,
+    gloveOn: Boolean = false,
+    onToggleGlove: (() -> Unit)? = null,
 ) {
     val state by model.state.collectAsStateWithLifecycle()
     val owner = LocalLifecycleOwner.current
@@ -183,6 +185,8 @@ fun TempStorageScreen(
             onSwitchMode = { settings = false; onBack() },
             onClose = { settings = false },
             onChangeDisplay = onToggleTheme,
+            gloveOn = gloveOn,
+            onToggleGlove = onToggleGlove,
         )
     }
 }

@@ -1,0 +1,4 @@
+<!-- AYROVI original geometric icon, Apache-2.0. PRODUCT lane: barcode bars. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFFFF" android:pathData="M3,5h2v14H3zM7,5h1.5v14H7zM10.5,5H14v14h-3.5zM15.5,5H17v14h-1.5zM18.5,5H21v14h-2.5z" />
+</vector>

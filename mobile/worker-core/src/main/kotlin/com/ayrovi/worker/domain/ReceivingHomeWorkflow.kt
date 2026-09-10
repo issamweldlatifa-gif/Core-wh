@@ -55,6 +55,8 @@ data class ReceivingHomeState(
     val cartonReview: HomeCartonReview? = null,
     val message: OperationalMessage? = null,
     val lastScanValue: String? = null,
+    /** Device clock millis of [lastScanValue] (the LAST-scan reminder); cleared with it. */
+    val lastScanAt: Long? = null,
     /** Bumped after every scanner-relevant state change to re-arm the capture host. */
     val scanEpoch: Int = 0,
 ) {
@@ -161,23 +163,23 @@ class ReceivingHomeWorkflow(
     fun openProduct() = run(readOnly = true) {
         mutable.update { it.copy(step = HomeStep.PRODUCT_SCAN, productReview = null, cartonReview = null,
             message = OperationalMessage("PRODUCT SCANNER", "Scan a product QR / barcode or read the SKU with OCR.", MessageTone.INFO),
-            lastScanValue = null, scanEpoch = it.scanEpoch + 1) }
+            lastScanValue = null, lastScanAt = null, scanEpoch = it.scanEpoch + 1) }
     }
 
     fun openCarton() = run(readOnly = true) {
         mutable.update { it.copy(step = HomeStep.CARTON_SCAN, productReview = null, cartonReview = null,
             message = OperationalMessage("CARTON SCANNER", "Scan a carton QR / barcode, carton reference or tracking number.", MessageTone.INFO),
-            lastScanValue = null, scanEpoch = it.scanEpoch + 1) }
+            lastScanValue = null, lastScanAt = null, scanEpoch = it.scanEpoch + 1) }
     }
 
     fun backToHome() {
         mutable.update { it.copy(step = HomeStep.HOME, productReview = null, cartonReview = null, message = null,
-            lastScanValue = null, scanEpoch = it.scanEpoch + 1) }
+            lastScanValue = null, lastScanAt = null, scanEpoch = it.scanEpoch + 1) }
     }
 
     fun scan(result: ScanResult) {
         if (!mutable.value.canScan) return
-        mutable.update { it.copy(lastScanValue = result.value) }
+        mutable.update { it.copy(lastScanValue = result.value, lastScanAt = clock()) }
         when (mutable.value.step) {
             HomeStep.PRODUCT_SCAN -> reviewProduct(result)
             HomeStep.CARTON_SCAN -> reviewCarton(result)

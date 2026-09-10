@@ -22,4 +22,14 @@ class TerminalPreferences(context: Context, fileName: String = "ayrovi_terminal_
         mutable.value = mode
         return persisted
     }
+
+    private val gloveMutable = MutableStateFlow(runCatching {
+        preferences.getBoolean("glove_mode", false)
+    }.getOrDefault(false))
+    val glove = gloveMutable.asStateFlow()
+
+    @Synchronized fun setGlove(enabled: Boolean) {
+        runCatching { preferences.edit().putBoolean("glove_mode", enabled).commit() }
+        gloveMutable.value = enabled
+    }
 }

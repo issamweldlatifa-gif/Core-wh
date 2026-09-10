@@ -259,4 +259,35 @@ class UnifiedScannerUiTest {
         compose.onNodeWithTag("TOOL_CLOSE").performClick()
         compose.waitUntil(10_000) { compose.onAllNodesWithTag("SCAN_TOOLS_DRAWER").fetchSemanticsNodes().isEmpty() }
     }
+
+    /**
+     * The LAST-scan reminder: absent before any read, then value + verdict
+     * mark + time once a scan lands and its verdict is dismissed.
+     */
+    @Test
+    fun lastScanReminderShowsAfterResultDismissed() {
+        val model = ReceivingHomeViewModel(ReceivingUiGateway(), "worker", setOf("receiving.view", "receiving.execute"))
+        compose.setContent {
+            LaunchedEffect(Unit) { model.activate(setOf("receiving.view", "receiving.execute"), true) }
+            Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
+                AyroviTerminalTheme(TerminalThemeMode.WHITE, onToggleTheme = {}) {
+                    ReceivingHomeScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {},
+                        forceHardwareScanner = true)
+                }
+            }
+        }
+        compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
+        compose.onNodeWithTag("HOME_PRODUCT_TILE").performClick()
+        compose.waitUntil(10_000) { model.state.value.step == HomeStep.PRODUCT_SCAN }
+        waitForTag("READY_TO_SCAN")
+        compose.onAllNodesWithTag("LAST_SCAN").assertCountEquals(0)
+
+        compose.runOnIdle { model.workflow.scan(ScanResult("SKU-TEST", ScanSource.EXTERNAL_SCANNER)) }
+        waitForTag("SCAN_RESULT")
+        compose.onNodeWithTag("RESULT_BACK").performClick()
+        waitForTag("READY_TO_SCAN")
+
+        compose.onNodeWithTag("LAST_SCAN").assertIsDisplayed()
+        compose.onNodeWithText("SKU-TEST").assertIsDisplayed()
+    }
 }
