@@ -417,6 +417,40 @@ export class ReceivingService {
       });
     }
 
+    // §15 — ONE physical article unit = ONE successful scan. A unit-distinct
+    // identifier (anything that is NOT the card's own model code) already
+    // MATCHED on this arrival — by this worker or another one — is rejected
+    // and never counted. Model codes (SKU/reference) keep counting units:
+    // they carry no per-unit identity, so blocking repeats would break the
+    // count-based receiving workflow (§22).
+    const isModelScan = sameScanCode(term, line.sku) || sameScanCode(term, line.reference);
+    const alreadyReceived = !isModelScan ? await this.prisma.receivingWorkerLog.findFirst({
+      where: {
+        cardType: 'PRODUCT',
+        result: 'MATCH',
+        identifierValue: { equals: term, mode: 'insensitive' },
+        session: { arrivalId: session.arrivalId },
+      },
+      select: { id: true },
+    }) : null;
+    if (alreadyReceived) {
+      const ref = line.sku ?? line.reference ?? term;
+      await this.prisma.$transaction(async (tx) => {
+        const log = await this.logWorker(tx, session, actor, {
+          cardType: 'PRODUCT', cardRef: ref, operation: 'DUPLICATE_REJECT', identifierType, source,
+          identifierValue: term, result: 'DUPLICATE', startedAt,
+        });
+        await this.audit.log({
+          actorUserId: actor.id, action: 'UNIT_ALREADY_SCANNED' as never, entityType: 'receiving_product',
+          entityId: line.id, ipAddress: actor.ip ?? null,
+          metadata: { card: ref, unit: term, firstLogId: alreadyReceived.id, logId: log.id },
+        }, tx);
+      });
+      return this.sessionDetail(sessionId, {
+        flash: { kind: 'UNIT_ALREADY_SCANNED', cardType: 'PRODUCT', code: term, message: OPERATIONAL_ERRORS.unitAlreadyScanned },
+      });
+    }
+
     // MATCH — persist the receipt (one physical unit per scan on devices).
     const received = line.receivedQuantity + qty;
     const difference = received - line.expectedQuantity;
@@ -1012,6 +1046,33 @@ export class ReceivingService {
       if (!rep || rep.status === 'DRAFT') return this.sessionDetail(c.id);
     }
     return null;
+  }
+
+  /**
+   * REPORT HISTORY — settings only, newest first. The operational Receiving
+   * UI never shows this: it exists so supervisors can review past reported
+   * sessions without cluttering the worker flow.
+   */
+  async reportHistory(limit = 20) {
+    const rows = await this.prisma.receivingSession.findMany({
+      where: { report: { isNot: null } },
+      orderBy: { startedAt: 'desc' },
+      take: Math.min(Math.max(limit, 1), 50),
+      include: {
+        report: { select: { status: true, submittedAt: true } },
+        expectedArrival: { select: { code: true } },
+      },
+    });
+    return rows.map((s) => ({
+      sessionId: s.id,
+      sessionCode: s.code,
+      arrivalCode: (s as any).expectedArrival?.code ?? null,
+      status: s.status,
+      startedAt: s.startedAt,
+      completedAt: s.completedAt,
+      reportStatus: (s as any).report?.status ?? null,
+      submittedAt: (s as any).report?.submittedAt ?? null,
+    }));
   }
 
   // ==================================================================

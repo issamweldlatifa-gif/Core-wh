@@ -78,6 +78,7 @@ export const OPERATIONAL_ERRORS = {
   cartonNotExpected: 'This carton is not expected for this arrival.',
   productNotMatched: 'Product does not match this arrival.',
   productAlreadyComplete: 'This product line is complete. Do not add more units.',
+  unitAlreadyScanned: 'This unit was already received. Scan the next unit.',
   containerNotFound: 'Container not recognized. Scan a valid container QR.',
   containerWrongType: 'Wrong container type for this operation.',
   containerClosed: 'Container is closed. Use the next container.',

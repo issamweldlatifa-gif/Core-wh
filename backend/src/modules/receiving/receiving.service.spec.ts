@@ -219,6 +219,39 @@ describe('ReceivingService (card-based, device-side matching)', () => {
       expect(res.flash).toMatchObject({ kind: 'CARD_ALREADY_COMPLETE', cardType: 'PRODUCT' });
     });
 
+    it('same unit-distinct identifier twice -> UNIT_ALREADY_SCANNED (never counted)', async () => {
+      const line = { id: 'p-1', sku: 'SKU-1', reference: null, expectedQuantity: 5, receivedQuantity: 1, difference: -4, status: 'PARTIALLY_RECEIVED' };
+      db.receivingProduct.findFirst.mockResolvedValue(line);
+      // The exact unit was already MATCHED on this arrival (any worker).
+      db.receivingWorkerLog.findFirst.mockResolvedValue({ id: 'log-first' });
+      db.receivingWorkerLog.create.mockResolvedValue({ id: 'log-2' });
+
+      const res = await service.confirmProduct('sess-1', { identifier: 'SER-001', identifierType: 'QR' }, ACTOR);
+
+      expect(db.receivingWorkerLog.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({ cardType: 'PRODUCT', result: 'MATCH' }),
+      }));
+      expect(db.receivingProduct.update).not.toHaveBeenCalled();
+      expect(db.receivingProduct.updateMany).not.toHaveBeenCalled();
+      expect(workerLogs()[0]).toMatchObject({ operation: 'DUPLICATE_REJECT', result: 'DUPLICATE', identifierValue: 'SER-001' });
+      expect(auditActions()).toContain('UNIT_ALREADY_SCANNED');
+      expect(res.flash).toMatchObject({ kind: 'UNIT_ALREADY_SCANNED', cardType: 'PRODUCT', code: 'SER-001' });
+    });
+
+    it('model codes keep counting even when the same value matched before (count workflow preserved)', async () => {
+      const line = { id: 'p-1', sku: 'SKU-1', reference: null, expectedQuantity: 5, receivedQuantity: 1, difference: -4, status: 'PARTIALLY_RECEIVED' };
+      db.receivingProduct.findFirst.mockResolvedValue(line);
+      db.receivingProduct.update.mockResolvedValue(line);
+      db.receivingWorkerLog.findFirst.mockResolvedValue({ id: 'log-first' });
+      db.receivingScanEvent.create.mockResolvedValue({ id: 'ev-1' });
+      db.receivingWorkerLog.create.mockResolvedValue({ id: 'log-2' });
+
+      const res = await service.confirmProduct('sess-1', { identifier: 'SKU-1', identifierType: 'QR' }, ACTOR);
+
+      expect(res.flash).toMatchObject({ kind: 'MATCH', cardType: 'PRODUCT' });
+      expect(db.receivingProduct.updateMany).toHaveBeenCalled();
+    });
+
     it('overage creates a discrepancy and records MATCH', async () => {
       const line = { id: 'p-1', sku: 'SKU-1', reference: null, expectedQuantity: 1, receivedQuantity: 1, difference: 0, status: 'PARTIALLY_RECEIVED' };
       // received(1) >= expected(1) is the completed gate; use expected 2 / received 1 + qty 2.

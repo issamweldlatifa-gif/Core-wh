@@ -98,7 +98,8 @@ internal class HomeBackend : ReceivingGateway {
         confirmFailure?.let { throw it }
         val card = productCards.firstOrNull {
             com.ayrovi.worker.domain.CardMatcher.sameCode(identifier, it.sku) ||
-                com.ayrovi.worker.domain.CardMatcher.sameCode(identifier, it.reference)
+                com.ayrovi.worker.domain.CardMatcher.sameCode(identifier, it.reference) ||
+                it.identifiers.any { id -> com.ayrovi.worker.domain.CardMatcher.sameCode(identifier, id) }
         } ?: return HomeScanResult(ok = false, flash = FlashView(kind = "MISMATCH", cardType = "PRODUCT", code = identifier), home = feed())
         if (card.received >= card.expected) return HomeScanResult(ok = true,
             flash = FlashView(kind = "CARD_ALREADY_COMPLETE", cardType = "PRODUCT", code = card.sku), home = feed())

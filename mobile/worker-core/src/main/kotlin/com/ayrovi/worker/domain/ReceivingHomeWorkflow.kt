@@ -92,6 +92,17 @@ class ReceivingHomeWorkflow(
     private var foreground = false
 
     /**
+     * §15 — unit-distinct identifiers already confirmed in [confirmedScope]
+     * (normalized, uppercased). Model codes (SKU/reference) are NEVER stored:
+     * they carry no per-unit identity and must keep counting. The backend
+     * enforces the same rule arrival-wide, so this device memory is only the
+     * instant path — a second device scanning the same unit is rejected by
+     * the server with UNIT_ALREADY_SCANNED.
+     */
+    private val confirmedUnits = mutableSetOf<String>()
+    private var confirmedScope: String? = null
+
+    /**
      * Refresh the real server feed while Home is visible. The refresh updates
      * cards/counters only; it must never manufacture a "new card" message
      * from a local counter delta. System-tray notification ownership stays in
@@ -180,6 +191,13 @@ class ReceivingHomeWorkflow(
         val term = CardMatcher.normalize(scan.value)
         if (term.isEmpty()) return@run notice("EMPTY SCAN", "No code was read. Scan again.")
         val card = CardMatcher.matchProduct(home.productCards, term)
+        val modelScan = card != null && (CardMatcher.sameCode(term, card.sku) || CardMatcher.sameCode(term, card.reference))
+        if (card != null && !modelScan && confirmedUnits.contains(term.uppercase())) {
+            mutable.update { it.copy(productReview = null, cartonReview = null, scanEpoch = it.scanEpoch + 1,
+                message = OperationalMessage("ALREADY SCANNED", "This unit was already received. Scan the next unit.", MessageTone.WARNING, scanned = term)) }
+            signal(MessageTone.WARNING, "ALREADY SCANNED", "Scan the next unit.", term)
+            return@run
+        }
         when {
             card != null && card.received < card.expected -> {
                 // AUTO-APPROVE: a valid scan needs no human confirmation.
@@ -305,10 +323,24 @@ class ReceivingHomeWorkflow(
         // The verdict is VISIBLE on the lane (green success / red error), not
         // just a sound/signal: the worker always sees WHAT the backend decided.
         val flash = result.flash
+        if (lane == "PRODUCT" && flash?.kind == "MATCH") {
+            val scopeKey = result.sessionId
+            if (scopeKey != null && scopeKey != confirmedScope) {
+                confirmedUnits.clear()
+                confirmedScope = scopeKey
+            }
+            val value = CardMatcher.normalize(mutable.value.lastScanValue).uppercase()
+            val model = (flash.code ?: "").uppercase()
+            if (value.isNotEmpty() && value != model) confirmedUnits.add(value)
+        }
         val verdict = when (flash?.kind) {
             "MATCH" -> Triple(MessageTone.SUCCESS, if (lane == "PRODUCT") "PRODUCT RECEIVED" else "CARTON RECEIVED",
                 flash.message ?: "Verified and recorded.")
             "CARD_ALREADY_COMPLETE" -> Triple(MessageTone.WARNING, "CARD ALREADY COMPLETE", "Nothing was counted again.")
+            // §15: ONE physical article unit = ONE successful scan. The same
+            // unit scanned again — by anyone — is rejected, never counted.
+            "UNIT_ALREADY_SCANNED" -> Triple(MessageTone.WARNING, "ALREADY SCANNED",
+                flash.message ?: "This unit was already received. Scan the next unit.")
             "TRACKING_AMBIGUOUS" -> Triple(MessageTone.WARNING, "SEVERAL CARTONS MATCH",
                 flash.message ?: "Scan the specific carton.")
             "WRONG_SHIPMENT" -> Triple(MessageTone.ERROR, "WRONG SHIPMENT",

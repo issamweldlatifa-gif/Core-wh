@@ -93,6 +93,35 @@ class ReceivingHomeWorkflowTest {
         assertEquals(0, flow.state.value.home?.productCardsPending)
     }
 
+    @Test fun `same unit-distinct identifier twice is ALREADY SCANNED without a second call`() = runTest {
+        val backend = HomeBackend()
+        backend.productCards = mutableListOf(
+            backend.productCards[0].copy(identifiers = listOf("SKU/A-01", "REF-ONLY", "UNIT-P001")),
+        )
+        val flow = workflow(backend)
+        flow.openProduct(); runCurrent()
+        flow.scan(scan("UNIT-P001")); runCurrent()
+        assertEquals("PRODUCT RECEIVED", flow.state.value.message?.title)
+        val callsAfterFirst = backend.calls.count { it == "home-product" }
+        assertEquals(1, callsAfterFirst)
+        // Same physical unit again: instant reject, the backend is not called again.
+        flow.scan(scan("UNIT-P001")); runCurrent()
+        assertEquals("ALREADY SCANNED", flow.state.value.message?.title)
+        assertEquals(MessageTone.WARNING, flow.state.value.message?.tone)
+        assertEquals(1, backend.calls.count { it == "home-product" })
+        assertEquals(HomeStep.PRODUCT_SCAN, flow.state.value.step)
+    }
+
+    @Test fun `model codes keep counting and are never unit-blocked`() = runTest {
+        val backend = HomeBackend()
+        val flow = workflow(backend)
+        flow.openProduct(); runCurrent()
+        flow.scan(scan("SKU/A-01")); runCurrent()
+        flow.scan(scan("SKU/A-01")); runCurrent()
+        assertEquals(2, backend.calls.count { it == "home-product" })
+        assertEquals("PRODUCT RECEIVED", flow.state.value.message?.title)
+    }
+
     @Test fun `wrong product code is a mismatch and confirms nothing`() = runTest {
         val backend = HomeBackend()
         val flow = workflow(backend)

@@ -236,6 +236,13 @@ class WorkerRepository(
         )
 
     // ---------------- CONFIRMATION REPORT (ORDER 01 verification report) ----------------
+    /** REPORT HISTORY (settings only): latest reported sessions, newest first. */
+    suspend fun reportHistory(): List<ReportHistoryRow> =
+        json.decodeFromString(
+            kotlinx.serialization.builtins.ListSerializer(ReportHistoryRow.serializer()),
+            get("/v1/receiving/sessions/history"),
+        )
+
     override suspend fun report(sessionId: String): ReceivingReportView = json.decodeFromString(
         ReceivingReportView.serializer(), get("/v1/receiving/sessions/${urlEncode(sessionId)}/report"),
     )

@@ -167,6 +167,13 @@ import kotlinx.serialization.json.JsonElement
     val flash: FlashView? = null,
 )
 
+/** REPORT HISTORY row (settings only): a past reported receiving session. */
+@Serializable data class ReportHistoryRow(
+    val sessionId: String, val sessionCode: String, val arrivalCode: String? = null,
+    val status: String, val startedAt: String? = null, val completedAt: String? = null,
+    val reportStatus: String? = null, val submittedAt: String? = null,
+)
+
 // ---------------- RECEIVING HOME (automatic-dispatch feed) ----------------
 // RECEIVING never opens the scanner directly. It opens the HOME feed: the
 // PRODUCT and CARTON cards dispatched to this worker, with live counters.

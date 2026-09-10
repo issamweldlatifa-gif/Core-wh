@@ -123,6 +123,13 @@ export class ReceivingController {
     return this.receiving.activeReceivingSession();
   }
 
+  @Get('sessions/history')
+  @RequirePermissions('receiving.view')
+  @ApiOperation({ summary: 'REPORT HISTORY (settings only): latest reported sessions, newest first.' })
+  history() {
+    return this.receiving.reportHistory();
+  }
+
   @Get('sessions/:id')
   @RequirePermissions('receiving.view')
   @ApiOperation({ summary: 'Full receiving session state: expected product cards + carton cards + tally (device-side matching data).' })

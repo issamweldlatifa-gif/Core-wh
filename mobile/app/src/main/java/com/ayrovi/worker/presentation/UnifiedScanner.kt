@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -111,28 +110,24 @@ private fun CameraToolPlaceholder() {
 @Composable
 internal fun ReadyToScanPanel(capture: ScannerCapture, enabled: Boolean) {
     var showTrigger by remember { mutableStateOf(false) }
-    Surface(
-        Modifier.fillMaxWidth().testTag("READY_TO_SCAN"),
-        color = TerminalTokens.surface, shape = MaterialTheme.shapes.medium,
-        border = BorderStroke(TerminalTokens.stroke, TerminalTokens.border),
+    // No card, no giant rectangle: the illustration is a small visual hint
+    // integrated naturally into the lane.
+    Column(
+        Modifier.fillMaxWidth().testTag("READY_TO_SCAN").padding(vertical = TerminalTokens.sm),
+        verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Column(
-            Modifier.fillMaxWidth().padding(TerminalTokens.md),
-            verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                "READY TO SCAN",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black),
-                color = TerminalTokens.instruction,
-            )
-            if (capture.hardwareAvailable) Ct40Glyph(available = true) else PhoneGlyph()
-            if (!capture.hardwareAvailable) {
-                if (showTrigger) {
-                    PrimaryAction("TRIGGER SCAN", capture.softwareScan, enabled, Modifier.testTag("SOFTWARE_TRIGGER"))
-                } else {
-                    SecondaryAction("SHOW TRIGGER", { showTrigger = true }, enabled, Modifier.testTag("SHOW_TRIGGER"))
-                }
+        Text(
+            "READY TO SCAN",
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black),
+            color = TerminalTokens.instruction,
+        )
+        if (capture.hardwareAvailable) Ct40Glyph(available = true) else PhoneGlyph()
+        if (!capture.hardwareAvailable) {
+            if (showTrigger) {
+                PrimaryAction("TRIGGER SCAN", capture.softwareScan, enabled, Modifier.testTag("SOFTWARE_TRIGGER"))
+            } else {
+                SecondaryAction("SHOW TRIGGER", { showTrigger = true }, enabled, Modifier.testTag("SHOW_TRIGGER"))
             }
         }
     }
@@ -228,7 +223,7 @@ internal fun CameraToolOverlay(capture: ScannerCapture, enabled: Boolean) {
     val ocr = capture.ocrCameraOpen
     Box(
         Modifier.fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.92f))
+            .background(if (ocr) Color.Black else Color.Black.copy(alpha = 0.92f))
             .testTag(if (ocr) "OCR_SCAN" else "CAPTURE_QR_AREA"),
     ) {
         if (ocr) {
@@ -310,6 +305,9 @@ private fun QrTakeoverSquare(preview: @Composable (Modifier) -> Unit) {
  * Side drawer (§17/§18/§20): QR / BARCODE, OCR, MANUEL, CT40, FERMER.
  * Icon + short label only. Picking a tool closes the drawer immediately and
  * opens that tool; CT40 returns to the hardware-scanner default.
+ *
+ * COMPACT and proportional: a wrapped panel anchored to the right edge near
+ * its control zone — never a full-height wall.
  */
 @Composable
 internal fun ScanToolsDrawer(capture: ScannerCapture, enabled: Boolean, onClose: () -> Unit) {
@@ -319,7 +317,7 @@ internal fun ScanToolsDrawer(capture: ScannerCapture, enabled: Boolean, onClose:
             Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)).clickable(onClick = onClose),
         )
         Surface(
-            Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(210.dp),
+            Modifier.align(Alignment.CenterEnd).padding(end = TerminalTokens.xs).width(204.dp),
             color = TerminalTokens.surface, shape = MaterialTheme.shapes.medium,
             border = BorderStroke(TerminalTokens.stroke, TerminalTokens.border),
         ) {
@@ -383,7 +381,7 @@ internal fun ScanResultOverlay(
             Column(Modifier.fillMaxWidth().padding(TerminalTokens.md), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm),
                 horizontalAlignment = Alignment.CenterHorizontally) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
-                    WorkerIcon(if (ok) TerminalIcon.SUCCESS else TerminalIcon.ERROR, null, Modifier.size(30.dp), tone)
+                    WorkerIcon(if (ok) TerminalIcon.SUCCESS else TerminalIcon.ERROR, null, Modifier.size(38.dp), tone)
                     Text(
                         if (ok) "✓ SUCCESS" else "✕ ERROR",
                         style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Black),

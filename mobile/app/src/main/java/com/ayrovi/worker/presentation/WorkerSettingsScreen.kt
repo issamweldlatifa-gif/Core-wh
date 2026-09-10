@@ -13,6 +13,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ayrovi.worker.data.ReportHistoryRow
 import com.ayrovi.worker.data.WorkerRepository
 import com.ayrovi.worker.design.*
 import com.ayrovi.worker.domain.MessageTone
@@ -48,6 +49,9 @@ internal data class WorkerSettingsState(
     val sent: Boolean = false,
     val form: SupportForm = SupportForm.NONE,
     val message: OperationalMessage? = null,
+    /** REPORT HISTORY (settings only): null = not loaded yet. */
+    val history: List<ReportHistoryRow>? = null,
+    val historyLoading: Boolean = false,
 )
 
 internal class WorkerSettingsViewModel(
@@ -58,6 +62,24 @@ internal class WorkerSettingsViewModel(
 ) : ViewModel() {
     private val mutable = MutableStateFlow(WorkerSettingsState())
     val state = mutable.asStateFlow()
+
+    /**
+     * REPORT HISTORY lives ONLY here (§5): past reported sessions, newest
+     * first. Loaded once per dialog open; never shown in the operational UI.
+     */
+    fun loadHistory() {
+        if (mutable.value.history != null || mutable.value.historyLoading) return
+        mutable.update { it.copy(historyLoading = true) }
+        viewModelScope.launch {
+            try {
+                val rows = repository.reportHistory()
+                mutable.update { it.copy(historyLoading = false, history = rows) }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                mutable.update { it.copy(historyLoading = false, history = emptyList()) }
+            }
+        }
+    }
 
     fun openReport() = mutable.update { it.copy(form = SupportForm.REPORT, sent = false, message = null) }
     fun openProblem() = mutable.update { it.copy(form = SupportForm.PROBLEM, sent = false, message = null) }
@@ -145,6 +167,13 @@ fun WorkerSettingsDialog(
                     onChangeDisplay?.let { SecondaryAction("CHANGE DISPLAY", it, !state.busy) }
                 }
 
+                if (model != null) {
+                    LaunchedEffect(Unit) { model.loadHistory() }
+                    SettingsGroup("RAPPORT HISTORY") {
+                        ReportHistoryBody(state)
+                    }
+                }
+
                 if (model != null) SettingsGroup("SUPPORT") {
                     SecondaryAction("SEND REPORT", { model.openReport() }, !state.busy, Modifier.fillMaxWidth().testTag("SETTINGS_SEND_REPORT"))
                     SecondaryAction("REPORT A PROBLEM", { model.openProblem() }, !state.busy, Modifier.fillMaxWidth().testTag("SETTINGS_REPORT_PROBLEM"))
@@ -172,6 +201,35 @@ fun WorkerSettingsDialog(
             onSubmit = { category, description, reference -> model.submit(state.form, category, description, reference) },
             onDismiss = { if (!state.busy) model.closeForm() },
         )
+    }
+}
+
+@Composable
+private fun ReportHistoryBody(state: WorkerSettingsState) {
+    val rows = state.history
+    when {
+        rows == null || state.historyLoading ->
+            Text("Loading past reports…", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted,
+                modifier = Modifier.testTag("HISTORY_LOADING"))
+        rows.isEmpty() ->
+            Text("No submitted reports yet.", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted,
+                modifier = Modifier.testTag("HISTORY_EMPTY"))
+        else -> Column(verticalArrangement = Arrangement.spacedBy(TerminalTokens.xxs),
+            modifier = Modifier.testTag("HISTORY_LIST")) {
+            rows.take(20).forEach { row ->
+                Column(Modifier.fillMaxWidth()) {
+                    Text(row.sessionCode, style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        listOfNotNull(
+                            row.arrivalCode?.let { "Arrival $it" },
+                            row.reportStatus?.let { "Report $it" },
+                            row.submittedAt?.take(10)?.let { "Sent $it" },
+                        ).joinToString(" · ").ifBlank { row.status },
+                        style = MaterialTheme.typography.bodySmall, color = TerminalTokens.muted,
+                    )
+                }
+            }
+        }
     }
 }
 
