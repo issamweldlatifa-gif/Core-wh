@@ -435,6 +435,22 @@ internal fun OperationalMessageViewHome(message: OperationalMessage) {
  * no dialog — the header keeps the full connection line.
  */
 @Composable
+private fun FooterStatus(connection: String) {    val online = connection == "ONLINE"
+    val battery = rememberBatteryPct()
+    Row(horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.heightIn(min = TerminalTokens.touch).testTag("FOOTER_STATUS")) {
+        Box(Modifier.size(12.dp).background(
+            if (online) TerminalTokens.success else TerminalTokens.warning, MaterialTheme.shapes.small))
+        if (!online) {
+            Text(connection, style = MaterialTheme.typography.labelMedium, color = TerminalTokens.warning)
+        }
+        if (battery != null && battery < 15) {
+            Text("BATT $battery%", style = MaterialTheme.typography.labelMedium, color = TerminalTokens.warning)
+        }
+    }
+}
+
 /**
  * Phase D (lite): the first minute on the floor — three rules, one tap,
  * then never again. No paragraph walls, no duplicated headers: the Zebra
@@ -469,22 +485,6 @@ private fun CoachRule(icon: TerminalIcon, text: String) {
         horizontalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
         WorkerIcon(icon, null, Modifier.size(34.dp), TerminalTokens.primary)
         Text(text, style = MaterialTheme.typography.bodyLarge, color = TerminalTokens.text)
-    }
-}
-
-private fun FooterStatus(connection: String) {    val online = connection == "ONLINE"
-    val battery = rememberBatteryPct()
-    Row(horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs),
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.heightIn(min = TerminalTokens.touch).testTag("FOOTER_STATUS")) {
-        Box(Modifier.size(12.dp).background(
-            if (online) TerminalTokens.success else TerminalTokens.warning, MaterialTheme.shapes.small))
-        if (!online) {
-            Text(connection, style = MaterialTheme.typography.labelMedium, color = TerminalTokens.warning)
-        }
-        if (battery != null && battery < 15) {
-            Text("BATT $battery%", style = MaterialTheme.typography.labelMedium, color = TerminalTokens.warning)
-        }
     }
 }
 

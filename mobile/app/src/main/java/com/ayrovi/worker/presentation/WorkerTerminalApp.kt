@@ -44,6 +44,8 @@ fun WorkerTerminalApp(
     val appearance: AppearanceViewModel = viewModel(factory = factory { AppearanceViewModel(container.appearance) })
     val theme by appearance.theme.collectAsStateWithLifecycle()
     val glove by appearance.glove.collectAsStateWithLifecycle()
+    val glare by appearance.glare.collectAsStateWithLifecycle()
+    val coachPending by appearance.coachPending.collectAsStateWithLifecycle()
     val themeWarning by appearance.warning.collectAsStateWithLifecycle()
     val androidContext = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(themeWarning) { themeWarning?.let { android.widget.Toast.makeText(androidContext, it, android.widget.Toast.LENGTH_LONG).show() } }
@@ -93,7 +95,7 @@ fun WorkerTerminalApp(
         // the worker on a screen they can no longer operate.
         if (route == TerminalRoute.TEMPORARY && state.me != null && state.tasks.none { it.key == "temporary-storage" }) route = TerminalRoute.QUEUE
     }
-    AyroviTerminalTheme(mode = theme, onToggleTheme = appearance::toggleTheme, gloveMode = glove) {
+    AyroviTerminalTheme(mode = theme, onToggleTheme = appearance::toggleTheme, gloveMode = glove, glareBoost = glare) {
         if (!state.signedIn) {
             SignInScreen(state, model.deviceCode, connection.name, model::login, container.device)
         } else if (route == TerminalRoute.RECEIVING && state.me?.user?.id != null) {

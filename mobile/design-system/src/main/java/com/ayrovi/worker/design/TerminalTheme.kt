@@ -165,7 +165,7 @@ fun AyroviTerminalTheme(
     gloveMode: Boolean = false,
     content: @Composable () -> Unit,
 ) {
-    val palette = TerminalPalette.forMode(mode)
+    val palette = TerminalPalette.forMode(mode, glareBoost)
     val scheme = if (mode == TerminalThemeMode.WHITE) lightColorScheme() else darkColorScheme()
     CompositionLocalProvider(LocalTerminalPalette provides palette, LocalTerminalThemeMode provides mode,
         LocalTerminalThemeToggle provides onToggleTheme, LocalGloveMode provides gloveMode) {

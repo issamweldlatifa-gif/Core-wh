@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -50,6 +51,7 @@ import com.ayrovi.worker.design.TerminalTokens
 import com.ayrovi.worker.design.WorkerIcon
 import com.ayrovi.worker.domain.MessageTone
 import com.ayrovi.worker.scanner.ScannerCapture
+import kotlinx.coroutines.delay
 
 /**
  * MASTER ORDER §§14–35 — ONE unified Scanner UX for the whole Worker app.
