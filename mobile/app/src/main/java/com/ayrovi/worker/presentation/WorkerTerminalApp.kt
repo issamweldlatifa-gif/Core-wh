@@ -20,7 +20,7 @@ import com.ayrovi.worker.di.AppContainer
 import com.ayrovi.worker.domain.MessageTone
 import com.ayrovi.worker.domain.OperationalMessage
 
-private enum class TerminalRoute { QUEUE, RECEIVING, REPORT, TEMPORARY, SORTING }
+private enum class TerminalRoute { QUEUE, RECEIVING, REPORT, TEMPORARY, SORTING, PACKING }
 
 internal fun <T : ViewModel> factory(create: () -> T): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST") override fun <V : ViewModel> create(modelClass: Class<V>): V = create() as V
@@ -95,6 +95,7 @@ fun WorkerTerminalApp(
         // the worker on a screen they can no longer operate.
         if (route == TerminalRoute.TEMPORARY && state.me != null && state.tasks.none { it.key == "temporary-storage" }) route = TerminalRoute.QUEUE
         if (route == TerminalRoute.SORTING && state.me != null && state.tasks.none { it.key == "customer-sorting" }) route = TerminalRoute.QUEUE
+        if (route == TerminalRoute.PACKING && state.me != null && state.tasks.none { it.key == "packing" }) route = TerminalRoute.QUEUE
     }
     AyroviTerminalTheme(mode = theme, onToggleTheme = appearance::toggleTheme, gloveMode = glove, glareBoost = glare) {
         if (!state.signedIn) {
@@ -142,6 +143,25 @@ fun WorkerTerminalApp(
                 deviceCode = model.deviceCode, device = container.device,
                 gloveOn = glove, onToggleGlove = appearance::toggleGlove,
                 glareOn = glare, onToggleGlare = appearance::toggleGlare)
+        } else if (route == TerminalRoute.PACKING && state.me?.user?.id != null) {
+            // PACKING (native, CT40-first): scan a customer bin — a COMPLETE
+            // bin packs immediately (zero-touch), an INCOMPLETE one is a
+            // persistent amber verdict listing the missing items.
+            val pack: PackingViewModel = viewModel(
+                key = "packing-${state.loginGeneration}",
+                factory = factory { PackingViewModel(RepoPackingGateway(container.repository), container.audio) },
+            )
+            val packAvailable = state.verified && connection !in setOf(ConnectionState.OFFLINE, ConnectionState.AUTH_ERROR, ConnectionState.SYNC_ERROR)
+            LaunchedEffect(packAvailable) { pack.setAvailable(packAvailable) }
+            PackingScreen(pack, workerLabel(state), stationLabel(state), connection.name,
+                onBack = { route = TerminalRoute.QUEUE; model.refresh() }, onAuthExpired = model::expireSession,
+                industrial = container.device == WorkerDevice.CT40,
+                repository = container.repository,
+                appVersion = com.ayrovi.worker.BuildConfig.VERSION_NAME,
+                deviceCode = model.deviceCode, device = container.device,
+                onToggleTheme = appearance::toggleTheme,
+                gloveOn = glove, onToggleGlove = appearance::toggleGlove,
+                glareOn = glare, onToggleGlare = appearance::toggleGlare)
         } else if (route == TerminalRoute.REPORT && state.me?.user?.id != null) {
             // CONFIRMATION REPORT (ORDER 01): verification view for this
             // worker's open receiving session. Back returns to RECEIVING.
@@ -182,7 +202,11 @@ fun WorkerTerminalApp(
                     else model.noticeTask("Temporary Storage")
                 },
                 otherTask = { key ->
-                    if (key == "customer-sorting") route = TerminalRoute.SORTING else model.noticeTask(key)
+                    when (key) {
+                        "customer-sorting" -> route = TerminalRoute.SORTING
+                        "packing" -> route = TerminalRoute.PACKING
+                        else -> model.noticeTask(key)
+                    }
                 })
         }
         if (showSettings) WorkerSettingsDialog(

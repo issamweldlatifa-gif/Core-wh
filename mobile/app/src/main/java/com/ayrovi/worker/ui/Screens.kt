@@ -807,18 +807,19 @@ private fun HomeScreen(
 
 @Composable
 private fun StationTile(key: StationKey, task: TerminalTask, active: Boolean, onClick: () -> Unit) {
+    // Standing no-emoji rule: vector icons from the one design-system family.
     val (icon, question, color) = when (key) {
-        StationKey.CUSTOMER_SORTING -> Triple("↗", "Where does this article go?", Amber)
-        StationKey.CUSTOMER_BIN -> Triple("🗂", "Is this the correct bin?", Amber)
-        StationKey.PACKING -> Triple("📮", "Which items are still missing?", Blue)
-        StationKey.SHIPPING -> Triple("🚚", "Which shipment am I confirming?", Green)
-        StationKey.ARCHIVE_TRACE -> Triple("🔍", "What happened to this item?", Dim)
+        StationKey.CUSTOMER_SORTING -> Triple(TerminalIcon.SORTING, "Where does this article go?", Amber)
+        StationKey.CUSTOMER_BIN -> Triple(TerminalIcon.CHECK, "Is this the correct bin?", Amber)
+        StationKey.PACKING -> Triple(TerminalIcon.CARTON, "Which items are still missing?", Blue)
+        StationKey.SHIPPING -> Triple(TerminalIcon.QUEUE, "Which shipment am I confirming?", Green)
+        StationKey.ARCHIVE_TRACE -> Triple(TerminalIcon.SCANNER, "What happened to this item?", Dim)
     }
     Card(colors = CardDefaults.cardColors(containerColor = Theme.surface),
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), onClick = onClick) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(44.dp).background(color.copy(alpha = 0.12f), CircleShape),
-                contentAlignment = Alignment.Center) { Text(icon, fontSize = 22.sp) }
+                contentAlignment = Alignment.Center) { WorkerIcon(icon, null, Modifier.size(24.dp), color) }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
