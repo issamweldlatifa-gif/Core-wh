@@ -161,8 +161,12 @@ private fun Ct40Glyph(available: Boolean) {
     }
 }
 
-/** Width of the reserved side rail: the button never overlaps a control (§31). */
-private val ToolsRail = 48.dp
+/**
+ * Width of the reserved side rail. It is the gloved-touch token (56 dp), so the
+ * small button is comfortable to hit one-handed and the rail it lives in never
+ * overlaps a control (§31).
+ */
+private val ToolsRail = 56.dp
 
 /**
  * A tool is open: the tool content gets a reserved right rail and the SAME side
