@@ -439,6 +439,9 @@ internal fun ScanResultOverlay(
     title: String,
     detail: String,
     lines: List<String> = emptyList(),
+    /** RECEIVING loop only: auto-rearm after a MATCH (ms). Stations whose
+     *  standing rule is "the verdict stays until BACK" pass null (default). */
+    autoRearmMs: Long? = null,
     onBack: () -> Unit,
 ) {
     val tone = if (ok) TerminalTokens.success else TerminalTokens.error
@@ -454,9 +457,9 @@ internal fun ScanResultOverlay(
             Modifier.fillMaxWidth().fillMaxHeight(0.42f)
                 .background(tone.copy(alpha = if (ok) 0.30f else 0.34f)),
         )
-        if (ok) {
+        if (ok && autoRearmMs != null) {
             // MATCH: re-arm the lane automatically. The scan loop never stops.
-            LaunchedEffect(title) { delay(250); onBack() }
+            LaunchedEffect(title) { delay(autoRearmMs); onBack() }
         }
         Column(
             Modifier.align(Alignment.Center).fillMaxWidth().padding(TerminalTokens.lg),
@@ -480,7 +483,7 @@ internal fun ScanResultOverlay(
                 Text(line, style = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),
                     color = TerminalTokens.text)
             }
-            if (ok) {
+            if (autoRearmMs != null && ok) {
                 Text("SCAN NEXT — NO TOUCH NEEDED", style = MaterialTheme.typography.labelLarge,
                     color = TerminalTokens.success)
             } else {

@@ -223,6 +223,8 @@ fun ReceivingHomeScreen(
                 ok = verdict!!.tone == MessageTone.SUCCESS,
                 title = verdict.title,
                 detail = verdict.detail,
+                // RECEIVING loop: a green MATCH re-arms by itself (zero-touch).
+                autoRearmMs = 250,
                 onBack = model.workflow::dismissResult,
             )
         }
