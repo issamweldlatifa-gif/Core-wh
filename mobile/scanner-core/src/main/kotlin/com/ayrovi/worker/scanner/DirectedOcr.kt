@@ -36,8 +36,11 @@ class DirectedOcr(
 ) {
     fun read(block: String): DirectedOcrResult {
         val lines = block.lines().map { it.trim() }.filter { it.isNotEmpty() }
+        // Case-sensitive lanes (compact SKU, §18) must see the read exactly as
+        // printed; every other lane keeps the historical uppercasing.
+        val normalise = if (template.caseSensitive) normalizer::normaliseCasePreserving else normalizer::normalise
         val scored = lines.flatMap { line ->
-            val normalised = normalizer.normalise(line)
+            val normalised = normalise(line)
             normalizer.candidates(normalised).mapNotNull { candidate ->
                 template.score(candidate.token, candidate.confidence)?.let { Scored(candidate.token, it) }
             }

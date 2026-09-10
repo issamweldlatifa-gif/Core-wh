@@ -38,11 +38,11 @@ class CompactSkuTemplateTest {
 
     @Test
     fun acceptsTheStrictSShape() {
-        // s + letter + 1..20 digits (case-insensitive, as the OCR normalizer
-        // uppercases reads and matching is case-insensitive).
-        assertNotNull(CompactSkuTemplate.score("sb25092090066487374", 0.9), "the warehouse product code shape")
-        assertNotNull(CompactSkuTemplate.score("SB25092090066487374", 0.9), "uppercased read")
-        assertNotNull(CompactSkuTemplate.score("sz1", 1.0), "one digit minimum")
+        // MASTER ORDER §18: s + exactly one LOWERCASE letter + 5..20 digits.
+        assertNotNull(CompactSkuTemplate.score("sa12345", 0.9), "the order's accepted example")
+        assertNotNull(CompactSkuTemplate.score("sb987654", 0.9), "the order's accepted example")
+        assertNotNull(CompactSkuTemplate.score("sb25092090066487374", 0.9), "the real warehouse code shape")
+        assertNotNull(CompactSkuTemplate.score("sz12345", 1.0), "five digits minimum")
         assertNotNull(CompactSkuTemplate.score("sz12345678901234567890", 0.9), "twenty digits maximum")
     }
 
@@ -53,15 +53,39 @@ class CompactSkuTemplateTest {
         assertNull(CompactSkuTemplate.score("CARTON", 0.9), "bare words are not the s shape")
         assertNull(CompactSkuTemplate.score("SKU-TEST-001", 0.9), "segmented codes are not the s shape")
         assertNull(CompactSkuTemplate.score("ABC123", 0.9), "must start with s then a letter")
-        assertNull(CompactSkuTemplate.score("sa", 0.9), "at least one digit required")
-        assertNull(CompactSkuTemplate.score("s", 0.9), "no digits after the letter")
-        assertNull(CompactSkuTemplate.score("sa123456789012345678901", 0.9), "more than twenty digits rejected")
         assertNull(CompactSkuTemplate.score("s1b", 0.9), "digit must follow the first letter")
+    }
+
+    /** The five refused examples listed verbatim in MASTER ORDER §18. */
+    @Test
+    fun rejectsTheOrdersExplicitRefusedExamples() {
+        assertNull(CompactSkuTemplate.score("SA12345", 0.9), "uppercase letter is refused")
+        assertNull(CompactSkuTemplate.score("sA12345", 0.9), "uppercase second char is refused")
+        assertNull(CompactSkuTemplate.score("s1234", 0.9), "fewer than five digits is refused")
+        assertNull(CompactSkuTemplate.score("sabc12345", 0.9), "more than one letter is refused")
+        assertNull(CompactSkuTemplate.score("hello", 0.9), "random text is refused")
+        assertNull(CompactSkuTemplate.score("123456", 0.9), "digits only are refused")
+    }
+
+    @Test
+    fun rejectsDigitCountOutsideFiveToTwenty() {
+        assertNull(CompactSkuTemplate.score("s1234", 0.9), "4 digits")
+        assertNull(CompactSkuTemplate.score("sz1", 0.9), "1 digit")
+        assertNull(CompactSkuTemplate.score("sa", 0.9), "no digits")
+        assertNull(CompactSkuTemplate.score("s", 0.9), "no digits after the letter")
+        assertNull(CompactSkuTemplate.score("sa123456789012345678901", 0.9), "21 digits")
+    }
+
+    @Test
+    fun isCaseSensitiveOnPurpose() {
+        assertTrue(CompactSkuTemplate.caseSensitive, "the §18 shape depends on the lowercase letter")
+        assertFalse(CompactSkuTemplate.SKU_PATTERN.matches("Sa12345"))
+        assertFalse(CompactSkuTemplate.SKU_PATTERN.matches("sB12345"))
     }
 
     @Test
     fun scoresHighButNeverFullConfidence() {
-        val score = CompactSkuTemplate.score("sz42", 1.0)!!
+        val score = CompactSkuTemplate.score("sz12345", 1.0)!!
         assertTrue(score <= 0.97, "template output stays under 1.0 (OCR is a suggestion)")
         assertTrue(score >= 0.9)
     }
@@ -149,10 +173,15 @@ class CartonTemplateTest {
     @Test
     fun normalizerExtractsStrictSkuAndCarton() {
         val n = OcrNormalizer()
-        // A noisy multi-line label still yields exactly the compact SKU.
-        assertEquals("SB25092090066487374", n.compactSku("AYROVI LOGISTICS\nsb25092090066487374\nQTY 24"))
+        // A noisy multi-line label still yields exactly the compact SKU, and the
+        // CASE of the printed code survives (the §18 shape needs the lowercase
+        // letter, so the lane must not be uppercased).
+        assertEquals("sb25092090066487374", n.compactSku("AYROVI LOGISTICS\nsb25092090066487374\nQTY 24"))
         // No s-shape -> null (never accept arbitrary detected text).
         assertNull(n.compactSku("CARTON\nQTY 24\nCTN-2026-000001"))
+        // The refused uppercase/mixed-case variants stay refused end to end.
+        assertNull(n.compactSku("AYROVI LOGISTICS\nSA12345\nQTY 24"))
+        assertNull(n.compactSku("AYROVI LOGISTICS\nsA12345\nQTY 24"))
         // Carton lane extracts the carton id, not the SKU-shaped noise.
         assertEquals("CTN-2026-000001", n.cartonCode("AYROVI LOGISTICS\nCTN-2026-000001\nQTY 24"))
     }

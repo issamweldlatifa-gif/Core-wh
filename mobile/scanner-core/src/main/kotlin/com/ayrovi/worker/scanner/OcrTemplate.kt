@@ -16,6 +16,14 @@ interface OcrTemplate {
     val hint: String
 
     /**
+     * TRUE when this template's shape depends on the CASE of the printed code.
+     * The OCR normalizer uppercases reads by default (warehouse codes are
+     * case-insensitive), which would destroy a lowercase-only shape; lanes that
+     * set this flag are fed a case-preserving normalisation instead.
+     */
+    val caseSensitive: Boolean get() = false
+
+    /**
      * Template confidence for a normalised token (0..1), or null to reject it.
      * Base shape scoring comes from [OcrNormalizer]; the template applies
      * domain shaping on top. Never returns 1.0: OCR is a suggestion, never a
@@ -57,37 +65,38 @@ object SkuTemplate : OcrTemplate {
 }
 
 /**
- * Strict product-SKU template for the warehouse's compact code shape:
+ * Strict product-SKU template for the warehouse's compact code shape
+ * (MASTER ORDER §18 — authoritative, do not widen):
  *
- *     `s` + one letter + 1..20 digits        e.g. sb25092090066487374, sz123
+ *     `s` + EXACTLY one LOWERCASE letter + 5..20 digits
+ *     e.g. sa12345, sb987654, sz25092090066487374
  *
- * This is the shape the operator reads off a label and matches against an
- * expected card line, so the template is deliberately STRICT: it accepts only
- * that exact shape and rejects everything else (quantities, bare words,
- * segmented warehouse codes, merged garbage). Strictness is what lets an OCR
- * read become a confident, local match instead of a per-scan "not found".
+ * Accepted pattern is exactly the one the order fixes:
  *
- * Comparison is case-insensitive (the OCR normalizer uppercases reads and the
- * matcher compares case-insensitively), so `SB25092090066487374` reads are
- * accepted too — a floor scan must not fail on case.
+ *     s + exactly one lowercase letter + 5 to 20 digits
  *
- * The pattern is the device-side mirror of the authoritative backend SKU
- * contract: the backend (receiving confirm endpoints) remains the FINAL
- * authority for whether a SKU exists — this shape only stops OCR noise from
- * being offered as a candidate.
+ * Rejected on purpose: `SA12345`, `sA12345`, `s1234`, `sabc12345`, `hello`,
+ * `123456`. The case is part of the pattern (the label prints lowercase after
+ * the leading `s`), so this template is [caseSensitive] — the OCR pipeline must
+ * hand it a case-preserving normalisation (see [OcrNormalizer.normaliseCasePreserving]).
+ *
+ * ML Kit stays the detection engine; this is strict post-processing + pattern
+ * filtering on top of it: detection → text cleaning → pattern validation →
+ * accept only matching text → ignore everything else.
  */
 object CompactSkuTemplate : OcrTemplate {
     override val id: String = "COMPACT_SKU"
     override val label: String = "Product SKU"
     override val hint: String = "Point at the product SKU line"
+    override val caseSensitive: Boolean = true
 
     /**
-     * Canonical compact SKU: `s` + one letter + 1..20 digits,
-     * case-insensitive (s12..sb12345..SZ25092090066487374).
+     * Authoritative compact SKU shape (MASTER ORDER §18):
+     * `s` + exactly one lowercase letter + 5..20 digits, CASE-SENSITIVE.
      */
-    val SKU_PATTERN: Regex = Regex("(?i)^s[a-z][0-9]{1,20}$")
+    val SKU_PATTERN: Regex = Regex("^s[a-z][0-9]{5,20}$")
 
-    /** True when a normalised token has the authoritative compact-SKU shape. */
+    /** True when the token has exactly the accepted compact-SKU shape. */
     fun isCompactSku(token: String): Boolean = SKU_PATTERN.matches(token.trim())
 
     override fun score(token: String, baseConfidence: Double): Double? {

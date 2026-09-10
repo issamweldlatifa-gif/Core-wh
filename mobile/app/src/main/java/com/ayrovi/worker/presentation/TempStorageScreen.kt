@@ -173,16 +173,23 @@ private fun TsHomeBody(
     TaskInstruction("SCAN PRODUCT", "The system finds the customer → section → target container.")
 
     if (home.sections.isNotEmpty()) {
+        // §4/§5: sections are INDICATORS, never selection buttons — the scan
+        // decides the section (customer → first letter → section → container),
+        // so only the letters that actually hold products are shown and one
+        // that is finished fades out instead of asking for a tap.
         Text("SECTIONS (${home.sections.size})", style = MaterialTheme.typography.titleSmall, color = TerminalTokens.muted)
         Column(verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
             home.sections.forEach { section ->
-                SectionCard(
+                SectionIndicator(
                     letter = section.letter ?: "—",
                     active = section.letter != null && section.letter == home.currentSection,
-                    summary = section.customers.joinToString(" · ") {
-                        listOfNotNull(it.customer, it.received?.let { r -> "$r units" }).joinToString(" ")
+                    stored = section.stored ?: 0,
+                    products = section.products ?: 0,
+                    customers = section.customers.mapNotNull { c ->
+                        val name = c.customer ?: return@mapNotNull null
+                        val left = c.remaining ?: 0
+                        "$name ${c.received ?: 0}${if (left == 0) " ✓" else ""}"
                     },
-                    onClick = { section.letter?.let { model.workflow.openSection(it) } },
                     modifier = Modifier.testTag("TS_SECTION_${(section.letter ?: "?").uppercase()}"),
                 )
             }
@@ -203,27 +210,69 @@ private fun MetricBox(label: String, value: Int, color: Color, modifier: Modifie
     }
 }
 
+/**
+ * Section INDICATOR (§5/§12): a letter chip plus its customers, never a button.
+ *
+ * - the active section (the one the system is currently filling) is amber and
+ *   labelled ACTIVE TARGET;
+ * - a section whose customers are all complete fades to [dimAlpha] and reads
+ *   COMPLETED — it stops competing for attention while staying readable;
+ * - the letter is not selectable: scanning a product of that section is what
+ *   navigates the operator there (customer → first letter → section).
+ */
 @Composable
-private fun SectionCard(letter: String, active: Boolean, summary: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun SectionIndicator(
+    letter: String, active: Boolean, stored: Int, products: Int, customers: List<String>,
+    modifier: Modifier = Modifier,
+) {
+    val complete = !active && customers.isNotEmpty() && customers.all { it.endsWith("✓") }
+    val dimAlpha = if (complete) 0.45f else 1f
     Surface(modifier = modifier.fillMaxWidth(), color = TerminalTokens.surface, shape = MaterialTheme.shapes.small,
         border = BorderStroke(TerminalTokens.stroke,
-            if (active) TerminalTokens.warning else TerminalTokens.border)) {
+            when {
+                active -> TerminalTokens.warning
+                complete -> TerminalTokens.success.copy(alpha = dimAlpha)
+                else -> TerminalTokens.border
+            })) {
         Row(Modifier.fillMaxWidth().padding(TerminalTokens.sm), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(TerminalTokens.md)) {
-            Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-                Surface(color = if (active) TerminalTokens.warning else TerminalTokens.primary,
-                    shape = MaterialTheme.shapes.small) {
+            Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+                Surface(
+                    color = when {
+                        active -> TerminalTokens.warning
+                        complete -> TerminalTokens.success.copy(alpha = dimAlpha)
+                        else -> TerminalTokens.primary
+                    },
+                    shape = MaterialTheme.shapes.small,
+                ) {
                     Text(letter, Modifier.padding(10.dp),
                         style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Black),
-                        color = TerminalTokens.onPrimary)
+                        color = TerminalTokens.onPrimary.copy(alpha = dimAlpha))
                 }
             }
             Column(Modifier.weight(1f)) {
-                Text("SECTION $letter", style = MaterialTheme.typography.titleMedium)
-                if (summary.isNotBlank()) Text(summary, style = MaterialTheme.typography.bodySmall, color = TerminalTokens.muted, maxLines = 2)
+                Text("SECTION $letter", style = MaterialTheme.typography.titleMedium,
+                    color = TerminalTokens.text.copy(alpha = dimAlpha))
+                if (customers.isNotEmpty()) {
+                    Text(customers.joinToString(" · "), style = MaterialTheme.typography.bodySmall,
+                        color = TerminalTokens.muted.copy(alpha = dimAlpha), maxLines = 2)
+                }
+                Text("$stored / $products stored", style = MaterialTheme.typography.labelSmall,
+                    color = TerminalTokens.muted.copy(alpha = dimAlpha))
             }
-            if (active) Text("ACTIVE TARGET", style = MaterialTheme.typography.labelSmall, color = TerminalTokens.warning)
-            OutlinedButton(onClick, Modifier.testTag("OPEN_SECTION")) { Text("OPEN", style = MaterialTheme.typography.labelMedium) }
+            Text(
+                when {
+                    active -> "ACTIVE TARGET"
+                    complete -> "COMPLETED ✓"
+                    else -> "WAITING"
+                },
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                color = when {
+                    active -> TerminalTokens.warning
+                    complete -> TerminalTokens.success.copy(alpha = dimAlpha)
+                    else -> TerminalTokens.muted
+                },
+            )
         }
     }
 }
@@ -306,6 +355,13 @@ private fun TsBoardBody(
                     Text("STORED $stored", style = MaterialTheme.typography.labelSmall, color = TerminalTokens.muted)
                     Text("LEFT $remaining", style = MaterialTheme.typography.labelSmall, color = TerminalTokens.muted)
                 }
+                // §6: the customer's progress, in the operator's language
+                // ("$stored / $received articles"), never a raw id or ratio.
+                ProgressBar(
+                    done = stored,
+                    total = received,
+                    barColor = if (remaining > 0) TerminalTokens.instruction else TerminalTokens.success,
+                )
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     group.containers.forEach { container ->
                         ContainerCard(
@@ -346,47 +402,67 @@ private fun TsBoardBody(
     TsScannerControls(capture, state, model)
 }
 
-/** Container card: qty/capacity/status + the amber target / green-ok / red-wrong flash. */
+/**
+ * Container card: qty/capacity/status + the amber target / green-ok / red-wrong
+ * flash.
+ *
+ * MASTER ORDER §11: a container that reached its capacity is COMPLETED/LOCKED —
+ * it stays visible but DIM (never an active element), so the operator only sees
+ * what still needs work. [dimAlpha] lowers the whole card's emphasis.
+ */
 @Composable
 private fun ContainerCard(
     code: String, current: Int, capacity: Int, status: String,
     target: Boolean, flashOk: Boolean, flashBad: Boolean,
 ) {
+    val full = status == "FULL"
+    val dim = full && !target
+    val dimAlpha = if (dim) 0.45f else 1f
     val borderColor = when {
         target -> TerminalTokens.warning
         flashOk -> TerminalTokens.success
         flashBad -> TerminalTokens.error
         status == "ACTIVE" -> TerminalTokens.success
-        status == "FULL" -> TerminalTokens.muted
+        full -> TerminalTokens.muted.copy(alpha = dimAlpha)
         else -> TerminalTokens.border
     }
     val pulse by rememberInfiniteTransition(label = "ts-container-pulse").animateFloat(
         0.6f, 1f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "container-pulse")
     Surface(
         Modifier.fillMaxWidth().testTag("TS_CONTAINER_$code"),
-        color = if (target) TerminalTokens.warning.copy(alpha = 0.10f) else TerminalTokens.raised,
+        color = when {
+            target -> TerminalTokens.warning.copy(alpha = 0.10f)
+            dim -> TerminalTokens.raised.copy(alpha = 0.55f)
+            else -> TerminalTokens.raised
+        },
         shape = MaterialTheme.shapes.small,
-        border = BorderStroke(if (target || flashOk || flashBad) 3.dp else TerminalTokens.stroke,
-            if (target) borderColor.copy(alpha = pulse) else borderColor),
+        border = BorderStroke(
+            if (target || flashOk || flashBad) 3.dp else TerminalTokens.stroke,
+            if (target) borderColor.copy(alpha = pulse) else borderColor,
+        ),
     ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = TerminalTokens.sm, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
             Column(Modifier.weight(1f)) {
                 Text(code, style = MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Monospace),
-                    color = if (target) TerminalTokens.warning else TerminalTokens.text)
-                Text("$current / $capacity", style = MaterialTheme.typography.bodySmall, color = TerminalTokens.muted)
+                    color = (if (target) TerminalTokens.warning else TerminalTokens.text).copy(alpha = dimAlpha))
+                Text("$current / $capacity", style = MaterialTheme.typography.bodySmall,
+                    color = TerminalTokens.muted.copy(alpha = dimAlpha))
             }
             if (target) {
                 Text("▶ TARGET", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Black),
                     color = TerminalTokens.warning, modifier = Modifier.testTag("TARGET_BADGE"))
             } else {
-                Text(status, style = MaterialTheme.typography.labelSmall,
-                    color = when (status) {
+                Text(
+                    if (full) "$status ✓" else status,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = (when (status) {
                         "FULL" -> TerminalTokens.muted
                         "ACTIVE" -> TerminalTokens.success
                         "REVIEW" -> TerminalTokens.error
                         else -> TerminalTokens.border
-                    })
+                    }).copy(alpha = dimAlpha),
+                )
             }
         }
     }
@@ -406,16 +482,21 @@ private fun TsScannerControls(capture: ScannerCapture, state: TsStorageState, mo
         when {
             capture.manualOpen -> ManualScan(capture, enabled)
             capture.cameraOpen -> {
-                capture.preview(Modifier.fillMaxWidth().height(TerminalTokens.scanPreview))
+                // §20/§21: the camera QR/barcode area is deliberately LARGER than
+                // the OCR strip, keeps the read region crisp and dims the rest.
+                QrCaptureArea(preview = capture.preview, label = "QR / BARCODE")
                 SecondaryAction("CANCEL SCAN", capture.cancel, enabled)
             }
             capture.ocrOpen -> OcrScan(capture, enabled)
             else -> {
+                // §8/§23: no big scan box while idle — the CT40 trigger is the
+                // primary interaction, the screen only shows the target + state.
                 Text(if (state.pending != null) "SCAN CONTAINER ${state.pending!!.targetCode}" else "SCAN PRODUCT",
                     style = MaterialTheme.typography.titleMedium, color = TerminalTokens.warning)
-                Box(Modifier.fillMaxWidth().height(TerminalTokens.stateIcon), contentAlignment = Alignment.Center) {
-                    WorkerIcon(statusIcon.first, "Scanner status", Modifier.size(TerminalTokens.stateIcon), statusIcon.second)
-                }
+                ScanReadyIndicator(
+                    text = if (state.pending != null) "READY TO SCAN CONTAINER" else "READY TO SCAN PRODUCT",
+                    tone = statusIcon.second,
+                )
                 PrimaryAction("SOFTWARE SCAN", capture.softwareScan, enabled)
                 Row(horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
                     SecondaryAction("USE CAMERA", capture.camera, enabled, Modifier.weight(1f))

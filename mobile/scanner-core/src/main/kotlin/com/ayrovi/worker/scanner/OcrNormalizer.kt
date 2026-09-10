@@ -23,7 +23,13 @@ class OcrNormalizer {
      * 0-9, '-' or '_' that does not start/end with a separator. Shared by the
      * generic candidate extractor and the strict lane shape gates.
      */
-    private val tokenPattern = Regex("(?<![A-Z0-9])[A-Z0-9][A-Z0-9_-]{2,47}(?![A-Z0-9])")
+    /**
+     * Candidate token shape: a warehouse code token is 3..48 chars of
+     * A-Z/a-z, 0-9, '-' or '_' that does not start/end with a separator.
+     * Case-insensitive so the case-preserving lane (§18 compact SKU) still
+     * yields tokens; uppercased input behaves exactly as before.
+     */
+    private val tokenPattern = Regex("(?<![A-Za-z0-9])[A-Za-z0-9][A-Za-z0-9_-]{2,47}(?![A-Za-z0-9])")
 
     /** Normalise raw OCR text into a clean uppercase, single-spaced string. */
     fun normalise(raw: String): String =
@@ -33,6 +39,19 @@ class OcrNormalizer {
             // I/l are NOT mapped so real codes containing I stay intact.
             .replace(Regex("[|!]"), "1")
             .uppercase()
+            .replace(Regex("[\\s\\t\\r\\n]+"), " ")
+            .trim()
+
+    /**
+     * Case-PRESERVING normalisation (same cleaning, no uppercasing). Used by
+     * lanes whose authoritative pattern is case-sensitive — the compact SKU
+     * shape requires a lowercase letter after the leading `s` (§18), so
+     * uppercasing the read would destroy the only accepted shape.
+     */
+    fun normaliseCasePreserving(raw: String): String =
+        raw
+            .trim()
+            .replace(Regex("[|!]"), "1")
             .replace(Regex("[\\s\\t\\r\\n]+"), " ")
             .trim()
 
@@ -72,14 +91,17 @@ class OcrNormalizer {
         candidates(normalise(raw)).firstOrNull { it.confidence >= minConfidence }
 
     /**
-     * STRICT shape gate for the product lane: extract the single token that
-     * has the authoritative compact-SKU shape (`s` + letter + digits), or null
-     * when the block contains no such token. ML Kit text is NEVER accepted as
-     * a SKU unless a token passes this shape — quantities, bare words,
-     * segmented codes and merged garbage all return null.
+     * STRICT shape gate for the product lane (§18): extract the single token
+     * that has the authoritative compact-SKU shape (`s` + exactly one lowercase
+     * letter + 5..20 digits), or null when the block contains no such token.
+     *
+     * ML Kit text is NEVER accepted as a SKU unless a token passes this shape —
+     * quantities, bare words, segmented codes, uppercase variants (`SA12345`),
+     * mixed case (`sA12345`) and merged garbage all return null. The read is
+     * normalised WITHOUT uppercasing (the pattern is case-sensitive).
      */
     fun compactSku(raw: String): String? {
-        val normalised = normalise(raw)
+        val normalised = normaliseCasePreserving(raw)
         if (normalised.isEmpty()) return null
         return tokenPattern.findAll(normalised)
             .map { it.value }

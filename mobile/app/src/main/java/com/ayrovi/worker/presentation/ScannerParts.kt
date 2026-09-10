@@ -22,12 +22,24 @@ internal fun ManualScan(capture: ScannerCapture, enabled: Boolean) {
     SecondaryAction("CLOSE KEYPAD", capture.manual, enabled)
 }
 
-/** OCR review: multi-line label text in, operator-confirmed code out. Nothing auto-submits. */
+/**
+ * OCR review: multi-line label text in, operator-confirmed code out. Nothing
+ * auto-submits.
+ *
+ * MASTER ORDER §17: the camera is NOT a full-screen surface. When live OCR is
+ * open the preview is a SHORT HORIZONTAL BAND (about 1–2 cm tall) with the
+ * surroundings dimmed, so the operator only frames the code line.
+ */
 @Composable
 internal fun OcrScan(capture: ScannerCapture, enabled: Boolean) {
     Column(Modifier.fillMaxWidth().testTag("OCR_SCAN"), verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(TerminalTokens.xs)) {
         if (capture.ocrCameraOpen) {
-            capture.ocrPreview(Modifier.fillMaxWidth().height(TerminalTokens.scanPreview))
+            CaptureBand(preview = capture.ocrPreview, label = "OCR CAPTURE")
+            Text(
+                "Frame the SKU line inside the strip — the code must read s + one lowercase letter + 5–20 digits.",
+                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                color = TerminalTokens.muted,
+            )
             SecondaryAction("CANCEL SCAN", capture.ocrCamera, enabled)
         } else {
             TerminalTextInput("LABEL TEXT", capture.ocrText, capture.setOcrText, enabled = enabled, singleLine = false, onSubmit = capture.submitOcr)
