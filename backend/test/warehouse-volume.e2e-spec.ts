@@ -84,8 +84,15 @@ describe('Isolated 90-unit operational validation', () => {
     const tasks = (await api('receiver', 'get', '/terminal/assignments').expect(200)).body.open;
     expect(tasks.some((task: any) => task.taskKey === 'receiving' && task.entity.arrival.id === arrival.id)).toBe(true);
     await api('receiver', 'post', `/terminal/assignments/${tasks[0].id}/complete`, {}).expect(403);
-    await api('other', 'post', `/receiving/arrivals/${arrival.code}/start`, {}).expect(403);
+    // SHARED RECEIVING QUEUE (deliberate model): Receiving is staffed by
+    // several qualified workers at one station — authorization is by
+    // PERMISSION (receiving.execute), the dispatch row routes/audits work
+    // but is NOT an access gate, and per-unit duplicate protection lives at
+    // the write path. Both workers therefore land on the SAME single active
+    // session per arrival (start is idempotent).
+    const openedByOther = await api('other', 'post', `/receiving/arrivals/${arrival.code}/start`, {}).expect(201);
     sessionId = (await api('receiver', 'post', `/receiving/arrivals/${arrival.code}/start`, {}).expect(201)).body.id;
+    expect(sessionId).toBe(openedByOther.body.id);
   });
   it('confirms 3 CARTON CARDS via device-side matching and records duplicate + mismatch outcomes', async () => {
     // Each carton card is confirmed independently (the device matched the
