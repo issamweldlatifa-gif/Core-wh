@@ -140,8 +140,10 @@ class ShippingTraceUiTest {
         compose.waitUntil(10_000) { compose.onAllNodesWithTag("SCANNER_PANEL").fetchSemanticsNodes().isNotEmpty() }
 
         compose.runOnIdle { trace.onScan(ScanResult("SKU-77", ScanSource.EXTERNAL_SCANNER)) }
-        waitForTag("TRACE_PANEL")
-        compose.onNodeWithTag("TRACE_PANEL").assertIsDisplayed()
+        // Outcome first (state), then the panel — assertExists dumps the full
+        // semantics tree on failure, giving the layout answer in one CI cycle.
+        compose.waitUntil(10_000) { trace.state.value.view != null }
+        compose.onNodeWithTag("TRACE_PANEL").assertExists()
 
         // A failed lookup is a persistent verdict until BACK.
         compose.runOnIdle { trace.onScan(ScanResult("SKU-404", ScanSource.EXTERNAL_SCANNER)) }
