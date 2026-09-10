@@ -163,6 +163,7 @@ fun AyroviTerminalTheme(
     mode: TerminalThemeMode = TerminalThemeMode.WHITE,
     onToggleTheme: (() -> Unit)? = null,
     gloveMode: Boolean = false,
+    glareBoost: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val palette = TerminalPalette.forMode(mode, glareBoost)
