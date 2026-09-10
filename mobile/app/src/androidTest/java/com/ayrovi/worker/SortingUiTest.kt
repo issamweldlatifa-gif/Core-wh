@@ -19,6 +19,7 @@ import com.ayrovi.worker.data.FlashView
 import com.ayrovi.worker.design.TerminalThemeMode
 import com.ayrovi.worker.design.AyroviTerminalTheme
 import com.ayrovi.worker.presentation.SortingScreen
+import com.ayrovi.worker.presentation.SortingStep
 import com.ayrovi.worker.presentation.SortingViewModel
 import com.ayrovi.worker.scanner.ScanResult
 import com.ayrovi.worker.scanner.ScanSource
@@ -90,9 +91,13 @@ class SortingUiTest {
         waitForTag("DESTINATION_PANEL")
         compose.onAllNodesWithTag("SCAN_RESULT").assertCountEquals(0)
 
-        // STEP 2: the location scan IS the confirmation — green flash re-arms alone.
+        // STEP 2: the location scan IS the confirmation. The green flash is a
+        // ~250ms window — assert the OUTCOME (state re-armed, unit stored)
+        // instead of racing the flash, then the READY panel.
         compose.runOnIdle { model.onScan(ScanResult("Z3-A1", ScanSource.EXTERNAL_SCANNER)) }
-        waitForTag("SCAN_RESULT")
+        compose.waitUntil(10_000) {
+            model.state.value.stored == 1 && model.state.value.step == SortingStep.ARTICLE
+        }
         compose.waitUntil(10_000) { compose.onAllNodesWithTag("SCAN_RESULT").fetchSemanticsNodes().isEmpty() }
         waitForTag("READY_TO_SCAN")
 
