@@ -87,7 +87,7 @@ class TerminalAppearanceTest {
         // RECEIVING opens the WORK CENTER (not the scanner): title + card
         // content + two tiles + BACK. UX RESTRUCTURE: Settings is NOT in the
         // header anymore — its one entry point is the Home screen.
-        compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
+        awaitLoaded(compose, model)
         awaitOverviewFeed(compose, model)
         compose.waitUntil(10_000) { compose.onAllNodesWithTag("RECEIVING_CARD_PRODUCT_FIRST").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("RECEIVING_HOME").assertExists()

@@ -67,7 +67,7 @@ class UnifiedScannerUiTest {
                 }
             }
         }
-        compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
+        awaitLoaded(compose, model)
         compose.waitUntil(10_000) { model.state.value.step == HomeStep.AUTO_SCAN }
     }
 
@@ -119,7 +119,7 @@ class UnifiedScannerUiTest {
                 }
             }
         }
-        compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
+        awaitLoaded(compose, model)
         compose.waitUntil(10_000) { model.state.value.step == HomeStep.AUTO_SCAN }
         waitForTag("READY_TO_SCAN")
 
@@ -171,7 +171,7 @@ class UnifiedScannerUiTest {
                 }
             }
         }
-        compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
+        awaitLoaded(compose, model)
         compose.waitUntil(10_000) { model.state.value.step == HomeStep.AUTO_SCAN }
         waitForTag("READY_TO_SCAN")
 
@@ -243,7 +243,7 @@ class UnifiedScannerUiTest {
                 }
             }
         }
-        compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
+        awaitLoaded(compose, model)
         compose.waitUntil(10_000) { model.state.value.step == HomeStep.AUTO_SCAN }
         waitForTag("READY_TO_SCAN")
         compose.onAllNodesWithTag("LAST_SCAN").assertCountEquals(0)

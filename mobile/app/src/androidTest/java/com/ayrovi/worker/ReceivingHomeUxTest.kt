@@ -53,7 +53,7 @@ class ReceivingHomeUxTest {
                 }
             }
         }
-        compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
+        awaitLoaded(compose, model)
         return model
     }
 
@@ -117,7 +117,7 @@ class ReceivingHomeUxTest {
                 }
             }
         }
-        compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
+        awaitLoaded(compose, model)
         compose.waitUntil(10_000) { model.state.value.step == HomeStep.AUTO_SCAN }
         compose.onNodeWithTag("AUTO_SCANNER").assertIsDisplayed()
         compose.onAllNodesWithTag("RECEIVING_HOME").assertCountEquals(0)
@@ -140,7 +140,7 @@ class ReceivingHomeUxTest {
                 }
             }
         }
-        compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
+        awaitLoaded(compose, model)
         awaitOverviewFeed(compose, model)
         compose.waitUntil(10_000) { compose.onAllNodesWithTag("RECEIVING_CARD_PRODUCT_FIRST").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("RECEIVING_CARD_PRODUCT_FIRST").assertHeightIsAtLeast(TerminalTokens.touch)

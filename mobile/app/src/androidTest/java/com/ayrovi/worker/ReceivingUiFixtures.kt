@@ -105,6 +105,34 @@ internal class ReceivingUiGateway(expectedCartons: Int = 1, var empty: Boolean =
  * not disappear into a generic ComposeTimeoutException. One idempotent
  * refresh nudge is sent if the feed has not landed after 3s.
  */
+/**
+ * `loaded` await with the same guarantees as [awaitOverviewFeed]: a silent
+ * `run` rejection (busy/authExpired/serverAvailable) or a paused main looper
+ * must surface in the failure message, and one idempotent refresh nudge is
+ * sent if the load has not landed after 2.5s.
+ */
+internal fun awaitLoaded(compose: androidx.compose.ui.test.junit4.ComposeContentTestRule,
+                         model: com.ayrovi.worker.presentation.ReceivingHomeViewModel) {
+    val deadline = System.currentTimeMillis() + 10_000
+    var nudged = false
+    while (System.currentTimeMillis() < deadline) {
+        compose.waitForIdle()
+        val s = model.state.value
+        if (s.loaded && !s.busy) return
+        if (!nudged && System.currentTimeMillis() > deadline - 7_500) {
+            nudged = true
+            compose.runOnIdle { model.workflow.refresh() }
+        }
+        Thread.sleep(100)
+    }
+    val s = model.state.value
+    throw AssertionError(
+        "loaded never arrived: loaded=${s.loaded} busy=${s.busy} homeNull=${s.home == null} " +
+            "authorized=${s.authorized} serverAvailable=${s.serverAvailable} " +
+            "authExpired=${s.authExpired} step=${s.step} msg=${s.message?.title}:${s.message?.detail}"
+    )
+}
+
 internal fun awaitOverviewFeed(compose: androidx.compose.ui.test.junit4.ComposeContentTestRule,
                                model: com.ayrovi.worker.presentation.ReceivingHomeViewModel) {
     val deadline = System.currentTimeMillis() + 10_000
