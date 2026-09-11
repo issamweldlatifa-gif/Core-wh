@@ -2,7 +2,7 @@ package com.ayrovi.worker.batch
 
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
-import com.google.zxing.common.HybridBinarizer
+import com.google.zxing.common.GlobalHistogramBinarizer
 import com.google.zxing.qrcode.QRCodeReader
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -17,21 +17,36 @@ import org.junit.jupiter.api.Test
  */
 class BatchBarcodeRendererTest {
 
-    /** Minimal LuminanceSource over the renderer's boolean matrix. */
+    /**
+     * Minimal LuminanceSource over the renderer's matrix, padded with a white
+     * paper border (a printed label always sits on white stock) and decoded
+     * with GlobalHistogramBinarizer — the right binarizer for exact-size
+     * synthetic images (HybridBinarizer needs larger photos).
+     */
     private class MatrixSource(
         private val matrix: List<BooleanArray>,
         private val w: Int,
         private val h: Int,
-    ) : com.google.zxing.LuminanceSource(w, h) {
+        private val border: Int = 8,
+    ) : com.google.zxing.LuminanceSource(w + 2 * border, h + 2 * border) {
+        private val tw = w + 2 * border
+
+        private fun lum(x: Int, y: Int): Byte =
+            if (x < border || y < border || x >= border + w || y >= border + h || !matrix[y - border][x - border]) {
+                255.toByte() // white paper
+            } else {
+                0.toByte() // dark module
+            }
+
         override fun getRow(y: Int, row: ByteArray?): ByteArray {
-            val r = row ?: ByteArray(w)
-            for (x in 0 until w) r[x] = if (matrix[y][x]) 0 else 255.toByte()
+            val r = row ?: ByteArray(tw)
+            for (x in 0 until tw) r[x] = lum(x, y)
             return r
         }
 
         override fun getMatrix(): ByteArray {
-            val m = ByteArray(w * h)
-            for (y in 0 until h) for (x in 0 until w) m[y * w + x] = if (matrix[y][x]) 0 else 255.toByte()
+            val m = ByteArray(tw * height)
+            for (y in 0 until height) for (x in 0 until tw) m[y * tw + x] = lum(x, y)
             return m
         }
 
@@ -40,7 +55,7 @@ class BatchBarcodeRendererTest {
     }
 
     private fun decode(label: BatchBarcodeRenderer.Label): String {
-        val bitmap = BinaryBitmap(HybridBinarizer(MatrixSource(label.matrix, label.size, label.size)))
+        val bitmap = BinaryBitmap(GlobalHistogramBinarizer(MatrixSource(label.matrix, label.size, label.size)))
         val result = QRCodeReader().decode(bitmap, mapOf(DecodeHintType.TRY_HARDER to true))
         return result.text
     }
