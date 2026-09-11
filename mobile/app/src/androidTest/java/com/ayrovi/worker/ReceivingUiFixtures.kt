@@ -98,6 +98,35 @@ internal class ReceivingUiGateway(expectedCartons: Int = 1, var empty: Boolean =
     override suspend fun submitReport(sessionId: String, description: String?, observation: String?, photos: List<ReportPhotoInput>): ReceivingReportView = throw UnsupportedOperationException("home flow")
 }
 
+/**
+ * Overview-feed await with a full WORKFLOW-STATE dump on timeout: the state
+ * flow and the composition are two clocks, and a silent `run` rejection
+ * (CONNECTION UNAVAILABLE / ACTION NOT ALLOWED) must surface in the failure,
+ * not disappear into a generic ComposeTimeoutException. One idempotent
+ * refresh nudge is sent if the feed has not landed after 3s.
+ */
+internal fun awaitOverviewFeed(compose: androidx.compose.ui.test.junit4.ComposeContentTestRule,
+                               model: com.ayrovi.worker.presentation.ReceivingHomeViewModel) {
+    val deadline = System.currentTimeMillis() + 10_000
+    var nudged = false
+    while (System.currentTimeMillis() < deadline) {
+        compose.waitForIdle()
+        if (model.state.value.home?.productCards?.isNotEmpty() == true) return
+        if (!nudged && System.currentTimeMillis() > deadline - 7_000) {
+            nudged = true
+            compose.runOnIdle { model.workflow.refresh() }
+        }
+        Thread.sleep(100)
+    }
+    val s = model.state.value
+    throw AssertionError(
+        "overview feed never arrived: loaded=${s.loaded} homeNull=${s.home == null} " +
+            "productCards=${s.home?.productCards?.size ?: -1} busy=${s.busy} " +
+            "authorized=${s.authorized} serverAvailable=${s.serverAvailable} " +
+            "authExpired=${s.authExpired} step=${s.step} msg=${s.message?.title}:${s.message?.detail}"
+    )
+}
+
 internal class RecordingAudio : AudioFeedback {
     var positive = 0; var negative = 0; var caution = 0; var newWork = 0
     override fun success() { positive++ }
