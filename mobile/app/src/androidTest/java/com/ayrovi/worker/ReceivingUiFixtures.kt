@@ -133,6 +133,28 @@ internal fun awaitLoaded(compose: androidx.compose.ui.test.junit4.ComposeContent
     )
 }
 
+/**
+ * UI-side tag await with a SEMANTICS-TREE dump on timeout: the state may hold
+ * the feed while the composition never renders it — the tree shows exactly
+ * what the screen is actually drawing when the tag is missing.
+ */
+internal fun awaitUiTag(compose: androidx.compose.ui.test.junit4.ComposeContentTestRule,
+                        tag: String,
+                        model: com.ayrovi.worker.presentation.ReceivingHomeViewModel) {
+    val deadline = System.currentTimeMillis() + 10_000
+    while (System.currentTimeMillis() < deadline) {
+        compose.waitForIdle()
+        if (compose.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()) return
+        Thread.sleep(100)
+    }
+    val s = model.state.value
+    throw AssertionError(
+        "UI tag '$tag' never composed: loaded=${s.loaded} cards=${s.home?.productCards?.size ?: -1} " +
+            "cartons=${s.home?.cartonCards?.size ?: -1} tree=\n" +
+            compose.onRoot(useUnmergedTree = true).printToString().take(6000)
+    )
+}
+
 internal fun awaitOverviewFeed(compose: androidx.compose.ui.test.junit4.ComposeContentTestRule,
                                model: com.ayrovi.worker.presentation.ReceivingHomeViewModel) {
     val deadline = System.currentTimeMillis() + 10_000
