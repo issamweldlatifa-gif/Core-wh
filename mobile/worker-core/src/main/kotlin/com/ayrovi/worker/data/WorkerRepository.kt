@@ -10,7 +10,7 @@ import kotlinx.serialization.json.Json
 class WorkerRepository(
     private val store: SessionStorage,
     val transport: WorkerTransport,
-) : ReceivingGateway, TemporaryStorageGateway {
+) : ReceivingGateway, TemporaryStorageGateway, BatchGateway {
     constructor(store: SessionStorage, baseUrl: String) : this(store, HttpWorkerTransport.production(baseUrl, store))
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
@@ -422,6 +422,32 @@ class WorkerRepository(
         }
         return json.decodeFromString(TsReportPayload.serializer(), post("/v1/temporary-storage/report", body))
     }
+
+    // ---------------- AYROVI BATCH (worker build: create -> scan -> submit) ----------------
+
+    override suspend fun batchCreate(input: BatchCreateIn): BatchCreatedPayload =
+        json.decodeFromString(
+            BatchCreatedPayload.serializer(),
+            post("/v1/batches", json.encodeToString(BatchCreateIn.serializer(), input)),
+        )
+
+    override suspend fun batchAddUnit(batchId: String, input: BatchUnitIn): BatchUnitAddedPayload =
+        json.decodeFromString(
+            BatchUnitAddedPayload.serializer(),
+            post("/v1/batches/${urlEncode(batchId)}/units", json.encodeToString(BatchUnitIn.serializer(), input)),
+        )
+
+    override suspend fun batchSubmit(batchId: String, input: BatchSubmitIn): BatchSubmittedPayload =
+        json.decodeFromString(
+            BatchSubmittedPayload.serializer(),
+            post("/v1/batches/${urlEncode(batchId)}/submit", json.encodeToString(BatchSubmitIn.serializer(), input)),
+        )
+
+    override suspend fun batchOpen(): List<BatchRowPayload> =
+        json.decodeFromString(get("/v1/batches?status=CREATED"))
+
+    override suspend fun batchDetail(batchId: String): BatchDetailPayload =
+        json.decodeFromString(get("/v1/batches/${urlEncode(batchId)}"))
 
     private suspend fun get(path: String): String = transport.request("GET", path)
     private suspend fun put(path: String, body: String): String = transport.request("PUT", path, body)

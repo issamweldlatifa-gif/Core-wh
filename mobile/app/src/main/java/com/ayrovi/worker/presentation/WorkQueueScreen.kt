@@ -103,6 +103,7 @@ internal fun WorkerHomeScreen(
                                 "temporary-storage" -> TerminalIcon.STORAGE
                                 "shipping" -> TerminalIcon.CARTON
                                 "archive-trace" -> TerminalIcon.STATION
+                                "batch" -> TerminalIcon.PRODUCT
                                 else -> TerminalIcon.PUTAWAY
                             }, item.badgeCount,
                                 // Every station keeps its own handler — nothing
@@ -148,7 +149,7 @@ internal fun WorkerHomeScreen(
 
 /** Flat section divider — uppercase label + rule, no nested boxes (§15). */
 @Composable
-private fun SectionDivider(title: String) {
+internal fun SectionDivider(title: String) {
     Row(Modifier.fillMaxWidth().padding(top = TerminalTokens.xs), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
         Text(title, style = MaterialTheme.typography.titleSmall, color = TerminalTokens.muted, letterSpacing = 2.sp)

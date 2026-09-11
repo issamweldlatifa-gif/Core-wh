@@ -151,6 +151,21 @@ export const TASK_REGISTRY: OperationalTask[] = [
     work: 'Contrôle et expédition (Colis → Expédition)',
     stationDepartments: ['DISPATCH'],
   },
+  {
+    // AYROVI BATCH (Phase 2): the worker BUILDS batches in the app (create
+    // customer -> scan units -> print labels -> submit). NOT a station task:
+    // no stationDepartments/stationRequired — every worker holding
+    // batch.execute sees it, station-bound or not. The RECEIVING side of
+    // batches must reuse DISPATCH (command rule) — decided in its own slice.
+    key: 'batch',
+    label: 'Batch',
+    path: '/terminal/batch',
+    department: 'RECEIVING',
+    permission: 'batch.execute',
+    ready: true,
+    operation: 'Batch',
+    work: 'بناء الدفعات (عميل جديد → وحدات AYP → ملصقات → إرسال)',
+  },
 ];
 
 export function taskByKey(key: string): OperationalTask | undefined {
