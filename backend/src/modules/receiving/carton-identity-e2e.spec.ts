@@ -1,7 +1,6 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { ShipmentCardEventDto } from '../../integrations/crm/dto/shipment-card.dto';
-import { CustomerArrivalCardEventDto } from '../../integrations/crm/dto/customer-arrival-card.dto';
 import { ShipmentsService } from '../shipments/shipments.service';
 import { ReceivingService } from './receiving.service';
 
@@ -70,18 +69,10 @@ describe('CARTON CARD — contract and routing', () => {
     expect(await validationErrors(ShipmentCardEventDto, CARTON_CARD)).toBe(0);
   });
 
-  it('a carton card is REJECTED by the product (arrival) endpoint — never silently converted', async () => {
-    // Proof that AYROVI cannot mistake a carton card for a product card at
-    // intake: the two contracts are disjoint and validation is strict
-    // (forbidNonWhitelisted), so a carton payload cannot be parsed as products.
-    expect(await validationErrors(CustomerArrivalCardEventDto, CARTON_CARD)).toBeGreaterThan(0);
-  });
-
   it('a carton having SKU-like references does not make it a product card', async () => {
     const withRefs = JSON.parse(JSON.stringify(CARTON_CARD));
     withRefs.shipment.cartons[0].reference = 'sb25092090066487374'; // looks exactly like a SKU
     expect(await validationErrors(ShipmentCardEventDto, withRefs)).toBe(0);
-    expect(await validationErrors(CustomerArrivalCardEventDto, withRefs)).toBeGreaterThan(0);
   });
 });
 

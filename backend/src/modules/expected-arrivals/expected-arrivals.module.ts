@@ -1,26 +1,26 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
 import { PrismaModule } from '../../prisma/prisma.module';
-import { AssignmentsModule } from '../assignments/assignments.module';
 import { ExpectedArrivalsService } from './expected-arrivals.service';
-import { NotificationsModule } from '../notifications/notifications.module';
 import { ExpectedArrivalsController } from './expected-arrivals.controller';
-import { CrmArrivalsController } from '../../integrations/crm/crm-arrivals.controller';
-import { IntegrationApiGuard } from '../../integrations/crm/integration-api.guard';
 
 /**
- * Expected Arrivals — inbound Customer Arrival Cards pushed by the AYROVI
- * Arrival CRM via the external integration endpoint, read back through the
- * Warehouse UI. NOT physical receiving (status stays EXPECTED).
+ * Expected Arrivals — the HISTORICAL arrival ledger (previous CRM Arrival
+ * flow) and its Warehouse-UI read/manage surface. NOT physical receiving
+ * (status stays EXPECTED / RECEIVED / VOIDED …).
  *
- * Two surfaces share one service:
- *  - CrmArrivalsController (public + service-auth guard) : POST from the CRM
+ * PHASE 1 (AYROVI Batch architecture): the legacy CRM intake controller
+ * (POST /integrations/arrivals/customer-cards) and its auto-dispatch/push
+ * wiring were REMOVED — new operational arrivals no longer enter through
+ * CRM. Historical records stay fully readable/auditable here.
+ *
+ * One surface:
  *  - ExpectedArrivalsController (JWT + expected_arrivals.view): Warehouse UI
  */
 @Module({
-  imports: [NotificationsModule, PrismaModule, AuditModule, AssignmentsModule],
-  controllers: [CrmArrivalsController, ExpectedArrivalsController],
-  providers: [ExpectedArrivalsService, IntegrationApiGuard],
+  imports: [PrismaModule, AuditModule],
+  controllers: [ExpectedArrivalsController],
+  providers: [ExpectedArrivalsService],
   exports: [ExpectedArrivalsService],
 })
 export class ExpectedArrivalsModule {}
