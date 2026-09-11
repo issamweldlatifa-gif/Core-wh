@@ -35,7 +35,7 @@ class BatchBarcodeRendererTest {
 
         private fun lum(x: Int, y: Int): Byte {
             if (x < 8 * scale || y < 8 * scale || x >= tw - 8 * scale || y >= height - 8 * scale) return 255.toByte()
-            return if (matrix[(y - 8 * scale) / scale][(x - 8 * scale) / scale]) 0 else 255
+            return if (matrix[(y - 8 * scale) / scale][(x - 8 * scale) / scale]) 0.toByte() else 255.toByte()
         }
 
         override fun getRow(y: Int, row: ByteArray?): ByteArray {
