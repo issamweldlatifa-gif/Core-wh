@@ -43,6 +43,7 @@ const NAV: NavEntry[] = [
   { to: '/warehouse/structure', label: 'Warehouse Tree', group: 'WAREHOUSE', permission: 'warehouses.view', external: true },
   { to: '/admin/receiving-containers', label: 'Receiving Containers', group: 'WAREHOUSE', permission: 'operations.view' },
   { to: '/admin/temporary-storage', label: 'Temporary Storage', group: 'WAREHOUSE', permission: 'operations.view' },
+  { to: '/admin/batches', label: 'Batches', group: 'WAREHOUSE', permission: 'batch.view' },
   { to: '/admin/receiving-workers', label: 'Receiving Workers', group: 'WAREHOUSE', permission: 'operations.view' },
   { to: '/categories', label: 'Categories', group: 'WAREHOUSE', permission: 'inventory.view', external: true },
 

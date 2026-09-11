@@ -50,6 +50,7 @@ const AdminLiveBoard = lazy(() => import('./admin/pages/LiveBoard'));
 const AdminDataControl = lazy(() => import('./admin/pages/DataControl'));
 const AdminReceivingContainers = lazy(() => import('./admin/pages/ReceivingContainers'));
 const AdminTemporaryStorage = lazy(() => import('./admin/pages/TemporaryStorage'));
+const AdminBatches = lazy(() => import('./admin/pages/Batches'));
 const AdminReceivingWorkers = lazy(() => import('./admin/pages/ReceivingWorkers'));
 const AdminCustomerBins = lazy(() => import('./admin/pages/CustomerBins'));
 const AdminContainerDetail = lazy(() => import('./admin/pages/ContainerDetail'));
@@ -259,6 +260,7 @@ export default function App() {
             {/* Operational containers (COMMAND #1 FINAL §08/§09/§12). */}
             <Route path="receiving-containers" element={<AdminReceivingContainers />} />
             <Route path="temporary-storage" element={<AdminTemporaryStorage />} />
+            <Route path="batches" element={<AdminBatches />} />
             <Route path="receiving-workers" element={<AdminReceivingWorkers />} />
             <Route path="customer-bins" element={<AdminCustomerBins />} />
             <Route path="containers/:code" element={<AdminContainerDetail />} />
