@@ -30,12 +30,15 @@ class BatchBarcodeRendererTest {
         private val w: Int,
         private val h: Int,
         private val scale: Int = 4,
-    ) : com.google.zxing.LuminanceSource(w * scale + 8 * scale, h * scale + 8 * scale) {
-        private val tw = w * scale + 8 * scale
+        private val border: Int = 8,
+    ) : com.google.zxing.LuminanceSource(w * scale + 2 * border * scale, h * scale + 2 * border * scale) {
+        private val tw = w * scale + 2 * border * scale
 
         private fun lum(x: Int, y: Int): Byte {
-            if (x < 8 * scale || y < 8 * scale || x >= tw - 8 * scale || y >= height - 8 * scale) return 255.toByte()
-            return if (matrix[(y - 8 * scale) / scale][(x - 8 * scale) / scale]) 0.toByte() else 255.toByte()
+            if (x < border * scale || y < border * scale ||
+                x >= border * scale + w * scale || y >= border * scale + h * scale
+            ) return 255.toByte()
+            return if (matrix[(y - border * scale) / scale][(x - border * scale) / scale]) 0.toByte() else 255.toByte()
         }
 
         override fun getRow(y: Int, row: ByteArray?): ByteArray {
