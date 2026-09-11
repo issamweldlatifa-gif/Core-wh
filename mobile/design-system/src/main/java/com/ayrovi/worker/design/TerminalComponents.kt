@@ -357,3 +357,13 @@ fun TerminalTextInput(
         shape = MaterialTheme.shapes.small,
     )
 }
+
+@Composable fun SuccessState(title: String, detail: String) = OperationalState(title, detail, TerminalTone.SUCCESS)
+
+@Composable fun WarningState(title: String, detail: String) = OperationalState(title, detail, TerminalTone.WARNING)
+
+@Composable fun DangerAction(label: String, onClick: () -> Unit, enabled: Boolean = true, modifier: Modifier = Modifier.fillMaxWidth(), icon: TerminalIcon? = null) = TerminalAction(label, onClick, enabled, modifier, danger = true, icon = icon)
+
+@Composable fun ConfirmAction(label: String = "CONFIRM", onClick: () -> Unit, enabled: Boolean = true) = PrimaryAction(label, onClick, enabled)
+
+@Composable fun RetryAction(onClick: () -> Unit, enabled: Boolean = true, label: String = "RETRY") = SecondaryAction(label, onClick, enabled)
