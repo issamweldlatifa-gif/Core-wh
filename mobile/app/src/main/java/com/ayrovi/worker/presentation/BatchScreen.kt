@@ -100,11 +100,11 @@ fun BatchScreen(
                 TerminalFooter(if (state.busy) "PLEASE WAIT" else "") {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
                         SecondaryAction("BACK", {
-                            if (state.batch != null) model.leaveActive() else onBack()
+                            if (state.batch != null) model.workflow.leaveActive() else onBack()
                         }, !state.busy, Modifier.weight(1f))
                         if (state.batch != null) {
-                            SecondaryAction("MANUAL", { model.addManual() }, model.captureAllowed, Modifier.weight(1f))
-                            SecondaryAction("SUBMIT", { model.submit() },
+                            SecondaryAction("MANUAL", { model.workflow.addManual() }, model.captureAllowed, Modifier.weight(1f))
+                            SecondaryAction("SUBMIT", { model.workflow.submit() },
                                 !state.busy && !state.submittedDone && state.units.isNotEmpty(), Modifier.weight(1f))
                         }
                         if (onToggleGlare != null) GlareFooterAction(glareOn, onToggleGlare)
@@ -113,7 +113,8 @@ fun BatchScreen(
             },
             scrollKey = "batch:${state.batch?.id}:${state.scanEpoch}",
         ) {
-            if (state.batch == null) {
+            val currentBatch = state.batch
+            if (currentBatch == null) {
                 // ---- PICK / CREATE -------------------------------------
                 Column(
                     Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(TerminalTokens.sm),
@@ -128,7 +129,7 @@ fun BatchScreen(
                         TerminalTextInput("REFERENCE (OPTIONAL)", externalRef, { externalRef = it }, enabled = !state.busy)
                         PrimaryAction(
                             "OPEN BATCH",
-                            { model.create(customer, externalRef); customer = ""; externalRef = "" },
+                            { model.workflow.create(customer, externalRef); customer = ""; externalRef = "" },
                             !state.busy && customer.isNotBlank(),
                             Modifier.fillMaxWidth().testTag("BATCH_CREATE"),
                         )
@@ -139,7 +140,7 @@ fun BatchScreen(
                         state.open.forEach { open ->
                             SecondaryAction(
                                 "${open.batchCode} · ${open.customer?.name ?: "—"} (${open.totalExpected})",
-                                { model.continueBatch(open.id) },
+                                { model.workflow.continueBatch(open.id) },
                                 !state.busy,
                                 Modifier.fillMaxWidth().testTag("BATCH_RESUME_" + open.batchCode),
                             )
@@ -154,7 +155,7 @@ fun BatchScreen(
                     Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(TerminalTokens.sm),
                     verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm),
                 ) {
-                    TerminalPanel(state.batch.batchCode) {
+                    TerminalPanel(currentBatch.batchCode) {
                         val live = state.units.size
                         Text(
                             "UNITS $live · CUSTOMER ${customerName ?: "—"}",
@@ -162,7 +163,7 @@ fun BatchScreen(
                             color = TerminalTokens.muted,
                         )
                         TaskInstruction(
-                            state.batch.batchCode,
+                            currentBatch.batchCode,
                             if (model.captureAllowed) "Scan ONE product per beep. Same product on several pieces = scan each piece."
                             else "Scanning is paused.",
                         )
@@ -181,7 +182,7 @@ fun BatchScreen(
                         SectionDivider("LABELS (${state.units.size})")
                         SecondaryAction(
                             "PRINT ALL LABELS",
-                            { BatchLabelPrint.printUnitLabels(context, unitLabels(), "ayrovi-units-${state.batch.batchCode}") },
+                            { BatchLabelPrint.printUnitLabels(context, unitLabels(), "ayrovi-units-${currentBatch.batchCode}") },
                             true,
                             Modifier.fillMaxWidth().testTag("BATCH_PRINT_ALL"),
                         )
