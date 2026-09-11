@@ -104,3 +104,9 @@ Business logic · Backend/API · Scanner logic (CT40/Phone/Honeywell/Zebra) · S
 
 ## التحقق
 نفس أوامر CI كاملة (وحدات + assembleDebug + lint + androidTest) + دفع + CI أخضر.
+
+## سجل الإصدار v1.7.3 (64)
+- **Commit:** `69e4cae` — master + arena/ux-restructure
+- **CI:** run 34545036552 — SUCCESS (units + assembleDebug + lint + androidTest)
+- **APK (CI):** artifact `ayrovi-worker-receiving-pilot-69e4cae897df2e8a10089bf2e8e23541d3d9ac0b` (43.8MB, id 10178757674) + `worker-verification-reports` (id 10178756308)
+- **APK (محلي):** `releases/AYROVI-Worker-v1.7.3-64-debug.apk`
