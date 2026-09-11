@@ -31,20 +31,26 @@ data class TerminalPalette(
     val onError: Color, val border: Color,
 ) {
     companion object {
+        // v1.7.5 DISTINCTIVE DAY PALETTE: blue = interaction/identity, amber =
+        // caution, green = success, red = stop — clear saturated hues on white.
+        // Text-bearing shades are darkened just enough to stay readable on
+        // white (amber especially) while washes/borders keep the hue obvious.
         val White = TerminalPalette(
             background = Color(0xFFFFFFFF), surface = Color(0xFFFFFFFF), raised = Color(0xFFF1F3F5),
             text = Color(0xFF111111), muted = Color(0xFF42484F),
-            primary = Color(0xFF111111), onPrimary = Color(0xFFFFFFFF),
-            instruction = Color(0xFF00558C), success = Color(0xFF096640),
-            warning = Color(0xFF7A4C00), error = Color(0xFFB42318),
+            primary = Color(0xFF1565C0), onPrimary = Color(0xFFFFFFFF),
+            instruction = Color(0xFF1976D2), success = Color(0xFF2E7D32),
+            warning = Color(0xFFB45309), error = Color(0xFFD32F2F),
             onError = Color(0xFFFFFFFF), border = Color(0xFF858C93),
         )
+        // v1.7.5 NIGHT palette — SAME hue semantics as day (blue interaction,
+        // amber caution, green success, red stop) at night-readable luminance.
         val Black = TerminalPalette(
             background = Color(0xFF000000), surface = Color(0xFF101010), raised = Color(0xFF202020),
             text = Color(0xFFFFFFFF), muted = Color(0xFFC5C8CC),
-            primary = Color(0xFFFFFFFF), onPrimary = Color(0xFF000000),
-            instruction = Color(0xFF8DD5FF), success = Color(0xFF8FE0B3),
-            warning = Color(0xFFFFD080), error = Color(0xFFFFADA5),
+            primary = Color(0xFF64B5F6), onPrimary = Color(0xFF000000),
+            instruction = Color(0xFF90CAF9), success = Color(0xFF81C784),
+            warning = Color(0xFFFFD54F), error = Color(0xFFE57373),
             onError = Color(0xFF230704), border = Color(0xFF767B80),
         )
         val Industrial = TerminalPalette(
@@ -134,14 +140,21 @@ object TerminalTokens {
     val scanPreview = 180.dp
     val reticle = 32.dp
 
+    // v1.7.5 UNIFIED TYPE SCALE — one ladder for the whole app:
+    // 24 (screen titles) / 20 (big data) / 18 (section & panel titles) /
+    // 15 (body) / 12 (labels & captions). 16 Bold is reserved for ACTION
+    // labels on touch targets (glove legibility). Monospace = scan codes only.
     val typography = Typography(
         displayLarge = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Black, fontSize = 72.sp, lineHeight = 76.sp),
         displaySmall = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 32.sp, lineHeight = 38.sp),
-        headlineMedium = TextStyle(fontWeight = FontWeight.Bold, fontSize = 28.sp, lineHeight = 32.sp),
-        titleLarge = TextStyle(fontWeight = FontWeight.Bold, fontSize = 22.sp, lineHeight = 26.sp),
+        headlineMedium = TextStyle(fontWeight = FontWeight.Bold, fontSize = 24.sp, lineHeight = 30.sp),
+        headlineSmall = TextStyle(fontWeight = FontWeight.Bold, fontSize = 24.sp, lineHeight = 30.sp),
+        titleLarge = TextStyle(fontWeight = FontWeight.Bold, fontSize = 20.sp, lineHeight = 26.sp),
         titleMedium = TextStyle(fontWeight = FontWeight.Bold, fontSize = 18.sp, lineHeight = 24.sp),
-        bodyLarge = TextStyle(fontSize = 16.sp, lineHeight = 22.sp),
-        bodyMedium = TextStyle(fontSize = 14.sp, lineHeight = 20.sp),
+        titleSmall = TextStyle(fontWeight = FontWeight.Bold, fontSize = 15.sp, lineHeight = 20.sp),
+        bodyLarge = TextStyle(fontSize = 15.sp, lineHeight = 21.sp),
+        bodyMedium = TextStyle(fontSize = 15.sp, lineHeight = 21.sp),
+        bodySmall = TextStyle(fontSize = 12.sp, lineHeight = 16.sp),
         labelLarge = TextStyle(fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 20.sp),
         labelMedium = TextStyle(fontWeight = FontWeight.Bold, fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = 0.5.sp),
         labelSmall = TextStyle(fontSize = 12.sp, lineHeight = 16.sp),

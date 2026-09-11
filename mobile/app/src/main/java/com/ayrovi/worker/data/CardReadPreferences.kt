@@ -38,6 +38,10 @@ class CardReadPreferences(
         }
     }
 
+    override fun clearAll() {
+        runCatching { preferences.edit().clear().apply() }
+    }
+
     override fun clear(workerId: String) {
         runCatching {
             preferences.edit()

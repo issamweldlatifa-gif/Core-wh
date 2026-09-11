@@ -8,6 +8,7 @@ import com.ayrovi.worker.domain.AudioFeedback
 import com.ayrovi.worker.domain.HomeStep
 import com.ayrovi.worker.domain.MessageTone
 import com.ayrovi.worker.domain.ReceivingHomeWorkflow
+import com.ayrovi.worker.scanner.ScanDecision
 import com.ayrovi.worker.scanner.ScanResult
 import com.ayrovi.worker.scanner.ScannerManager
 import kotlinx.coroutines.launch
@@ -64,7 +65,11 @@ class ReceivingHomeViewModel(
 ) : ViewModel() {
     val workflow = ReceivingHomeWorkflow(gateway, workerId, permissions, viewModelScope)
     val state = workflow.state
-    val scanner = ScannerManager()
+    // v1.7.5 CONTINUOUS SESSION: the camera stays open between reads, so
+    // the duplicate echo window grows 1.5s -> 6s: a label still in front of
+    // the lens is swallowed SILENTLY (no verdict, no count, no flash) while
+    // the backend/device guards behind it still reject true re-counts.
+    val scanner = ScannerManager(ScanDecision(windowMs = 6_000, debounceMs = 0))
 
     private val mutableSummary = MutableStateFlow<ReceivingWorkSummary?>(null)
 

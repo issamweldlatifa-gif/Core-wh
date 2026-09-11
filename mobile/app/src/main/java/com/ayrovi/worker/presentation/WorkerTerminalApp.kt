@@ -113,6 +113,7 @@ fun WorkerTerminalApp(
             // live receiving content — TO DO / ISSUES / DONE cards + the
             // existing PRODUCT / CARTON lane scanners. No intermediate picker.
             ReceivingHomeRoute(container, state, connection, model,
+                onExitSession = onBack,
                 vmKey = "receiving-home", openWith = null, ocrFirst = false,
                 glove = glove, glare = glare,
                 onToggleTheme = appearance::toggleTheme,
@@ -124,6 +125,9 @@ fun WorkerTerminalApp(
             // (no Receiving → Product → Carton steps). Scans run through the
             // EXISTING matching/verify/error logic; only the entry changed.
             ReceivingHomeRoute(container, state, connection, model,
+                // v1.7.5: every exit of the QR CODE tool (camera BACK, red
+                // verdict BACK) lands on the MAIN home — no intermediate page.
+                onExitSession = { route = TerminalRoute.QUEUE; model.refresh() },
                 vmKey = "scan-tool", openWith = ReceivingHomeIntent.OpenAutoScan, ocrFirst = scanOcrFirst,
                 glove = glove, glare = glare,
                 onToggleTheme = appearance::toggleTheme,
@@ -209,7 +213,12 @@ fun WorkerTerminalApp(
             // worker's open receiving session. Back returns to RECEIVING.
             val report: ReceivingReportViewModel = viewModel(
                 key = "receiving-report-${state.loginGeneration}",
-                factory = factory { ReceivingReportViewModel(container.repository, state.me!!.permissions.toSet(), container.audio) },
+                factory = factory {
+                    ReceivingReportViewModel(container.repository, state.me!!.permissions.toSet(), container.audio,
+                        // v1.7.5: a finished rapport wipes every operational
+                        // trace of previous receiving work from the device.
+                        operationalWipe = { container.cardReads.clearAll() })
+                },
             )
             val reportAvailable = state.verified && connection !in setOf(ConnectionState.OFFLINE, ConnectionState.AUTH_ERROR, ConnectionState.SYNC_ERROR)
             LaunchedEffect(state.me?.permissions, reportAvailable) {
@@ -271,6 +280,7 @@ fun WorkerTerminalApp(
             device = container.device,
             onSwitchMode = { showSettings = false },
             onClose = { showSettings = false },
+            onPurgeData = { model.purgeOperationalData() },
             onChangeDisplay = appearance::toggleTheme,
             gloveOn = glove,
             onToggleGlove = appearance::toggleGlove,
@@ -338,6 +348,7 @@ private fun ReceivingHomeRoute(
     coachPending: Boolean,
     onCoachDone: () -> Unit,
     onBack: () -> Unit,
+    onExitSession: (() -> Unit)? = null,
 ) {
     val workerId = state.me!!.user!!.id!!
     val receiving: ReceivingHomeViewModel = viewModel(
@@ -352,6 +363,7 @@ private fun ReceivingHomeRoute(
         onBack = onBack, onAuthExpired = model::expireSession,
         device = container.device, onToggleTheme = onToggleTheme,
         openWith = openWith, ocrFirst = ocrFirst,
+        onExitSession = onExitSession,
         gloveOn = glove, onToggleGlove = onToggleGlove,
         glareOn = glare, onToggleGlare = onToggleGlare,
         coachPending = coachPending, onCoachDone = onCoachDone)

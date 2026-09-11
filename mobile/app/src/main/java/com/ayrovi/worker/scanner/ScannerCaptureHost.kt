@@ -53,6 +53,13 @@ fun rememberScannerCapture(
      * the CT40 layout pass `true` here; production always passes null.
      */
     hardwareOverride: Boolean? = null,
+    /**
+     * v1.7.5: camera session timeout in ms; 0 = NEVER auto-close. The
+     * receiving scan tool is a CONTINUOUS session (the field-reported
+     * "camera closes and you reopen it all session" was this 10s timer).
+     * Other stations keep the historic 10s watchdog.
+     */
+    cameraTimeoutMs: Long = 10_000,
 ): ScannerCapture {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current
@@ -119,7 +126,7 @@ fun rememberScannerCapture(
     LaunchedEffect(enabled, resumed) { if (!enabled || !resumed) { camera = false; ocrCameraOpen = false } }
     LaunchedEffect(contextKey) { camera = false; code = ""; permissionGranted = false; ocrOpen = false; ocrText = ""; ocrSuggestion = null; ocrError = null; ocrCameraOpen = false; ocrCameraPending = false; coordinator.reset() }
     LaunchedEffect(trigger) {
-        if (trigger > 0) { delay(10_000); manager.timeout(); if (manager.state.value.status == ScannerStatus.TIMEOUT) { camera = false; ocrCameraOpen = false } }
+        if (trigger > 0 && cameraTimeoutMs > 0) { delay(cameraTimeoutMs); manager.timeout(); if (manager.state.value.status == ScannerStatus.TIMEOUT) { camera = false; ocrCameraOpen = false } }
     }
     DisposableEffect(lifecycle, service) {
         service.initialize()

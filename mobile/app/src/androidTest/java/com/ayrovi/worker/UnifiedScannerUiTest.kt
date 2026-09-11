@@ -258,4 +258,107 @@ class UnifiedScannerUiTest {
         compose.onNodeWithTag("LAST_SCAN").assertIsDisplayed()
         compose.onNodeWithText("SKU-TEST").assertIsDisplayed()
     }
+
+    /**
+     * v1.7.5 CONTINUOUS SESSION: AMBER verdicts — ALREADY SCANNED, the
+     * device re-count guard — show FULL SCREEN exactly like green/red, then
+     * re-arm the loop by themselves. They used to be swallowed entirely
+     * (the field-reported "no result, it just closes").
+     */
+    @Test
+    fun amberAlreadyScannedShowsFullScreenThenRearms() {
+        val model = ReceivingHomeViewModel(ReceivingUiGateway(), "worker", setOf("receiving.view", "receiving.execute"))
+        compose.setContent {
+            LaunchedEffect(Unit) { model.activate(setOf("receiving.view", "receiving.execute"), true) }
+            Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
+                AyroviTerminalTheme(TerminalThemeMode.WHITE, onToggleTheme = {}) {
+                    ReceivingHomeScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {},
+                        openWith = com.ayrovi.worker.presentation.ReceivingHomeIntent.OpenAutoScan,
+                        forceHardwareScanner = true)
+                }
+            }
+        }
+        awaitLoaded(compose, model)
+        compose.waitUntil(10_000) { model.state.value.step == HomeStep.AUTO_SCAN }
+        waitForTag("READY_TO_SCAN")
+
+        // First read: green MATCH, auto-re-arm (zero-touch).
+        compose.runOnIdle { model.workflow.scan(ScanResult("SKU-TEST", ScanSource.EXTERNAL_SCANNER)) }
+        waitForTag("SCAN_RESULT")
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("SCAN_RESULT").fetchSemanticsNodes().isEmpty() }
+
+        // The SAME unit again: the amber guard — full screen, then auto-re-arm.
+        compose.runOnIdle { model.workflow.scan(ScanResult("SKU-TEST", ScanSource.EXTERNAL_SCANNER)) }
+        waitForTag("SCAN_RESULT")
+        compose.onNodeWithText("ALREADY SCANNED").assertIsDisplayed()
+        compose.waitUntil(15_000) { compose.onAllNodesWithTag("SCAN_RESULT").fetchSemanticsNodes().isEmpty() }
+        waitForTag("READY_TO_SCAN")
+    }
+
+    /**
+     * v1.7.5: BACK on the RED verdict is a SESSION EXIT — the screen raises
+     * onExitSession (the app shell then lands on the MAIN home; the reported
+     * "back keeps landing on a scan page with a button"). Red itself still
+     * never auto-dismisses.
+     */
+    @Test
+    fun redVerdictBackEndsTheSession() {
+        val exited = java.util.concurrent.atomic.AtomicBoolean(false)
+        val model = ReceivingHomeViewModel(ReceivingUiGateway(), "worker", setOf("receiving.view", "receiving.execute"))
+        compose.setContent {
+            LaunchedEffect(Unit) { model.activate(setOf("receiving.view", "receiving.execute"), true) }
+            Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
+                AyroviTerminalTheme(TerminalThemeMode.WHITE, onToggleTheme = {}) {
+                    ReceivingHomeScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {},
+                        onExitSession = { exited.set(true) },
+                        openWith = com.ayrovi.worker.presentation.ReceivingHomeIntent.OpenAutoScan,
+                        forceHardwareScanner = true)
+                }
+            }
+        }
+        awaitLoaded(compose, model)
+        compose.waitUntil(10_000) { model.state.value.step == HomeStep.AUTO_SCAN }
+        waitForTag("READY_TO_SCAN")
+
+        compose.runOnIdle { model.workflow.scan(ScanResult("SKU-UNKNOWN", ScanSource.EXTERNAL_SCANNER)) }
+        waitForTag("SCAN_RESULT")
+        compose.onNodeWithTag("RESULT_BACK").assertIsDisplayed()
+        // Far longer than the 1.2s re-arm: a RED verdict never dismisses itself.
+        Thread.sleep(3_000)
+        compose.waitForIdle()
+        compose.onNodeWithTag("SCAN_RESULT").assertIsDisplayed()
+
+        compose.onNodeWithTag("RESULT_BACK").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("SCAN_RESULT").fetchSemanticsNodes().isEmpty() }
+        org.junit.Assert.assertTrue("BACK on red must raise onExitSession", exited.get())
+    }
+
+    /**
+     * v1.7.5: BACK inside the CAMERA is a SESSION EXIT too — no detour to
+     * any READY panel with a trigger button.
+     */
+    @Test
+    fun cameraBackEndsTheSession() {
+        val exited = java.util.concurrent.atomic.AtomicBoolean(false)
+        val model = ReceivingHomeViewModel(ReceivingUiGateway(), "worker", setOf("receiving.view", "receiving.execute"))
+        compose.setContent {
+            LaunchedEffect(Unit) { model.activate(setOf("receiving.view", "receiving.execute"), true) }
+            Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
+                AyroviTerminalTheme(TerminalThemeMode.WHITE, onToggleTheme = {}) {
+                    ReceivingHomeScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {},
+                        onExitSession = { exited.set(true) },
+                        openWith = com.ayrovi.worker.presentation.ReceivingHomeIntent.OpenAutoScan)
+                }
+            }
+        }
+        compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
+        compose.waitUntil(10_000) { model.state.value.step == HomeStep.AUTO_SCAN }
+        // The camera opened straight away (QR tool on a phone, no imager).
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("CAPTURE_QR_AREA").fetchSemanticsNodes().isNotEmpty() }
+
+        compose.onNodeWithTag("TOOL_BACK").performClick()
+        compose.waitForIdle()
+        org.junit.Assert.assertTrue("BACK in the camera must raise onExitSession", exited.get())
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("CAPTURE_QR_AREA").fetchSemanticsNodes().isEmpty() }
+    }
 }

@@ -272,7 +272,7 @@ internal fun ScanToolsEdgeButton(onOpenTools: () -> Unit) {
  *    submits itself on decode, so no confirm step is needed.
  */
 @Composable
-internal fun CameraToolOverlay(capture: ScannerCapture, enabled: Boolean) {
+internal fun CameraToolOverlay(capture: ScannerCapture, enabled: Boolean, onBack: (() -> Unit)? = null) {
     val ocr = capture.ocrCameraOpen
     Box(
         Modifier.fillMaxSize()
@@ -302,7 +302,7 @@ internal fun CameraToolOverlay(capture: ScannerCapture, enabled: Boolean) {
             QrTakeoverSquare(capture.preview)
         }
         SecondaryAction(
-            "BACK", capture.cancel, enabled,
+            "BACK", onBack ?: capture.cancel, enabled,
             Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                 .padding(horizontal = TerminalTokens.lg, vertical = TerminalTokens.lg)
                 .testTag("TOOL_BACK"),
@@ -442,9 +442,23 @@ internal fun ScanResultOverlay(
     /** RECEIVING loop only: auto-rearm after a MATCH (ms). Stations whose
      *  standing rule is "the verdict stays until BACK" pass null (default). */
     autoRearmMs: Long? = null,
+    /** v1.7.5: explicit verdict tone. WARNING renders the AMBER verdict
+     *  ("already scanned / card complete") with the same zero-touch re-arm
+     *  loop as a MATCH, so those verdicts are finally SEEN. Default keeps
+     *  the historic green/red behaviour for the other stations. */
+    toneOverride: MessageTone? = null,
     onBack: () -> Unit,
 ) {
-    val tone = if (ok) TerminalTokens.success else TerminalTokens.error
+    val tone = when (toneOverride) {
+        MessageTone.SUCCESS -> TerminalTokens.success
+        MessageTone.WARNING -> TerminalTokens.warning
+        MessageTone.ERROR -> TerminalTokens.error
+        else -> if (ok) TerminalTokens.success else TerminalTokens.error
+    }
+    // GREEN / AMBER = "move on" verdicts: auto-rearm. RED = stop: stays.
+    val rearmMs = autoRearmMs?.takeIf { ok || toneOverride == MessageTone.WARNING }
+    val mark = when { ok -> "✓"; toneOverride == MessageTone.WARNING -> "!"; else -> "✕" }
+    val glyph = when { ok -> TerminalIcon.SUCCESS; toneOverride == MessageTone.WARNING -> TerminalIcon.WARNING; else -> TerminalIcon.ERROR }
     // Full-bleed wash: the verdict owns the display, no fogged card.
     Box(
         Modifier.fillMaxSize().testTag("SCAN_RESULT").background(
@@ -457,19 +471,19 @@ internal fun ScanResultOverlay(
             Modifier.fillMaxWidth().fillMaxHeight(0.42f)
                 .background(tone.copy(alpha = if (ok) 0.30f else 0.34f)),
         )
-        if (ok && autoRearmMs != null) {
-            // MATCH: re-arm the lane automatically. The scan loop never stops.
-            LaunchedEffect(title) { delay(autoRearmMs); onBack() }
+        if (rearmMs != null) {
+            // MATCH / AMBER: re-arm the lane automatically. The loop never stops.
+            LaunchedEffect(title) { delay(rearmMs); onBack() }
         }
         Column(
             Modifier.align(Alignment.Center).fillMaxWidth().padding(TerminalTokens.lg),
             verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            WorkerIcon(if (ok) TerminalIcon.SUCCESS else TerminalIcon.ERROR, null,
-                Modifier.size(if (ok) 96.dp else 72.dp), tone)
+            WorkerIcon(glyph, null,
+                Modifier.size(if (rearmMs != null) 96.dp else 72.dp), tone)
             Text(
-                if (ok) "✓" else "✕",
+                mark,
                 style = MaterialTheme.typography.displayLarge,
                 color = tone,
             )
@@ -483,9 +497,9 @@ internal fun ScanResultOverlay(
                 Text(line, style = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),
                     color = TerminalTokens.text)
             }
-            if (autoRearmMs != null && ok) {
+            if (rearmMs != null) {
                 Text("SCAN NEXT — NO TOUCH NEEDED", style = MaterialTheme.typography.labelLarge,
-                    color = TerminalTokens.success)
+                    color = tone)
             } else {
                 Spacer(Modifier.height(2.dp))
                 PrimaryAction("BACK", onBack, true, Modifier.fillMaxWidth().testTag("RESULT_BACK"))

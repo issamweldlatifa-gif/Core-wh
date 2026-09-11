@@ -48,8 +48,8 @@ android {
         applicationId = "com.ayrovi.worker"
         minSdk = 26
         targetSdk = 35
-        versionCode = 65
-        versionName = "1.7.4"
+        versionCode = 66
+        versionName = "1.7.5"
         buildConfigField("String", "API_BASE_URL", "\"${apiBaseUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
         buildConfigField("boolean", "WORKER_LEGACY_FALLBACK", legacyFallback.get().toString())
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -57,7 +57,13 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // v1.7.5 modern-build pass: R8 code+resource shrinking ON.
+            // Obfuscation stays OFF (-dontobfuscate) on purpose: reflection
+            // safety first (serialization/CameraX/MLKit), shrinking still
+            // strips dead code and resources. Consumer rules ship with the
+            // libraries; the project rules keep the generated serializers.
+            isMinifyEnabled = true
+            isShrinkResources = true
             // Unsigned by default. Production signing belongs to the managed release pipeline.
             signingConfig = if (releaseSigningConfigured) signingConfigs.getByName("managedRelease") else null
             proguardFiles(

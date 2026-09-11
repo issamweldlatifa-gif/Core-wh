@@ -28,6 +28,12 @@ class ReceivingReportViewModel(
     gateway: ReceivingGateway,
     permissions: Set<String>,
     private val audio: AudioFeedback = AudioFeedback.Silent,
+    /**
+     * v1.7.5: runs ONCE when the report is submitted — wipes every
+     * operational trace of previous receiving work stored on the device
+     * (the read-cards set), so a finished rapport leaves a clean app.
+     */
+    private val operationalWipe: () -> Unit = {},
 ) : ViewModel() {
     private val workflow = ReceivingReportWorkflow(gateway, permissions, viewModelScope)
     val state = workflow.state
@@ -40,6 +46,18 @@ class ReceivingReportViewModel(
     private var lastSent: List<ReportPhotoInput> = emptyList()
 
     init {
+        // v1.7.5: the moment a rapport is SUBMITTED, wipe every operational
+        // trace of previous receiving work stored on this device — exactly
+        // once (the flag survives further state emissions).
+        viewModelScope.launch {
+            var wiped = false
+            state.collect {
+                if (!wiped && it.justSubmitted) {
+                    wiped = true
+                    runCatching { operationalWipe() }
+                }
+            }
+        }
         viewModelScope.launch {
             workflow.events.collect { event ->
                 runCatching {

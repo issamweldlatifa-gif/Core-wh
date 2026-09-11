@@ -8,3 +8,6 @@
 -keepclasseswithmembers class com.ayrovi.worker.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
+
+# v1.7.5: shrink without renaming — reflection safety first.
+-dontobfuscate

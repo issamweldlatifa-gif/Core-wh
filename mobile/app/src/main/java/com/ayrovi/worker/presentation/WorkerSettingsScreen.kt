@@ -143,6 +143,8 @@ fun WorkerSettingsDialog(
     onToggleGlove: (() -> Unit)? = null,
     glareOn: Boolean = false,
     onToggleGlare: (() -> Unit)? = null,
+    /** v1.7.5: wipe operational traces stored on this device (two-tap confirm). */
+    onPurgeData: (() -> Unit)? = null,
 ) {
     val vm: WorkerSettingsViewModel? = if (repository != null) viewModel(
         factory = factory {
@@ -151,6 +153,8 @@ fun WorkerSettingsDialog(
         },
     ) else null
     val fallback = remember { mutableStateOf(WorkerSettingsState()) }
+    var confirmPurge by remember { mutableStateOf(false) }
+    var purged by remember { mutableStateOf(false) }
     val state by (vm?.state?.collectAsStateWithLifecycle() ?: fallback)
     val model = vm // non-null inside the branch; safe to capture
 
@@ -189,6 +193,23 @@ fun WorkerSettingsDialog(
                     Text("Connection · $connection", style = MaterialTheme.typography.bodyMedium)
                     Text("Device · ${if (device == WorkerDevice.CT40) "CT40 rugged terminal" else "Phone / touch terminal"}",
                         style = MaterialTheme.typography.bodyMedium)
+                    if (onPurgeData != null) {
+                        if (purged) {
+                            TerminalNotice("SESSION DATA CLEARED",
+                                "Previous receiving operations were removed from this device.",
+                                TerminalTone.SUCCESS)
+                        }
+                        SecondaryAction(
+                            if (confirmPurge) "TAP AGAIN TO CONFIRM" else "CLEAR SESSION DATA",
+                            {
+                                if (confirmPurge) {
+                                    onPurgeData(); purged = true; confirmPurge = false
+                                } else confirmPurge = true
+                            },
+                            !state.busy,
+                            Modifier.fillMaxWidth().testTag("SETTINGS_PURGE_DATA"),
+                        )
+                    }
                 }
 
                 SettingsGroup("ABOUT") {

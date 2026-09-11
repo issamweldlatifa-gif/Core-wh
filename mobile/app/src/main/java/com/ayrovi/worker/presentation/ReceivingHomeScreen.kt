@@ -56,6 +56,15 @@ fun ReceivingHomeScreen(
     connection: String,
     onBack: () -> Unit,
     onAuthExpired: () -> Unit,
+    /**
+     * v1.7.5 CONTINUOUS SCAN SESSION: leaving the tool's camera or its red
+     * verdict ENDS the session and returns to the MAIN home — never the
+     * READY panel, never an intermediate page (the field-reported "back
+     * keeps landing on a scan page with a button"). Null = legacy behaviour
+     * (UI harnesses / contexts with no camera session). Placed AFTER the
+     * non-default params: existing positional callers keep compiling.
+     */
+    onExitSession: (() -> Unit)? = null,
     device: WorkerDevice = WorkerDevice.PHONE,
     onToggleTheme: (() -> Unit)? = null,
     /**
@@ -146,6 +155,8 @@ fun ReceivingHomeScreen(
         ocrTemplate = if (lane == "SCAN") com.ayrovi.worker.scanner.AutoScanTemplate
         else com.ayrovi.worker.scanner.CompactSkuTemplate,
         hardwareOverride = forceHardwareScanner,
+        // v1.7.5: the session camera NEVER times out (0 = no watchdog).
+        cameraTimeoutMs = 0,
     )
 
     // §3/§4 + STABILITY: the tool's camera / OCR opens on LANE ENTRY — a
@@ -167,6 +178,20 @@ fun ReceivingHomeScreen(
             }
         }
         lastToolStep = state.step
+    }
+
+    // v1.7.5 CONTINUOUS SESSION: a green OR amber verdict re-arms straight
+    // INTO THE CAMERA (phones) — the tool never falls back to the READY
+    // panel between reads. The duplicate echo guard swallows the label that
+    // is still in front of the lens SILENTLY, so the reopen cannot loop.
+    // scanEpoch bumps exactly once per judged read (incl. warnings).
+    LaunchedEffect(state.scanEpoch) {
+        val tone = state.message?.tone
+        if ((tone == MessageTone.SUCCESS || tone == MessageTone.WARNING) &&
+            state.step == HomeStep.AUTO_SCAN && autoOpenCamera && !capture.hardwareAvailable
+        ) {
+            capture.camera()
+        }
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -210,9 +235,13 @@ fun ReceivingHomeScreen(
         // result — and the phone trigger button lives in the READY panel.
         val cameraActive = capture.cameraOpen || capture.ocrCameraOpen
         val verdict = state.message
-        val verdictShown = verdict != null && (verdict.tone == MessageTone.SUCCESS || verdict.tone == MessageTone.ERROR)
+        // v1.7.5: WARNING verdicts (ALREADY SCANNED / CARD COMPLETE /
+        // SEVERAL CARTONS) now show full-screen too — they were swallowed.
+        val verdictShown = verdict != null && verdict.tone != MessageTone.INFO
         if (cameraActive) {
-            CameraToolOverlay(capture, model.captureAllowed)
+            // v1.7.5: the camera's BACK is a SESSION EXIT → the MAIN home.
+            CameraToolOverlay(capture, model.captureAllowed,
+                onBack = onExitSession?.let { exit -> { capture.cancel(); exit() } })
         }
 
         // Phase D (lite): first-minute coach marks — once per install, then
@@ -228,11 +257,15 @@ fun ReceivingHomeScreen(
                 ok = verdict!!.tone == MessageTone.SUCCESS,
                 title = verdict.title,
                 detail = verdict.detail,
-                // RECEIVING loop: a green MATCH re-arms by itself (zero-touch).
-                // 1200ms — the verdict must be SEEN: the reported "camera
-                // closes by itself without any indication" was a 250ms flash.
+                // v1.7.5: green AND amber re-arm after 1200ms (the verdict is
+                // SEEN, then the camera resumes); RED stays until BACK — and
+                // BACK now EXITS the session to the MAIN home.
+                toneOverride = verdict.tone,
                 autoRearmMs = 1200,
-                onBack = model.workflow::dismissResult,
+                onBack = {
+                    model.workflow.dismissResult()
+                    onExitSession?.invoke()
+                },
             )
         }
     }
@@ -333,7 +366,7 @@ private fun ReceivingProductCard(card: com.ayrovi.worker.data.ProductCard, modif
         Column(Modifier.fillMaxWidth().padding(TerminalTokens.md), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xxs)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-                WorkerIcon(TerminalIcon.PRODUCT, "PRODUCT", Modifier.size(22.dp), TerminalTokens.success)
+                WorkerIcon(TerminalIcon.PRODUCT, "PRODUCT", Modifier.size(TerminalTokens.iconSmall), TerminalTokens.success)
                 Text("PRODUCT", style = MaterialTheme.typography.labelLarge, letterSpacing = 2.sp)
                 Spacer(Modifier.weight(1f))
                 Text(cardStatus(card.received, card.expected), style = MaterialTheme.typography.labelMedium, color = TerminalTokens.muted)
@@ -367,7 +400,7 @@ private fun ReceivingCartonCard(card: com.ayrovi.worker.data.CartonCard, modifie
         Column(Modifier.fillMaxWidth().padding(TerminalTokens.md), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xxs)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-                WorkerIcon(TerminalIcon.CARTON, "CARTON", Modifier.size(22.dp), TerminalTokens.instruction)
+                WorkerIcon(TerminalIcon.CARTON, "CARTON", Modifier.size(TerminalTokens.iconSmall), TerminalTokens.instruction)
                 Text("CARTON", style = MaterialTheme.typography.labelLarge, letterSpacing = 2.sp)
                 Spacer(Modifier.weight(1f))
                 Text(card.status ?: "TO DO", style = MaterialTheme.typography.labelMedium, color = TerminalTokens.muted)
@@ -421,7 +454,7 @@ private fun IssueCard(
     ) {
         Column(Modifier.fillMaxWidth().padding(TerminalTokens.md), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xxs)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-                WorkerIcon(TerminalIcon.WARNING, "ISSUE", Modifier.size(22.dp), TerminalTokens.warning)
+                WorkerIcon(TerminalIcon.WARNING, "ISSUE", Modifier.size(TerminalTokens.iconSmall), TerminalTokens.warning)
                 Text(title, style = MaterialTheme.typography.titleSmall)
             }
             Text(detail, style = MaterialTheme.typography.bodyMedium)
@@ -444,7 +477,7 @@ private fun DoneCard(summary: ReceivingWorkSummary) {
     ) {
         Column(Modifier.fillMaxWidth().padding(TerminalTokens.md), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xxs)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-                WorkerIcon(TerminalIcon.SUCCESS, "DONE", Modifier.size(22.dp), TerminalTokens.success)
+                WorkerIcon(TerminalIcon.SUCCESS, "DONE", Modifier.size(TerminalTokens.iconSmall), TerminalTokens.success)
                 Text(summary.sessionCode?.let { "SESSION $it" } ?: "RECEIVED WORK", style = MaterialTheme.typography.titleSmall)
                 Spacer(Modifier.weight(1f))
                 if (summary.status.equals("COMPLETED", ignoreCase = true)) {
@@ -483,7 +516,7 @@ internal fun LaneTile(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                WorkerIcon(icon, label, Modifier.size(if (glove) 72.dp else 64.dp), TerminalTokens.primary)
+                WorkerIcon(icon, label, Modifier.size(TerminalTokens.workflowIcon), TerminalTokens.primary)
                 Spacer(Modifier.height(TerminalTokens.xs))
                 Text(label, style = MaterialTheme.typography.headlineSmall, letterSpacing = 3.sp)
                 if (!enabled && reason != null) {
@@ -657,7 +690,7 @@ private fun CoachMarks(onDone: () -> Unit) {
 private fun CoachRule(icon: TerminalIcon, text: String) {
     Row(verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
-        WorkerIcon(icon, null, Modifier.size(34.dp), TerminalTokens.primary)
+        WorkerIcon(icon, null, Modifier.size(TerminalTokens.workflowIcon), TerminalTokens.primary)
         Text(text, style = MaterialTheme.typography.bodyLarge, color = TerminalTokens.text)
     }
 }

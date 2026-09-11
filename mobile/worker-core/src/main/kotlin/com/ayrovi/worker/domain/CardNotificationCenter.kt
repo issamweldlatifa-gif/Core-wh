@@ -44,6 +44,8 @@ interface CardReadStore {
     fun load(workerId: String): Pair<Set<String>, Set<String>>
     fun save(workerId: String, product: Set<String>, carton: Set<String>)
     fun clear(workerId: String)
+    /** v1.7.5 purge: remove EVERY worker's read set (finished-rapport wipe). */
+    fun clearAll()
 }
 
 /** In-memory default: correct for tests and for a device with no store wired. */
@@ -54,6 +56,7 @@ class InMemoryCardReadStore : CardReadStore {
         data[workerId] = product to carton
     }
     @Synchronized override fun clear(workerId: String) { data.remove(workerId) }
+    @Synchronized override fun clearAll() { data.clear() }
 }
 
 object CardNotificationCenter {

@@ -201,6 +201,14 @@ class WorkerAppViewModel(
      * The worker opened a receiving lane: every card visible in it becomes
      * READ and the badge drops immediately, without waiting for the next poll.
      */
+    /**
+     * v1.7.5: wipe ALL operational traces stored on the device (per-worker
+     * receiving read-sets). Settings action next to the automatic wipe that
+     * runs when a rapport is submitted. Never touches sign-in / push /
+     * appearance data.
+     */
+    fun purgeOperationalData() { runCatching { readStore.clearAll() } }
+
     fun markReceivingRead(product: Boolean? = null) {
         val current = mutable.value
         val home = current.receivingHome
