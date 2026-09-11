@@ -1,14 +1,27 @@
 import { Module } from '@nestjs/common';
+import { AuditModule } from '../audit/audit.module';
+import { BatchesController } from './batches.controller';
+import { BatchesService } from './batches.service';
 
 /**
- * AYROVI BATCH — Phase 2 CONTRACT module.
+ * AYROVI BATCH — Phase 2 module (contract + operations).
  *
- * Ships the data model (Prisma), the lifecycle state machine, the AYB/AYP
- * code generators, the feature flag (`batch.enabled`, OFF by default), the
- * permission keys and the strict DTOs. NO controller and NO routes yet:
- * wiring lands in the following phases (Worker App -> Admin -> Receiving),
- * each behind its own green gate. The module is registered so the contract
- * is part of the compiled application from day one.
+ * Contract slice: data model, state machine, AYB/AYP generators, feature
+ * flag, permission keys, strict DTOs.
+ * Operations slice (this version): BatchesService + BatchesController —
+ * create/add-unit/submit (worker), accept/send/void (admin), start/receive/
+ * complete (receiving) — every write replay-safe, audited atomically,
+ * gated by `batch.enabled` (OFF by default).
+ *
+ * The module is deliberately SELF-CONTAINED: it depends only on Prisma
+ * (global) and the existing AuditModule. It never touches expected-arrivals,
+ * receiving, cartons or CRM — the DISPATCH-station reuse check happens in
+ * the receiving slice and cannot introduce such a dependency.
  */
-@Module({})
+@Module({
+  imports: [AuditModule],
+  controllers: [BatchesController],
+  providers: [BatchesService],
+  exports: [BatchesService],
+})
 export class BatchesModule {}

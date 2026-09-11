@@ -241,6 +241,16 @@ enum AuditAction {
   CONTAINER_FULL // a Temporary Storage container reached its capacity (target moves to the next one)
   TEMPORARY_STORAGE_COMPLETED // worker closed the Temporary Storage shift with a Rapport de Fin
   CARTON_CLOSED_AT_RECEIVING // carton path closed at Receiving (admin/blocked) — never enters Temporary Storage
+  // Phase 2 — AYROVI Batch system (feature/ayrovi-batch).
+  BATCH_CREATED
+  BATCH_UNIT_ADDED
+  BATCH_SUBMITTED
+  BATCH_ACCEPTED
+  BATCH_SENT_TO_RECEIVING
+  BATCH_RECEIVING_STARTED
+  BATCH_UNIT_RECEIVED
+  BATCH_RECEIVING_COMPLETED
+  BATCH_VOIDED
 }
 
 enum ApiClientStatus {
@@ -2498,6 +2508,12 @@ model Batch {
   voidedAt       DateTime?
   voidedById     String?
   voidReason     String?
+
+  /// Command §5: submit/send/complete are replay-safe writes too. The key is
+  /// stored AT the transition (nullable — null until that op happens).
+  submitIdempotencyKey            String? @unique
+  sendIdempotencyKey              String? @unique
+  completeReceivingIdempotencyKey String? @unique
 
   items BatchItem[]
 

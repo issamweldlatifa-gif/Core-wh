@@ -10,6 +10,16 @@ CREATE TYPE "BatchItemStatus" AS ENUM ('REGISTERED', 'RECEIVED');
 -- AlterEnum
 ALTER TYPE "CardType" ADD VALUE 'BATCH_CARD';
 
+ALTER TYPE "AuditAction" ADD VALUE "BATCH_CREATED";
+ALTER TYPE "AuditAction" ADD VALUE "BATCH_UNIT_ADDED";
+ALTER TYPE "AuditAction" ADD VALUE "BATCH_SUBMITTED";
+ALTER TYPE "AuditAction" ADD VALUE "BATCH_ACCEPTED";
+ALTER TYPE "AuditAction" ADD VALUE "BATCH_SENT_TO_RECEIVING";
+ALTER TYPE "AuditAction" ADD VALUE "BATCH_RECEIVING_STARTED";
+ALTER TYPE "AuditAction" ADD VALUE "BATCH_UNIT_RECEIVED";
+ALTER TYPE "AuditAction" ADD VALUE "BATCH_RECEIVING_COMPLETED";
+ALTER TYPE "AuditAction" ADD VALUE "BATCH_VOIDED";
+
 -- CreateTable
 CREATE TABLE "batch_customers" (
     "id" TEXT NOT NULL,
@@ -48,6 +58,9 @@ CREATE TABLE "batches" (
     "customerId" TEXT,
     "createdById" TEXT,
     "idempotencyKey" TEXT NOT NULL,
+    "submitIdempotencyKey" TEXT,
+    "sendIdempotencyKey" TEXT,
+    "completeReceivingIdempotencyKey" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "submittedAt" TIMESTAMP(3),
@@ -98,6 +111,9 @@ CREATE UNIQUE INDEX "batches_batchCode_key" ON "batches"("batchCode");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "batches_idempotencyKey_key" ON "batches"("idempotencyKey");
+CREATE UNIQUE INDEX "batches_submitIdempotencyKey_key" ON "batches"("submitIdempotencyKey");
+CREATE UNIQUE INDEX "batches_sendIdempotencyKey_key" ON "batches"("sendIdempotencyKey");
+CREATE UNIQUE INDEX "batches_completeReceivingIdempotencyKey_key" ON "batches"("completeReceivingIdempotencyKey");
 
 -- CreateIndex
 CREATE INDEX "batches_status_idx" ON "batches"("status");

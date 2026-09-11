@@ -78,6 +78,11 @@ export class BatchCreateDto {
 }
 
 export class BatchSubmitDto {
+  /** Command §5: submit is a replay-safe worker write. */
+  @IsString()
+  @Length(8, 64)
+  idempotencyKey!: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(240)
@@ -113,4 +118,45 @@ export function unitInputViolations(u: BatchUnitInputDto): string[] {
     v.push('MANUAL items must NOT invent original barcode/SKU/reference values');
   }
   return v;
+}
+
+/** Send-to-receiving (admin). Command §5 lists send as a replay-safe write. */
+export class BatchSendDto {
+  @IsString()
+  @Length(1, 64)
+  operatorId!: string;
+
+  @IsString()
+  @Length(8, 64)
+  idempotencyKey!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  reason?: string;
+}
+
+/** Complete receiving — requires every unit RECEIVED (10/10 or nothing). */
+export class BatchCompleteReceivingDto {
+  @IsString()
+  @Length(8, 64)
+  idempotencyKey!: string;
+}
+
+/** One scan = ONE physical unit (its AYROVI unit code, never the SKU). */
+export class BatchReceiveUnitDto {
+  @IsString()
+  @Length(4, 64)
+  unitCode!: string;
+}
+
+/** Void — no real DELETE anywhere in the Batch system. Reason is mandatory. */
+export class BatchVoidDto {
+  @IsString()
+  @Length(1, 64)
+  operatorId!: string;
+
+  @IsString()
+  @Length(3, 500)
+  reason!: string;
 }
