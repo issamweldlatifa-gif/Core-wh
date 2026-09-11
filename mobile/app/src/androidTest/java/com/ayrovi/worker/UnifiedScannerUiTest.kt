@@ -267,7 +267,8 @@ class UnifiedScannerUiTest {
      */
     @Test
     fun amberAlreadyScannedShowsFullScreenThenRearms() {
-        val model = ReceivingHomeViewModel(ReceivingUiGateway(), "worker", setOf("receiving.view", "receiving.execute"))
+        val gateway = ReceivingUiGateway().apply { keepReceivedCards = true }
+        val model = ReceivingHomeViewModel(gateway, "worker", setOf("receiving.view", "receiving.execute"))
         compose.setContent {
             LaunchedEffect(Unit) { model.activate(setOf("receiving.view", "receiving.execute"), true) }
             Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
@@ -287,10 +288,11 @@ class UnifiedScannerUiTest {
         waitForTag("SCAN_RESULT")
         compose.waitUntil(10_000) { compose.onAllNodesWithTag("SCAN_RESULT").fetchSemanticsNodes().isEmpty() }
 
-        // The SAME unit again: the amber guard — full screen, then auto-re-arm.
+        // The SAME unit again: the CARD ALREADY COMPLETE amber guard —
+        // full screen, then auto-re-arm (it used to be swallowed entirely).
         compose.runOnIdle { model.workflow.scan(ScanResult("SKU-TEST", ScanSource.EXTERNAL_SCANNER)) }
         waitForTag("SCAN_RESULT")
-        compose.onNodeWithText("ALREADY SCANNED").assertIsDisplayed()
+        compose.onNodeWithText("CARD ALREADY COMPLETE").assertIsDisplayed()
         compose.waitUntil(15_000) { compose.onAllNodesWithTag("SCAN_RESULT").fetchSemanticsNodes().isEmpty() }
         waitForTag("READY_TO_SCAN")
     }

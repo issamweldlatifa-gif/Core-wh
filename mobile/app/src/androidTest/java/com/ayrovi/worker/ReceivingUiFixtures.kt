@@ -22,6 +22,9 @@ import java.io.File
  * production service, account or stock is contacted.
  */
 internal class ReceivingUiGateway(expectedCartons: Int = 1, var empty: Boolean = false) : ReceivingGateway {
+    /** v1.7.5 amber tests: keep fully-received cards in the feed, like a
+     *  backend that still reports the dispatched card with its tally. */
+    var keepReceivedCards: Boolean = false
     var writes = 0
     var productCards = listOf(
         ProductCard(id = "line", sku = "SKU-TEST", productName = "UI TEST FIXTURE ITEM",
@@ -33,8 +36,8 @@ internal class ReceivingUiGateway(expectedCartons: Int = 1, var empty: Boolean =
             identifiers = listOf("CTN-TEST", "TRK-TEST")),
     )
     private fun feed() = ReceivingHome(
-        productCards = productCards.filter { it.received < it.expected },
-        cartonCards = cartonCards.filter { it.status != "RECEIVED" },
+        productCards = if (keepReceivedCards) productCards else productCards.filter { it.received < it.expected },
+        cartonCards = if (keepReceivedCards) cartonCards else cartonCards.filter { it.status != "RECEIVED" },
         productCardsPending = productCards.count { it.received < it.expected },
         cartonCardsPending = cartonCards.count { it.status != "RECEIVED" },
         productList = productCards.mapNotNull { p ->
