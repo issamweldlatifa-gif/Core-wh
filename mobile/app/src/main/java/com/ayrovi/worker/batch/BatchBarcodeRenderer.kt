@@ -61,7 +61,7 @@ object BatchBarcodeRenderer {
     }
 
     private fun encode(value: String, lines: List<LabelLine>): Label {
-        val hints = mapOf(EncodeHintType.MARGIN to 1)
+        val hints = mapOf(EncodeHintType.MARGIN to 2)
         val matrix = QRCodeWriter().encode(value, BarcodeFormat.QR_CODE, 0, 0, hints)
         val grid = List(matrix.height) { y -> BooleanArray(matrix.width) { x -> matrix.get(x, y) } }
         return Label(value, grid, matrix.width, lines)

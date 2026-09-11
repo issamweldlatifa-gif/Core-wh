@@ -4,9 +4,11 @@ import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
 import com.google.zxing.common.HybridBinarizer
 import com.google.zxing.qrcode.QRCodeReader
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
+import org.junit.jupiter.api.Test
 
 /**
  * Phase 2 contract on-device encoding: the printed label MUST decode back to
@@ -23,13 +25,13 @@ class BatchBarcodeRendererTest {
     ) : com.google.zxing.LuminanceSource(w, h) {
         override fun getRow(y: Int, row: ByteArray?): ByteArray {
             val r = row ?: ByteArray(w)
-            for (x in 0 until w) r[x] = if (matrix[y][x]) 0 else 255
+            for (x in 0 until w) r[x] = if (matrix[y][x]) 0 else 255.toByte()
             return r
         }
 
         override fun getMatrix(): ByteArray {
             val m = ByteArray(w * h)
-            for (y in 0 until h) for (x in 0 until w) m[y * w + x] = if (matrix[y][x]) 0 else 255
+            for (y in 0 until h) for (x in 0 until w) m[y * w + x] = if (matrix[y][x]) 0 else 255.toByte()
             return m
         }
 
@@ -71,11 +73,13 @@ class BatchBarcodeRendererTest {
     fun `manual unit has NO invented original lines`() {
         val label = BatchBarcodeRenderer.unitLabel("AYP-000000124", null, null, "Client X", null)
         assertEquals("AYP-000000124", decode(label))
-        assertEquals(false, label.lines.any { it.label.startsWith("ORIGINAL") })
+        assertFalse(label.lines.any { it.label.startsWith("ORIGINAL") })
     }
 
-    @Test(expected = IllegalArgumentException::class)
+    @Test
     fun `unit labels refuse non-AYP codes`() {
-        BatchBarcodeRenderer.unitLabel("SKU-123", null, null, null, null)
+        assertFailsWith<IllegalArgumentException> {
+            BatchBarcodeRenderer.unitLabel("SKU-123", null, null, null, null)
+        }
     }
 }
