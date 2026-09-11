@@ -58,13 +58,17 @@ describe('Phase 1 — legacy CRM Arrival operational path is removed', () => {
     expect(controllerNames(ShipmentsModule)).toContain('CrmShipmentsController');
   });
 
-  it('PHASE SCOPE GUARD: the data model still has no Batch entities', () => {
-    // Real generated Prisma datamodel: Phase 1 must not introduce
-    // Batch/BatchItem models or states. A later phase updates this guard
-    // DELIBERATELY when it adds them.
+  it('PHASE 2 SCOPE: the Batch contract models exist WITHOUT touching arrivals', () => {
+    // Phase 2 (feature/ayrovi-batch) added the Batch contract deliberately:
+    // Batch / BatchItem / AyroviUnit / BatchCustomer + CardType BATCH_CARD.
+    // The historical arrival ledger is untouched — ExpectedArrival stays.
     const modelNames: string[] = Prisma.dmmf.datamodel.models.map((m) => m.name);
     expect(modelNames).toContain('ExpectedArrival');
-    expect(modelNames).not.toContain('Batch');
-    expect(modelNames).not.toContain('BatchItem');
+    expect(modelNames).toContain('Batch');
+    expect(modelNames).toContain('BatchItem');
+    expect(modelNames).toContain('AyroviUnit');
+    expect(modelNames).toContain('BatchCustomer');
+    const cardType = Prisma.dmmf.datamodel.enums.find((e) => e.name === 'CardType');
+    expect(cardType?.values.map((v) => v.name)).toContain('BATCH_CARD');
   });
 });

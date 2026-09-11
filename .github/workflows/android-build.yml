@@ -47,7 +47,7 @@ jobs:
         run: |
           chmod +x gradlew
           set +e
-          ./gradlew :scanner-core:test :worker-core:test :app:assembleDebug :app:minifyReleaseWithR8 :app:lintDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace --console=plain > /tmp/android.log 2>&1
+          ./gradlew :scanner-core:test :worker-core:test :app:testDebugUnitTest :app:assembleDebug :app:minifyReleaseWithR8 :app:lintDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace --console=plain > /tmp/android.log 2>&1
           code=$?
           cat /tmp/android.log
           python3 "$GITHUB_WORKSPACE/.github/workflows/annotate-android.py" "$code" /tmp/android.log

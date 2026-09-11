@@ -107,6 +107,15 @@ const PERMISSIONS: Array<{ key: string; resource: string; action: string; descri
   { key: 'shipping.view', resource: 'shipping', action: 'view', description: 'View shipping operations' },
   { key: 'shipping.execute', resource: 'shipping', action: 'execute', description: 'Execute shipping operations' },
 
+  // ---- AYROVI Batch (Phase 2 contract; workflows land behind batch.enabled) ----
+  { key: 'batch.view', resource: 'batch', action: 'view', description: 'View batch cards and batch details' },
+  { key: 'batch.create', resource: 'batch', action: 'create', description: 'Create a batch (France worker app)' },
+  { key: 'batch.execute', resource: 'batch', action: 'execute', description: 'Register units into a batch (scan/print labels)' },
+  { key: 'batch.accept', resource: 'batch', action: 'accept', description: 'Admin: accept a submitted batch card' },
+  { key: 'batch.send', resource: 'batch', action: 'send', description: 'Admin: send an accepted batch to Receiving' },
+  { key: 'batch.receive', resource: 'batch', action: 'receive', description: 'Tunisia: receive a batch (own the batch session)' },
+  { key: 'batch.void', resource: 'batch', action: 'void', description: 'Admin: void a batch (audit-safe, no delete)' },
+
   // Administration
   { key: 'users.view', resource: 'users', action: 'view', description: 'View users' },
   { key: 'users.manage', resource: 'users', action: 'manage', description: 'Create, update and disable users' },

@@ -23,6 +23,7 @@ import { DevicesModule } from './modules/devices/devices.module';
 import { CartonCardsModule } from './modules/carton-cards/carton-cards.module';
 import { WorkflowModule } from './modules/workflow/workflow.module';
 import { TemporaryStorageModule } from './modules/temporary-storage/temporary-storage.module';
+import { BatchesModule } from './modules/batches/batches.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { ApplicationGuard } from './common/guards/application.guard';
@@ -68,6 +69,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     DevicesModule,
     WorkflowModule,
     TemporaryStorageModule,
+    BatchesModule,
   ],
   providers: [
     // Global guards: every route is authenticated and permission-checked

@@ -48,8 +48,8 @@ android {
         applicationId = "com.ayrovi.worker"
         minSdk = 26
         targetSdk = 35
-        versionCode = 67
-        versionName = "1.7.6"
+        versionCode = 68
+        versionName = "1.8.0-batch.1"
         buildConfigField("String", "API_BASE_URL", "\"${apiBaseUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
         buildConfigField("boolean", "WORKER_LEGACY_FALLBACK", legacyFallback.get().toString())
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -105,6 +105,9 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:1.4.1")
     implementation("androidx.camera:camera-view:1.4.1")
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    // v1.8 batch labels: QR ENCODING (zxing core — pure java, no permissions).
+    // ML Kit stays the READER; this only renders Batch/Unit label codes.
+    implementation("com.google.zxing:core:3.5.3")
     implementation("com.google.mlkit:text-recognition:16.0.1")
     // Push notifications. The google-services PLUGIN is deliberately NOT
     // applied: it fails the build when google-services.json is absent, and

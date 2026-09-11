@@ -2155,6 +2155,9 @@ enum TemporaryStorageReportStatus {
 enum CardType {
   PRODUCT
   CARTON
+  /// AYROVI Batch architecture (Phase 2+): a Batch Card created by the France
+  /// Worker App (source = WORKER_APP_BATCH). Never mixed with PRODUCT/CARTON.
+  BATCH_CARD
 }
 
 enum WorkerLogOperation {
@@ -2391,4 +2394,139 @@ model OperationCorrection {
   @@index([adminId])
   @@index([createdAt])
   @@map("operation_corrections")
+}
+
+// ===========================================================================
+// AYROVI BATCH — Phase 2 contract (feature/ayrovi-batch)
+//
+// Product identity chain (MANDATORY):
+//   original identity (barcode/SKU/reference stored VERBATIM, never invented)
+//     -> AyroviUnit  (AYP-… — ONE per physical piece, server-generated)
+//       -> BatchItem (membership of the unit in a batch — NOT the identity)
+//         -> Batch  (AYB-… — the GROUP identity only: Admin card + parcel QR)
+//
+// HARD RULES: the Batch never derives from CRM Arrival (source stays
+// WORKER_APP_BATCH); same original barcode on 10 real pieces = 10 units;
+// an unreadable product is MANUAL — no invented original values.
+// ===========================================================================
+
+enum BatchStatus {
+  CREATED
+  SUBMITTED
+  ACCEPTED
+  SENT_TO_RECEIVING
+  RECEIVING_IN_PROGRESS
+  RECEIVING_COMPLETED
+  VOIDED
+}
+
+enum BatchIdentifierType {
+  SKU
+  BARCODE
+  REFERENCE
+  QR
+  /// Unreadable/absent original: registered via the existing MANUAL path.
+  /// originalBarcode/originalSku/originalReference stay NULL — never invented.
+  MANUAL
+}
+
+enum BatchItemStatus {
+  /// Registered in France; not yet physically received in Tunisia.
+  REGISTERED
+  /// Physically received in Tunisia (totalScanned increments with it).
+  RECEIVED
+}
+
+/// Customer created by the France worker from the Worker App. needsReview
+/// stays true until Admin reviews. Identity is the id — NEVER the name string.
+model BatchCustomer {
+  id                String   @id @default(uuid())
+  name              String
+  externalRef       String?
+  needsReview       Boolean  @default(true)
+  createdByWorkerId String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  batches Batch[]
+
+  @@index([name])
+  @@map("batch_customers")
+}
+
+/// AYROVI unit identity — ONE per physical piece, generated server-side the
+/// moment a scan succeeds in France (AYP-…). Survives re-batching by design.
+model AyroviUnit {
+  id                String              @id @default(uuid())
+  code              String              @unique
+  identifierType    BatchIdentifierType
+  originalBarcode   String?
+  originalSku       String?
+  originalReference String?
+  createdByWorkerId String?
+  createdAt         DateTime            @default(now())
+
+  batchItems BatchItem[]
+
+  @@index([originalSku])
+  @@index([originalBarcode])
+  @@map("ayrovi_units")
+}
+
+/// The GROUP identity: Admin BATCH_CARD + the parcel QR. Lifecycle is owned
+/// by the server state machine (BatchStatus); the device only renders it.
+model Batch {
+  id             String         @id @default(uuid())
+  batchCode      String         @unique
+  source         String         @default("WORKER_APP_BATCH")
+  status         BatchStatus    @default(CREATED)
+  totalExpected  Int            @default(0)
+  totalScanned   Int            @default(0)
+  customerId     String?
+  customer       BatchCustomer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  createdById    String?
+  /// Create-batch idempotency anchor: a retried create returns THIS batch.
+  idempotencyKey String         @unique
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  submittedAt    DateTime?
+  acceptedAt     DateTime?
+  acceptedById   String?
+  sentAt         DateTime?
+  sentById       String?
+  completedAt    DateTime?
+  voidedAt       DateTime?
+  voidedById     String?
+  voidReason     String?
+
+  items BatchItem[]
+
+  @@index([status])
+  @@index([customerId])
+  @@map("batches")
+}
+
+/// Membership of ONE AyroviUnit in ONE batch. Same SKU on 10 real pieces =
+/// 10 units = 10 rows here (identifierValue repeats BY DESIGN — the echo
+/// window is the only duplicate guard, never a business "duplicate" error).
+model BatchItem {
+  id                   String              @id @default(uuid())
+  batchId              String
+  batch                Batch               @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  unitId               String              @unique
+  unit                 AyroviUnit          @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  identifierType       BatchIdentifierType
+  identifierValue      String?
+  normalizedIdentifier String?
+  status               BatchItemStatus     @default(REGISTERED)
+  scannedAt            DateTime            @default(now())
+  scannedByWorkerId    String?
+  /// Add-item idempotency anchor: a retried add returns THIS item.
+  idempotencyKey       String              @unique
+  metadata             Json?
+  createdAt            DateTime            @default(now())
+
+  @@index([batchId])
+  @@index([normalizedIdentifier])
+  @@map("batch_items")
 }
