@@ -89,7 +89,7 @@ class TerminalAppearanceTest {
         // header anymore — its one entry point is the Home screen.
         awaitLoaded(compose, model)
         awaitOverviewFeed(compose, model)
-        compose.waitUntil(10_000) { compose.onAllNodesWithTag("RECEIVING_CARD_PRODUCT_FIRST").fetchSemanticsNodes().isNotEmpty() }
+        awaitUiTag(compose, "RECEIVING_CARD_PRODUCT_FIRST", model)
         compose.onNodeWithTag("RECEIVING_HOME").assertExists()
         compose.onNodeWithText("RECEIVING").assertIsDisplayed()
         compose.onAllNodesWithText("PRODUCT").onFirst().assertExists()

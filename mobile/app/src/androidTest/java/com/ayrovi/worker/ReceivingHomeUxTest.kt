@@ -70,7 +70,7 @@ class ReceivingHomeUxTest {
         // The overview content: TO DO group with the dispatched cards.
         compose.onNodeWithTag("RECEIVING_HOME").assertIsDisplayed()
         compose.onNodeWithTag("RECEIVING_TODO").assertExists()
-        compose.waitUntil(10_000) { compose.onAllNodesWithTag("RECEIVING_CARD_PRODUCT_FIRST").fetchSemanticsNodes().isNotEmpty() }
+        awaitUiTag(compose, "RECEIVING_CARD_PRODUCT_FIRST", model)
         compose.onNodeWithTag("RECEIVING_CARD_PRODUCT_FIRST").assertExists()
         compose.onNodeWithTag("RECEIVING_CARD_CARTON_FIRST").assertExists()
         compose.onNodeWithText("BACK").assertIsDisplayed()
