@@ -18,25 +18,25 @@ import org.junit.jupiter.api.Test
 class BatchBarcodeRendererTest {
 
     /**
-     * Minimal LuminanceSource over the renderer's matrix, padded with a white
-     * paper border (a printed label always sits on white stock) and decoded
-     * with GlobalHistogramBinarizer — the right binarizer for exact-size
-     * synthetic images (HybridBinarizer needs larger photos).
+     * Minimal LuminanceSource over the renderer's matrix, UPSCALED (each QR
+     * module -> `scale` px, like a real printed/rendered label) and padded
+     * with a white paper border. Binarizers are built for real images — on
+     * 1px/module synthetic matrices their thresholds are unstable, which is
+     * exactly the condition a broken label would face on paper; a scaled
+     * roundtrip proves the ENCODED payload decodes to the exact identity.
      */
     private class MatrixSource(
         private val matrix: List<BooleanArray>,
         private val w: Int,
         private val h: Int,
-        private val border: Int = 8,
-    ) : com.google.zxing.LuminanceSource(w + 2 * border, h + 2 * border) {
-        private val tw = w + 2 * border
+        private val scale: Int = 4,
+    ) : com.google.zxing.LuminanceSource(w * scale + 8 * scale, h * scale + 8 * scale) {
+        private val tw = w * scale + 8 * scale
 
-        private fun lum(x: Int, y: Int): Byte =
-            if (x < border || y < border || x >= border + w || y >= border + h || !matrix[y - border][x - border]) {
-                255.toByte() // white paper
-            } else {
-                0.toByte() // dark module
-            }
+        private fun lum(x: Int, y: Int): Byte {
+            if (x < 8 * scale || y < 8 * scale || x >= tw - 8 * scale || y >= height - 8 * scale) return 255.toByte()
+            return if (matrix[(y - 8 * scale) / scale][(x - 8 * scale) / scale]) 0 else 255
+        }
 
         override fun getRow(y: Int, row: ByteArray?): ByteArray {
             val r = row ?: ByteArray(tw)
