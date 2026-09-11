@@ -88,6 +88,8 @@ class TerminalAppearanceTest {
         // content + two tiles + BACK. UX RESTRUCTURE: Settings is NOT in the
         // header anymore — its one entry point is the Home screen.
         compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
+        compose.waitUntil(10_000) { model.state.value.home?.productCards?.isNotEmpty() == true }
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("RECEIVING_CARD_PRODUCT_FIRST").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("RECEIVING_HOME").assertExists()
         compose.onNodeWithText("RECEIVING").assertIsDisplayed()
         compose.onAllNodesWithText("PRODUCT").onFirst().assertExists()

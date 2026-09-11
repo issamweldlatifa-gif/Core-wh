@@ -59,7 +59,10 @@ class ReceivingHomeUxTest {
 
     @Test
     fun test1_receivingShowsCardsAndStatusesOnly() {
-        openHome()
+        val model = openHome()
+        // Hardened: wait for the DATA (the home feed) before asserting the
+        // UI — the state flow and the composition are two different clocks.
+        compose.waitUntil(10_000) { model.state.value.home?.productCards?.isNotEmpty() == true }
 
         // Header stays: AYROVI + ONLINE + the RECEIVING line.
         compose.onNodeWithText("AYROVI").assertIsDisplayed()
@@ -69,6 +72,7 @@ class ReceivingHomeUxTest {
         // The overview content: TO DO group with the dispatched cards.
         compose.onNodeWithTag("RECEIVING_HOME").assertIsDisplayed()
         compose.onNodeWithTag("RECEIVING_TODO").assertExists()
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("RECEIVING_CARD_PRODUCT_FIRST").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("RECEIVING_CARD_PRODUCT_FIRST").assertExists()
         compose.onNodeWithTag("RECEIVING_CARD_CARTON_FIRST").assertExists()
         compose.onNodeWithText("BACK").assertIsDisplayed()
@@ -139,6 +143,8 @@ class ReceivingHomeUxTest {
             }
         }
         compose.waitUntil(10_000) { model.state.value.loaded && !model.state.value.busy }
+        compose.waitUntil(10_000) { model.state.value.home?.productCards?.isNotEmpty() == true }
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("RECEIVING_CARD_PRODUCT_FIRST").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("RECEIVING_CARD_PRODUCT_FIRST").assertHeightIsAtLeast(TerminalTokens.touch)
         compose.onNodeWithTag("RECEIVING_CARD_CARTON_FIRST").assertHeightIsAtLeast(TerminalTokens.touch)
         compose.onNodeWithText("BACK").assertHeightIsAtLeast(64.dp)

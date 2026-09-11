@@ -75,73 +75,28 @@ class UnifiedScannerUiTest {
         compose.waitUntil(10_000) { compose.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty() }
 
     @Test
-    fun scannerDefaultsToReadyToScanAndKeepsTheToolsInTheDrawer() {
+    fun scannerOpensStraightOnReadyWithNoToolsChrome() {
+        // NAVIGATION BY RULE (v1.7.4): the tool opens straight on READY —
+        // no intro card, and ONE surface: no side rail, no tools drawer.
+        // The tool flows (OCR / manual / QR) stay covered on the station
+        // screens that still expose the drawer (UnifiedScannerTsUiTest).
         openScanTool()
 
-        // 1. DEFAULT: READY TO SCAN + CT40 indication + the single side button.
+        waitForTag("AUTO_SCANNER")
         compose.onNodeWithTag("AUTO_SCANNER").assertIsDisplayed()
         waitForTag("READY_TO_SCAN")
         compose.onNodeWithTag("READY_TO_SCAN").assertIsDisplayed()
         compose.onNodeWithText("READY TO SCAN").assertIsDisplayed()
         compose.onNodeWithText("CT40").assertIsDisplayed()
-        compose.onNodeWithTag("SCAN_TOOLS_ARROW").assertIsDisplayed()
+
+        // NO side tools button and NO drawer on this tool, ever.
+        compose.onAllNodesWithTag("SCAN_TOOLS_ARROW").assertCountEquals(0)
+        compose.onAllNodesWithTag("SCAN_TOOLS_DRAWER").assertCountEquals(0)
         compose.onAllNodesWithText("Hardware Scanner").assertCountEquals(0)
         compose.onAllNodesWithText("Use the CT40 side trigger — no screen button needed.").assertCountEquals(0)
 
-        // …and NO tool surface, no big scan-button cluster (§20/§29).
+        // And NO tool surface, no scan-button cluster (§20/§29).
         compose.onAllNodesWithTag("OCR_SCAN").assertCountEquals(0)
-        compose.onAllNodesWithTag("MANUAL_SCAN").assertCountEquals(0)
-        compose.onAllNodesWithTag("CAPTURE_QR_AREA").assertCountEquals(0)
-        compose.onAllNodesWithTag("SCAN_TOOLS_DRAWER").assertCountEquals(0)
-
-        // 2. Side tools -> drawer with icon + short label items only.
-        compose.onNodeWithTag("SCAN_TOOLS_ARROW").performClick()
-        waitForTag("SCAN_TOOLS_DRAWER")
-        compose.onNodeWithTag("TOOL_QR").assertIsDisplayed()
-        compose.onNodeWithTag("TOOL_OCR").assertIsDisplayed()
-        compose.onNodeWithTag("TOOL_MANUAL").assertIsDisplayed()
-        compose.onNodeWithTag("TOOL_CT40").assertIsDisplayed()
-        compose.onNodeWithTag("TOOL_CLOSE").assertIsDisplayed()
-
-        // 3. OCR opens, and the drawer closes itself.
-        compose.onNodeWithTag("TOOL_OCR").performClick()
-        waitForTag("OCR_SCAN")
-        compose.onNodeWithTag("OCR_SCAN").assertIsDisplayed()
-        compose.onNodeWithTag("TOOL_BACK").assertIsDisplayed()
-        compose.onAllNodesWithTag("SCAN_TOOLS_DRAWER").assertCountEquals(0)
-        compose.onAllNodesWithText("OCR CAPTURE").assertCountEquals(0)
-        compose.onAllNodesWithText("READING… keep the SKU line inside the strip").assertCountEquals(0)
-        compose.onAllNodesWithText("CLOSE TOOL").assertCountEquals(0)
-
-        // 7. Closing the tool returns to the hardware default.
-        compose.onNodeWithTag("TOOL_BACK").performClick()
-        waitForTag("READY_TO_SCAN")
-        compose.onNodeWithTag("SCAN_TOOLS_ARROW").assertIsDisplayed()
-
-        // 8. QR / BARCODE from the drawer — a tool, never the default.
-        compose.onNodeWithTag("SCAN_TOOLS_ARROW").performClick()
-        waitForTag("SCAN_TOOLS_DRAWER")
-        compose.onNodeWithTag("TOOL_QR").performClick()
-        compose.waitUntil(10_000) { compose.onAllNodesWithTag("CAPTURE_QR_AREA").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("CAPTURE_QR_AREA").assertIsDisplayed()
-        compose.onNodeWithTag("TOOL_BACK").assertIsDisplayed()
-        compose.onAllNodesWithTag("READY_TO_SCAN").assertCountEquals(0)
-        compose.onAllNodesWithText("QR / BARCODE").assertCountEquals(0)
-        compose.onAllNodesWithText("CLOSE TOOL").assertCountEquals(0)
-
-        // 11. Manual fallback, then CT40 puts the hardware scanner back in front.
-        compose.onNodeWithTag("TOOL_BACK").performClick()
-        waitForTag("READY_TO_SCAN")
-        compose.onNodeWithTag("SCAN_TOOLS_ARROW").performClick()
-        waitForTag("SCAN_TOOLS_DRAWER")
-        compose.onNodeWithTag("TOOL_MANUAL").performClick()
-        waitForTag("MANUAL_SCAN")
-        compose.onNodeWithTag("MANUAL_SCAN").assertIsDisplayed()
-
-        compose.onNodeWithTag("SCAN_TOOLS_ARROW").performClick()
-        waitForTag("SCAN_TOOLS_DRAWER")
-        compose.onNodeWithTag("TOOL_CT40").performClick()
-        waitForTag("READY_TO_SCAN")
         compose.onAllNodesWithTag("MANUAL_SCAN").assertCountEquals(0)
         compose.onAllNodesWithTag("CAPTURE_QR_AREA").assertCountEquals(0)
     }
@@ -159,6 +114,7 @@ class UnifiedScannerUiTest {
             Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
                 AyroviTerminalTheme(TerminalThemeMode.WHITE, onToggleTheme = {}) {
                     ReceivingHomeScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {},
+                        openWith = com.ayrovi.worker.presentation.ReceivingHomeIntent.OpenAutoScan,
                         forceHardwareScanner = true)
                 }
             }
@@ -235,15 +191,12 @@ class UnifiedScannerUiTest {
         compose.onNodeWithTag("TOOL_BACK").performClick()
         waitForTag("READY_TO_SCAN")
 
-        // The drawer offers the camera/manual tools — no CT40 row on a phone.
-        compose.onNodeWithTag("SCAN_TOOLS_ARROW").performClick()
-        waitForTag("SCAN_TOOLS_DRAWER")
-        compose.onNodeWithTag("TOOL_QR").assertIsDisplayed()
-        compose.onNodeWithTag("TOOL_OCR").assertIsDisplayed()
-        compose.onNodeWithTag("TOOL_MANUAL").assertIsDisplayed()
-        compose.onAllNodesWithTag("TOOL_CT40").assertCountEquals(0)
-        compose.onNodeWithTag("TOOL_CLOSE").performClick()
-        compose.waitUntil(10_000) { compose.onAllNodesWithTag("SCAN_TOOLS_DRAWER").fetchSemanticsNodes().isEmpty() }
+        // NAVIGATION BY RULE: BACK from the camera returns to READY — and
+        // this tool has NO side rail and NO drawer on a phone either.
+        compose.onAllNodesWithTag("SCAN_TOOLS_ARROW").assertCountEquals(0)
+        compose.onAllNodesWithTag("SCAN_TOOLS_DRAWER").assertCountEquals(0)
+        // The one-tap trigger is reachable again to continue the session.
+        compose.onNodeWithTag("SHOW_TRIGGER").assertIsDisplayed()
     }
 
     /**
@@ -285,6 +238,7 @@ class UnifiedScannerUiTest {
             Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
                 AyroviTerminalTheme(TerminalThemeMode.WHITE, onToggleTheme = {}) {
                     ReceivingHomeScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {},
+                        openWith = com.ayrovi.worker.presentation.ReceivingHomeIntent.OpenAutoScan,
                         forceHardwareScanner = true)
                 }
             }
@@ -296,8 +250,8 @@ class UnifiedScannerUiTest {
 
         compose.runOnIdle { model.workflow.scan(ScanResult("SKU-TEST", ScanSource.EXTERNAL_SCANNER)) }
         waitForTag("SCAN_RESULT")
-        // Phase B: the green MATCH flash re-arms the lane BY ITSELF (~250ms)
-        // — zero-touch. No BACK press exists on the success verdict anymore.
+        // Phase B: the green MATCH flash re-arms the lane BY ITSELF (~1.2s
+        // — a verdict the operator actually SEES). No BACK on success.
         compose.waitUntil(10_000) { compose.onAllNodesWithTag("SCAN_RESULT").fetchSemanticsNodes().isEmpty() }
         waitForTag("READY_TO_SCAN")
 

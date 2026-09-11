@@ -4,6 +4,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -48,12 +51,16 @@ class ReportHistoryUiTest {
      */
     private fun openSettingsWithHistory(payload: String) {
         val repository = WorkerRepository(UiSessionStorage(), HistoryTransport(payload))
+        // CLOSE really leaves the composition (the app sets showSettings=false).
+        var open by mutableStateOf(true)
         compose.setContent {
             Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
                 AyroviTerminalTheme(TerminalThemeMode.WHITE, onToggleTheme = {}) {
-                    WorkerSettingsDialog(repository = repository, worker = "W-001 · UI TEST FIXTURE",
-                        station = "REC-01", connection = "ONLINE", appVersion = "test", deviceCode = "TEST-CODE",
-                        device = WorkerDevice.PHONE, onSwitchMode = {}, onClose = {})
+                    if (open) {
+                        WorkerSettingsDialog(repository = repository, worker = "W-001 · UI TEST FIXTURE",
+                            station = "REC-01", connection = "ONLINE", appVersion = "test", deviceCode = "TEST-CODE",
+                            device = WorkerDevice.PHONE, onSwitchMode = {}, onClose = { open = false })
+                    }
                 }
             }
         }
