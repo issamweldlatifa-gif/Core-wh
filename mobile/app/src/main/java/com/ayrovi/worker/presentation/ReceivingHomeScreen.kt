@@ -97,7 +97,6 @@ fun ReceivingHomeScreen(
     val issue by model.issue.collectAsStateWithLifecycle()
     val industrial = device == WorkerDevice.CT40
     val owner = LocalLifecycleOwner.current
-    var scanTools by remember { mutableStateOf(false) }
 
     DisposableEffect(owner, model) {
         val observer = LifecycleEventObserver { _, event ->
@@ -119,8 +118,14 @@ fun ReceivingHomeScreen(
     // used to resume the OLD lane (old message / last scan = "old page").
     LaunchedEffect(state.loaded, openWith) {
         if (openWith != null && state.loaded) {
-            if (state.step != HomeStep.HOME) model.send(ReceivingHomeIntent.BackHome)
-            model.send(openWith)
+            // CONTINUITY: an already-open tool lane is RESUMED exactly as it
+            // was — no reset, no re-registration, no pipeline churn (the
+            // worker must never have to "sign in" to the scanner again). Only
+            // a closed lane (overview / HOME) opens.
+            val s = state.step
+            if (s != HomeStep.AUTO_SCAN && s != HomeStep.REVIEW_PRODUCT && s != HomeStep.REVIEW_CARTON) {
+                model.send(openWith)
+            }
         }
     }
 
@@ -143,16 +148,18 @@ fun ReceivingHomeScreen(
         hardwareOverride = forceHardwareScanner,
     )
 
-    // §3/§4 + STABILITY FIX: the tool's camera / OCR opens EXACTLY ONCE — on
-    // the HOME → tool transition. It NEVER re-opens on the automatic re-arm
-    // (REVIEW → SCAN after a read): the previous multi-key effect re-opened
-    // the camera onto the SAME label still in front of the lens → read →
-    // close → re-open → read… = the reported violent shake/flicker + repeated
-    // feedback. After a read, the READY panel's one-tap trigger continues the
-    // session on a phone; CT40 keeps its instant hardware trigger.
-    var lastToolStep by remember { mutableStateOf(state.step) }
+    // §3/§4 + STABILITY: the tool's camera / OCR opens on LANE ENTRY — a
+    // fresh composition entering AUTO_SCAN (first open, or a later QR CODE
+    // tap that finds the lane still open = resume) or the HOME → tool
+    // transition. It NEVER re-opens on the automatic re-arm (REVIEW → SCAN
+    // after a read): re-opening onto the SAME label still in front of the
+    // lens was the reported shake/flicker loop. After a read, the READY
+    // panel's one-tap trigger continues the session on a phone; CT40 keeps
+    // its instant hardware trigger.
+    var lastToolStep by remember { mutableStateOf<HomeStep?>(null) }
     LaunchedEffect(state.step) {
-        val enteredTool = lastToolStep == HomeStep.HOME && state.step == HomeStep.AUTO_SCAN
+        val enteredTool = lastToolStep != HomeStep.REVIEW_PRODUCT && lastToolStep != HomeStep.REVIEW_CARTON &&
+            state.step == HomeStep.AUTO_SCAN
         if (enteredTool) {
             when {
                 ocrFirst -> capture.ocr()
@@ -166,21 +173,20 @@ fun ReceivingHomeScreen(
     TerminalShell(
         // §4/§16: Settings is NOT in the header anymore — its ONE entry point
         // is the Home screen. The header stays minimal.
-        header = { TerminalHeader("RECEIVING", worker, station, connection, industrial = industrial, onBack = onBack, showSettingsIcon = false) },
+        header = { TerminalHeader(if (lane != null) "SCAN" else "RECEIVING", worker, station, connection, industrial = industrial, onBack = onBack, showSettingsIcon = false) },
         footer = {
             TerminalFooter(if (state.busy) "PLEASE WAIT" else "") {
-                // BACK leaves RECEIVING for the previous screen; inside a lane
-                // it returns to the work center without cancelling a completed
-                // scan. The arrow icon says "back", never "cancel".
+                // ONE back rule: BACK always leaves for the MAIN home — from
+                // the scan tool it never detours through the Receiving
+                // overview (the reported "passed through receiving, stuck
+                // there"). The arrow icon says "back", never "cancel".
                 // No CONFIRM/APPROVE button: a valid scan is verified and
                 // approved automatically, then the lane re-arms for the
                 // next unit. The worker only ever scans.
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs),
                     verticalAlignment = Alignment.CenterVertically) {
                     FooterStatus(connection)
-                    SecondaryAction(if (lane != null) "BACK TO RECEIVING" else "BACK", {
-                        if (lane != null) model.send(ReceivingHomeIntent.BackHome) else onBack()
-                    }, !state.busy, Modifier.weight(1f), icon = TerminalIcon.BACK)
+                    SecondaryAction("BACK", { onBack() }, !state.busy, Modifier.weight(1f), icon = TerminalIcon.BACK)
                     // GLARE BOOST: one thumb-sized sun at the far edge — for
                     // harsh-sunlight aisles. Persisted like the glove mode.
                     if (onToggleGlare != null) {
@@ -193,25 +199,21 @@ fun ReceivingHomeScreen(
     ) {
         when {
             !state.loaded -> LoadingState("OPENING RECEIVING…")
-            lane == "SCAN" -> AutoLane(state, capture, model.captureAllowed, { model.send(ReceivingHomeIntent.Retry) }, { scanTools = true })
+            lane == "SCAN" -> AutoLane(state, capture, model.captureAllowed, { model.send(ReceivingHomeIntent.Retry) })
             else -> ReceivingWorkCenter(state, summary, issue, connection)
         }
     }
 
         // Camera tools take over the whole screen: fogged background, capture
-        // region + BACK only. Otherwise, while a lane scanner is on screen, the
-        // ONE tools button is pinned to the far right edge of the screen.
+        // region + BACK only. NO side tools button on this tool (the reported
+        // floating side arrow): the lane is ONE surface — READY / camera /
+        // result — and the phone trigger button lives in the READY panel.
         val cameraActive = capture.cameraOpen || capture.ocrCameraOpen
         val verdict = state.message
         val verdictShown = verdict != null && (verdict.tone == MessageTone.SUCCESS || verdict.tone == MessageTone.ERROR)
         if (cameraActive) {
             CameraToolOverlay(capture, model.captureAllowed)
-        } else if (lane != null && !scanTools && !verdictShown) {
-            ScanToolsEdgeButton { scanTools = true }
         }
-
-        // §17: side drawer overlays the screen; the work interface is untouched.
-        if (scanTools) ScanToolsDrawer(capture, model.captureAllowed, onClose = { scanTools = false })
 
         // Phase D (lite): first-minute coach marks — once per install, then
         // never again. Three lines, one GOT IT, no training session needed.
@@ -227,7 +229,9 @@ fun ReceivingHomeScreen(
                 title = verdict.title,
                 detail = verdict.detail,
                 // RECEIVING loop: a green MATCH re-arms by itself (zero-touch).
-                autoRearmMs = 250,
+                // 1200ms — the verdict must be SEEN: the reported "camera
+                // closes by itself without any indication" was a 250ms flash.
+                autoRearmMs = 1200,
                 onBack = model.workflow::dismissResult,
             )
         }
@@ -499,16 +503,18 @@ internal fun LaneTile(
 
 /** AUTO lane (HOME "QR CODE" tool): ONE scanner — a product OR carton read matches itself. */
 @Composable
-private fun AutoLane(state: com.ayrovi.worker.domain.ReceivingHomeState, capture: ScannerCapture, enabled: Boolean, onRetry: () -> Unit, onOpenScanTools: () -> Unit) {
+private fun AutoLane(state: com.ayrovi.worker.domain.ReceivingHomeState, capture: ScannerCapture, enabled: Boolean, onRetry: () -> Unit) {
+    // NO intro card, NO info notice: the tool opens straight on READY (the
+    // reported "opens with introductions"). Errors keep their full-screen
+    // surfaces; the panel title is the only text above READY.
     Column(Modifier.fillMaxWidth().testTag("AUTO_SCANNER"), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
-        state.message?.takeIf { it.tone == MessageTone.INFO }?.let { OperationalMessageViewHome(it) }
         when {
             // The AUTO tool reuses the EXISTING review panels: what the worker
             // sees after a match is exactly what the dedicated lanes show.
             state.step == HomeStep.REVIEW_PRODUCT -> state.productReview?.let { ProductReviewPanel(it) }
             state.step == HomeStep.REVIEW_CARTON -> state.cartonReview?.let { CartonReviewPanel(it) }
             else -> ScannerArea(capture, enabled, state.productReview != null || state.cartonReview != null,
-                onRetry, onOpenTools = onOpenScanTools, lastScan = lastScanOf(state))
+                onRetry, lastScan = lastScanOf(state))
         }
     }
 }
@@ -557,14 +563,13 @@ private fun CartonReviewPanel(review: com.ayrovi.worker.domain.HomeCartonReview)
 
 /**
  * Scanner area — the SAME unified component as every other station (§14/§26):
- * READY TO SCAN + CT40 indication + one side tools button. The camera / OCR /
- * manual tools live in the drawer and close themselves after a read. A failed
- * attempt keeps RETRY for the exact same scan.
+ * READY TO SCAN + CT40 indication. A failed attempt keeps RETRY for the exact
+ * same scan. (The side tools drawer is NOT part of this tool: one surface.)
  */
 @Composable
 private fun ScannerArea(
     capture: ScannerCapture, enabled: Boolean, canRetry: Boolean, onRetry: () -> Unit,
-    onOpenTools: () -> Unit, lastScan: LastScan? = null,
+    lastScan: LastScan? = null,
 ) {
     // The retry slot is typed explicitly so the composable lambda keeps its
     // @Composable contract when it is null.
@@ -575,7 +580,6 @@ private fun ScannerArea(
         enabled = enabled,
         title = "SCAN PRODUCT OR CARTON",
         extra = retrySlot,
-        onOpenTools = onOpenTools,
         accent = TerminalTokens.instruction,
         lastScan = lastScan,
     )

@@ -53,6 +53,16 @@ A debug APK is a QA artifact. Release builds are **not debug-signed**. Use the o
   flash), re-opening QR CODE always starts a FRESH tool (never an old
   message/last-scan page), and the scanner gate re-arms on CHANGES only.
   Scanner stack, success/error flows and logging are untouched.
+- **NAVIGATION BY RULE (v1.7.4)** — the worker-confirmed button map, each
+  complaint fixed at its code root: ONE back rule (BACK always leaves for the
+  MAIN home — no "BACK TO RECEIVING" detour), the scan tool opens straight on
+  READY (intro card + INFO notice deleted), the side tools arrow/drawer removed
+  from the tool (one surface: READY / camera / result), the tool header reads
+  SCAN (never RECEIVING), tap-resume continuity (an open lane is resumed as-is,
+  never reset — no forced re-registration), MATCH verdict flash 1200ms (was
+  250ms: "camera closes with no signal"), and a transient empty task list no
+  longer yanks the worker out of RECEIVING. Full map:
+  `releases/WORKER-BUTTON-BY-BUTTON-MAP.md`.
 - Success flow, error flow, failure logging, permissions, API and the
   scanner integrations (CT40 / phone) are unchanged. The other assigned
   stations (Temporary Storage / Sorting / Packing / Shipping / Trace) keep

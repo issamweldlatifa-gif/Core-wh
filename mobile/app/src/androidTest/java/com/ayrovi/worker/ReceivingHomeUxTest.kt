@@ -104,11 +104,12 @@ class ReceivingHomeUxTest {
         // HOME → QR CODE → the existing unified scanner opens DIRECTLY (the
         // AUTO tool): no Receiving, no Product, no Carton, no scan selection.
         val model = ReceivingHomeViewModel(ReceivingUiGateway(), "worker", setOf("receiving.view", "receiving.execute"))
+        var backPressed = false
         compose.setContent {
             LaunchedEffect(Unit) { model.activate(setOf("receiving.view", "receiving.execute"), true) }
             Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
                 AyroviTerminalTheme(TerminalThemeMode.WHITE, onToggleTheme = {}) {
-                    ReceivingHomeScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", {}, {},
+                    ReceivingHomeScreen(model, "W-001 · UI TEST FIXTURE", "REC-01", "ONLINE", { backPressed = true }, {},
                         device = WorkerDevice.CT40, openWith = ReceivingHomeIntent.OpenAutoScan,
                         autoOpenCamera = false, forceHardwareScanner = true)
                 }
@@ -118,10 +119,11 @@ class ReceivingHomeUxTest {
         compose.waitUntil(10_000) { model.state.value.step == HomeStep.AUTO_SCAN }
         compose.onNodeWithTag("AUTO_SCANNER").assertIsDisplayed()
         compose.onAllNodesWithTag("RECEIVING_HOME").assertCountEquals(0)
-        // BACK returns to the previous screen — no extra confirmation step.
-        compose.onNodeWithText("BACK TO RECEIVING").performClick()
-        compose.waitUntil(10_000) { model.state.value.step == HomeStep.HOME }
-        compose.onNodeWithTag("RECEIVING_HOME").assertIsDisplayed()
+        // ONE back rule: BACK from the tool fires the MAIN-home back — no
+        // detour through the Receiving overview, no extra confirmation.
+        compose.onNodeWithText("BACK").performClick()
+        compose.waitUntil(10_000) { backPressed }
+        assertTrue(backPressed)
     }
 
     @Test

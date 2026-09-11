@@ -92,7 +92,10 @@ fun WorkerTerminalApp(
         }
     }
     LaunchedEffect(state.tasks) {
-        if ((route == TerminalRoute.RECEIVING || route == TerminalRoute.SCAN || route == TerminalRoute.REPORT) && state.me != null && state.tasks.none { it.key == "receiving" }) route = TerminalRoute.QUEUE
+        // STABILITY: only a REAL task removal redirects. An empty/partial list
+        // (refresh in flight, weak network, low battery) must never yank the
+        // worker out of RECEIVING / the scan tool mid-work.
+        if (state.tasks.isNotEmpty() && (route == TerminalRoute.RECEIVING || route == TerminalRoute.SCAN || route == TerminalRoute.REPORT) && state.me != null && state.tasks.none { it.key == "receiving" }) route = TerminalRoute.QUEUE
         // Temporary Storage is STAGING-station work: if the backend no longer
         // exposes the task (station changed / permission removed), never keep
         // the worker on a screen they can no longer operate.

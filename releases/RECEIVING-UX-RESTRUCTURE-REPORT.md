@@ -110,3 +110,18 @@ Business logic · Backend/API · Scanner logic (CT40/Phone/Honeywell/Zebra) · S
 - **CI:** run 34545036552 — SUCCESS (units + assembleDebug + lint + androidTest)
 - **APK (CI):** artifact `ayrovi-worker-receiving-pilot-69e4cae897df2e8a10089bf2e8e23541d3d9ac0b` (43.8MB, id 10178757674) + `worker-verification-reports` (id 10178756308)
 - **APK (محلي):** `releases/AYROVI-Worker-v1.7.3-64-debug.apk`
+
+## v1.7.4 (65) — NAVIGATION BY RULE (خريطة الأزرار المعتمدة)
+الوثيقة الكاملة: `releases/WORKER-BUTTON-BY-BUTTON-MAP.md`
+
+| # | الشكوى | السبب الحقيقي | الإصلاح المنفذ |
+|---|---|---|---|
+| 1 | "تفتح بمقدمات" | بطاقة SCAN + رسالة INFO في AutoLane | حذفهما — الفتح مباشرة على READY |
+| 2 | "زر جانبي احذفه" | ScanToolsEdgeButton + Drawer داخل الأداة | حذفهما — سطح واحد: READY/كاميرا/نتيجة |
+| 3 | "BACK يعيد لواجهة قديمة / يمر عبر RECEIVING ويتعلق" | if (lane) "BACK TO RECEIVING" | قاعدة واحدة: BACK → الرئيسية دائمًا |
+| 4 | "تداخل OCR/QR مع RECEIVING" | المسار نفسه بعنوان ثابت RECEIVING | ترويسة الأداة = SCAN |
+| 5 | "إعادة تسجيل دخول لكل فتح سكان" | تصفير الجلسة عند كل ضغطة (v1.7.3) + قتل الحالة عند BACK | استمرارية: الأداة المفتوحة تُستأنف كما هي |
+| 6 | "الكاميرا تغلق وحدها بلا إشارة" | وميض النجاح 250ms | 1200ms — وميض يُرى بوضوح |
+| 7 | "النظام غير مستقر" | إخراج إجباري عند قائمة مهام فارغة لحظيًا | الإخراج فقط عند حذف حقيقي للمهمة |
+
+غير قابل للتغيير (أمن الخادم): إجبار الدخول عند انتهاء صلاحية الجلسة. منطق العمل كما هو: التطابق/التحقق/NOT MATCHED/"The failure was logged."/تسجيل مرة واحدة/زناد CT40.
