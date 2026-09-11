@@ -265,15 +265,13 @@ private fun ReceivingWorkCenter(
         val todoProducts = home?.productCards.orEmpty()
         val todoCartons = home?.cartonCards.orEmpty()
         SectionHeader("TO DO", todoProducts.size + todoCartons.size, Modifier.testTag("RECEIVING_TODO"))
+        // ONE explicit tag per card: chained testTag() keeps the FIRST one in
+        // the semantics config, so the first card carries the _FIRST tag here.
         todoProducts.forEachIndexed { index, card ->
-            ReceivingProductCard(card, Modifier.testTag("RECEIVING_CARD_PRODUCT").let {
-                if (index == 0) it.testTag("RECEIVING_CARD_PRODUCT_FIRST") else it
-            })
+            ReceivingProductCard(card, Modifier.testTag(if (index == 0) "RECEIVING_CARD_PRODUCT_FIRST" else "RECEIVING_CARD_PRODUCT"))
         }
         todoCartons.forEachIndexed { index, card ->
-            ReceivingCartonCard(card, Modifier.testTag("RECEIVING_CARD_CARTON").let {
-                if (index == 0) it.testTag("RECEIVING_CARD_CARTON_FIRST") else it
-            })
+            ReceivingCartonCard(card, Modifier.testTag(if (index == 0) "RECEIVING_CARD_CARTON_FIRST" else "RECEIVING_CARD_CARTON"))
         }
 
         // ---------- ISSUES: existing error / review states only (§12) ----------
