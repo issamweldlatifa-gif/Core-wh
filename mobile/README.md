@@ -45,6 +45,14 @@ A debug APK is a QA artifact. Release builds are **not debug-signed**. Use the o
   no Start button. CT40 keeps its instant hardware trigger.
 - **OCR** opens the EXISTING OCR flow directly (same chooser/camera/type
   surfaces, the composite of the two lane templates — no new OCR shapes).
+- **STABILITY FIX (v1.7.3)** — root cause of the reported shake/flicker:
+  the tool's camera/OCR now opens EXACTLY ONCE per HOME→tool transition.
+  It never re-opens on the automatic re-arm after a read (the previous
+  reopen-on-the-same-label loop = violent flicker + repeated feedback).
+  The in-flight VERIFY stays inside the tool (no mid-verify overview
+  flash), re-opening QR CODE always starts a FRESH tool (never an old
+  message/last-scan page), and the scanner gate re-arms on CHANGES only.
+  Scanner stack, success/error flows and logging are untouched.
 - Success flow, error flow, failure logging, permissions, API and the
   scanner integrations (CT40 / phone) are unchanged. The other assigned
   stations (Temporary Storage / Sorting / Packing / Shipping / Trace) keep

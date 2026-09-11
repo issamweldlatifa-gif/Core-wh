@@ -114,15 +114,23 @@ fun ReceivingHomeScreen(
 
     LaunchedEffect(state.authExpired) { if (state.authExpired) onAuthExpired() }
 
-    // UX RESTRUCTURE §9: apply the one-shot tool entry (AUTO scanner) once
-    // the screen is real — never twice, never over an already-open lane.
+    // §9 + STABILITY FIX: apply the tool entry ONCE PER ROUTE ENTRY, and
+    // reset a stale lane first — re-opening QR CODE after an earlier session
+    // used to resume the OLD lane (old message / last scan = "old page").
     LaunchedEffect(state.loaded, openWith) {
-        if (openWith != null && state.loaded && state.step == HomeStep.HOME) model.send(openWith)
+        if (openWith != null && state.loaded) {
+            if (state.step != HomeStep.HOME) model.send(ReceivingHomeIntent.BackHome)
+            model.send(openWith)
+        }
     }
 
     // §2/§5: the ONLY scanner is the AUTO scanner (the HOME QR CODE / OCR
     // tools). Receiving itself never scans and never redirects to a scan.
-    val lane = if (state.step == HomeStep.AUTO_SCAN) "SCAN" else null
+    // STABILITY FIX: the REVIEW steps BELONG to the tool — the verify in
+    // flight must keep rendering in the tool. Dropping to the overview for
+    // the verify window was the reported "camera opened, then an old page"
+    // flash (and it re-armed the camera-open effect below: the reopen loop).
+    val lane = if (state.step in setOf(HomeStep.AUTO_SCAN, HomeStep.REVIEW_PRODUCT, HomeStep.REVIEW_CARTON)) "SCAN" else null
     val capture = rememberScannerCapture(
         model.scanner, model.captureAllowed,
         "home:${state.step}:${state.scanEpoch}", model::onScan,
@@ -135,29 +143,23 @@ fun ReceivingHomeScreen(
         hardwareOverride = forceHardwareScanner,
     )
 
-    // UX CORRECTION §4: OCR entry opens the EXISTING OCR chooser surface (the
-    // same one the tools drawer opens) as soon as the AUTO tool is armed.
-    var ocrAutoOpened by remember { mutableStateOf(false) }
-    LaunchedEffect(lane, model.captureAllowed, capture.ocrOpen, capture.cameraOpen, capture.ocrCameraOpen) {
-        if (ocrFirst && !ocrAutoOpened && lane == "SCAN" && model.captureAllowed &&
-            !capture.ocrOpen && !capture.cameraOpen && !capture.ocrCameraOpen
-        ) {
-            ocrAutoOpened = true
-            capture.ocr()
+    // §3/§4 + STABILITY FIX: the tool's camera / OCR opens EXACTLY ONCE — on
+    // the HOME → tool transition. It NEVER re-opens on the automatic re-arm
+    // (REVIEW → SCAN after a read): the previous multi-key effect re-opened
+    // the camera onto the SAME label still in front of the lens → read →
+    // close → re-open → read… = the reported violent shake/flicker + repeated
+    // feedback. After a read, the READY panel's one-tap trigger continues the
+    // session on a phone; CT40 keeps its instant hardware trigger.
+    var lastToolStep by remember { mutableStateOf(state.step) }
+    LaunchedEffect(state.step) {
+        val enteredTool = lastToolStep == HomeStep.HOME && state.step == HomeStep.AUTO_SCAN
+        if (enteredTool) {
+            when {
+                ocrFirst -> capture.ocr()
+                autoOpenCamera && !capture.hardwareAvailable -> capture.camera()
+            }
         }
-    }
-    // UX CORRECTION §3: QR CODE → the camera opens IMMEDIATELY (no Start
-    // button, no intermediate step) on devices without a hardware imager.
-    // One-shot per tool entry; re-entering the tool from Home opens it again.
-    var scanCameraAutoOpened by remember { mutableStateOf(false) }
-    LaunchedEffect(lane) { if (lane == null) scanCameraAutoOpened = false }
-    LaunchedEffect(lane, model.captureAllowed, capture.hardwareAvailable, capture.cameraOpen, capture.ocrOpen, capture.ocrCameraOpen, capture.manualOpen) {
-        if (autoOpenCamera && !scanCameraAutoOpened && lane == "SCAN" && model.captureAllowed && !capture.hardwareAvailable &&
-            !capture.cameraOpen && !capture.ocrOpen && !capture.ocrCameraOpen && !capture.manualOpen
-        ) {
-            scanCameraAutoOpened = true
-            capture.camera()
-        }
+        lastToolStep = state.step
     }
 
     Box(Modifier.fillMaxSize()) {

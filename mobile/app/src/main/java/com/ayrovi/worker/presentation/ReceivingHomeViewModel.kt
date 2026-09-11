@@ -106,7 +106,20 @@ class ReceivingHomeViewModel(
                 }
             }
         }
-        viewModelScope.launch { state.collect { updateScannerGate() } }
+        // STABILITY FIX: the scanner gate reacts to CHANGES only. Re-arming
+        // the capture host on every state emission (busy toggling during
+        // every refresh) churned the capture pipeline — shake/flicker fuel.
+        viewModelScope.launch {
+            var lastGate = false
+            state.collect {
+                val gate = captureAllowed
+                if (gate != lastGate) {
+                    scanner.setEnabled(gate)
+                    if (gate) scanner.rearm()
+                    lastGate = gate
+                }
+            }
+        }
         refreshSummary()
     }
 
@@ -120,7 +133,9 @@ class ReceivingHomeViewModel(
             initialized = true
             workflow.initialize()
         }
-        if (available) refreshSummary()
+        // Summary refresh deliberately NOT here: activate() fires on every
+        // connection/permission emission, and each summary update recomposes
+        // the overview. It runs on foreground entry and after a scan instead.
     }
 
     fun setForeground(value: Boolean) {
