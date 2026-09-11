@@ -58,42 +58,32 @@ object BatchLabelPrint {
             cancellationSignal: CancellationSignal?,
             callback: WriteResultCallback,
         ) {
-            val written = mutableListOf<PageRange>()
+            // Label jobs are tiny — write EVERY page regardless of the
+            // requested subset and report ALL_PAGES (the PageRange(String)
+            // constructor is package-private to Kotlin and cannot be called
+            // from here).
             runCatching {
-                for (index in requestedIndices(requested)) {
-                    if (cancellationSignal?.isCanceled == true) {
-                        callback.onWriteCancelled()
-                        return
-                    }
+                java.io.FileOutputStream(destination.fileDescriptor).use { out ->
                     val doc = PrintedPdfDocument(context, pdfAttributes)
-                    val page = doc.startPage(index + 1)
-                    renderLabel(doc, page.canvas, labels[index])
-                    doc.finishPage(page)
-                    doc.writeTo(destination)
+                    for (index in labels.indices) {
+                        if (cancellationSignal?.isCanceled == true) {
+                            callback.onWriteCancelled()
+                            return
+                        }
+                        val page = doc.startPage(index + 1)
+                        renderLabel(page, labels[index])
+                        doc.finishPage(page)
+                    }
+                    doc.writeTo(out)
                     doc.close()
-                    written += PageRange(index.toString())
                 }
-                callback.onWriteFinished(
-                    if (written.size == labels.size) arrayOf(PageRange.ALL_PAGES) else written.toTypedArray(),
-                )
+                callback.onWriteFinished(arrayOf(PageRange.ALL_PAGES))
             }.onFailure {
                 callback.onWriteFailed(it.message ?: "Label rendering failed.")
             }
         }
 
         private val pdfAttributes: PrintAttributes = PrintAttributes.Builder().build()
-
-        private fun requestedIndices(requested: Array<out PageRange>): List<Int> {
-            if (requested.any { it == PageRange.ALL_PAGES }) return labels.indices.toList()
-            val out = mutableListOf<Int>()
-            for (range in requested) {
-                val bounds = range.toString().split("-")
-                val from = bounds[0].toIntOrNull() ?: continue
-                val to = (bounds.getOrNull(1) ?: bounds[0]).toIntOrNull() ?: continue
-                for (p in from..to) if (p - 1 in labels.indices) out += p - 1
-            }
-            return out.distinct()
-        }
 
         /** QR matrix -> white-background bitmap (modulePx px per module). The
          * renderer itself stays android-free; pixels live on the print side. */
@@ -118,9 +108,13 @@ object BatchLabelPrint {
             return bitmap
         }
 
-        private fun renderLabel(doc: PrintedPdfDocument, canvas: android.graphics.Canvas, label: BatchBarcodeRenderer.Label) {
-            val pageWidth = doc.pageContentWidth.toFloat()
-            val pageHeight = doc.pageContentHeight.toFloat()
+        private fun renderLabel(page: android.graphics.pdf.PdfDocument.Page, label: BatchBarcodeRenderer.Label) {
+            // Content size from the page info (public API): the content rect
+            // excludes the printable margins.
+            val canvas = page.canvas
+            val content = page.info.contentRect
+            val pageWidth = content.width().toFloat()
+            val pageHeight = content.height().toFloat()
             val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
 
             // QR block: ~70% of the page width, centered near the top.
