@@ -49,6 +49,9 @@ import com.ayrovi.worker.scanner.ScannerCapture
 import com.ayrovi.worker.scanner.WorkerDevice
 import com.ayrovi.worker.scanner.rememberScannerCapture
 import kotlinx.coroutines.delay
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 
 /**
  * TEMPORARY STORAGE station — native worker app (CT40 / phone), MASTER ORDER.
@@ -543,5 +546,31 @@ private fun ReportPanel(
                 PrimaryAction("SUBMIT RAPPORT DE FIN", submit, !state.busy && !state.reportSent, Modifier.weight(1f))
             }
         }
+    }
+}
+
+/** Thin progress bar used by the customer/container blocks (order §6). */
+@Composable
+internal fun ProgressBar(
+    done: Int,
+    total: Int,
+    modifier: Modifier = Modifier,
+    barColor: Color = TerminalTokens.success,
+) {
+    val ratio = if (total <= 0) 0f else (done.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+    // Palette entries are @Composable getters: read them during composition and
+    // hand plain Color values to the Canvas (a DrawScope is not composable).
+    val track = TerminalTokens.border
+    val fill = barColor
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Canvas(Modifier.fillMaxWidth().height(8.dp)) {
+            drawRect(track, Offset.Zero, Size(size.width, size.height))
+            drawRect(fill, Offset.Zero, Size(size.width * ratio, size.height))
+        }
+        Text(
+            "$done / $total articles · ${(ratio * 100).toInt()}%",
+            style = MaterialTheme.typography.labelSmall,
+            color = TerminalTokens.muted,
+        )
     }
 }

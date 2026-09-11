@@ -113,7 +113,7 @@ fun WorkerTerminalApp(
             // live receiving content — TO DO / ISSUES / DONE cards + the
             // existing PRODUCT / CARTON lane scanners. No intermediate picker.
             ReceivingHomeRoute(container, state, connection, model,
-                onExitSession = onBack,
+                onExitSession = { route = TerminalRoute.QUEUE; model.refresh() },
                 vmKey = "receiving-home", openWith = null, ocrFirst = false,
                 glove = glove, glare = glare,
                 onToggleTheme = appearance::toggleTheme,
