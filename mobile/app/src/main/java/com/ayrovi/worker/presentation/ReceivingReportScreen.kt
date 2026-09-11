@@ -466,7 +466,7 @@ private fun PhotoThumb(dataUrl: String) {
     LaunchedEffect(dataUrl) {
         bitmap = withContext(Dispatchers.Default) { decodeThumb(dataUrl) }
     }
-    Box(Modifier.size(72.dp).background(TerminalTokens.surface, MaterialTheme.shapes.small),
+    Box(Modifier.size(TerminalTokens.stateIcon).background(TerminalTokens.surface, MaterialTheme.shapes.small),
         contentAlignment = Alignment.Center) {
         val ready = bitmap
         if (ready != null) {

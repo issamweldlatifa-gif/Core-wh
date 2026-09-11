@@ -134,6 +134,25 @@ fun WorkerTerminalApp(
                 onToggleGlove = appearance::toggleGlove, onToggleGlare = appearance::toggleGlare,
                 coachPending = false, onCoachDone = {},
                 onBack = { route = TerminalRoute.QUEUE; model.refresh() })
+        } else if (route == TerminalRoute.SORTING && state.me?.user?.id != null) {
+            // v1.7.6 FIX FOUND BY THE DEAD-CODE SWEEP: the SORTING route was
+            // reachable from Home but had NO composition branch — the tile
+            // silently re-rendered Home. The station screen + VM + gateway
+            // always existed (and are test-covered); only this wiring was
+            // lost. Pure navigation wiring, zero business changes.
+            val sort: SortingViewModel = viewModel(
+                key = "sorting-${state.loginGeneration}",
+                factory = factory { SortingViewModel(RepoSortingGateway(container.repository), container.audio) },
+            )
+            SortingScreen(sort, workerLabel(state), stationLabel(state), connection.name,
+                onBack = { route = TerminalRoute.QUEUE; model.refresh() }, onAuthExpired = model::expireSession,
+                industrial = container.device == WorkerDevice.CT40,
+                repository = container.repository,
+                appVersion = com.ayrovi.worker.BuildConfig.VERSION_NAME,
+                deviceCode = model.deviceCode, device = container.device,
+                onToggleTheme = appearance::toggleTheme,
+                gloveOn = glove, onToggleGlove = appearance::toggleGlove,
+                glareOn = glare, onToggleGlare = appearance::toggleGlare)
         } else if (route == TerminalRoute.SHIPPING && state.me?.user?.id != null) {
             // SHIPPING (native, CT40-first): scan the label -> cards -> the
             // ONE deliberate confirm (dispatch is irreversible) -> green flash.

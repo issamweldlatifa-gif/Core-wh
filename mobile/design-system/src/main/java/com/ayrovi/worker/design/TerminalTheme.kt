@@ -121,23 +121,17 @@ object TerminalTokens {
     val sm = 12.dp
     val md = 16.dp
     val lg = 24.dp
-    val xl = 32.dp
     val radius = 4.dp
     val panelRadius = 4.dp
     val flat = 0.dp
-    val raisedElevation = 2.dp
     val iconSmall = 20.dp
     val icon = 24.dp
     val workflowIcon = 40.dp
     val stateIcon = 72.dp
-    val deviceVisual = 152.dp
-    val compactDeviceVisual = 96.dp
     val tileHeight = 112.dp
     val stroke = 1.dp
     val touch = 56.dp
     val primaryTouch = 64.dp
-    val headerActionWidth = 72.dp
-    val scanPreview = 180.dp
     val reticle = 32.dp
 
     // v1.7.5 UNIFIED TYPE SCALE — one ladder for the whole app:

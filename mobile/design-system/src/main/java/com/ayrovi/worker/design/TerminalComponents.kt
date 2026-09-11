@@ -138,33 +138,6 @@ fun WorkflowTile(label: String, icon: TerminalIcon, count: Int?, available: Bool
 
 /** Generic, state-driven segmented control. It knows no warehouse rule or API. */
 @Composable
-fun TerminalModeSelector(
-    first: String, second: String, firstSelected: Boolean, enabled: Boolean,
-    onFirst: () -> Unit, onSecond: () -> Unit, padded: Boolean = true,
-) {
-    Row(Modifier.fillMaxWidth().testTag("MODE_SELECTOR").then(if (padded) Modifier.padding(horizontal = TerminalTokens.sm, vertical = TerminalTokens.xs) else Modifier),
-        horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-        listOf(Triple(first, firstSelected, onFirst), Triple(second, !firstSelected, onSecond)).forEach { (label, chosen, action) ->
-            val modifier = Modifier.weight(1f).heightIn(min = TerminalTokens.touch)
-                .semantics { selected = chosen; role = Role.Tab }
-            if (chosen) Button(onClick = action, enabled = enabled, modifier = modifier,
-                shape = MaterialTheme.shapes.small,
-                colors = ButtonDefaults.buttonColors(containerColor = TerminalTokens.primary, contentColor = TerminalTokens.onPrimary),
-                contentPadding = PaddingValues(TerminalTokens.xs)) {
-                WorkerIcon(TerminalIcon.CHECK, null, Modifier.size(TerminalTokens.iconSmall), TerminalTokens.onPrimary)
-                Spacer(Modifier.width(TerminalTokens.xxs))
-                Text(label, style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center)
-            } else OutlinedButton(onClick = action, enabled = enabled, modifier = modifier,
-                shape = MaterialTheme.shapes.small, border = BorderStroke(TerminalTokens.stroke, TerminalTokens.border),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = TerminalTokens.text),
-                contentPadding = PaddingValues(TerminalTokens.xs)) {
-                Text(label, style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center)
-            }
-        }
-    }
-}
-
-@Composable
 fun TerminalFooter(instruction: String, actions: @Composable ColumnScope.() -> Unit) {
     Surface(color = TerminalTokens.surface, tonalElevation = TerminalTokens.flat) {
         Column(Modifier.fillMaxWidth().padding(TerminalTokens.sm), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
@@ -194,24 +167,12 @@ fun TerminalPanel(title: String? = null, icon: TerminalIcon? = null, borderTone:
     }
 }
 
-@Composable fun TaskHeader(number: String, status: String, detail: String? = null) {
-    TerminalPanel {
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(TerminalTokens.md),
-            verticalArrangement = Arrangement.spacedBy(TerminalTokens.xxs)) {
-            TaskNumber(number)
-            TaskStatus(status)
-        }
-        if (detail != null) Text(detail, style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)
-    }
-}
-@Composable fun TaskNumber(number: String) = Text(number, style = MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Monospace))
 @Composable fun TaskInstruction(text: String, detail: String? = null) {
     Column(verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
         Text(text, style = MaterialTheme.typography.headlineMedium, color = TerminalTokens.instruction, modifier = Modifier.semantics { heading() })
         if (detail != null) Text(detail, style = MaterialTheme.typography.bodyLarge)
     }
 }
-@Composable fun TaskStatus(text: String, tone: TerminalTone = TerminalTone.NEUTRAL) = StatusBadge(text, tone)
 
 @Composable
 fun LocationBlock(code: String, hierarchy: List<Pair<String, String>> = emptyList(), label: String = "LOCATION") {
@@ -234,29 +195,6 @@ fun LocationBlock(code: String, hierarchy: List<Pair<String, String>> = emptyLis
     SelectionContainer { Text(value, style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.Monospace)) }
 }
 
-@Composable
-fun ScanZone(label: String, enabled: Boolean, controls: @Composable ColumnScope.() -> Unit) {
-    val scanColor = if (enabled) TerminalTokens.instruction else TerminalTokens.muted
-    Surface(Modifier.fillMaxWidth(), color = TerminalTokens.surface, shape = MaterialTheme.shapes.medium,
-        border = BorderStroke(TerminalTokens.stroke, if (enabled) TerminalTokens.instruction else TerminalTokens.border)) {
-        Column(Modifier.padding(TerminalTokens.sm), verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TerminalTokens.md)) {
-                Canvas(Modifier.size(TerminalTokens.reticle)) {
-                    val stroke = TerminalTokens.stroke.toPx() * 2
-                    val arm = size.width / 3
-                    val c = scanColor
-                    for ((x, y) in listOf(0f to 0f, size.width to 0f, 0f to size.height, size.width to size.height)) {
-                        drawLine(c, Offset(x, y), Offset(if (x == 0f) arm else x - arm, y), stroke)
-                        drawLine(c, Offset(x, y), Offset(x, if (y == 0f) arm else y - arm), stroke)
-                    }
-                }
-                Text(label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-            }
-            controls()
-        }
-    }
-}
-@Composable fun ScanStatus(text: String, tone: TerminalTone = TerminalTone.INSTRUCTION) = StatusBadge(text, tone)
 @Composable fun ScanResult(title: String, detail: String, tone: TerminalTone) = OperationalState(title, detail, tone)
 
 @Composable fun QuantityDisplay(label: String, value: String, modifier: Modifier = Modifier) {
@@ -265,11 +203,6 @@ fun ScanZone(label: String, enabled: Boolean, controls: @Composable ColumnScope.
         Text(value, style = MaterialTheme.typography.displaySmall)
     }
 }
-@Composable fun QuantityInput(value: String, onValueChange: (String) -> Unit, enabled: Boolean = true, error: String? = null) =
-    NumericInput("RECEIVED QUANTITY", value, onValueChange, enabled, error)
-@Composable fun NumericInput(label: String, value: String, onValueChange: (String) -> Unit, enabled: Boolean = true, error: String? = null) {
-    TerminalTextInput(label, value, onValueChange, enabled = enabled, keyboardType = KeyboardType.Number, error = error)
-}
 @Composable fun QuantityStepper(value: String, onMinus: () -> Unit, onPlus: () -> Unit, minusEnabled: Boolean, plusEnabled: Boolean) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TerminalTokens.md)) {
         SecondaryAction("−", onMinus, minusEnabled, Modifier.widthIn(min = TerminalTokens.touch))
@@ -277,15 +210,6 @@ fun ScanZone(label: String, enabled: Boolean, controls: @Composable ColumnScope.
         SecondaryAction("+", onPlus, plusEnabled, Modifier.widthIn(min = TerminalTokens.touch))
     }
 }
-@Composable fun ProgressIndicator(current: Int, total: Int, label: String) {
-    Column(verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-        Text("$label · $current / $total", style = MaterialTheme.typography.bodyMedium)
-        LinearProgressIndicator(progress = { if (total > 0) (current.toFloat() / total).coerceIn(0f, 1f) else 0f },
-            modifier = Modifier.fillMaxWidth(), color = TerminalTokens.instruction, trackColor = TerminalTokens.raised)
-    }
-}
-@Composable fun StepIndicator(current: Int, total: Int, label: String) = Text("STEP $current / $total · $label", style = MaterialTheme.typography.labelMedium, color = TerminalTokens.muted)
-
 @Composable
 fun TerminalNotice(title: String, detail: String, tone: TerminalTone) {
     Surface(Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
@@ -297,9 +221,6 @@ fun TerminalNotice(title: String, detail: String, tone: TerminalTone) {
     }
 }
 
-@Composable fun SuccessState(title: String, detail: String) = OperationalState(title, detail, TerminalTone.SUCCESS)
-@Composable fun WarningState(title: String, detail: String) = OperationalState(title, detail, TerminalTone.WARNING)
-@Composable fun ExceptionState(title: String, detail: String) = OperationalState(title, detail, TerminalTone.WARNING)
 @Composable fun ErrorState(title: String, detail: String, expected: String? = null, scanned: String? = null) {
     OperationalState(title, detail, TerminalTone.ERROR, expected, scanned)
 }
@@ -353,9 +274,6 @@ private fun TerminalTone.icon() = when (this) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = color)
     }
 }
-@Composable fun SyncStatus(label: String) = StatusBadge(label, TerminalTone.INSTRUCTION)
-@Composable fun OfflineStatus() = StatusBadge("OFFLINE · RECEIVING STOPPED", TerminalTone.WARNING)
-
 @Composable fun PrimaryAction(label: String, onClick: () -> Unit, enabled: Boolean = true, modifier: Modifier = Modifier.fillMaxWidth(), icon: TerminalIcon? = null) = TerminalAction(label, onClick, enabled, modifier, primary = true, icon = icon)
 @Composable fun SecondaryAction(label: String, onClick: () -> Unit, enabled: Boolean = true, modifier: Modifier = Modifier.fillMaxWidth(), icon: TerminalIcon? = null) = TerminalAction(label, onClick, enabled, modifier, icon = icon)
 
@@ -379,12 +297,6 @@ fun GlareFooterAction(on: Boolean, onToggle: () -> Unit, modifier: Modifier = Mo
             if (on) TerminalTokens.warning else TerminalTokens.muted)
     }
 }
-@Composable fun DangerAction(label: String, onClick: () -> Unit, enabled: Boolean = true, modifier: Modifier = Modifier.fillMaxWidth(), icon: TerminalIcon? = null) = TerminalAction(label, onClick, enabled, modifier, danger = true, icon = icon)
-@Composable fun ConfirmAction(label: String = "CONFIRM", onClick: () -> Unit, enabled: Boolean = true) = PrimaryAction(label, onClick, enabled)
-@Composable fun RejectAction(onClick: () -> Unit, enabled: Boolean = true) = DangerAction("REJECT", onClick, enabled)
-@Composable fun RetryAction(onClick: () -> Unit, enabled: Boolean = true, label: String = "RETRY") = SecondaryAction(label, onClick, enabled)
-@Composable fun PauseAction(onClick: () -> Unit, enabled: Boolean = true) = SecondaryAction("PAUSE", onClick, enabled)
-
 /**
  * Zebra-class industrial action: a flat solid slab with sharp 4dp corners, a
  * bold tracked label and a glove-sized height. Primary = brand fill, danger =
@@ -444,22 +356,4 @@ fun TerminalTextInput(
         modifier = modifier.heightIn(min = TerminalTokens.touch),
         shape = MaterialTheme.shapes.small,
     )
-}
-
-@Composable
-fun ModalException(
-    title: String, reason: String, onReason: (String) -> Unit,
-    onDismiss: () -> Unit, onConfirm: () -> Unit, enabled: Boolean, confirmLabel: String = "REPORT", message: String? = null,
-) {
-    AlertDialog(onDismissRequest = onDismiss,
-        title = { Text(title, style = MaterialTheme.typography.titleLarge) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
-                if (message != null) ErrorState("OPERATION NEEDS ATTENTION", message)
-                TerminalTextInput("ACTUAL REASON", reason, onReason, enabled = enabled, singleLine = false)
-            }
-        },
-        confirmButton = { ConfirmAction(confirmLabel, onConfirm, enabled && reason.isNotBlank()) },
-        dismissButton = { SecondaryAction("BACK", onDismiss) },
-        shape = MaterialTheme.shapes.medium, containerColor = TerminalTokens.surface)
 }

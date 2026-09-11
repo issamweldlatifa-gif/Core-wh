@@ -413,7 +413,7 @@ private fun DrawerItem(label: String, icon: TerminalIcon, tag: String, enabled: 
     ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = TerminalTokens.sm), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
-            WorkerIcon(icon, null, Modifier.size(22.dp), if (enabled) TerminalTokens.instruction else TerminalTokens.muted)
+            WorkerIcon(icon, null, Modifier.size(TerminalTokens.iconSmall), if (enabled) TerminalTokens.instruction else TerminalTokens.muted)
             Text(label, style = MaterialTheme.typography.labelLarge,
                 color = if (enabled) TerminalTokens.text else TerminalTokens.muted)
         }
