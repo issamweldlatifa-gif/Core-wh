@@ -11,7 +11,7 @@
 | **GitHub Release (دائم)** | https://github.com/issamweldlatifa-gif/Core-wh/releases/tag/worker-apk-e42437b |
 | **APK (رابط دائم)** | https://github.com/issamweldlatifa-gif/Core-wh/releases/download/worker-apk-e42437b/ayrovi-worker-v1.8.0-batch.3-70.apk |
 | **APK** | `ayrovi-worker-v1.8.0-batch.3-70.apk` — versionCode **70** / versionName **1.8.0-batch.3** (80MB، موقّع debug-key — نفس قناة v1.7.6) |
-| **Render** | autoDeploy يتابع `master` → النشر انطلق تلقائيًا بدفع master؛ فحص الصحة: `GET /api/v1/system/health` — **رابط الخدمة عندك في لوحة Render** (المخمّن `ayrovi-warehouse-core.onrender.com` ردّ 404 — أكّد لي الرابط الصحيح أو حدّث الدومين) |
+| **Render** | ✅ **منشور ومؤكد حيًا**: https://core-wh.onrender.com — الصحة 200 و`database: up` والبنية تشغّل **بالضبط** `commitShort: e42437b` (تحقّق `GET /api/v1/system/health` 2026-09-12T02:05Z). نقاط `/v1/batches` حيّة ومحمية (401 بلا مصادقة — صحيح) |
 | **Backend CI (master)** | ✅ success — 266 اختبار (incl. 46 في batches) + build |
 | **Android (master)** | ✅ success — run 34666267500: تجميع + `:app:testDebugUnitTest` + **محاكي UI** + R8 |
 
@@ -35,8 +35,8 @@
 
 ## 4) متبقٍّ عليك (خطواتك فقط)
 
-1. **Render:** أكّد لي رابط الخدمة (أو افتح اللوحة — النشر انطلق تلقائيًا بدفع master) ثم نفحص `/api/v1/system/health` معًا.
-2. **تشغيل العلم:** `batch.enabled` افتراضيًا OFF — عندما تريد تفعيل النظام فعليًا: Settings → أضف/حدّث `batch.enabled = true` (من Admin → System).
+1. ~~Render~~ ✅ **مؤكد حيًا** — https://core-wh.onrender.com (200 + database up + commit e42437b).
+2. **تشغيل العلم (عند جاهزيتك):** `batch.enabled` افتراضيًا OFF — من Admin → System حدّث `batch.enabled = true` لتفعيل النظام فعليًا.
 3. **اختبارك على الجهاز الحقيقي:** ثبّت الـ APK من رابط الـ Release، وسِناريو الأمر: فرنسا (10 منتجات→10 وحدات→دفعة→قبول→طباعة→إرسال) وتونس (فتح→مسح→10/10→إكمال→تقرير) + دفعتان A+B بالتوازي.
 4. **بيانات الاختبار:** البادئات `AYBTEST-`/`AYPTEST-` قابلة للتصفير — DataControl القائم هو من ينفّذ (بلا حذف حقيقي).
 
