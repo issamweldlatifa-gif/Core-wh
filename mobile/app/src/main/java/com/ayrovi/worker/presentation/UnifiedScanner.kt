@@ -1,5 +1,7 @@
 package com.ayrovi.worker.presentation
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -35,6 +37,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathMeasure
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
@@ -457,53 +463,134 @@ internal fun ScanResultOverlay(
     }
     // GREEN / AMBER = "move on" verdicts: auto-rearm. RED = stop: stays.
     val rearmMs = autoRearmMs?.takeIf { ok || toneOverride == MessageTone.WARNING }
+    val moveOn = rearmMs != null
     val mark = when { ok -> "✓"; toneOverride == MessageTone.WARNING -> "!"; else -> "✕" }
-    val glyph = when { ok -> TerminalIcon.SUCCESS; toneOverride == MessageTone.WARNING -> TerminalIcon.WARNING; else -> TerminalIcon.ERROR }
-    // Full-bleed wash: the verdict owns the display, no fogged card.
+    if (rearmMs != null) {
+        // MATCH / AMBER: re-arm the lane automatically. The loop never stops.
+        LaunchedEffect(title) { delay(rearmMs); onBack() }
+    }
+    // v1.8-batch.8 (75) OWNER MODEL: "move on" verdicts drop the full-screen
+    // wash — the CAMERA VIEWFINDER STAYS VISIBLE and the verdict is an
+    // animated circle-check drawn OVER it plus a white panel beneath with the
+    // scanned value. STOP verdicts (red) keep the full wash and stay until BACK.
     Box(
         Modifier.fillMaxSize().testTag("SCAN_RESULT").background(
-            if (ok) TerminalTokens.background.copy(alpha = 0.96f) else TerminalTokens.background.copy(alpha = 0.97f),
+            if (moveOn) Color.Transparent else TerminalTokens.background.copy(alpha = 0.97f),
         ),
     ) {
-        // Tone wash band across the top half — the color signal seen from
-        // arm's length before any text is parsed.
-        Box(
-            Modifier.fillMaxWidth().fillMaxHeight(0.42f)
-                .background(tone.copy(alpha = if (ok) 0.30f else 0.34f)),
-        )
-        if (rearmMs != null) {
-            // MATCH / AMBER: re-arm the lane automatically. The loop never stops.
-            LaunchedEffect(title) { delay(rearmMs); onBack() }
-        }
-        Column(
-            Modifier.align(Alignment.Center).fillMaxWidth().padding(TerminalTokens.lg),
-            verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            WorkerIcon(glyph, null,
-                Modifier.size(if (rearmMs != null) 96.dp else 72.dp), tone)
-            Text(
-                mark,
-                style = MaterialTheme.typography.displayLarge,
-                color = tone,
+        if (!moveOn) {
+            // Tone wash band across the top half — the color signal seen from
+            // arm's length before any text is parsed (stop verdicts only).
+            Box(
+                Modifier.fillMaxWidth().fillMaxHeight(0.42f)
+                    .background(tone.copy(alpha = 0.34f)),
             )
-            Text(title, style = MaterialTheme.typography.displaySmall, color = TerminalTokens.text,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-            if (detail.isNotBlank()) {
-                Text(detail, style = MaterialTheme.typography.bodyLarge, color = TerminalTokens.muted,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-            }
-            lines.forEach { line ->
-                Text(line, style = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),
-                    color = TerminalTokens.text)
-            }
-            if (rearmMs != null) {
+        }
+        if (moveOn) {
+            Column(
+                Modifier.fillMaxSize().padding(TerminalTokens.lg),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                AnimatedVerdictMark(tone, mark)
+                Spacer(Modifier.height(TerminalTokens.lg))
+                // White panel: WHAT was scanned, big and readable.
+                Column(
+                    Modifier.fillMaxWidth().background(Color.White, MaterialTheme.shapes.medium)
+                        .padding(TerminalTokens.lg).testTag("SCAN_VALUE_PANEL"),
+                    verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    if (detail.isNotBlank()) {
+                        Text(detail, style = MaterialTheme.typography.displaySmall,
+                            color = Color.Black,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    }
+                    lines.forEach { line ->
+                        Text(line, style = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),
+                            color = Color.Black)
+                    }
+                    if (detail.isBlank() && lines.isEmpty()) {
+                        Text(title, style = MaterialTheme.typography.displaySmall, color = Color.Black,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    }
+                }
+                Spacer(Modifier.height(TerminalTokens.md))
                 Text("SCAN NEXT — NO TOUCH NEEDED", style = MaterialTheme.typography.labelLarge,
                     color = tone)
-            } else {
+            }
+        } else {
+            Column(
+                Modifier.align(Alignment.Center).fillMaxWidth().padding(TerminalTokens.lg),
+                verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                WorkerIcon(TerminalIcon.ERROR, null, Modifier.size(72.dp), tone)
+                Text(mark, style = MaterialTheme.typography.displayLarge, color = tone)
+                Text(title, style = MaterialTheme.typography.displaySmall, color = TerminalTokens.text,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                if (detail.isNotBlank()) {
+                    Text(detail, style = MaterialTheme.typography.bodyLarge, color = TerminalTokens.muted,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                }
+                lines.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),
+                        color = TerminalTokens.text)
+                }
                 Spacer(Modifier.height(2.dp))
                 PrimaryAction("BACK", onBack, true, Modifier.fillMaxWidth().testTag("RESULT_BACK"))
             }
         }
+    }
+}
+
+/**
+ * The OWNER success mark: a circle that DRAWS itself (stroke arc sweep),
+ * then the check stroke draws inside it, the mark glyph fading in with it.
+ * Pure Compose Canvas — no dependency, no images.
+ */
+@Composable
+private fun AnimatedVerdictMark(tone: Color, mark: String) {
+    val progress = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        progress.animateTo(1f, tween(700, easing = FastOutSlowInEasing))
+    }
+    val p = progress.value
+    Box(Modifier.size(124.dp).testTag("SCAN_SUCCESS_MARK"), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.fillMaxSize()) {
+            val strokeW = 10.dp.toPx()
+            val stroke = Stroke(width = strokeW, cap = StrokeCap.Round)
+            val inset = strokeW
+            val arcSize = Size(size.width - 2 * inset, size.height - 2 * inset)
+            val circleP = (p / 0.6f).coerceIn(0f, 1f)
+            drawArc(
+                color = tone,
+                startAngle = -90f,
+                sweepAngle = 360f * circleP,
+                useCenter = false,
+                topLeft = Offset(inset, inset),
+                size = arcSize,
+                style = stroke,
+            )
+            val checkP = ((p - 0.6f) / 0.4f).coerceIn(0f, 1f)
+            if (checkP > 0f) {
+                val check = Path().apply {
+                    moveTo(size.width * 0.28f, size.height * 0.53f)
+                    lineTo(size.width * 0.44f, size.height * 0.69f)
+                    lineTo(size.width * 0.74f, size.height * 0.33f)
+                }
+                val pm = PathMeasure()
+                pm.setPath(check, false)
+                val segment = Path()
+                pm.getSegment(0f, pm.length * checkP, segment, true)
+                drawPath(segment, tone, style = stroke)
+            }
+        }
+        Text(
+            mark,
+            style = MaterialTheme.typography.displayLarge,
+            color = tone,
+            modifier = Modifier.graphicsLayer(alpha = ((p - 0.55f) / 0.45f).coerceIn(0f, 1f)),
+        )
     }
 }
