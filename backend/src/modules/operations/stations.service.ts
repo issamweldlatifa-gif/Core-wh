@@ -136,7 +136,7 @@ export class StationsService {
       data.deviceId = input.deviceId;
     }
     if (input.department !== undefined) {
-      const departments = ['RECEIVING', 'SORTING', 'PUTAWAY', 'PACKING', 'INVENTORY', 'DISPATCH', 'STAGING'];
+      const departments = ['RECEIVING', 'SORTING', 'PUTAWAY', 'PACKING', 'INVENTORY', 'DISPATCH', 'STAGING', 'BATCH'];
       if (!departments.includes(input.department)) {
         throw new BadRequestException(`department must be one of: ${departments.join(', ')}`);
       }

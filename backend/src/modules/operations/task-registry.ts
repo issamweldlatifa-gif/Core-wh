@@ -153,40 +153,36 @@ export const TASK_REGISTRY: OperationalTask[] = [
   },
   {
     // AYROVI BATCH (Phase 2): the worker BUILDS batches in the app (create
-    // customer -> scan units -> print labels -> submit). NOT a station task:
-    // no stationDepartments/stationRequired — every worker holding
-    // batch.execute sees it, station-bound or not. The RECEIVING side of
-    // batches must reuse DISPATCH (command rule) — decided in its own slice.
+    // customer -> scan units -> print labels -> submit). USER ORDER
+    // (2026-09-12): batch is a full station operation in its OWN department —
+    // BATCH (dedicated stations, e.g. BATCH-01 created from the admin
+    // Stations page). DISPATCH stays outbound-only: no batch task rides it.
     key: 'batch',
     label: 'Batch',
     path: '/terminal/batch',
-    department: 'RECEIVING',
+    department: 'BATCH',
     permission: 'batch.execute',
     ready: true,
     operation: 'Batch',
     work: 'بناء الدفعات (عميل جديد → وحدات AYP → ملصقات → إرسال)',
-    // USER ORDER (2026-09-12): batch is a STATION operation like the others.
-    // Gated to workers bound to an ACTIVE RECEIVING-department station
-    // (ST-BAT-01 lives here). No stationRequired: an unassigned device is
-    // not blocked (same policy as receiving).
-    stationDepartments: ['RECEIVING'],
+    // Bound to BATCH-department stations. No stationRequired: an unassigned
+    // device is not blocked (same policy as receiving).
+    stationDepartments: ['BATCH'],
   },
   {
     // AYROVI BATCH IN (Phase 2 receiving slice): the admin SENT the batch;
     // this task receives it (scan every AYP unit -> 10/10 -> complete).
-    // STATION CHECK (command rule): DISPATCH is outbound-only shipping —
-    // it cannot host inbound batch receiving, so this stays a station-less
-    // permission-served task on the worker terminal. NO BATCH station was
-    // created anywhere.
+    // Lives in the dedicated BATCH department (same station family as the
+    // build task). DISPATCH remains outbound-only — never hosts batch work.
     key: 'batch-in',
     label: 'Batch IN',
     path: '/terminal/batch-in',
-    department: 'RECEIVING',
+    department: 'BATCH',
     permission: 'batch.receive',
     ready: true,
     operation: 'Batch IN',
     work: 'استلام الدفعات (فحص AYP → 10/10 → إكمال)',
-    stationDepartments: ['RECEIVING'],
+    stationDepartments: ['BATCH'],
   },
 ];
 

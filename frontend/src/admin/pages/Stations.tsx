@@ -4,7 +4,7 @@ import { useAsync } from './useAsync';
 import { useAuth } from '../../context/AuthContext';
 import { apiErrorMessage } from '../../api/client';
 
-const DEPARTMENTS = ['RECEIVING', 'SORTING', 'PUTAWAY', 'PACKING', 'INVENTORY', 'DISPATCH', 'STAGING'];
+const DEPARTMENTS = ['RECEIVING', 'SORTING', 'PUTAWAY', 'PACKING', 'INVENTORY', 'DISPATCH', 'STAGING', 'BATCH'];
 const CAPS = ['CAMERA', 'BARCODE_SCANNER', 'QR_SCANNER', 'OCR', 'PRINTER', 'SCALE'];
 
 /** Station registry + worker assignment + station/zone configuration (S10/S11).

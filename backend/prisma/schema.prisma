@@ -2281,6 +2281,10 @@ enum StationDepartment {
   /// Temporary storage position for CLOSED receiving totes (Master Order §11):
   /// a full container is moved here and waits for the sorting step.
   STAGING
+  /// AYROVI Batch (owner order 2026-09-12): the batch build/receive lane is a
+  /// real department with its own stations (BATCH-01), managed from the admin
+  /// Stations page like every other department.
+  BATCH
 }
 
 enum StationStatus {

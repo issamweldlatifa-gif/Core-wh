@@ -263,7 +263,7 @@ const ROLES: Array<{
   {
     name: 'BATCH_WORKER',
     // Phase 2 BATCH (user order 2026-09-12): the floor agent of the batch
-    // operation at ST-BAT-01 — builds batches (customer in-app, AYP per
+    // operation at BATCH-01 — builds batches (customer in-app, AYP per
     // unit, label printing) and receives the batches the admin sent.
     description: 'Batch agent: build batches (customer + AYP units + labels) and receive sent batches (10/10). Tasks: batch, batch-in.',
     isSystem: true,
@@ -642,7 +642,7 @@ async function main() {
     const stations: Array<{
       code: string;
       name: string;
-      department: 'RECEIVING' | 'SORTING' | 'PUTAWAY' | 'PACKING' | 'DISPATCH' | 'STAGING';
+      department: 'RECEIVING' | 'SORTING' | 'PUTAWAY' | 'PACKING' | 'DISPATCH' | 'STAGING' | 'BATCH';
       capabilities: Array<'CAMERA' | 'BARCODE_SCANNER' | 'QR_SCANNER' | 'OCR' | 'PRINTER' | 'SCALE'>;
     }> = [
       { code: 'ST-REC-01', name: 'Receiving Dock 1', department: 'RECEIVING', capabilities: ['CAMERA', 'BARCODE_SCANNER', 'QR_SCANNER', 'OCR', 'SCALE'] },
@@ -650,11 +650,11 @@ async function main() {
       { code: 'ST-SRT-01', name: 'Sorting Bench 1', department: 'SORTING', capabilities: ['CAMERA', 'BARCODE_SCANNER'] },
       { code: 'ST-PCK-01', name: 'Packing Bench 1', department: 'PACKING', capabilities: ['CAMERA', 'PRINTER', 'SCALE'] },
       { code: 'ST-SHP-01', name: 'Shipping Dock 1', department: 'DISPATCH', capabilities: ['CAMERA', 'BARCODE_SCANNER', 'QR_SCANNER'] },
-      // Phase 2 BATCH (user order 2026-09-12): a REAL station for the batch
-      // operation — build (AYP labels print here: PRINTER) + BATCH IN.
-      // DISPATCH-reuse was checked and rejected (outbound-only), so the
-      // batch station lives in the RECEIVING department.
-      { code: 'ST-BAT-01', name: 'Batch Build & Receive 1', department: 'RECEIVING', capabilities: ['CAMERA', 'BARCODE_SCANNER', 'QR_SCANNER', 'PRINTER'] },
+      // AYROVI BATCH (owner order 2026-09-12): the batch lane has its OWN
+      // department — BATCH — with real stations created/managed from the
+      // admin Stations page (prod: BATCH-01). DISPATCH-reuse was checked and
+      // rejected (outbound-only).
+      { code: 'BATCH-01', name: 'Batch', department: 'BATCH', capabilities: ['CAMERA', 'BARCODE_SCANNER', 'QR_SCANNER', 'PRINTER'] },
       // Master Order §11: the temporary storage position CLOSED receiving
       // totes are staged at before the sorting step.
       { code: 'ST-STG-01', name: 'Temporary Storage 1', department: 'STAGING', capabilities: ['CAMERA', 'BARCODE_SCANNER'] },
@@ -727,7 +727,7 @@ async function main() {
       {
         code: 'WORKER006',
         name: 'TEST BATCH WORKER',
-        station: 'ST-BAT-01',
+        station: 'BATCH-01',
         roles: ['BATCH_WORKER'],
       },
     ];

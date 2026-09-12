@@ -86,12 +86,13 @@ const PROBE_SQL = `
 const REPAIR_STATEMENTS: string[] = [
   // ---- enums -------------------------------------------------------------
   `DO $$ BEGIN CREATE TYPE "ScanSource" AS ENUM ('CAMERA', 'EXTERNAL_SCANNER', 'MANUAL'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
-  `DO $$ BEGIN CREATE TYPE "StationDepartment" AS ENUM ('RECEIVING', 'SORTING', 'PUTAWAY', 'PACKING', 'INVENTORY', 'DISPATCH'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  `DO $$ BEGIN CREATE TYPE "StationDepartment" AS ENUM ('RECEIVING', 'SORTING', 'PUTAWAY', 'PACKING', 'INVENTORY', 'DISPATCH', 'BATCH'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
   `DO $$ BEGIN CREATE TYPE "StationStatus" AS ENUM ('ACTIVE', 'INACTIVE', 'MAINTENANCE'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
   `DO $$ BEGIN CREATE TYPE "StationCapability" AS ENUM ('CAMERA', 'BARCODE_SCANNER', 'QR_SCANNER', 'OCR', 'PRINTER', 'SCALE'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
   `DO $$ BEGIN CREATE TYPE "CorrectionAction" AS ENUM ('REVERSE_RECEIVING', 'CORRECT_PRODUCT', 'CORRECT_QUANTITY', 'REASSIGN_SESSION', 'REOPEN_SESSION', 'VOID_OPERATION', 'RESOLVE_EXCEPTION'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
   `DO $$ BEGIN CREATE TYPE "PutawaySessionStatus" AS ENUM ('ACTIVE', 'PAUSED', 'COMPLETED', 'CANCELLED'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
   // ---- enum value additions ----------------------------------------------
+  `ALTER TYPE "StationDepartment" ADD VALUE IF NOT EXISTS 'BATCH'`,
   `ALTER TYPE "CartonStatus" ADD VALUE IF NOT EXISTS 'STORED'`,
   `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'STATION_CREATED'`,
   `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'STATION_UPDATED'`,

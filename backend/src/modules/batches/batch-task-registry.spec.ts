@@ -1,11 +1,12 @@
 import { isSharedTask, taskByKey } from '../operations/task-registry';
 
 /**
- * BATCH task in the worker terminal registry (Phase 2 worker-app slice).
- * The command forbids a BATCH STATION — the build task is deliberately NOT
- * station-bound (no stationDepartments/stationRequired), it is permission-
- * served (batch.execute), and it must never be marked shared (authorization
- * is per-worker permission, not a shared queue).
+ * BATCH tasks in the worker terminal registry (Phase 2).
+ * Owner order (2026-09-12): batch is a full station operation in its OWN
+ * department — BATCH (station BATCH-01, managed from the admin Stations
+ * page). Both tasks are bound to BATCH-department stations, are permission-
+ * served (batch.execute / batch.receive), and are never marked shared
+ * (authorization is per-worker permission, not a shared queue).
  */
 describe('task registry — batch build task', () => {
   const task = taskByKey('batch');
@@ -17,9 +18,11 @@ describe('task registry — batch build task', () => {
     expect(task!.path).toBe('/terminal/batch');
   });
 
-  it('is station-bound to the RECEIVING department (ST-BAT-01 lives there)', () => {
-    // USER ORDER 2026-09-12: batch became a full station operation.
-    expect(task!.stationDepartments).toEqual(['RECEIVING']);
+  it('is station-bound to the dedicated BATCH department', () => {
+    // USER ORDER 2026-09-12: batch became a full station operation with its
+    // own department (BATCH — station BATCH-01).
+    expect(task!.department).toBe('BATCH');
+    expect(task!.stationDepartments).toEqual(['BATCH']);
     expect(task!.stationRequired).toBeUndefined(); // unassigned devices stay usable
   });
 
@@ -31,18 +34,19 @@ describe('task registry — batch build task', () => {
   describe('batch-in (receiving slice)', () => {
     const receive = taskByKey('batch-in');
 
-    it('exists, ready, gated by batch.receive, bound to RECEIVING stations', () => {
+    it('exists, ready, gated by batch.receive, bound to BATCH stations', () => {
       expect(receive).toBeDefined();
       expect(receive!.ready).toBe(true);
       expect(receive!.permission).toBe('batch.receive');
-      expect(receive!.stationDepartments).toEqual(['RECEIVING']);
+      expect(receive!.department).toBe('BATCH');
+      expect(receive!.stationDepartments).toEqual(['BATCH']);
       expect(receive!.stationRequired).toBeUndefined();
       expect(isSharedTask('batch-in')).toBe(false);
     });
 
     it('DISPATCH reuse check stands: no batch task rides the DISPATCH department', () => {
       // The command's station rule: DISPATCH is outbound-only. The batch
-      // station (ST-BAT-01) was placed in RECEIVING — never DISPATCH.
+      // lane lives in its own BATCH department — never DISPATCH.
       const { TASK_REGISTRY } = require('../operations/task-registry');
       const batchTasks = TASK_REGISTRY.filter((t: { key: string }) => t.key.startsWith('batch'));
       expect(batchTasks.length).toBe(2);
