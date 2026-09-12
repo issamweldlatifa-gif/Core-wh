@@ -361,7 +361,7 @@ internal fun CameraToolOverlay(capture: ScannerCapture, enabled: Boolean, onBack
             Box(
                 Modifier.align(Alignment.TopStart).padding(top = 22.dp, start = 22.dp)
                     .size(46.dp).background(Color.Black.copy(alpha = 0.35f), MaterialTheme.shapes.small)
-                    .clickable(enabled = enabled) { capture.cancel() }
+                    .clickable(enabled = enabled) { (onBack ?: capture.cancel)() }
                     .testTag("TOOL_CLOSE"),
                 contentAlignment = Alignment.Center,
             ) {
