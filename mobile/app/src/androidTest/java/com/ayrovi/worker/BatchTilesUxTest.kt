@@ -65,7 +65,7 @@ class BatchTilesUxTest {
     }
 
     @Test
-    fun `batch build screen composes and survives interaction`() {
+    fun batch_build_screen_composes_and_survives_interaction() {
         compose.setContent {
             AyroviTerminalTheme(TerminalThemeMode.WHITE, onToggleTheme = {}) {
                 BatchScreen(BatchViewModel(gateway), "W-001 · UI TEST FIXTURE", "BATCH-01", "ONLINE",
@@ -82,7 +82,7 @@ class BatchTilesUxTest {
     }
 
     @Test
-    fun `batch receive screen composes and shows the sent queue`() {
+    fun batch_receive_screen_composes_and_shows_the_sent_queue() {
         compose.setContent {
             AyroviTerminalTheme(TerminalThemeMode.WHITE, onToggleTheme = {}) {
                 BatchReceiveScreen(BatchReceiveViewModel(gateway), "W-001 · UI TEST FIXTURE", "BATCH-01", "ONLINE",
