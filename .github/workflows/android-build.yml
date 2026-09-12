@@ -80,8 +80,7 @@ jobs:
           check() {
             APK=$(ls app/build/outputs/apk/$1/debug/*.apk | head -1)
             if [ -z "$APK" ]; then echo "::error::no APK for flavor $1"; exit 1; fi
-            "$AAPT" dump badging "$APK" | head -2
-            "$AAPT" dump badging "$APK" | grep -qE "package: $2( |$)" || { echo "::error::$APK: wrong package"; exit 1; }
+            "$AAPT" dump badging "$APK" | grep -qE "package: name='$2'" || { echo "::error::$APK: wrong package"; exit 1; }
             "$AAPT" dump badging "$APK" | grep -q "application-label:'$3'" || { echo "::error::$APK: wrong label"; exit 1; }
             echo "OK: $APK -> $2 / $3"
           }
