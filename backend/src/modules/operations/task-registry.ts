@@ -165,6 +165,11 @@ export const TASK_REGISTRY: OperationalTask[] = [
     ready: true,
     operation: 'Batch',
     work: 'بناء الدفعات (عميل جديد → وحدات AYP → ملصقات → إرسال)',
+    // USER ORDER (2026-09-12): batch is a STATION operation like the others.
+    // Gated to workers bound to an ACTIVE RECEIVING-department station
+    // (ST-BAT-01 lives here). No stationRequired: an unassigned device is
+    // not blocked (same policy as receiving).
+    stationDepartments: ['RECEIVING'],
   },
   {
     // AYROVI BATCH IN (Phase 2 receiving slice): the admin SENT the batch;
@@ -181,6 +186,7 @@ export const TASK_REGISTRY: OperationalTask[] = [
     ready: true,
     operation: 'Batch IN',
     work: 'استلام الدفعات (فحص AYP → 10/10 → إكمال)',
+    stationDepartments: ['RECEIVING'],
   },
 ];
 

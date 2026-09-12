@@ -17,9 +17,10 @@ describe('task registry — batch build task', () => {
     expect(task!.path).toBe('/terminal/batch');
   });
 
-  it('is NOT station-bound — no BATCH station was created', () => {
-    expect(task!.stationDepartments).toBeUndefined();
-    expect(task!.stationRequired).toBeUndefined();
+  it('is station-bound to the RECEIVING department (ST-BAT-01 lives there)', () => {
+    // USER ORDER 2026-09-12: batch became a full station operation.
+    expect(task!.stationDepartments).toEqual(['RECEIVING']);
+    expect(task!.stationRequired).toBeUndefined(); // unassigned devices stay usable
   });
 
   it('is not a shared-queue task (worker-owned builds)', () => {
@@ -30,23 +31,24 @@ describe('task registry — batch build task', () => {
   describe('batch-in (receiving slice)', () => {
     const receive = taskByKey('batch-in');
 
-    it('exists, ready, gated by batch.receive, station-less', () => {
+    it('exists, ready, gated by batch.receive, bound to RECEIVING stations', () => {
       expect(receive).toBeDefined();
       expect(receive!.ready).toBe(true);
       expect(receive!.permission).toBe('batch.receive');
-      expect(receive!.stationDepartments).toBeUndefined();
+      expect(receive!.stationDepartments).toEqual(['RECEIVING']);
       expect(receive!.stationRequired).toBeUndefined();
       expect(isSharedTask('batch-in')).toBe(false);
     });
 
-    it('DISPATCH reuse check: no batch task rides the DISPATCH department', () => {
-      // The command's station rule: DISPATCH is outbound-only; neither the
-      // build nor the receive task is bound to it (no new station, no
-      // DISPATCH hijack).
+    it('DISPATCH reuse check stands: no batch task rides the DISPATCH department', () => {
+      // The command's station rule: DISPATCH is outbound-only. The batch
+      // station (ST-BAT-01) was placed in RECEIVING — never DISPATCH.
       const { TASK_REGISTRY } = require('../operations/task-registry');
       const batchTasks = TASK_REGISTRY.filter((t: { key: string }) => t.key.startsWith('batch'));
       expect(batchTasks.length).toBe(2);
-      expect(batchTasks.every((t: { stationDepartments?: string[] }) => t.stationDepartments === undefined)).toBe(true);
+      expect(batchTasks.every((t: { stationDepartments?: string[] }) =>
+        !(t.stationDepartments ?? []).includes('DISPATCH'),
+      )).toBe(true);
     });
   });
 

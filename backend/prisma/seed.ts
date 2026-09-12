@@ -229,6 +229,8 @@ const ROLES: Array<{
       'expected_arrivals.view', 'shipments.view', 'receiving.resolve_discrepancy',
       // Supervises the floor and may correct, but does not configure stations.
       'operations.view', 'operations.correct', 'stations.view',
+      // Phase 2 BATCH: the manager takes the batch lifecycle decisions.
+      'batch.view', 'batch.accept', 'batch.send', 'batch.void',
     ],
   },
   {
@@ -258,6 +260,23 @@ const ROLES: Array<{
   // ---- Worker operational model (§3/§4): granular floor roles ------------
   // One role per operational department; multi-role assignment is allowed.
   // None of them carry operations.view (§4) — admin oversight stays admin.
+  {
+    name: 'BATCH_WORKER',
+    // Phase 2 BATCH (user order 2026-09-12): the floor agent of the batch
+    // operation at ST-BAT-01 — builds batches (customer in-app, AYP per
+    // unit, label printing) and receives the batches the admin sent.
+    description: 'Batch agent: build batches (customer + AYP units + labels) and receive sent batches (10/10). Tasks: batch, batch-in.',
+    isSystem: true,
+    applicationClass: 'OPERATIONAL',
+    permissions: [
+      ...ALL_STRUCT_VIEW,
+      ...VIEW_KEYS('inventory'),
+      ...PHASE2_VIEW,
+      ...VIEW_KEYS('receiving'), ...EXECUTE_KEYS('receiving'),
+      'expected_arrivals.view', 'shipments.view',
+      'batch.view', 'batch.execute', 'batch.receive',
+    ],
+  },
   {
     name: 'RECEIVING_WORKER',
     description: 'Receiving dock worker: verify cartons and products against expected arrivals (task: receiving).',
@@ -476,6 +495,18 @@ async function main() {
     console.log(`  + ${r.name} (${r.permissions.length} permissions)`);
   }
 
+  // Phase 2 BATCH — FEATURE FLAG (user order 2026-09-12: "console batch ON").
+  // create-only: turning it OFF later from the admin survives every reboot.
+  await prisma.systemSetting.upsert({
+    where: { key: 'batch.enabled' },
+    update: {},
+    create: {
+      key: 'batch.enabled',
+      value: { value: true } as any,
+      description: 'AYROVI Batch (Phase 2) master switch — ON by user order 2026-09-12.',
+    },
+  });
+
   // Optional initial SUPER_ADMIN from env
   const adminCode = process.env.INITIAL_ADMIN_CODE;
   const adminPass = process.env.INITIAL_ADMIN_PASSWORD;
@@ -619,6 +650,11 @@ async function main() {
       { code: 'ST-SRT-01', name: 'Sorting Bench 1', department: 'SORTING', capabilities: ['CAMERA', 'BARCODE_SCANNER'] },
       { code: 'ST-PCK-01', name: 'Packing Bench 1', department: 'PACKING', capabilities: ['CAMERA', 'PRINTER', 'SCALE'] },
       { code: 'ST-SHP-01', name: 'Shipping Dock 1', department: 'DISPATCH', capabilities: ['CAMERA', 'BARCODE_SCANNER', 'QR_SCANNER'] },
+      // Phase 2 BATCH (user order 2026-09-12): a REAL station for the batch
+      // operation — build (AYP labels print here: PRINTER) + BATCH IN.
+      // DISPATCH-reuse was checked and rejected (outbound-only), so the
+      // batch station lives in the RECEIVING department.
+      { code: 'ST-BAT-01', name: 'Batch Build & Receive 1', department: 'RECEIVING', capabilities: ['CAMERA', 'BARCODE_SCANNER', 'QR_SCANNER', 'PRINTER'] },
       // Master Order §11: the temporary storage position CLOSED receiving
       // totes are staged at before the sorting step.
       { code: 'ST-STG-01', name: 'Temporary Storage 1', department: 'STAGING', capabilities: ['CAMERA', 'BARCODE_SCANNER'] },
@@ -687,6 +723,12 @@ async function main() {
         name: 'TEST SHIPPING WORKER',
         station: 'ST-SHP-01',
         roles: ['SHIPPING_WORKER'],
+      },
+      {
+        code: 'WORKER006',
+        name: 'TEST BATCH WORKER',
+        station: 'ST-BAT-01',
+        roles: ['BATCH_WORKER'],
       },
     ];
     for (const w of workforce) {
