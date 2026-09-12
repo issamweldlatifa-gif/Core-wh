@@ -2,8 +2,6 @@ package com.ayrovi.worker.presentation
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -117,7 +115,7 @@ fun BatchScreen(
             if (currentBatch == null) {
                 // ---- PICK / CREATE -------------------------------------
                 Column(
-                    Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(TerminalTokens.sm),
+                    Modifier.fillMaxWidth().padding(TerminalTokens.sm),
                     verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm),
                 ) {
                     if (state.submittedDone) {
@@ -152,7 +150,7 @@ fun BatchScreen(
             } else {
                 // ---- BUILD ----------------------------------------------
                 Column(
-                    Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(TerminalTokens.sm),
+                    Modifier.fillMaxWidth().padding(TerminalTokens.sm),
                     verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm),
                 ) {
                     TerminalPanel(currentBatch.batchCode) {

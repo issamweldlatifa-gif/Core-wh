@@ -1,8 +1,6 @@
 package com.ayrovi.worker.presentation
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -99,7 +97,7 @@ fun BatchReceiveScreen(
                 state.completed != null -> {
                     // ---- SUMMARY ---------------------------------------
                     Column(
-                        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(TerminalTokens.sm),
+                        Modifier.fillMaxWidth().padding(TerminalTokens.sm),
                         verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm),
                     ) {
                         TerminalNotice(
@@ -118,7 +116,7 @@ fun BatchReceiveScreen(
                 currentBatch == null -> {
                     // ---- QUEUE -----------------------------------------
                     Column(
-                        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(TerminalTokens.sm),
+                        Modifier.fillMaxWidth().padding(TerminalTokens.sm),
                         verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm),
                     ) {
                         state.message?.takeIf { it.tone == MessageTone.WARNING }
@@ -140,7 +138,7 @@ fun BatchReceiveScreen(
                 else -> {
                     // ---- RECEIVE ---------------------------------------
                     Column(
-                        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(TerminalTokens.sm),
+                        Modifier.fillMaxWidth().padding(TerminalTokens.sm),
                         verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm),
                     ) {
                         TerminalPanel(currentBatch.batchCode) {
