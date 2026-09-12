@@ -112,20 +112,20 @@ export function newIdempotencyKey(): string {
 export const batchesAdminApi = {
   list: (status?: string) =>
     client
-      .get('/batches', { params: status ? { status } : undefined })
+      .get('/v1/batches', { params: status ? { status } : undefined })
       .then((r) => r.data as BatchRow[]),
 
   get: (id: string) =>
-    client.get(`/batches/${id}`).then((r) => r.data as BatchDetail),
+    client.get(`/v1/batches/${id}`).then((r) => r.data as BatchDetail),
 
   accept: (id: string, operatorId: string) =>
-    client.post(`/batches/${id}/accept`, { operatorId }).then((r) => r.data),
+    client.post(`/v1/batches/${id}/accept`, { operatorId }).then((r) => r.data),
 
   send: (id: string, operatorId: string) =>
     client
-      .post(`/batches/${id}/send`, { operatorId, idempotencyKey: newIdempotencyKey() })
+      .post(`/v1/batches/${id}/send`, { operatorId, idempotencyKey: newIdempotencyKey() })
       .then((r) => r.data),
 
   voidBatch: (id: string, operatorId: string, reason: string) =>
-    client.post(`/batches/${id}/void`, { operatorId, reason }).then((r) => r.data),
+    client.post(`/v1/batches/${id}/void`, { operatorId, reason }).then((r) => r.data),
 };

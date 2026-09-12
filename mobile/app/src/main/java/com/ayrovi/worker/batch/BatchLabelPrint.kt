@@ -22,16 +22,30 @@ import android.print.pdf.PrintedPdfDocument
  */
 object BatchLabelPrint {
 
+    // v73 (owner bug: print spooler crashed with "MediaSize.getWidthMils() on a
+    // null object reference"): the print system REQUIRES a concrete media size —
+    // the spooler and "Save as PDF" read it before our adapter lays anything
+    // out. Default-built PrintAttributes carry a NULL MediaSize. One shared
+    // labeled set for both the print job and PrintedPdfDocument (60×40 mm
+    // label stock; 1 mm = 1000/25.4 mils).
+    private val LABEL_ATTRIBUTES: PrintAttributes = PrintAttributes.Builder()
+        .setMediaSize(PrintAttributes.MediaSize("ayb_label", "AYROVI Label", 2362, 1575))
+        .setResolution(PrintAttributes.Resolution("ayb_300", "AYROVI 300dpi", 300, 300))
+        .setColorMode(PrintAttributes.COLOR_MODE_MONOCHROME)
+        .setMinMargins(PrintAttributes.Margins(0, 0, 0, 0))
+        .build()
+
     /** Open the system print dialog with one unit label per page. */
     fun printUnitLabels(context: Context, labels: List<BatchBarcodeRenderer.Label>, jobName: String) {
         if (labels.isEmpty()) return
         val printManager = context.getSystemService(Context.PRINT_SERVICE) as PrintManager
-        printManager.print(jobName, UnitLabelAdapter(context.applicationContext, labels), PrintAttributes.Builder().build())
+        printManager.print(jobName, UnitLabelAdapter(context.applicationContext, labels, LABEL_ATTRIBUTES), LABEL_ATTRIBUTES)
     }
 
     private class UnitLabelAdapter(
         private val context: Context,
         private val labels: List<BatchBarcodeRenderer.Label>,
+        pdfAttributes: PrintAttributes,
     ) : PrintDocumentAdapter() {
 
         override fun onLayout(
@@ -83,7 +97,7 @@ object BatchLabelPrint {
             }
         }
 
-        private val pdfAttributes: PrintAttributes = PrintAttributes.Builder().build()
+
 
         /** QR matrix -> white-background bitmap (modulePx px per module). The
          * renderer itself stays android-free; pixels live on the print side. */
