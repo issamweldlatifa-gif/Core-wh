@@ -12,6 +12,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.rule.GrantPermissionRule
@@ -122,6 +123,14 @@ class ScannerContinuousUiTest {
 
         // ---- Scan 3: INVALID → red circle + REAL error in the history ----
         compose.runOnIdle { model.workflow.scan(ScanResult("SKU-UNKNOWN", ScanSource.EXTERNAL_SCANNER)) }
+        // TEMP DIAGNOSTICS: ground truth for the red-circle investigation.
+        Thread.sleep(2_000)
+        compose.waitForIdle()
+        compose.runOnIdle {
+            val st = model.state.value
+            println("SC3 state: step=$${st.step} busy=$${st.busy} msg=$${st.message} epoch=$${st.scanEpoch}")
+        }
+        compose.onRoot().printToLog("SC3TREE")
         waitForTag("SCAN_FEEDBACK_ERR")
         saveNativeScreenshot(compose, "scanner-v77-red-circle")
         // No green mark is ever shown for a failed scan.
