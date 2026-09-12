@@ -272,7 +272,8 @@ const ROLES: Array<{
       ...ALL_STRUCT_VIEW,
       ...VIEW_KEYS('inventory'),
       ...PHASE2_VIEW,
-      ...VIEW_KEYS('receiving'), ...EXECUTE_KEYS('receiving'),
+      // v72 (owner order): the batch lane is BATCH-ONLY — no receiving perms,
+      // so the worker HOME renders exactly BATCH + BATCH IN (no RECEIVING).
       'expected_arrivals.view', 'shipments.view',
       'batch.view', 'batch.execute', 'batch.receive',
     ],
