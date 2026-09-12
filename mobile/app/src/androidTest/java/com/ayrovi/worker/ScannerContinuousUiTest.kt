@@ -57,7 +57,15 @@ class ScannerContinuousUiTest {
 
 
     private fun openPhoneScanner(): ReceivingHomeViewModel {
-        val model = ReceivingHomeViewModel(ReceivingUiGateway(), "worker", setOf("receiving.view", "receiving.execute"))
+        // Three single-unit product cards: the acceptance sequence needs
+        // three DISTINCT valid codes (a repeated code is correctly rejected
+        // as ALREADY SCANNED by the workflow).
+        val gw = ReceivingUiGateway()
+        gw.productCards = listOf("SKU-TEST", "SKU-TEST-2", "SKU-TEST-3").map { sku ->
+            com.ayrovi.worker.domain.ProductCard(id = sku, sku = sku, productName = "UI FIXTURE $sku",
+                expected = 1, received = 0, remaining = 1, status = "EXPECTED", identifiers = listOf(sku))
+        }
+        val model = ReceivingHomeViewModel(gw, "worker", setOf("receiving.view", "receiving.execute"))
         compose.setContent {
             LaunchedEffect(Unit) { model.activate(setOf("receiving.view", "receiving.execute"), true) }
             Box(Modifier.fillMaxSize().testTag("HANDHELD")) {
