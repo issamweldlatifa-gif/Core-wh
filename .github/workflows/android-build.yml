@@ -76,14 +76,17 @@ jobs:
         shell: bash
         run: |
           AAPT="$ANDROID_HOME/build-tools/35.0.0/aapt2"
+          ls mobile/app/build/outputs/apk/*/debug/ || true
           check() {
-            "$AAPT" dump badging "$1" | grep -q "package: $2 " || { echo "::error::$1: wrong package"; exit 1; }
-            "$AAPT" dump badging "$1" | grep -q "application-label:'$3'" || { echo "::error::$1: wrong label"; exit 1; }
-            echo "OK: $1 -> $2 / $3"
+            APK=$(ls mobile/app/build/outputs/apk/$1/debug/*.apk | head -1)
+            if [ -z "$APK" ]; then echo "::error::no APK for flavor $1"; exit 1; fi
+            "$AAPT" dump badging "$APK" | grep -q "package: $2 " || { echo "::error::$APK: wrong package"; exit 1; }
+            "$AAPT" dump badging "$APK" | grep -q "application-label:'$3'" || { echo "::error::$APK: wrong label"; exit 1; }
+            echo "OK: $APK -> $2 / $3"
           }
-          check mobile/app/build/outputs/apk/phone/debug/app-phone-debug.apk com.ayrovi.phone 'AYROVI Phone'
-          check mobile/app/build/outputs/apk/ct40/debug/app-ct40-debug.apk com.ayrovi.ct40 'AYROVI CT40'
-          check mobile/app/build/outputs/apk/universal/debug/app-universal-debug.apk com.ayrovi.worker 'AYROVI Worker'
+          check phone com.ayrovi.phone 'AYROVI Phone'
+          check ct40 com.ayrovi.ct40 'AYROVI CT40'
+          check universal com.ayrovi.worker 'AYROVI Worker'
       # Deliberately no automatic gh release delete/create. A branch build is
       # not permission for a production cutover or a rolling fleet update.
 
