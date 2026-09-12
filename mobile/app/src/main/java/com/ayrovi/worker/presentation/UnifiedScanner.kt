@@ -393,7 +393,15 @@ internal fun CameraToolOverlay(capture: ScannerCapture, enabled: Boolean, onBack
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 if (capture.manualOpen) {
-                    TerminalTextInput("TYPE THE CODE", capture.manualCode, capture.setCode, enabled = enabled)
+                    androidx.compose.material3.OutlinedTextField(
+                        value = capture.manualCode,
+                        onValueChange = capture.setCode,
+                        enabled = enabled,
+                        singleLine = true,
+                        label = { Text("TYPE THE CODE", color = TerminalTokens.muted) },
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.Black),
+                        modifier = Modifier.fillMaxWidth().testTag("TOOL_MANUAL_INPUT"),
+                    )
                     PrimaryAction(
                         "SUBMIT CODE", capture.submit, enabled && capture.manualCode.isNotBlank(),
                         Modifier.fillMaxWidth().testTag("TOOL_MANUAL_SUBMIT"),
