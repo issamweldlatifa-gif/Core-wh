@@ -144,15 +144,26 @@ fun rememberScannerCapture(
     val service = remember(coordinator) { ScannerService(context, coordinator) }
     // Real-time rejects from the ONE scan guard (INVALID read, several
     // barcodes visible…) → instant red circle + history row with the ACTUAL
-    // reason. DEBOUNCE/DUPLICATE echoes stay silent: that is the guard
+    // reason. EDGE-TRIGGERED: CameraX retries a failed bind every ~0.5s and
+    // each retry re-emits the same notice — without this gate the session
+    // history would fill with identical rows (and flash non-stop). One row
+    // per error EPISODE; the memory clears as soon as a healthy event or a
+    // read arrives. DEBOUNCE/DUPLICATE echoes stay silent: that is the guard
     // swallowing the label still in front of the lens (house rule), and the
     // real "already scanned" verdict arrives from the backend as WARNING.
+    var lastErrorKey: String? = null
     LaunchedEffect(coordinator) {
         manager.events.collect { n ->
             when (n.status) {
-                ScannerStatus.INVALID, ScannerStatus.UNAVAILABLE ->
-                    appendEntry(ScanHistoryTone.ERROR, n.code ?: "—", n.detail).also { flash(false) }
-                else -> Unit
+                ScannerStatus.INVALID, ScannerStatus.UNAVAILABLE -> {
+                    val key = "${n.status}|${n.detail}"
+                    if (key != lastErrorKey) {
+                        lastErrorKey = key
+                        appendEntry(ScanHistoryTone.ERROR, n.code ?: "—", n.detail)
+                        flash(false)
+                    }
+                }
+                else -> lastErrorKey = null
             }
         }
     }

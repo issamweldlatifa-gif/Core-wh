@@ -262,6 +262,8 @@ fun ReceivingHomeScreen(
                 // BACK now EXITS the session to the MAIN home.
                 toneOverride = verdict.tone,
                 autoRearmMs = 1200,
+                // v77: the scanned value lands in the session history row.
+                scannedCode = verdict.scanned,
                 onBack = {
                     model.workflow.dismissResult()
                     onExitSession?.invoke()

@@ -581,6 +581,9 @@ internal fun ScanVerdict(
     lines: List<String> = emptyList(),
     autoRearmMs: Long? = null,
     toneOverride: MessageTone? = null,
+    /** The scanned value when the workflow message carries it — the history
+     *  row shows the SKU/barcode, not the verdict wording. */
+    scannedCode: String? = null,
     onBack: () -> Unit,
 ) {
     if (capture.cameraOpen) {
@@ -588,8 +591,9 @@ internal fun ScanVerdict(
         LaunchedEffect(key) {
             val success = ok || toneOverride == MessageTone.SUCCESS
             val warning = toneOverride == MessageTone.WARNING
-            // Receiving convention: detail carries the scanned value.
-            val code = detail.ifBlank { title }
+            // Receiving convention: detail carries the scanned value when the
+            // message does not.
+            val code = scannedCode ?: detail.ifBlank { title }
             val reason = if (lines.isEmpty()) title else "$title · ${lines.joinToString(" · ")}"
             capture.reportVerdict(success, warning, code, reason)
         }

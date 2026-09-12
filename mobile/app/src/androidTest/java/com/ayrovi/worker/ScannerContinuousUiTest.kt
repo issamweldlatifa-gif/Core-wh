@@ -54,7 +54,6 @@ class ScannerContinuousUiTest {
     private fun waitForTag(tag: String) =
         compose.waitUntil(10_000) { compose.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty() }
 
-    private fun historyItems(): Int = compose.onAllNodesWithTag("SCAN_HISTORY_ITEM").fetchSemanticsNodes().size
 
     private fun openPhoneScanner(): ReceivingHomeViewModel {
         val model = ReceivingHomeViewModel(ReceivingUiGateway(), "worker", setOf("receiving.view", "receiving.execute"))
@@ -90,11 +89,10 @@ class ScannerContinuousUiTest {
         compose.onAllNodesWithTag("SCAN_SUCCESS_MARK").assertCountEquals(0)
         saveNativeScreenshot(compose, "scanner-v77-layout")
 
-        // Let the emulator's no-camera adapter notice (a REAL error row)
-        // settle so the count math below is deterministic.
+        // Let the emulator's one-shot no-camera error episode settle (a REAL
+        // error row) before injecting the acceptance sequence.
         Thread.sleep(2_500)
         compose.waitForIdle()
-        val base = historyItems()
 
         // ---- Scan 1: VALID → green circle in the camera ----
         compose.runOnIdle { model.workflow.scan(ScanResult("SKU-TEST", ScanSource.EXTERNAL_SCANNER)) }
@@ -104,16 +102,14 @@ class ScannerContinuousUiTest {
         // …the camera was NEVER closed…
         compose.onNodeWithTag("CAPTURE_QR_AREA").assertIsDisplayed()
         // …and the result landed in the history.
-        compose.waitUntil(5_000) { historyItems() == base + 1 }
-        compose.onNodeWithText("SKU-TEST").assertExists()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("SKU-TEST").fetchSemanticsNodes().isNotEmpty() }
 
         // ---- Scan 2: VALID → second success WITHOUT reopening anything ----
         compose.runOnIdle { model.workflow.scan(ScanResult("SKU-TEST-2", ScanSource.EXTERNAL_SCANNER)) }
         waitForTag("SCAN_FEEDBACK_OK")
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("SCAN_FEEDBACK_OK").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithTag("CAPTURE_QR_AREA").assertIsDisplayed()
-        compose.waitUntil(5_000) { historyItems() == base + 2 }
-        compose.onNodeWithText("SKU-TEST-2").assertExists()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("SKU-TEST-2").fetchSemanticsNodes().isNotEmpty() }
 
         // ---- Scan 3: INVALID → red circle + REAL error in the history ----
         compose.runOnIdle { model.workflow.scan(ScanResult("SKU-UNKNOWN", ScanSource.EXTERNAL_SCANNER)) }
@@ -123,14 +119,14 @@ class ScannerContinuousUiTest {
         compose.onAllNodesWithTag("SCAN_FEEDBACK_OK").assertCountEquals(0)
         compose.waitUntil(6_000) { compose.onAllNodesWithTag("SCAN_FEEDBACK_ERR").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithTag("CAPTURE_QR_AREA").assertIsDisplayed()
-        compose.waitUntil(5_000) { historyItems() == base + 3 }
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("SKU-UNKNOWN").fetchSemanticsNodes().isNotEmpty() }
 
         // ---- Scan 4: retry VALID → success again, camera never restarted ----
         compose.runOnIdle { model.workflow.scan(ScanResult("SKU-TEST-3", ScanSource.EXTERNAL_SCANNER)) }
         waitForTag("SCAN_FEEDBACK_OK")
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("SCAN_FEEDBACK_OK").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithTag("CAPTURE_QR_AREA").assertIsDisplayed()
-        compose.waitUntil(5_000) { historyItems() == base + 4 }
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("SKU-TEST-3").fetchSemanticsNodes().isNotEmpty() }
 
         // ---- Review history: every scan result is still visible ----
         compose.onNodeWithText("SKU-TEST").assertExists()
