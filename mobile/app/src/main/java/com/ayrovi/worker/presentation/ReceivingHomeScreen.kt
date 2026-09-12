@@ -264,6 +264,9 @@ fun ReceivingHomeScreen(
                 autoRearmMs = 1200,
                 // v77: the scanned value lands in the session history row.
                 scannedCode = verdict.scanned,
+                // v77: per-read identity — identical consecutive verdicts
+                // must still flash the circle every time.
+                epoch = state.scanEpoch,
                 onBack = {
                     model.workflow.dismissResult()
                     onExitSession?.invoke()

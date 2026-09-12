@@ -584,10 +584,15 @@ internal fun ScanVerdict(
     /** The scanned value when the workflow message carries it — the history
      *  row shows the SKU/barcode, not the verdict wording. */
     scannedCode: String? = null,
+    /** Per-read identity (e.g. the workflow's scanEpoch). Verdicts can repeat
+     *  VERBATIM for consecutive units while this composable stays composed —
+     *  without an epoch the LaunchedEffect key would not change and the
+     *  second identical verdict would never reach the camera circle. */
+    epoch: Any? = null,
     onBack: () -> Unit,
 ) {
     if (capture.cameraOpen) {
-        val key = "$title|$detail|${lines.joinToString("|")}"
+        val key = "$epoch|$title|$detail|${lines.joinToString("|")}"
         LaunchedEffect(key) {
             val success = ok || toneOverride == MessageTone.SUCCESS
             val warning = toneOverride == MessageTone.WARNING
