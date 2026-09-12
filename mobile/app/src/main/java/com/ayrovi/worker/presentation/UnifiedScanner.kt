@@ -41,7 +41,13 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathMeasure
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import android.app.Activity
+import android.content.ContextWrapper
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -279,12 +285,26 @@ internal fun ScanToolsEdgeButton(onOpenTools: () -> Unit) {
 @Composable
 internal fun CameraToolOverlay(capture: ScannerCapture, enabled: Boolean, onBack: (() -> Unit)? = null) {
     val ocr = capture.ocrCameraOpen
-    Box(
-        Modifier.fillMaxSize()
-            .background(if (ocr) Color.Black else Color.Black.copy(alpha = 0.92f))
-            .testTag(if (ocr) "OCR_SCAN" else "CAPTURE_QR_AREA"),
-    ) {
+    // v76 OWNER MODEL: the tool opens like the PHONE'S OWN CAMERA — edge to
+    // edge, the system status bar (clock/battery) hidden until BACK.
+    val view = LocalView.current
+    if (!ocr) {
+        androidx.compose.runtime.DisposableEffect(view) {
+            var ctx = view.context
+            var window: android.view.Window? = null
+            while (ctx is ContextWrapper) {
+                if (ctx is Activity) { window = ctx.window; break }
+                ctx = ctx.baseContext
+            }
+            val controller = window?.let { WindowCompat.getInsetsController(it, view) }
+            controller?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller?.hide(WindowInsetsCompat.Type.statusBars())
+            onDispose { controller?.show(WindowInsetsCompat.Type.statusBars()) }
+        }
+    }
+    Box(Modifier.fillMaxSize().testTag(if (ocr) "OCR_SCAN" else "CAPTURE_QR_AREA")) {
         if (ocr) {
+            Box(Modifier.fillMaxSize().background(Color.Black)) {
             val candidate = capture.ocrSuggestion?.candidate
             Column(
                 Modifier.align(Alignment.Center).fillMaxWidth(),
@@ -303,24 +323,95 @@ internal fun CameraToolOverlay(capture: ScannerCapture, enabled: Boolean, onBack
                 }
                 OcrTakeoverStrip(capture.ocrPreview)
             }
+            }
         } else {
-            QrTakeoverSquare(capture.preview)
+            // ---- v76 TAKEOVER: the camera IS the screen ----
+            capture.preview(Modifier.fillMaxSize())
+
+            // Frame: THICK corner brackets, pushed toward the TOP of the
+            // screen (the owner's reference geometry).
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val frameW = maxWidth * 0.86f
+                val frameH = maxHeight * 0.26f
+                Box(
+                    Modifier.align(Alignment.TopCenter)
+                        .padding(top = maxHeight * 0.13f)
+                        .size(frameW, frameH),
+                ) {
+                    capture.preview(Modifier.matchParentSize())
+                    Canvas(Modifier.matchParentSize()) {
+                        val w = size.width
+                        val h = size.height
+                        val arm = w * 0.16f
+                        val c = Color.White
+                        val stroke = 12f
+                        drawLine(c, Offset(0f, 0f), Offset(arm, 0f), strokeWidth = stroke)
+                        drawLine(c, Offset(0f, 0f), Offset(0f, arm), strokeWidth = stroke)
+                        drawLine(c, Offset(w, 0f), Offset(w - arm, 0f), strokeWidth = stroke)
+                        drawLine(c, Offset(w, 0f), Offset(w, arm), strokeWidth = stroke)
+                        drawLine(c, Offset(0f, h), Offset(arm, h), strokeWidth = stroke)
+                        drawLine(c, Offset(0f, h), Offset(0f, h - arm), strokeWidth = stroke)
+                        drawLine(c, Offset(w, h), Offset(w - arm, h), strokeWidth = stroke)
+                        drawLine(c, Offset(w, h), Offset(w, h - arm), strokeWidth = stroke)
+                    }
+                }
+            }
+
+            // ✕ CLOSE — top-START (the reference position).
+            Box(
+                Modifier.align(Alignment.TopStart).padding(top = 22.dp, start = 22.dp)
+                    .size(46.dp).background(Color.Black.copy(alpha = 0.35f), MaterialTheme.shapes.small)
+                    .clickable(enabled = enabled) { capture.cancel() }
+                    .testTag("TOOL_CLOSE"),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("✕", color = Color.White, style = MaterialTheme.typography.titleLarge)
+            }
+            // ⚡ TORCH — top-END: camera light on/off (v76).
+            Box(
+                Modifier.align(Alignment.TopEnd).padding(top = 22.dp, end = 22.dp)
+                    .size(46.dp).background(
+                        if (capture.torchOn) TerminalTokens.warning.copy(alpha = 0.85f)
+                        else Color.Black.copy(alpha = 0.35f),
+                        MaterialTheme.shapes.small,
+                    )
+                    .clickable(enabled = enabled) { capture.toggleTorch() }
+                    .testTag("TOOL_TORCH"),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("⚡", color = Color.White, style = MaterialTheme.typography.titleLarge)
+            }
+
+            // Bottom sheet — the reference layout: "an article WITHOUT a
+            // barcode?" → the SAME existing manual pipeline (never invents
+            // data; the operator types the code they see).
+            Column(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                    .background(Color.White, MaterialTheme.shapes.large)
+                    .padding(TerminalTokens.lg),
+                verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                if (capture.manualOpen) {
+                    TerminalTextInput("TYPE THE CODE", capture.manualCode, capture.setCode, enabled = enabled)
+                    PrimaryAction(
+                        "SUBMIT CODE", capture.submit, enabled && capture.manualCode.isNotBlank(),
+                        Modifier.fillMaxWidth().testTag("TOOL_MANUAL_SUBMIT"),
+                    )
+                } else {
+                    Text(
+                        "NO BARCODE ON THE ARTICLE ?",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = TerminalTokens.text,
+                        modifier = Modifier.clickable(enabled = enabled) { capture.manual() }
+                            .testTag("TOOL_MANUAL"),
+                    )
+                }
+            }
         }
-        SecondaryAction(
-            "BACK", onBack ?: capture.cancel, enabled,
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                .padding(horizontal = TerminalTokens.lg, vertical = TerminalTokens.lg)
-                .testTag("TOOL_BACK"),
-        )
     }
 }
 
-/**
- * OCR aperture: a bounded horizontal rectangle, centered, black on every
- * side — the ONLY camera opening (the live preview is clipped to it).
- * Deliberately smaller than the screen: a full-width strip reads as a
- * screen-sized camera, while this is a viewfinder window for one SKU line.
- */
 @Composable
 private fun OcrTakeoverStrip(preview: @Composable (Modifier) -> Unit) {
     Box(Modifier.fillMaxWidth().padding(horizontal = 24.dp).height(112.dp)) {
@@ -338,31 +429,7 @@ private fun OcrTakeoverStrip(preview: @Composable (Modifier) -> Unit) {
     }
 }
 
-/** QR / barcode square: about half the screen, centered, preview clipped to it. */
-@Composable
-private fun QrTakeoverSquare(preview: @Composable (Modifier) -> Unit) {
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val side = (maxWidth * 0.86f).coerceAtMost(maxHeight * 0.52f)
-        Box(Modifier.align(Alignment.Center).size(side)) {
-            preview(Modifier.matchParentSize())
-            Canvas(Modifier.matchParentSize()) {
-                val s = size.width
-                val arm = s * 0.20f
-                val c = Color.White.copy(alpha = 0.95f)
-                val stroke = 5f
-                // Corner brackets: shows the operator where the QR must sit.
-                drawLine(c, Offset(0f, 0f), Offset(arm, 0f), strokeWidth = stroke)
-                drawLine(c, Offset(0f, 0f), Offset(0f, arm), strokeWidth = stroke)
-                drawLine(c, Offset(s, 0f), Offset(s - arm, 0f), strokeWidth = stroke)
-                drawLine(c, Offset(s, 0f), Offset(s, arm), strokeWidth = stroke)
-                drawLine(c, Offset(0f, s), Offset(arm, s), strokeWidth = stroke)
-                drawLine(c, Offset(0f, s), Offset(0f, s - arm), strokeWidth = stroke)
-                drawLine(c, Offset(s, s), Offset(s - arm, s), strokeWidth = stroke)
-                drawLine(c, Offset(s, s), Offset(s, s - arm), strokeWidth = stroke)
-            }
-        }
-    }
-}
+
 
 /**
  * Side drawer (§17/§18/§20): QR / BARCODE, OCR, MANUEL, CT40 (hardware

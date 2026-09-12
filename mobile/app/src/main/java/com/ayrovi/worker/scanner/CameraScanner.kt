@@ -24,10 +24,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 /** CameraX/ML Kit barcode adapter for the pilot and frozen fallback. Never interprets a SKU. */
 @SuppressLint("UnsafeOptInUsageError")
 @Composable
-fun CameraScanner(ocrEnabled: Boolean, coordinator: ScanCoordinator, modifier: Modifier = Modifier) {
+fun CameraScanner(ocrEnabled: Boolean, coordinator: ScanCoordinator, modifier: Modifier = Modifier, torchOn: Boolean = false) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val previewView = remember { PreviewView(context) }
+    val cameraRef = remember { java.util.concurrent.atomic.AtomicReference<androidx.camera.core.Camera?>(null) }
     DisposableEffect(owner, coordinator) {
         val disposed = AtomicBoolean(false)
         val executor = Executors.newSingleThreadExecutor()
@@ -57,7 +58,10 @@ fun CameraScanner(ocrEnabled: Boolean, coordinator: ScanCoordinator, modifier: M
         }
         providerFuture.addListener({
             if (!disposed.get()) {
-                try { providerFuture.get().bindToLifecycle(owner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis) }
+                try {
+                    val camera = providerFuture.get().bindToLifecycle(owner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+                    cameraRef.set(camera)
+                }
                 catch (_: Exception) { coordinator.unavailable("Camera unavailable — use the hardware scanner or manual entry") }
             }
         }, ContextCompat.getMainExecutor(context))
@@ -68,6 +72,9 @@ fun CameraScanner(ocrEnabled: Boolean, coordinator: ScanCoordinator, modifier: M
             executor.shutdown()
             reader.close()
         }
+    }
+    androidx.compose.runtime.LaunchedEffect(torchOn) {
+        runCatching { cameraRef.get()?.cameraControl?.enableTorch(torchOn) }
     }
     AndroidView(factory = { previewView }, modifier = modifier)
 }

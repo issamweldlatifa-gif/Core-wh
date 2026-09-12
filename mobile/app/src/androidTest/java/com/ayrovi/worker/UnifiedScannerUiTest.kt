@@ -188,7 +188,7 @@ class UnifiedScannerUiTest {
         compose.onNodeWithTag("SOFTWARE_TRIGGER").performClick()
         compose.waitUntil(10_000) { compose.onAllNodesWithTag("CAPTURE_QR_AREA").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("CAPTURE_QR_AREA").assertIsDisplayed()
-        compose.onNodeWithTag("TOOL_BACK").performClick()
+        compose.onNodeWithTag("TOOL_CLOSE").performClick()
         waitForTag("READY_TO_SCAN")
 
         // NAVIGATION BY RULE: BACK from the camera returns to READY — and
@@ -358,7 +358,7 @@ class UnifiedScannerUiTest {
         // The camera opened straight away (QR tool on a phone, no imager).
         compose.waitUntil(10_000) { compose.onAllNodesWithTag("CAPTURE_QR_AREA").fetchSemanticsNodes().isNotEmpty() }
 
-        compose.onNodeWithTag("TOOL_BACK").performClick()
+        compose.onNodeWithTag("TOOL_CLOSE").performClick()
         compose.waitForIdle()
         org.junit.Assert.assertTrue("BACK in the camera must raise onExitSession", exited.get())
         compose.waitUntil(10_000) { compose.onAllNodesWithTag("CAPTURE_QR_AREA").fetchSemanticsNodes().isEmpty() }

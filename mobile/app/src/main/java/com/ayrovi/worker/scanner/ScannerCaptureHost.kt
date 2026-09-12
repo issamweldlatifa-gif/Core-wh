@@ -35,6 +35,9 @@ class ScannerCapture(
     val submitOcr: () -> Unit,
     val ocrCamera: () -> Unit,
     val cancel: () -> Unit,
+    /** v76 camera-tool UI: torch (flash) state + toggle for the QR/barcode takeover. */
+    val torchOn: Boolean,
+    val toggleTorch: () -> Unit,
     val preview: @Composable (Modifier) -> Unit,
     val ocrPreview: @Composable (Modifier) -> Unit,
 )
@@ -82,6 +85,7 @@ fun rememberScannerCapture(
     var permissionGranted by remember { mutableStateOf(false) }
     var resumed by remember { mutableStateOf(lifecycle.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
     var hardwareAvailable by remember { mutableStateOf(false) }
+    var torchOn by remember { mutableStateOf(false) }
     var trigger by remember { mutableIntStateOf(0) }
     val coordinator = remember(manager) {
         ScanCoordinator({ _, _, _ -> }, {}, manager, onResult = { result ->
@@ -90,7 +94,7 @@ fun rememberScannerCapture(
             // workflow's result state takes over — no camera stays open behind
             // the operator.
             camera = false; code = ""; manual = false; ocrOpen = false; ocrText = ""; ocrSuggestion = null; ocrError = null
-            ocrCameraOpen = false
+            ocrCameraOpen = false; torchOn = false
             if (latestEnabled.value) latestScan.value(result)
         }, onOcrReview = { block, result ->
             // First useful engine read fills the review field and stops the
@@ -124,7 +128,7 @@ fun rememberScannerCapture(
         }
     }
     LaunchedEffect(enabled, resumed) { if (!enabled || !resumed) { camera = false; ocrCameraOpen = false } }
-    LaunchedEffect(contextKey) { camera = false; code = ""; permissionGranted = false; ocrOpen = false; ocrText = ""; ocrSuggestion = null; ocrError = null; ocrCameraOpen = false; ocrCameraPending = false; coordinator.reset() }
+    LaunchedEffect(contextKey) { camera = false; code = ""; permissionGranted = false; ocrOpen = false; ocrText = ""; ocrSuggestion = null; ocrError = null; ocrCameraOpen = false; ocrCameraPending = false; torchOn = false; coordinator.reset() }
     LaunchedEffect(trigger) {
         if (trigger > 0 && cameraTimeoutMs > 0) { delay(cameraTimeoutMs); manager.timeout(); if (manager.state.value.status == ScannerStatus.TIMEOUT) { camera = false; ocrCameraOpen = false } }
     }
@@ -166,7 +170,9 @@ fun rememberScannerCapture(
                 else { ocrError = null; coordinator.onOcrConfirmed(confirmed) }
             }
         }, ocrCamera = { if (ocrCameraOpen) { ocrCameraOpen = false; manager.cancel() } else openOcrCamera() },
-        cancel = { camera = false; manual = false; ocrOpen = false; ocrCameraOpen = false; manager.cancel() },
-        preview = { modifier -> CameraScanner(false, coordinator, modifier) },
+        cancel = { camera = false; manual = false; ocrOpen = false; ocrCameraOpen = false; torchOn = false; manager.cancel() },
+        torchOn = torchOn,
+        toggleTorch = { torchOn = !torchOn },
+        preview = { modifier -> CameraScanner(false, coordinator, modifier, torchOn) },
         ocrPreview = { modifier -> TextOcrScanner(coordinator, modifier) })
 }
