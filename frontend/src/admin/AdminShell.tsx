@@ -54,6 +54,10 @@ const NAV: NavEntry[] = [
 
   // MONITORING
   { to: '/admin/exceptions', label: 'Exceptions', group: 'MONITORING', permission: 'operations.view' },
+  // The Corrections ledger route (/admin/corrections) existed but no UI link
+  // ever pointed at it (audit finding AUD-01). Restoring the missing nav
+  // entry only — the route, page and permission gate are all pre-existing.
+  { to: '/admin/corrections', label: 'Corrections', group: 'MONITORING', permission: 'operations.view' },
   { to: '/admin/activity', label: 'Live Activity', group: 'MONITORING', permission: 'operations.view' },
   { to: '/admin/live', label: 'Live Wallboard', group: 'MONITORING', permission: 'operations.view' },
   { to: '/admin/traceability', label: 'Audit / Trace', group: 'MONITORING', permission: 'operations.view' },
