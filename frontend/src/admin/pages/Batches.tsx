@@ -64,7 +64,7 @@ function drawBatchBarcode(canvas: HTMLCanvasElement | null, value: string) {
   if (!canvas) return;
   const width = 560;
   const height = 120;
-  const matrix = new MultiFormatWriter().encode(value, BarcodeFormat.CODE_128, width, height);
+  const matrix = new MultiFormatWriter().encode(value, BarcodeFormat.CODE_128, width, height, new Map());
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext('2d');
