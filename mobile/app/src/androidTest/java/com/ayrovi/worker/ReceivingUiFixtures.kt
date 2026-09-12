@@ -54,11 +54,15 @@ internal class ReceivingUiGateway(expectedCartons: Int = 1, var empty: Boolean =
         operationId: String, source: String, startedAt: String?,
     ): HomeScanResult {
         writes++
-        if (identifier.uppercase() != "SKU-TEST") {
+        val sku = identifier.uppercase()
+        if (sku != "SKU-TEST" && sku != "SKU-TEST-2" && sku != "SKU-TEST-3") {
             return HomeScanResult(ok = false, flash = FlashView(kind = "MISMATCH", cardType = "PRODUCT", code = identifier), home = feed())
         }
-        productCards = productCards.map { it.copy(received = 1, remaining = 0, status = "RECEIVED") }
-        return HomeScanResult(ok = true, sessionId = "session", flash = FlashView(kind = "MATCH", cardType = "PRODUCT", code = "SKU-TEST"), home = feed())
+        // v77: mark ONLY the scanned card received (multi-card acceptance run).
+        productCards = productCards.map {
+            if (it.sku?.uppercase() == sku) it.copy(received = 1, remaining = 0, status = "RECEIVED") else it
+        }
+        return HomeScanResult(ok = true, sessionId = "session", flash = FlashView(kind = "MATCH", cardType = "PRODUCT", code = sku), home = feed())
     }
 
     override suspend fun homeConfirmCarton(
