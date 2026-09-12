@@ -147,7 +147,7 @@ fun ReceivingHomeScreen(
     val lane = if (state.step in setOf(HomeStep.AUTO_SCAN, HomeStep.REVIEW_PRODUCT, HomeStep.REVIEW_CARTON)) "SCAN" else null
     val capture = rememberScannerCapture(
         model.scanner, model.captureAllowed,
-        "home:${state.step}:${state.scanEpoch}", model::onScan,
+        "home:scan", model::onScan,
         // The PRODUCT lane reads the strict compact SKU shape; the CARTON
         // lane reads carton / tracking identifiers; the AUTO tool reads both
         // with the composite of the SAME two templates (no new shapes). Each

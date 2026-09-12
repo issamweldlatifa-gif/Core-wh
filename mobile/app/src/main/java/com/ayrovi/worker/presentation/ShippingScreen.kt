@@ -61,7 +61,7 @@ fun ShippingScreen(
 
     val capture: ScannerCapture = rememberScannerCapture(
         model.scanner, model.captureAllowed,
-        "ship:${state.view?.code}:${state.scanEpoch}", model::onScan,
+        "ship:${state.view?.code}", model::onScan,
         hardwareOverride = forceHardwareScanner,
     )
 

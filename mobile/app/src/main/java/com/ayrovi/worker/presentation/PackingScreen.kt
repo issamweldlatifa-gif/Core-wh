@@ -66,7 +66,7 @@ fun PackingScreen(
 
     val capture: ScannerCapture = rememberScannerCapture(
         model.scanner, model.captureAllowed,
-        "pack:${state.scanEpoch}", model::onScan,
+        "pack", model::onScan,
         hardwareOverride = forceHardwareScanner,
     )
 

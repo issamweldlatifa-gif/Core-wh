@@ -70,7 +70,7 @@ fun SortingScreen(
 
     val capture: ScannerCapture = rememberScannerCapture(
         model.scanner, model.captureAllowed,
-        "sort:${state.step}:${state.decision?.zone?.code}:${state.scanEpoch}", model::onScan,
+        "sort:${state.step}:${state.decision?.zone?.code}", model::onScan,
         hardwareOverride = forceHardwareScanner,
     )
 

@@ -68,7 +68,7 @@ fun BatchScreen(
 
     val capture = rememberScannerCapture(
         model.scanner, model.captureAllowed,
-        "batch:${state.batch?.id}:${state.scanEpoch}", model::onScan,
+        "batch:${state.batch?.id}", model::onScan,
         hardwareOverride = forceHardwareScanner,
     )
 
@@ -105,7 +105,7 @@ fun BatchScreen(
                     }
                 }
             },
-            scrollKey = "batch:${state.batch?.id}:${state.scanEpoch}",
+            scrollKey = "batch:${state.batch?.id}",
         ) {
             val currentBatch = state.batch
             if (currentBatch == null) {

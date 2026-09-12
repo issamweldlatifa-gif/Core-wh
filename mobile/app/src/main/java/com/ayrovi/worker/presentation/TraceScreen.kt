@@ -63,7 +63,7 @@ fun TraceScreen(
 
     val capture: ScannerCapture = rememberScannerCapture(
         model.scanner, model.captureAllowed,
-        "trace:${state.view?.article?.code}:${state.scanEpoch}", model::onScan,
+        "trace:${state.view?.article?.code}", model::onScan,
         hardwareOverride = forceHardwareScanner,
     )
 

@@ -113,7 +113,7 @@ fun TempStorageScreen(
 
     val capture = rememberScannerCapture(
         model.scanner, model.captureAllowed,
-        "ts:${state.letter}:${state.pending?.targetCode}:${state.scanEpoch}", model::onScan,
+        "ts:${state.letter}:${state.pending?.targetCode}", model::onScan,
         hardwareOverride = forceHardwareScanner,
     )
 

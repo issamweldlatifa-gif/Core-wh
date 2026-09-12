@@ -59,7 +59,7 @@ fun BatchReceiveScreen(
 
     val capture = rememberScannerCapture(
         model.scanner, model.captureAllowed,
-        "batch-in:${state.batch?.id}:${state.scanEpoch}", model::onScan,
+        "batch-in:${state.batch?.id}", model::onScan,
         hardwareOverride = forceHardwareScanner,
     )
 
