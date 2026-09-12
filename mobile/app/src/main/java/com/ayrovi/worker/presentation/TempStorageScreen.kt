@@ -177,7 +177,7 @@ fun TempStorageScreen(
         // §27/§28: the result stays in the foreground (background dimmed) until
         // BACK — or until a new hardware scan replaces it.
         if (resultShown) {
-            ScanResultOverlay(
+            ScanVerdict(capture = capture,
                 ok = result.tone == MessageTone.SUCCESS,
                 title = result.title,
                 detail = result.detail,

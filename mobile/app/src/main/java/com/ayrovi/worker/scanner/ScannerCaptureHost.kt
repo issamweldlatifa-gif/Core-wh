@@ -40,7 +40,28 @@ class ScannerCapture(
     val toggleTorch: () -> Unit,
     val preview: @Composable (Modifier) -> Unit,
     val ocrPreview: @Composable (Modifier) -> Unit,
+    /** v77 CONTINUOUS SESSION: permanent scan history of the active session. */
+    val history: List<ScanHistoryEntry> = emptyList(),
+    /** v77 in-camera verdict circle (green ✓ / red ✕) — brief, auto-clearing. */
+    val feedback: ScanFeedback? = null,
+    /** v77: the WORKFLOW verdict (real backend result) lands here → history
+     *  row + in-camera circle. One success mark only, centred in the camera. */
+    val reportVerdict: (success: Boolean, warning: Boolean, code: String, detail: String) -> Unit = { _, _, _, _ -> },
 )
+
+/** v77: one scan event in the session history (never deleted during a session). */
+enum class ScanHistoryTone { PENDING, SUCCESS, WARNING, ERROR }
+
+data class ScanHistoryEntry(
+    val id: Long,
+    val tone: ScanHistoryTone,
+    val code: String,
+    val detail: String,
+    val atMillis: Long,
+)
+
+/** v77: the brief circle shown over the live camera after a judged scan. */
+data class ScanFeedback(val id: Long, val success: Boolean)
 
 @Composable
 fun rememberScannerCapture(
@@ -87,15 +108,33 @@ fun rememberScannerCapture(
     var hardwareAvailable by remember { mutableStateOf(false) }
     var torchOn by remember { mutableStateOf(false) }
     var trigger by remember { mutableIntStateOf(0) }
+    // ── v77 CONTINUOUS SCANNING SESSION ─────────────────────────────────────
+    // The owner order supersedes the §21 close-on-accept doctrine for the
+    // camera tool: the camera opens ONCE and stays open across every scan
+    // (success or failure) until the operator exits. Every read becomes a
+    // permanent session-history row (PENDING → verdict), and the workflow's
+    // real verdict drives the in-camera green ✓ / red ✕ circle.
+    var history by remember { mutableStateOf<List<ScanHistoryEntry>>(emptyList()) }
+    var feedback by remember { mutableStateOf<ScanFeedback?>(null) }
+    val nextEntryId = remember { java.util.concurrent.atomic.AtomicLong(0) }
+    val pendingEntries = remember { ArrayDeque<Long>() }
+    fun appendEntry(tone: ScanHistoryTone, code: String, detail: String): Long {
+        val id = nextEntryId.incrementAndGet()
+        history = (history + ScanHistoryEntry(id, tone, code, detail, System.currentTimeMillis())).takeLast(40)
+        return id
+    }
+    fun flash(success: Boolean) { feedback = ScanFeedback(nextEntryId.incrementAndGet(), success) }
     val coordinator = remember(manager) {
         ScanCoordinator({ _, _, _ -> }, {}, manager, onResult = { result ->
-            // MASTER ORDER §21: a scan tool is TEMPORARY. The moment a read is
-            // accepted every tool surface closes (camera, OCR, manual) so the
-            // workflow's result state takes over — no camera stays open behind
-            // the operator.
-            camera = false; code = ""; manual = false; ocrOpen = false; ocrText = ""; ocrSuggestion = null; ocrError = null
-            ocrCameraOpen = false; torchOn = false
-            if (latestEnabled.value) latestScan.value(result)
+            if (latestEnabled.value) {
+                // v77: NO surface closes on accept. The read waits in the
+                // history as PENDING until the workflow verdict lands. Reads
+                // are NEVER gated here: the ONE scan guard (echo/debounce)
+                // already swallows the label still in front of the lens —
+                // gating after it would silently LOSE genuine new scans.
+                pendingEntries.addLast(appendEntry(ScanHistoryTone.PENDING, result.value, "Checking…"))
+                latestScan.value(result)
+            }
         }, onOcrReview = { block, result ->
             // First useful engine read fills the review field and stops the
             // camera; the operator still reviews and confirms the code.
@@ -103,6 +142,27 @@ fun rememberScannerCapture(
         }, ocrTemplate = { latestTemplate.value })
     }
     val service = remember(coordinator) { ScannerService(context, coordinator) }
+    // Real-time rejects from the ONE scan guard (INVALID read, several
+    // barcodes visible…) → instant red circle + history row with the ACTUAL
+    // reason. DEBOUNCE/DUPLICATE echoes stay silent: that is the guard
+    // swallowing the label still in front of the lens (house rule), and the
+    // real "already scanned" verdict arrives from the backend as WARNING.
+    LaunchedEffect(coordinator) {
+        manager.events.collect { n ->
+            when (n.status) {
+                ScannerStatus.INVALID, ScannerStatus.UNAVAILABLE ->
+                    appendEntry(ScanHistoryTone.ERROR, n.code ?: "—", n.detail).also { flash(false) }
+                else -> Unit
+            }
+        }
+    }
+    // The circle clears itself. Detection never stopped (the analyzer kept
+    // running and the scan guard kept guarding) — there is nothing to resume.
+    LaunchedEffect(feedback?.id) {
+        val fb = feedback ?: return@LaunchedEffect
+        delay(if (fb.success) 900 else 1_500)
+        if (feedback?.id == fb.id) feedback = null
+    }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) permissionGranted = true else coordinator.unavailable("Camera unavailable. Use manual entry.")
     }
@@ -128,9 +188,13 @@ fun rememberScannerCapture(
         }
     }
     LaunchedEffect(enabled, resumed) { if (!enabled || !resumed) { camera = false; ocrCameraOpen = false } }
-    LaunchedEffect(contextKey) { camera = false; code = ""; permissionGranted = false; ocrOpen = false; ocrText = ""; ocrSuggestion = null; ocrError = null; ocrCameraOpen = false; ocrCameraPending = false; torchOn = false; coordinator.reset() }
+    LaunchedEffect(contextKey) { camera = false; code = ""; permissionGranted = false; ocrOpen = false; ocrText = ""; ocrSuggestion = null; ocrError = null; ocrCameraOpen = false; ocrCameraPending = false; torchOn = false; history = emptyList(); feedback = null; pendingEntries.clear(); coordinator.reset() }
     LaunchedEffect(trigger) {
-        if (trigger > 0 && cameraTimeoutMs > 0) { delay(cameraTimeoutMs); manager.timeout(); if (manager.state.value.status == ScannerStatus.TIMEOUT) { camera = false; ocrCameraOpen = false } }
+        // v77: the no-read watchdog only reports; it NEVER closes the camera —
+        // the tool stops when the OPERATOR exits it, not on a timer (owner
+        // order §5: "the camera may stop only when the worker explicitly
+        // exits the scanner screen").
+        if (trigger > 0 && cameraTimeoutMs > 0) { delay(cameraTimeoutMs); manager.timeout() }
     }
     DisposableEffect(lifecycle, service) {
         service.initialize()
@@ -143,6 +207,24 @@ fun rememberScannerCapture(
         lifecycle.lifecycle.addObserver(observer)
         if (resumed) { service.start(); sense() }
         onDispose { lifecycle.lifecycle.removeObserver(observer); manager.setEnabled(false); service.stop() }
+    }
+    // v77: the workflow verdict (the REAL backend result — never invented)
+    // resolves the PENDING history row and flashes the in-camera circle.
+    // Green only for a genuine success; warning (already scanned) and error
+    // both render the red ✕, per the owner's no-duplicate-mark rule.
+    val reportVerdict: (Boolean, Boolean, String, String) -> Unit = { success, warning, code, detail ->
+        val tone = when {
+            success -> ScanHistoryTone.SUCCESS
+            warning -> ScanHistoryTone.WARNING
+            else -> ScanHistoryTone.ERROR
+        }
+        val target = pendingEntries.removeFirstOrNull()
+        if (target != null) {
+            history = history.map { if (it.id == target) it.copy(tone = tone, detail = detail) else it }
+        } else {
+            appendEntry(tone, code, detail)
+        }
+        flash(success)
     }
     return ScannerCapture(camera, manual, code, hardwareAvailable, ocrOpen, ocrText, ocrSuggestion, ocrError, ocrCameraOpen, softwareScan = {
         if (enabled && resumed) {
@@ -170,9 +252,12 @@ fun rememberScannerCapture(
                 else { ocrError = null; coordinator.onOcrConfirmed(confirmed) }
             }
         }, ocrCamera = { if (ocrCameraOpen) { ocrCameraOpen = false; manager.cancel() } else openOcrCamera() },
-        cancel = { camera = false; manual = false; ocrOpen = false; ocrCameraOpen = false; torchOn = false; manager.cancel() },
+        cancel = { camera = false; manual = false; ocrOpen = false; ocrCameraOpen = false; torchOn = false; feedback = null; manager.cancel() },
         torchOn = torchOn,
         toggleTorch = { torchOn = !torchOn },
         preview = { modifier -> CameraScanner(false, coordinator, modifier, torchOn) },
-        ocrPreview = { modifier -> TextOcrScanner(coordinator, modifier) })
+        ocrPreview = { modifier -> TextOcrScanner(coordinator, modifier) },
+        history = history,
+        feedback = feedback,
+        reportVerdict = reportVerdict)
 }

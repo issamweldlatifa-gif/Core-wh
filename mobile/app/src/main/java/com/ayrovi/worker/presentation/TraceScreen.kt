@@ -156,7 +156,7 @@ fun TraceScreen(
         val verdict = state.message
         val verdictShown = verdict != null && verdict.tone != MessageTone.INFO
         if (verdictShown) {
-            ScanResultOverlay(
+            ScanVerdict(capture = capture,
                 ok = false,
                 title = verdict!!.title,
                 detail = verdict.detail,

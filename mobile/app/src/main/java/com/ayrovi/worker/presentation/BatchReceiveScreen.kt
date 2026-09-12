@@ -178,7 +178,7 @@ fun BatchReceiveScreen(
         }
         if (scanTools) ScanToolsDrawer(capture, model.captureAllowed, onClose = { scanTools = false })
         if (resultShown) {
-            ScanResultOverlay(
+            ScanVerdict(capture = capture,
                 ok = result.tone == MessageTone.SUCCESS,
                 title = result.title,
                 detail = result.detail,

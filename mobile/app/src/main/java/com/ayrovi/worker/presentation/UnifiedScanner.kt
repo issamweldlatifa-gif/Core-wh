@@ -22,6 +22,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -51,6 +54,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ayrovi.worker.design.BarcodeDisplay
@@ -61,6 +65,7 @@ import com.ayrovi.worker.design.TerminalIcon
 import com.ayrovi.worker.design.TerminalTokens
 import com.ayrovi.worker.design.WorkerIcon
 import com.ayrovi.worker.domain.MessageTone
+import com.ayrovi.worker.scanner.ScanHistoryEntry
 import com.ayrovi.worker.scanner.ScannerCapture
 import kotlinx.coroutines.delay
 
@@ -325,95 +330,150 @@ internal fun CameraToolOverlay(capture: ScannerCapture, enabled: Boolean, onBack
             }
             }
         } else {
-            // ---- v76 TAKEOVER: the camera IS the screen ----
-            capture.preview(Modifier.fillMaxSize())
-
-            // Frame: THICK corner brackets, pushed toward the TOP of the
-            // screen (the owner's reference geometry).
-            BoxWithConstraints(Modifier.fillMaxSize()) {
-                val frameW = maxWidth * 0.86f
-                val frameH = maxHeight * 0.26f
-                Box(
-                    Modifier.align(Alignment.TopCenter)
-                        .padding(top = maxHeight * 0.13f)
-                        .size(frameW, frameH),
-                ) {
+            // ---- v77 SCANNER SCREEN (owner layout, supersedes v76) ----
+            // UPPER: the LIVE CAMERA only — never the whole screen, never a
+            // designed black area: ONE CameraX preview, the scanning frame
+            // CENTERED inside it, ✕ + ⚡ kept on top, and the ONE success/
+            // failure mark — the verdict circle drawn over the live image.
+            // LOWER: the white, visually separated session history.
+            Column(Modifier.fillMaxSize().background(Color.Black)) {
+                Box(Modifier.fillMaxWidth().weight(1.12f).testTag("CAMERA_AREA")) {
+                    // ONE preview (v76 accidentally composed TWO CameraX
+                    // previews — the second stayed black on real devices).
                     capture.preview(Modifier.matchParentSize())
-                    Canvas(Modifier.matchParentSize()) {
-                        val w = size.width
-                        val h = size.height
-                        val arm = w * 0.16f
-                        val c = Color.White
-                        val stroke = 12f
-                        drawLine(c, Offset(0f, 0f), Offset(arm, 0f), strokeWidth = stroke)
-                        drawLine(c, Offset(0f, 0f), Offset(0f, arm), strokeWidth = stroke)
-                        drawLine(c, Offset(w, 0f), Offset(w - arm, 0f), strokeWidth = stroke)
-                        drawLine(c, Offset(w, 0f), Offset(w, arm), strokeWidth = stroke)
-                        drawLine(c, Offset(0f, h), Offset(arm, h), strokeWidth = stroke)
-                        drawLine(c, Offset(0f, h), Offset(0f, h - arm), strokeWidth = stroke)
-                        drawLine(c, Offset(w, h), Offset(w - arm, h), strokeWidth = stroke)
-                        drawLine(c, Offset(w, h), Offset(w, h - arm), strokeWidth = stroke)
+
+                    // Scanning frame: THICK corner brackets, CENTERED in the
+                    // camera area (owner order §2-A).
+                    BoxWithConstraints(Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
+                        val frameW = maxWidth * 0.86f
+                        val frameH = maxHeight * 0.34f
+                        Box(Modifier.size(frameW, frameH)) {
+                            Canvas(Modifier.matchParentSize()) {
+                                val w = size.width
+                                val h = size.height
+                                val arm = w * 0.16f
+                                val c = Color.White
+                                val stroke = 12f
+                                drawLine(c, Offset(0f, 0f), Offset(arm, 0f), strokeWidth = stroke)
+                                drawLine(c, Offset(0f, 0f), Offset(0f, arm), strokeWidth = stroke)
+                                drawLine(c, Offset(w, 0f), Offset(w - arm, 0f), strokeWidth = stroke)
+                                drawLine(c, Offset(w, 0f), Offset(w, arm), strokeWidth = stroke)
+                                drawLine(c, Offset(0f, h), Offset(arm, h), strokeWidth = stroke)
+                                drawLine(c, Offset(0f, h), Offset(0f, h - arm), strokeWidth = stroke)
+                                drawLine(c, Offset(w, h), Offset(w - arm, h), strokeWidth = stroke)
+                                drawLine(c, Offset(w, h), Offset(w, h - arm), strokeWidth = stroke)
+                            }
+                        }
+                    }
+
+                    // THE verdict mark (green ✓ / red ✕) — centred IN the
+                    // camera, over the live preview, brief and auto-clearing
+                    // (the engine in ScannerCaptureHost owns the timing).
+                    capture.feedback?.let { fb ->
+                        val okMark = fb.success
+                        Box(
+                            Modifier.align(Alignment.Center).size(112.dp)
+                                .background(
+                                    (if (okMark) TerminalTokens.success else TerminalTokens.error).copy(alpha = 0.92f),
+                                    CircleShape,
+                                )
+                                .testTag(if (okMark) "SCAN_FEEDBACK_OK" else "SCAN_FEEDBACK_ERR"),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                if (okMark) "✓" else "✕",
+                                color = Color.White,
+                                style = MaterialTheme.typography.displayLarge,
+                                fontWeight = FontWeight.Black,
+                            )
+                        }
+                    }
+
+                    // ✕ CLOSE — top-START (the reference position).
+                    Box(
+                        Modifier.align(Alignment.TopStart).padding(top = 22.dp, start = 22.dp)
+                            .size(46.dp).background(Color.Black.copy(alpha = 0.35f), MaterialTheme.shapes.small)
+                            .clickable(enabled = enabled) { (onBack ?: capture.cancel)() }
+                            .testTag("TOOL_CLOSE"),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("✕", color = Color.White, style = MaterialTheme.typography.titleLarge)
+                    }
+                    // ⚡ TORCH — top-END: camera light on/off (v76).
+                    Box(
+                        Modifier.align(Alignment.TopEnd).padding(top = 22.dp, end = 22.dp)
+                            .size(46.dp).background(
+                                if (capture.torchOn) TerminalTokens.warning.copy(alpha = 0.85f)
+                                else Color.Black.copy(alpha = 0.35f),
+                                MaterialTheme.shapes.small,
+                            )
+                            .clickable(enabled = enabled) { capture.toggleTorch() }
+                            .testTag("TOOL_TORCH"),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("⚡", color = Color.White, style = MaterialTheme.typography.titleLarge)
                     }
                 }
-            }
 
-            // ✕ CLOSE — top-START (the reference position).
-            Box(
-                Modifier.align(Alignment.TopStart).padding(top = 22.dp, start = 22.dp)
-                    .size(46.dp).background(Color.Black.copy(alpha = 0.35f), MaterialTheme.shapes.small)
-                    .clickable(enabled = enabled) { (onBack ?: capture.cancel)() }
-                    .testTag("TOOL_CLOSE"),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("✕", color = Color.White, style = MaterialTheme.typography.titleLarge)
-            }
-            // ⚡ TORCH — top-END: camera light on/off (v76).
-            Box(
-                Modifier.align(Alignment.TopEnd).padding(top = 22.dp, end = 22.dp)
-                    .size(46.dp).background(
-                        if (capture.torchOn) TerminalTokens.warning.copy(alpha = 0.85f)
-                        else Color.Black.copy(alpha = 0.35f),
-                        MaterialTheme.shapes.small,
-                    )
-                    .clickable(enabled = enabled) { capture.toggleTorch() }
-                    .testTag("TOOL_TORCH"),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("⚡", color = Color.White, style = MaterialTheme.typography.titleLarge)
-            }
-
-            // Bottom sheet — the reference layout: "an article WITHOUT a
-            // barcode?" → the SAME existing manual pipeline (never invents
-            // data; the operator types the code they see).
-            Column(
-                Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                    .background(Color.White, MaterialTheme.shapes.large)
-                    .padding(TerminalTokens.lg),
-                verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                if (capture.manualOpen) {
-                    androidx.compose.material3.OutlinedTextField(
-                        value = capture.manualCode,
-                        onValueChange = capture.setCode,
-                        enabled = enabled,
-                        singleLine = true,
-                        label = { Text("TYPE THE CODE", color = TerminalTokens.muted) },
-                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.Black),
-                        modifier = Modifier.fillMaxWidth().testTag("TOOL_MANUAL_INPUT"),
-                    )
-                    PrimaryAction(
-                        "SUBMIT CODE", capture.submit, enabled && capture.manualCode.isNotBlank(),
-                        Modifier.fillMaxWidth().testTag("TOOL_MANUAL_SUBMIT"),
-                    )
-                } else {
-                    Text(
-                        "NO BARCODE ON THE ARTICLE ?",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = TerminalTokens.text,
-                        modifier = Modifier.clickable(enabled = enabled) { capture.manual() }
-                            .testTag("TOOL_MANUAL"),
-                    )
+                // ---- LOWER: WHITE SCAN HISTORY (permanent, grows per scan) ----
+                Column(Modifier.fillMaxWidth().weight(0.88f).background(Color.White)) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = TerminalTokens.lg, vertical = TerminalTokens.sm),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("SCAN HISTORY", style = MaterialTheme.typography.labelLarge, color = TerminalTokens.text)
+                        Text("${capture.history.size}", style = MaterialTheme.typography.labelLarge, color = TerminalTokens.muted)
+                    }
+                    if (capture.history.isEmpty()) {
+                        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            Text(
+                                "Scan results appear here — nothing is lost.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TerminalTokens.muted,
+                            )
+                        }
+                    } else {
+                        Column(
+                            Modifier.weight(1f).fillMaxWidth()
+                                .verticalScroll(rememberScrollState())
+                                .testTag("SCAN_HISTORY"),
+                        ) {
+                            capture.history.asReversed().forEach { entry -> ScanHistoryRow(entry) }
+                        }
+                    }
+                    HorizontalDivider(color = TerminalTokens.border)
+                    // Manual entry — the SAME existing pipeline (never a second
+                    // one): "an article WITHOUT a barcode?" → type the code.
+                    Column(
+                        Modifier.fillMaxWidth().padding(horizontal = TerminalTokens.lg, vertical = TerminalTokens.sm),
+                        verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        if (capture.manualOpen) {
+                            androidx.compose.material3.OutlinedTextField(
+                                value = capture.manualCode,
+                                onValueChange = capture.setCode,
+                                enabled = enabled,
+                                singleLine = true,
+                                label = { Text("TYPE THE CODE", color = TerminalTokens.muted) },
+                                textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.Black),
+                                modifier = Modifier.fillMaxWidth().testTag("TOOL_MANUAL_INPUT"),
+                            )
+                            PrimaryAction(
+                                "SUBMIT CODE", capture.submit, enabled && capture.manualCode.isNotBlank(),
+                                Modifier.fillMaxWidth().testTag("TOOL_MANUAL_SUBMIT"),
+                            )
+                        } else {
+                            Text(
+                                "NO BARCODE ON THE ARTICLE ?",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = TerminalTokens.text,
+                                modifier = Modifier.clickable(enabled = enabled) { capture.manual() }
+                                    .testTag("TOOL_MANUAL"),
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -499,6 +559,94 @@ private fun DrawerItem(label: String, icon: TerminalIcon, tag: String, enabled: 
         }
     }
 }
+
+/**
+ * v77 VERDICT ROUTING — the anti-duplication gate the owner ordered.
+ *
+ * Camera tool OPEN → the verdict becomes the in-camera circle + a history
+ * row and NOTHING ELSE is drawn: the v75 success panel (centered mark +
+ * white value panel over the viewfinder) is DELETED from this path, so
+ * there is exactly ONE success mark — the green ✓ circle centred in the
+ * camera. The reason shown is the REAL workflow verdict, never invented.
+ *
+ * Camera tool CLOSED (hardware CT40 lane, no camera on screen) → the
+ * existing full-screen verdict stays: the circle needs a camera to live in.
+ */
+@Composable
+internal fun ScanVerdict(
+    capture: ScannerCapture,
+    ok: Boolean,
+    title: String,
+    detail: String,
+    lines: List<String> = emptyList(),
+    autoRearmMs: Long? = null,
+    toneOverride: MessageTone? = null,
+    onBack: () -> Unit,
+) {
+    if (capture.cameraOpen) {
+        val key = "$title|$detail|${lines.joinToString("|")}"
+        LaunchedEffect(key) {
+            val success = ok || toneOverride == MessageTone.SUCCESS
+            val warning = toneOverride == MessageTone.WARNING
+            // Receiving convention: detail carries the scanned value.
+            val code = detail.ifBlank { title }
+            val reason = if (lines.isEmpty()) title else "$title · ${lines.joinToString(" · ")}"
+            capture.reportVerdict(success, warning, code, reason)
+        }
+    } else {
+        ScanResultOverlay(
+            ok = ok,
+            title = title,
+            detail = detail,
+            lines = lines,
+            autoRearmMs = autoRearmMs,
+            toneOverride = toneOverride,
+            onBack = onBack,
+        )
+    }
+}
+
+/** One session-history row: verdict mark, code, REAL reason, time. */
+@Composable
+private fun ScanHistoryRow(entry: ScanHistoryEntry) {
+    val (mark, tone) = when (entry.tone) {
+        com.ayrovi.worker.scanner.ScanHistoryTone.SUCCESS -> "✓" to TerminalTokens.success
+        com.ayrovi.worker.scanner.ScanHistoryTone.ERROR -> "✕" to TerminalTokens.error
+        com.ayrovi.worker.scanner.ScanHistoryTone.WARNING -> "!" to TerminalTokens.warning
+        com.ayrovi.worker.scanner.ScanHistoryTone.PENDING -> "•" to TerminalTokens.muted
+    }
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = TerminalTokens.lg, vertical = 6.dp)
+            .testTag("SCAN_HISTORY_ITEM"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(mark, style = MaterialTheme.typography.titleMedium, color = tone, modifier = Modifier.width(28.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                entry.code,
+                style = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold),
+                color = Color.Black,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                entry.detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (entry.tone == com.ayrovi.worker.scanner.ScanHistoryTone.ERROR) TerminalTokens.error else TerminalTokens.muted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Text(historyTime(entry.atMillis), style = MaterialTheme.typography.labelSmall, color = TerminalTokens.muted)
+    }
+    HorizontalDivider(color = TerminalTokens.border.copy(alpha = 0.5f), thickness = 0.5.dp)
+}
+
+/** Local HH:mm:ss stamp for a history row. */
+private fun historyTime(millis: Long): String = runCatching {
+    java.time.Instant.ofEpochMilli(millis).atZone(java.time.ZoneId.systemDefault())
+        .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
+}.getOrDefault("--:--:--")
 
 /**
  * Scan VERDICT — full-bleed, judged from arm's length (Phase B).

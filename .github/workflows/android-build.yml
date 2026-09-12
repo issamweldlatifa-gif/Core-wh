@@ -101,7 +101,17 @@ jobs:
             adb shell wm density 320
             adb shell settings put system font_scale 1.0
             adb wait-for-device
-            set +e; sh ./gradlew :app:connectedDebugAndroidTest --no-daemon --console=plain; code=$?; mkdir -p /tmp/worker-ui-evidence; adb pull /sdcard/Pictures/AYROVI-UI-Tests /tmp/worker-ui-evidence || true; echo "::notice::Native UI fixture screenshots: $(find /tmp/worker-ui-evidence -name '*.png' | wc -l)"; exit $code
+            # v77 OWNER ORDER: video evidence of the continuous-scan acceptance
+            # sequence — screenrecord runs while ONLY the new test class runs.
+            adb shell "screenrecord --time-limit 180 /sdcard/scanner-v77-demo.mp4" &
+            REC=$!
+            sh ./gradlew :app:connectedDebugAndroidTest --no-daemon --console=plain -Pandroid.testInstrumentationRunnerArguments.class=com.ayrovi.worker.ScannerContinuousUiTest; demo=$?
+            wait $REC || true
+            mkdir -p /tmp/worker-ui-evidence
+            adb pull /sdcard/scanner-v77-demo.mp4 /tmp/worker-ui-evidence/ || true
+            adb pull /sdcard/Pictures/AYROVI-UI-Tests /tmp/worker-ui-evidence/ || true
+            echo "::notice::Continuous-scan demo video: $(find /tmp/worker-ui-evidence -name '*.mp4' | wc -l) file(s)"
+            set +e; sh ./gradlew :app:connectedDebugAndroidTest --no-daemon --console=plain; code=$?; echo "::notice::Native UI fixture screenshots: $(find /tmp/worker-ui-evidence -name '*.png' | wc -l)"; exit $code
       - name: Summarize Android test evidence
         if: always()
         working-directory: mobile

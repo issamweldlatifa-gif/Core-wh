@@ -253,7 +253,7 @@ fun ReceivingHomeScreen(
         // §27/§28: the scan verdict stays in the foreground until BACK (no
         // timer), and the next hardware scan replaces it.
         if (verdictShown) {
-            ScanResultOverlay(
+            ScanVerdict(capture = capture,
                 ok = verdict!!.tone == MessageTone.SUCCESS,
                 title = verdict.title,
                 detail = verdict.detail,

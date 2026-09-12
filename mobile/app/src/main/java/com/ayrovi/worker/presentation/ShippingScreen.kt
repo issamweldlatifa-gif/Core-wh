@@ -130,7 +130,7 @@ fun ShippingScreen(
         val verdict = state.message
         val verdictShown = verdict != null && verdict.tone != MessageTone.INFO
         if (verdictShown) {
-            ScanResultOverlay(
+            ScanVerdict(capture = capture,
                 ok = verdict!!.tone == MessageTone.SUCCESS,
                 title = verdict.title,
                 detail = verdict.detail,
