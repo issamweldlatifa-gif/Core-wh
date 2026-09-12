@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { BarcodeFormat, Code128Writer } from '@zxing/library';
+import { BarcodeFormat, MultiFormatWriter } from '@zxing/library';
 import { useAuth } from '../../context/AuthContext';
 import { apiErrorMessage } from '../../api/client';
 import {
@@ -64,7 +64,7 @@ function drawBatchBarcode(canvas: HTMLCanvasElement | null, value: string) {
   if (!canvas) return;
   const width = 560;
   const height = 120;
-  const matrix = new Code128Writer().encode(value, BarcodeFormat.CODE_128, width, height);
+  const matrix = new MultiFormatWriter().encode(value, BarcodeFormat.CODE_128, width, height);
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext('2d');
