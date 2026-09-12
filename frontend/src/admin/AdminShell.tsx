@@ -26,41 +26,43 @@ interface NavEntry {
   external?: boolean;
 }
 
-const NAV_GROUPS = ['CONTROL', 'WORKFORCE', 'WAREHOUSE', 'FULFILLMENT', 'MONITORING', 'SYSTEM'] as const;
+// COMMAND 01 (2026-09-12) — 4-domain organization (Tasks / Operations /
+// Stations / Control + Global). Sidebar grouping/ordering ONLY: every to/,
+// label, permission and external flag is unchanged (see
+// reports/ADMIN-AUDIT-2026-09-12.md §2/§6).
+const NAV_GROUPS = ['CONTROL', 'TASKS', 'OPERATIONS', 'STATIONS', 'GLOBAL'] as const;
 
 const NAV: NavEntry[] = [
-  // CONTROL
+  // CONTROL — command & intervention: overview + every control surface.
   { to: '/admin', label: 'Overview', group: 'CONTROL', permission: 'operations.view' },
-  { to: '/admin/operations', label: 'Operations', group: 'CONTROL', permission: 'operations.view' },
+  { to: '/admin/exceptions', label: 'Exceptions', group: 'CONTROL', permission: 'operations.view' },
+  { to: '/admin/data-control', label: 'Data Control', group: 'CONTROL', permission: 'operations.view' },
+  { to: '/admin/traceability', label: 'Audit / Trace', group: 'CONTROL', permission: 'operations.view' },
+  { to: '/admin/activity', label: 'Live Activity', group: 'CONTROL', permission: 'operations.view' },
+  { to: '/admin/live', label: 'Live Wallboard', group: 'CONTROL', permission: 'operations.view' },
 
-  // WORKFORCE
-  { to: '/admin/workers', label: 'Workers', group: 'WORKFORCE', permission: 'operations.view' },
-  { to: '/admin/stations', label: 'Stations', group: 'WORKFORCE', permission: 'stations.view' },
-  { to: '/admin/devices', label: 'Devices', group: 'WORKFORCE', permission: 'stations.view' },
-  { to: '/admin/tasks', label: 'Tasks', group: 'WORKFORCE', permission: 'operations.view' },
+  // TASKS — who does what: task registry + workforce control.
+  { to: '/admin/tasks', label: 'Tasks', group: 'TASKS', permission: 'operations.view' },
+  { to: '/admin/workers', label: 'Workers', group: 'TASKS', permission: 'operations.view' },
 
-  // WAREHOUSE
-  { to: '/warehouse/structure', label: 'Warehouse Tree', group: 'WAREHOUSE', permission: 'warehouses.view', external: true },
-  { to: '/admin/receiving-containers', label: 'Receiving Containers', group: 'WAREHOUSE', permission: 'operations.view' },
-  { to: '/admin/temporary-storage', label: 'Temporary Storage', group: 'WAREHOUSE', permission: 'operations.view' },
-  { to: '/admin/batches', label: 'Batches', group: 'WAREHOUSE', permission: 'batch.view' },
-  { to: '/admin/receiving-workers', label: 'Receiving Workers', group: 'WAREHOUSE', permission: 'operations.view' },
-  { to: '/categories', label: 'Categories', group: 'WAREHOUSE', permission: 'inventory.view', external: true },
+  // OPERATIONS — work in flight: sessions, batches, fulfillment flow.
+  { to: '/admin/operations', label: 'Operations', group: 'OPERATIONS', permission: 'operations.view' },
+  { to: '/admin/batches', label: 'Batches', group: 'OPERATIONS', permission: 'batch.view' },
+  { to: '/admin/receiving-workers', label: 'Receiving Workers', group: 'OPERATIONS', permission: 'operations.view' },
+  { to: '/admin/orders', label: 'Orders', group: 'OPERATIONS', permission: 'operations.view' },
+  { to: '/admin/customer-bins', label: 'Customer Bins', group: 'OPERATIONS', permission: 'operations.view' },
+  { to: '/admin/shipments', label: 'Shipments', group: 'OPERATIONS', permission: 'operations.view' },
 
-  // FULFILLMENT
-  { to: '/admin/orders', label: 'Orders', group: 'FULFILLMENT', permission: 'operations.view' },
-  { to: '/admin/customer-bins', label: 'Customer Bins', group: 'FULFILLMENT', permission: 'operations.view' },
-  { to: '/admin/shipments', label: 'Shipments', group: 'FULFILLMENT', permission: 'operations.view' },
+  // STATIONS — physical resources: stations, devices, operational containers.
+  { to: '/admin/stations', label: 'Stations', group: 'STATIONS', permission: 'stations.view' },
+  { to: '/admin/devices', label: 'Devices', group: 'STATIONS', permission: 'stations.view' },
+  { to: '/admin/receiving-containers', label: 'Receiving Containers', group: 'STATIONS', permission: 'operations.view' },
+  { to: '/admin/temporary-storage', label: 'Temporary Storage', group: 'STATIONS', permission: 'operations.view' },
 
-  // MONITORING
-  { to: '/admin/exceptions', label: 'Exceptions', group: 'MONITORING', permission: 'operations.view' },
-  { to: '/admin/activity', label: 'Live Activity', group: 'MONITORING', permission: 'operations.view' },
-  { to: '/admin/live', label: 'Live Wallboard', group: 'MONITORING', permission: 'operations.view' },
-  { to: '/admin/traceability', label: 'Audit / Trace', group: 'MONITORING', permission: 'operations.view' },
-  { to: '/admin/data-control', label: 'Data Control', group: 'MONITORING', permission: 'operations.view' },
-
-  // SYSTEM
-  { to: '/system', label: 'Settings', group: 'SYSTEM', permission: 'system.view', external: true },
+  // GLOBAL — cross-role modules living in the generic application shell.
+  { to: '/warehouse/structure', label: 'Warehouse Tree', group: 'GLOBAL', permission: 'warehouses.view', external: true },
+  { to: '/categories', label: 'Categories', group: 'GLOBAL', permission: 'inventory.view', external: true },
+  { to: '/system', label: 'Settings', group: 'GLOBAL', permission: 'system.view', external: true },
 ];
 
 function liveClock() {
