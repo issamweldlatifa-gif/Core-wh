@@ -45,7 +45,7 @@ object BatchLabelPrint {
     private class UnitLabelAdapter(
         private val context: Context,
         private val labels: List<BatchBarcodeRenderer.Label>,
-        pdfAttributes: PrintAttributes,
+        private val pdfAttributes: PrintAttributes,
     ) : PrintDocumentAdapter() {
 
         override fun onLayout(
