@@ -161,7 +161,7 @@ class UnifiedScannerUiTest {
     @Test
     fun phoneWithoutHardwareShowsPhoneLayoutAndSoftwareTrigger() {
         // PHASE 3: phone-sensing assertions only apply to non-CT40 apps.
-        androidx.test.Assume.assumeTrue(
+        org.junit.Assume.assumeTrue(
             com.ayrovi.worker.BuildConfig.DEVICE_PROFILE != com.ayrovi.worker.di.DeviceProfiles.CT40)
         val model = ReceivingHomeViewModel(ReceivingUiGateway(), "worker", setOf("receiving.view", "receiving.execute"))
         compose.setContent {
