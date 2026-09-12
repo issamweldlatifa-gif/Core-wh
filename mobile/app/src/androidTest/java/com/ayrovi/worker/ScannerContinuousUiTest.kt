@@ -12,8 +12,6 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.printToLog
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.rule.GrantPermissionRule
@@ -23,7 +21,6 @@ import com.ayrovi.worker.domain.HomeStep
 import com.ayrovi.worker.presentation.ReceivingHomeIntent
 import com.ayrovi.worker.presentation.ReceivingHomeScreen
 import com.ayrovi.worker.presentation.ReceivingHomeViewModel
-import com.ayrovi.worker.domain.MessageTone
 import com.ayrovi.worker.scanner.ScanResult
 import com.ayrovi.worker.scanner.ScanSource
 import org.junit.Rule
@@ -125,16 +122,7 @@ class ScannerContinuousUiTest {
 
         // ---- Scan 3: INVALID → red circle + REAL error in the history ----
         compose.runOnIdle { model.workflow.scan(ScanResult("SKU-UNKNOWN", ScanSource.EXTERNAL_SCANNER)) }
-        compose.waitUntil(3_000) { model.state.value.message?.tone == MessageTone.ERROR }
-        compose.runOnIdle { println("SC3PRE: msg=${model.state.value.message?.title}") }
-        compose.onRoot().printToLog("SC3PRE")
-        try {
-            waitForTag("SCAN_FEEDBACK_ERR")
-        } catch (e: Exception) {
-            compose.runOnIdle { val st = model.state.value; println("SC3FAIL: msg=${st.message} step=${st.step}") }
-            compose.onRoot().printToLog("SC3FAIL")
-            throw e
-        }
+        waitForTag("SCAN_FEEDBACK_ERR")
         saveNativeScreenshot(compose, "scanner-v77-red-circle")
         // No green mark is ever shown for a failed scan.
         compose.onAllNodesWithTag("SCAN_FEEDBACK_OK").assertCountEquals(0)
