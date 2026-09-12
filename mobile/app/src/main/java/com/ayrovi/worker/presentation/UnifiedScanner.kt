@@ -500,6 +500,8 @@ internal fun ScanResultOverlay(
                     verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    // Verdict label in the tone colour, then WHAT was scanned.
+                    Text(title, style = MaterialTheme.typography.labelLarge, color = tone)
                     if (detail.isNotBlank()) {
                         Text(detail, style = MaterialTheme.typography.displaySmall,
                             color = Color.Black,
@@ -508,10 +510,6 @@ internal fun ScanResultOverlay(
                     lines.forEach { line ->
                         Text(line, style = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),
                             color = Color.Black)
-                    }
-                    if (detail.isBlank() && lines.isEmpty()) {
-                        Text(title, style = MaterialTheme.typography.displaySmall, color = Color.Black,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                     }
                 }
                 Spacer(Modifier.height(TerminalTokens.md))
