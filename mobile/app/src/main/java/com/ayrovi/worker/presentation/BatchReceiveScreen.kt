@@ -175,7 +175,7 @@ fun BatchReceiveScreen(
         val resultShown = result != null && (result.tone == MessageTone.SUCCESS || result.tone == MessageTone.ERROR)
         if (cameraActive) {
             CameraToolOverlay(capture, model.captureAllowed)
-        } else if (currentBatch != null && state.completed == null && !scanTools && !resultShown) {
+        } else if (state.batch != null && state.completed == null && !scanTools && !resultShown) {
             ScanToolsEdgeButton { scanTools = true }
         }
         if (scanTools) ScanToolsDrawer(capture, model.captureAllowed, onClose = { scanTools = false })
