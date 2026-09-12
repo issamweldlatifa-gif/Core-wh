@@ -73,9 +73,41 @@ export function Pipeline({ stages }: { stages: OpsOverview['pipeline'] }) {
   );
 }
 
-/** §5 — current operations with [OPEN]. */
+/** §5 — current operations with [OPEN].
+ *  COMMAND 02 (2026-09-12): lanes the backend marks «OPTIONAL PATH» are
+ *  conditional by design and hold no staffed stations today — they render
+ *  collapsed under an explicit label so they can never read as part of the
+ *  main path. Display-only: the API payload is untouched. */
 export function OperationsPanel({ operations }: { operations: OpsOverview['operations'] }) {
   const navigate = useNavigate();
+  const main = operations.filter((op) => !op.title.includes('OPTIONAL PATH'));
+  const optional = operations.filter((op) => op.title.includes('OPTIONAL PATH'));
+  const row = (op: OpsOverview['operations'][number]) => (
+    <tr key={op.id}>
+      <td><span className="op-title">{op.title.replace(' · OPTIONAL PATH', '')}</span>
+        {op.cells.length > 0 && (
+          <div className="ac-ops-metrics">
+            {op.cells.map((c) => `${c.value} ${c.unit}`).join(' · ')}
+          </div>
+        )}
+      </td>
+      <td><span className={`os-tag ${op.status.tone === 'ok' ? 'os-tag--ok' : op.status.tone === 'warn' ? 'os-tag--warn' : 'os-tag--muted'}`}>{op.status.label}</span></td>
+      <td><span className="ac-ops-count">{op.current}</span></td>
+      <td>
+        {op.attention > 0
+          ? <span className="ac-ops-count ac-ops-count--attention">{op.attention}</span>
+          : <span className="os-muted">0</span>}
+      </td>
+      <td className="ac-ops-metrics">{op.cells.map((c) => metricLabel(c)).join(' · ') || '—'}</td>
+      <td>
+        {op.open ? (
+          <button className="os-btn" onClick={() => navigate(op.open as string)}>OPEN</button>
+        ) : (
+          <button className="os-btn" disabled title="no dedicated screen yet">OPEN</button>
+        )}
+      </td>
+    </tr>
+  );
   return (
     <div className="os-card">
       <div className="cc-head">
@@ -88,35 +120,27 @@ export function OperationsPanel({ operations }: { operations: OpsOverview['opera
             <tr><th>Operation</th><th>Status</th><th>Current</th><th>Attention</th><th>Detail</th><th /></tr>
           </thead>
           <tbody>
-            {operations.map((op) => (
-              <tr key={op.id}>
-                <td><span className="op-title">{op.title}</span>
-                  {op.cells.length > 0 && (
-                    <div className="ac-ops-metrics">
-                      {op.cells.map((c) => `${c.value} ${c.unit}`).join(' · ')}
-                    </div>
-                  )}
-                </td>
-                <td><span className={`os-tag ${op.status.tone === 'ok' ? 'os-tag--ok' : op.status.tone === 'warn' ? 'os-tag--warn' : 'os-tag--muted'}`}>{op.status.label}</span></td>
-                <td><span className="ac-ops-count">{op.current}</span></td>
-                <td>
-                  {op.attention > 0
-                    ? <span className="ac-ops-count ac-ops-count--attention">{op.attention}</span>
-                    : <span className="os-muted">0</span>}
-                </td>
-                <td className="ac-ops-metrics">{op.cells.map((c) => metricLabel(c)).join(' · ') || '—'}</td>
-                <td>
-                  {op.open ? (
-                    <button className="os-btn" onClick={() => navigate(op.open as string)}>OPEN</button>
-                  ) : (
-                    <button className="os-btn" disabled title="no dedicated screen yet">OPEN</button>
-                  )}
-                </td>
-              </tr>
-            ))}
+            {main.map(row)}
           </tbody>
         </table>
       </div>
+      {optional.length > 0 && (
+        <details style={{ margin: '8px 12px 12px' }}>
+          <summary className="os-muted" style={{ fontSize: 12, cursor: 'pointer' }}>
+            OPTIONAL LANES ({optional.length}) — conditional, not part of the current main path
+          </summary>
+          <div className="ac-scroll">
+            <table className="os-table">
+              <thead>
+                <tr><th>Operation</th><th>Status</th><th>Current</th><th>Attention</th><th>Detail</th><th /></tr>
+              </thead>
+              <tbody>
+                {optional.map(row)}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      )}
     </div>
   );
 }

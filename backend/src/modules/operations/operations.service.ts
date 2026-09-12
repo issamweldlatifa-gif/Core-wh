@@ -389,15 +389,32 @@ export class OperationsService {
     // first-class operational objects on the control room + live article
     // footprint. Container boards derive worker/station/last-activity from
     // real provenance rows — never guessed values.
-    const [recvRows, custRows, articlesInOperation, receivingContainersActive] = await Promise.all([
+    // COMMAND 02 (2026-09-12): BATCH intake lane on the operations board —
+    // real counts only (additive; pipeline §4B and its 8 stages untouched).
+    const [
+      recvRows,
+      custRows,
+      articlesInOperation,
+      receivingContainersActive,
+      batchesActive,
+      batchesAwaitingReview,
+      batchesInReceiving,
+    ] = await Promise.all([
       this.containersBoard({ type: 'RECEIVING', take: 10 }),
       this.containersBoard({ type: 'CUSTOMER', take: 10 }),
       this.prisma.articleUnit.count({
         where: { status: { in: ['RECEIVED', 'IN_CONTAINER', 'STORED', 'IN_CUSTOMER_BIN'] } },
       }),
       this.prisma.operationalContainer.count({ where: { type: 'RECEIVING', status: 'ACTIVE' } }),
+      // Batch lane: every batch not in a terminal state (voided / fully received).
+      this.prisma.batch.count({ where: { status: { notIn: ['VOIDED', 'RECEIVING_COMPLETED'] } } }),
+      this.prisma.batch.count({ where: { status: 'SUBMITTED' } }),
+      this.prisma.batch.count({ where: { status: 'RECEIVING_IN_PROGRESS' } }),
     ]);
     counters.activeReceivingContainers = receivingContainersActive;
+    counters.batchesActive = batchesActive;
+    counters.batchesAwaitingReview = batchesAwaitingReview;
+    counters.batchesInReceiving = batchesInReceiving;
     counters.articlesInOperation = articlesInOperation;
 
     return {
@@ -445,6 +462,9 @@ export class OperationsService {
         shipmentsReadyToShip,
         shippedToday,
         activeSessionsList: activeSessions,
+        batchesActive,
+        batchesAwaitingReview,
+        batchesInReceiving,
       }),
       workers: workerRows,
       exceptions: {
@@ -605,6 +625,28 @@ export class OperationsService {
           { key: 'info', value: n(d.cartonsToday), unit: 'cartons today' },
         ],
         open: activeSessionsList.length ? `/admin/sessions/${activeSessionsList[0].id}` : null,
+      },
+      {
+        // COMMAND 02 (2026-09-12): the BATCH intake lane (worker-built batch
+        // cards → admin accept/print/send → batch-in receiving). Real counts
+        // only; OPEN targets the existing Batches board.
+        id: 'batch',
+        title: 'BATCH',
+        status:
+          n(d.batchesInReceiving) > 0
+            ? { label: 'RUNNING', tone: 'ok' }
+            : n(d.batchesAwaitingReview) > 0
+              ? { label: 'REVIEW PENDING', tone: 'warn' }
+              : n(d.batchesActive) > 0
+                ? { label: 'IN FLOW', tone: 'warn' }
+                : { label: 'IDLE', tone: 'muted' },
+        current: n(d.batchesActive),
+        attention: n(d.batchesAwaitingReview),
+        cells: [
+          { key: 'info', value: n(d.batchesAwaitingReview), unit: 'awaiting review' },
+          { key: 'info', value: n(d.batchesInReceiving), unit: 'in receiving' },
+        ],
+        open: '/admin/batches',
       },
       {
         id: 'sorting',
