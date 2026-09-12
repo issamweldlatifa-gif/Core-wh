@@ -198,7 +198,14 @@ fun rememberScannerCapture(
             manager.beginScan(); trigger++
         }
     }
-    LaunchedEffect(enabled, resumed) { if (!enabled || !resumed) { camera = false; ocrCameraOpen = false } }
+    // v77: the session closer is LIFECYCLE-ONLY. `enabled` (captureAllowed)
+    // blips false on EVERY workflow roundtrip (busy) — closing the preview
+    // there was the hidden re-binder behind the black-flicker/reopen loops
+    // and it stranded the lane closed on ERROR verdicts (no auto-reopen).
+    // While disarmed, the ONE scan guard already swallows camera reads, so
+    // nothing is submitted behind the workflow's back. Leaving the screen
+    // disposes the whole host; backgrounding closes via `resumed`.
+    LaunchedEffect(resumed) { if (!resumed) { camera = false; ocrCameraOpen = false } }
     LaunchedEffect(contextKey) { camera = false; code = ""; permissionGranted = false; ocrOpen = false; ocrText = ""; ocrSuggestion = null; ocrError = null; ocrCameraOpen = false; ocrCameraPending = false; torchOn = false; history = emptyList(); feedback = null; pendingEntries.clear(); coordinator.reset() }
     LaunchedEffect(trigger) {
         // v77: the no-read watchdog only reports; it NEVER closes the camera —
