@@ -76,9 +76,9 @@ jobs:
         shell: bash
         run: |
           AAPT="$ANDROID_HOME/build-tools/35.0.0/aapt2"
-          ls mobile/app/build/outputs/apk/*/debug/ || true
+          ls app/build/outputs/apk/*/debug/ || true
           check() {
-            APK=$(ls mobile/app/build/outputs/apk/$1/debug/*.apk | head -1)
+            APK=$(ls app/build/outputs/apk/$1/debug/*.apk | head -1)
             if [ -z "$APK" ]; then echo "::error::no APK for flavor $1"; exit 1; fi
             "$AAPT" dump badging "$APK" | grep -q "package: $2 " || { echo "::error::$APK: wrong package"; exit 1; }
             "$AAPT" dump badging "$APK" | grep -q "application-label:'$3'" || { echo "::error::$APK: wrong label"; exit 1; }
