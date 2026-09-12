@@ -112,6 +112,30 @@ data class BatchSubmittedPayload(
     val replayed: Boolean = false,
 )
 
+@Serializable
+data class BatchReceiveUnitIn(
+    val unitCode: String,
+)
+
+@Serializable
+data class BatchCompleteReceivingIn(
+    val idempotencyKey: String,
+)
+
+@Serializable
+data class BatchStartedPayload(
+    val batch: BatchRowPayload = BatchRowPayload(),
+    val replayed: Boolean = false,
+)
+
+@Serializable
+data class BatchReceiveUnitPayload(
+    val unitCode: String = "",
+    val alreadyReceived: Boolean = false,
+    val totalScanned: Int = 0,
+    val totalExpected: Int = 0,
+)
+
 /**
  * Gateway contract — implemented by WorkerRepository (same rule as
  * ReceivingGateway/TemporaryStorageGateway: no UI/network dependency here).
@@ -131,4 +155,18 @@ interface BatchGateway {
 
     /** Full batch (items + units) for resuming a build on this device. */
     suspend fun batchDetail(batchId: String): BatchDetailPayload
+
+    // ---- RECEIVING side (admin sent the batch; the station scans AYP) ----
+
+    /** Receiving queue: SENT_TO_RECEIVING (new) + RECEIVING_IN_PROGRESS (resume). */
+    suspend fun batchReceiveQueue(): List<BatchRowPayload>
+
+    /** Open the batch for receiving — SENT_TO_RECEIVING -> RECEIVING_IN_PROGRESS. */
+    suspend fun batchStartReceiving(batchId: String): BatchStartedPayload
+
+    /** ONE scan = ONE unit; a re-read label answers alreadyReceived (server truth). */
+    suspend fun batchReceiveUnit(batchId: String, unitCode: String): BatchReceiveUnitPayload
+
+    /** Complete — REQUIRES every unit received (10/10), server-enforced. */
+    suspend fun batchCompleteReceiving(batchId: String, input: BatchCompleteReceivingIn): BatchStartedPayload
 }

@@ -59,8 +59,11 @@ describe('Batch flag gate', () => {
 describe('create — AYB code, worker customer, replay', () => {
   it('creates CREATED batch with sequential code + audit atomically', async () => {
     const { svc, db, audit } = build();
+    // Date-neutral: derive the TODAY prefix exactly like the service does,
+    // so the sequence assertion never depends on the wall clock.
+    const day = new Date().toISOString().slice(0, 10).replaceAll('-', '');
     db.batch.findUnique.mockResolvedValue(null); // no replay
-    db.batch.findFirst.mockResolvedValue({ batchCode: 'AYB-20260911-00004' }); // day max
+    db.batch.findFirst.mockResolvedValue({ batchCode: `AYB-${day}-00004` }); // day max
     db.batchCustomer.findFirst.mockResolvedValue(null);
     db.batchCustomer.create.mockResolvedValue({ id: 'c1', name: 'Ahmed Akrmi' });
     db.batch.create.mockImplementation(({ data }: any) => Promise.resolve({ id: 'b1', ...data }));
@@ -71,7 +74,7 @@ describe('create — AYB code, worker customer, replay', () => {
     const res: any = await svc.create(ACTOR, CREATE_DTO);
 
     expect(res.replayed).toBe(false);
-    expect(res.batch.batchCode).toBe('AYB-20260911-00005'); // max+1, never count-based
+    expect(res.batch.batchCode).toBe(`AYB-${day}-00005`); // max+1, never count-based
     expect(res.batch.status).toBe('CREATED');
     expect(res.batch.source).toBe('WORKER_APP_BATCH');
     expect(db.batch.create.mock.calls[0][0].data.idempotencyKey).toBe('key-create-0001');

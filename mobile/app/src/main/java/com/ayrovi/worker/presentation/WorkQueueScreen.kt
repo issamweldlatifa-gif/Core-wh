@@ -104,6 +104,7 @@ internal fun WorkerHomeScreen(
                                 "shipping" -> TerminalIcon.CARTON
                                 "archive-trace" -> TerminalIcon.STATION
                                 "batch" -> TerminalIcon.PRODUCT
+                                "batch-in" -> TerminalIcon.RECEIVING
                                 else -> TerminalIcon.PUTAWAY
                             }, item.badgeCount,
                                 // Every station keeps its own handler — nothing

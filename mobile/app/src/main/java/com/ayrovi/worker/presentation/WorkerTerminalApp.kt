@@ -20,7 +20,7 @@ import com.ayrovi.worker.di.AppContainer
 import com.ayrovi.worker.domain.MessageTone
 import com.ayrovi.worker.domain.OperationalMessage
 
-private enum class TerminalRoute { QUEUE, RECEIVING, REPORT, TEMPORARY, SORTING, PACKING, SCAN, SHIPPING, TRACE, BATCH }
+private enum class TerminalRoute { QUEUE, RECEIVING, REPORT, TEMPORARY, SORTING, PACKING, SCAN, SHIPPING, TRACE, BATCH, BATCH_IN }
 
 internal fun <T : ViewModel> factory(create: () -> T): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST") override fun <V : ViewModel> create(modelClass: Class<V>): V = create() as V
@@ -106,6 +106,7 @@ fun WorkerTerminalApp(
         // BATCH build is permission-served work: if the backend stops serving
         // the task (permission/flag), never keep the worker on the screen.
         if (route == TerminalRoute.BATCH && state.me != null && state.tasks.none { it.key == "batch" }) route = TerminalRoute.QUEUE
+        if (route == TerminalRoute.BATCH_IN && state.me != null && state.tasks.none { it.key == "batch-in" }) route = TerminalRoute.QUEUE
         if (route == TerminalRoute.TRACE && state.me != null && state.tasks.none { it.key == "archive-trace" }) route = TerminalRoute.QUEUE
     }
     AyroviTerminalTheme(mode = theme, onToggleTheme = appearance::toggleTheme, gloveMode = glove, glareBoost = glare) {
@@ -247,6 +248,23 @@ fun WorkerTerminalApp(
                 onToggleTheme = appearance::toggleTheme,
                 gloveOn = glove, onToggleGlove = appearance::toggleGlove,
                 glareOn = glare, onToggleGlare = appearance::toggleGlare)
+        } else if (route == TerminalRoute.BATCH_IN && state.me?.user?.id != null) {
+            // BATCH IN (Phase 2 receiving slice): the admin SENT the batch;
+            // the station scans every AYP unit (echo = no-op) and completes
+            // at 10/10. DISPATCH is outbound-only -> inbound receiving rides
+            // this task; NO new station entity exists (command check done).
+            val batchInVm: BatchReceiveViewModel = viewModel(
+                key = "batch-in-${state.loginGeneration}",
+                factory = factory { BatchReceiveViewModel(RepoBatchReceiveGateway(container.repository), container.audio) },
+            )
+            val batchInAvailable = state.verified && connection !in setOf(ConnectionState.OFFLINE, ConnectionState.AUTH_ERROR, ConnectionState.SYNC_ERROR)
+            LaunchedEffect(batchInAvailable) { batchInVm.activate(batchInAvailable) }
+            BatchReceiveScreen(batchInVm, workerLabel(state), stationLabel(state), connection.name,
+                onBack = { route = TerminalRoute.QUEUE; model.refresh() }, onAuthExpired = model::expireSession,
+                industrial = container.device == WorkerDevice.CT40,
+                onToggleTheme = appearance::toggleTheme,
+                gloveOn = glove, onToggleGlove = appearance::toggleGlove,
+                glareOn = glare, onToggleGlare = appearance::toggleGlare)
         } else if (route == TerminalRoute.REPORT && state.me?.user?.id != null) {
             // CONFIRMATION REPORT (ORDER 01): verification view for this
             // worker's open receiving session. Back returns to RECEIVING.
@@ -306,6 +324,7 @@ fun WorkerTerminalApp(
                         "shipping" -> route = TerminalRoute.SHIPPING
                         "archive-trace" -> route = TerminalRoute.TRACE
                         "batch" -> route = TerminalRoute.BATCH
+                        "batch-in" -> route = TerminalRoute.BATCH_IN
                         else -> model.noticeTask(key)
                     }
                 })

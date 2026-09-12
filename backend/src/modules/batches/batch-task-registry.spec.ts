@@ -27,6 +27,29 @@ describe('task registry — batch build task', () => {
     expect(isSharedTask('batch')).toBe(false);
   });
 
+  describe('batch-in (receiving slice)', () => {
+    const receive = taskByKey('batch-in');
+
+    it('exists, ready, gated by batch.receive, station-less', () => {
+      expect(receive).toBeDefined();
+      expect(receive!.ready).toBe(true);
+      expect(receive!.permission).toBe('batch.receive');
+      expect(receive!.stationDepartments).toBeUndefined();
+      expect(receive!.stationRequired).toBeUndefined();
+      expect(isSharedTask('batch-in')).toBe(false);
+    });
+
+    it('DISPATCH reuse check: no batch task rides the DISPATCH department', () => {
+      // The command's station rule: DISPATCH is outbound-only; neither the
+      // build nor the receive task is bound to it (no new station, no
+      // DISPATCH hijack).
+      const { TASK_REGISTRY } = require('../operations/task-registry');
+      const batchTasks = TASK_REGISTRY.filter((t: { key: string }) => t.key.startsWith('batch'));
+      expect(batchTasks.length).toBe(2);
+      expect(batchTasks.every((t: { stationDepartments?: string[] }) => t.stationDepartments === undefined)).toBe(true);
+    });
+  });
+
   it('does not collide with any existing task key/path', () => {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { TASK_REGISTRY } = require('../operations/task-registry');

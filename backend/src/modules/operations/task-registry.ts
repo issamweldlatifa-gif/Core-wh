@@ -166,6 +166,22 @@ export const TASK_REGISTRY: OperationalTask[] = [
     operation: 'Batch',
     work: 'بناء الدفعات (عميل جديد → وحدات AYP → ملصقات → إرسال)',
   },
+  {
+    // AYROVI BATCH IN (Phase 2 receiving slice): the admin SENT the batch;
+    // this task receives it (scan every AYP unit -> 10/10 -> complete).
+    // STATION CHECK (command rule): DISPATCH is outbound-only shipping —
+    // it cannot host inbound batch receiving, so this stays a station-less
+    // permission-served task on the worker terminal. NO BATCH station was
+    // created anywhere.
+    key: 'batch-in',
+    label: 'Batch IN',
+    path: '/terminal/batch-in',
+    department: 'RECEIVING',
+    permission: 'batch.receive',
+    ready: true,
+    operation: 'Batch IN',
+    work: 'استلام الدفعات (فحص AYP → 10/10 → إكمال)',
+  },
 ];
 
 export function taskByKey(key: string): OperationalTask | undefined {

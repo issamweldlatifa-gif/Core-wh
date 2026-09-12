@@ -449,6 +449,36 @@ class WorkerRepository(
     override suspend fun batchDetail(batchId: String): BatchDetailPayload =
         json.decodeFromString(get("/v1/batches/${urlEncode(batchId)}"))
 
+    override suspend fun batchReceiveQueue(): List<BatchRowPayload> {
+        val sent: List<BatchRowPayload> = json.decodeFromString(get("/v1/batches?status=SENT_TO_RECEIVING"))
+        val inProgress: List<BatchRowPayload> = json.decodeFromString(get("/v1/batches?status=RECEIVING_IN_PROGRESS"))
+        return sent + inProgress
+    }
+
+    override suspend fun batchStartReceiving(batchId: String): BatchStartedPayload =
+        json.decodeFromString(
+            BatchStartedPayload.serializer(),
+            post("/v1/batches/${urlEncode(batchId)}/receiving/start", "{}"),
+        )
+
+    override suspend fun batchReceiveUnit(batchId: String, unitCode: String): BatchReceiveUnitPayload =
+        json.decodeFromString(
+            BatchReceiveUnitPayload.serializer(),
+            post(
+                "/v1/batches/${urlEncode(batchId)}/receiving/units",
+                json.encodeToString(BatchReceiveUnitIn.serializer(), BatchReceiveUnitIn(unitCode = unitCode)),
+            ),
+        )
+
+    override suspend fun batchCompleteReceiving(batchId: String, input: BatchCompleteReceivingIn): BatchStartedPayload =
+        json.decodeFromString(
+            BatchStartedPayload.serializer(),
+            post(
+                "/v1/batches/${urlEncode(batchId)}/receiving/complete",
+                json.encodeToString(BatchCompleteReceivingIn.serializer(), input),
+            ),
+        )
+
     private suspend fun get(path: String): String = transport.request("GET", path)
     private suspend fun put(path: String, body: String): String = transport.request("PUT", path, body)
     private suspend fun post(path: String, body: String, auth: Boolean = true): String =

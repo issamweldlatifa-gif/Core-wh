@@ -2,6 +2,9 @@
 
 package com.ayrovi.worker
 
+import com.ayrovi.worker.data.BatchCompleteReceivingIn
+import com.ayrovi.worker.data.BatchReceiveUnitPayload
+import com.ayrovi.worker.data.BatchStartedPayload
 import com.ayrovi.worker.data.BatchCreateIn
 import com.ayrovi.worker.data.BatchCreatedPayload
 import com.ayrovi.worker.data.BatchDetailPayload
@@ -75,6 +78,14 @@ private class FakeBatchGateway : BatchGateway {
         failNext?.let { throw it }
         return BatchDetailPayload(id = batchId, batchCode = "AYB-20260911-00001", status = "CREATED")
     }
+
+    // ---- receiving side (not exercised by the BUILD tests) ----
+    override suspend fun batchReceiveQueue(): List<BatchRowPayload> = emptyList()
+    override suspend fun batchStartReceiving(batchId: String) = BatchStartedPayload()
+    override suspend fun batchReceiveUnit(batchId: String, unitCode: String) =
+        BatchReceiveUnitPayload(unitCode = unitCode)
+    override suspend fun batchCompleteReceiving(batchId: String, input: BatchCompleteReceivingIn) =
+        BatchStartedPayload()
 }
 
 private fun build(scope: kotlinx.coroutines.CoroutineScope): Pair<BatchBuildWorkflow, FakeBatchGateway> {
