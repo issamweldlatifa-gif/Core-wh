@@ -27,6 +27,9 @@ object WorkerQueuePolicy {
     private val labels = mapOf(
         "receiving" to "RECEIVING", "sorting" to "SORTING", "putaway" to "PUTAWAY",
         "temporary-storage" to "TEMP STORAGE", "shipping" to "SHIPPING", "archive-trace" to "TRACE",
+        // AYROVI BATCH (v71, owner-approved): the batch lanes render as station
+        // tiles when the backend serves them — the routes/screens already exist.
+        "batch" to "BATCH", "batch-in" to "BATCH IN",
     )
     fun items(
         permittedTasks: List<TerminalTask>,

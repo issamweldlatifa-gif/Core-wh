@@ -38,4 +38,20 @@ class WorkerQueuePolicyTest {
         assertFalse(disabled.available)
         assertTrue(WorkerQueuePolicy.items(listOf(TerminalTask(key = "admin", ready = true)), 4).isEmpty())
     }
+
+    // v71 (owner-approved): the BATCH lanes render as STATIONS tiles when the
+    // backend serves them — same vocabulary rule as every other station lane.
+    @Test fun `batch lanes render as station tiles when served`() {
+        val served = listOf(
+            TerminalTask(key = "batch", ready = true),
+            TerminalTask(key = "batch-in", ready = true),
+        )
+        val items = WorkerQueuePolicy.items(served, null)
+        assertEquals(listOf("batch", "batch-in"), items.map { it.key })
+        assertEquals("BATCH", items.first().label)
+        assertEquals("BATCH IN", items.last().label)
+        // Presentation availability is not backend authorization: the station
+        // tiles click through their own handlers regardless.
+        assertTrue(items.none { it.badgeCount != null })
+    }
 }
