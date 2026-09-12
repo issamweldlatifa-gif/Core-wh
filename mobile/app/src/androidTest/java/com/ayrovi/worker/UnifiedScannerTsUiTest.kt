@@ -119,6 +119,9 @@ class UnifiedScannerTsUiTest {
         // §17/§18: the drawer is the ONLY way to the other read methods.
         compose.onNodeWithTag("SCAN_TOOLS_ARROW").performClick()
         waitForTag("SCAN_TOOLS_DRAWER")
+        // PHASE 3: the CT40 application hides the camera read methods.
+        androidx.test.Assume.assumeTrue(
+            com.ayrovi.worker.BuildConfig.DEVICE_PROFILE != com.ayrovi.worker.di.DeviceProfiles.CT40)
         compose.onNodeWithTag("TOOL_QR").assertIsDisplayed()
         compose.onNodeWithTag("TOOL_OCR").assertIsDisplayed()
         compose.onNodeWithTag("TOOL_MANUAL").assertIsDisplayed()

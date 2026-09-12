@@ -47,7 +47,9 @@ jobs:
         run: |
           chmod +x gradlew
           set +e
-          ./gradlew :scanner-core:test :worker-core:test :app:testDebugUnitTest :app:assembleDebug :app:minifyReleaseWithR8 :app:lintDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace --console=plain > /tmp/android.log 2>&1
+          # PHASE 3: build ALL THREE applications (Phone / CT40 / universal)
+          # plus their unit tests, lint and R8 pass — one codebase, no dupes.
+          ./gradlew :scanner-core:test :worker-core:test :app:testPhoneDebugUnitTest :app:testCt40DebugUnitTest :app:testUniversalDebugUnitTest :app:assemblePhoneDebug :app:assembleCt40Debug :app:assembleUniversalDebug :app:assemblePhoneDebugAndroidTest :app:assembleCt40DebugAndroidTest :app:minifyUniversalReleaseWithR8 :app:lintPhoneDebug :app:lintCt40Debug :app:lintUniversalDebug --no-daemon --stacktrace --console=plain > /tmp/android.log 2>&1
           code=$?
           cat /tmp/android.log
           python3 "$GITHUB_WORKSPACE/.github/workflows/annotate-android.py" "$code" /tmp/android.log
@@ -67,8 +69,21 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ayrovi-worker-receiving-pilot-${{ github.sha }}
-          path: mobile/app/build/outputs/apk/debug/app-debug.apk
+          path: mobile/app/build/outputs/apk/*/debug/*.apk
           if-no-files-found: error
+      - name: Verify application IDs and labels (PHASE 3)
+        if: success()
+        shell: bash
+        run: |
+          AAPT="$ANDROID_HOME/build-tools/35.0.0/aapt2"
+          check() {
+            "$AAPT" dump badging "$1" | grep -q "package: $2 " || { echo "::error::$1: wrong package"; exit 1; }
+            "$AAPT" dump badging "$1" | grep -q "application-label:'$3'" || { echo "::error::$1: wrong label"; exit 1; }
+            echo "OK: $1 -> $2 / $3"
+          }
+          check mobile/app/build/outputs/apk/phone/debug/app-phone-debug.apk com.ayrovi.phone 'AYROVI Phone'
+          check mobile/app/build/outputs/apk/ct40/debug/app-ct40-debug.apk com.ayrovi.ct40 'AYROVI CT40'
+          check mobile/app/build/outputs/apk/universal/debug/app-universal-debug.apk com.ayrovi.worker 'AYROVI Worker'
       # Deliberately no automatic gh release delete/create. A branch build is
       # not permission for a production cutover or a rolling fleet update.
 
@@ -105,13 +120,19 @@ jobs:
             # sequence — screenrecord runs while ONLY the new test class runs.
             adb shell "screenrecord --time-limit 180 /sdcard/scanner-v77-demo.mp4" &
             REC=$!
-            sh ./gradlew :app:connectedDebugAndroidTest --no-daemon --console=plain -Pandroid.testInstrumentationRunnerArguments.class=com.ayrovi.worker.ScannerContinuousUiTest; demo=$?
+            sh ./gradlew :app:connectedPhoneDebugAndroidTest --no-daemon --console=plain -Pandroid.testInstrumentationRunnerArguments.class=com.ayrovi.worker.ScannerContinuousUiTest; demo=$?
             wait $REC || true
             mkdir -p /tmp/worker-ui-evidence
             adb pull /sdcard/scanner-v77-demo.mp4 /tmp/worker-ui-evidence/ || true
             adb pull /sdcard/Pictures/AYROVI-UI-Tests /tmp/worker-ui-evidence/ || true
             echo "::notice::Continuous-scan demo video: $(find /tmp/worker-ui-evidence -name '*.mp4' | wc -l) file(s)"
-            set +e; sh ./gradlew :app:connectedDebugAndroidTest --no-daemon --console=plain; code=$?; echo "::notice::Native UI fixture screenshots: $(find /tmp/worker-ui-evidence -name '*.png' | wc -l)"; exit $code
+            # PHASE 3: the full suite runs on BOTH applications — AYROVI Phone
+            # (camera profile) and AYROVI CT40 (industrial profile).
+            set +e
+            sh ./gradlew :app:connectedPhoneDebugAndroidTest --no-daemon --console=plain; phone=$?
+            sh ./gradlew :app:connectedCt40DebugAndroidTest --no-daemon --console=plain; ct40=$?
+            echo "::notice::Native UI fixture screenshots: $(find /tmp/worker-ui-evidence -name '*.png' | wc -l)"
+            code=$(( phone > ct40 ? phone : ct40 )); exit $code
       - name: Summarize Android test evidence
         if: always()
         working-directory: mobile

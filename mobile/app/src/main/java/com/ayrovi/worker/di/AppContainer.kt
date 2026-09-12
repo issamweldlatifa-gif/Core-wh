@@ -17,7 +17,10 @@ import com.ayrovi.worker.push.PushTokenStore
 
 /** Explicit application-scoped dependency injection; one client/store, no service locator in UI. */
 class AppContainer(context: Context) {
-    val device = runCatching { HoneywellScanner.presentationMode() }.getOrDefault(WorkerDevice.PHONE)
+    // PHASE 3: the flavor pins the identity; AUTO (universal) senses hardware.
+    val device = DeviceProfiles.resolve(BuildConfig.DEVICE_PROFILE) {
+        runCatching { HoneywellScanner.presentationMode() }.getOrDefault(WorkerDevice.PHONE)
+    }
     val audio = AndroidAudioFeedback.get(context.applicationContext)
     val notifier = ReceivingNotifier(context.applicationContext)
     val sessions = SessionStore(context.applicationContext)

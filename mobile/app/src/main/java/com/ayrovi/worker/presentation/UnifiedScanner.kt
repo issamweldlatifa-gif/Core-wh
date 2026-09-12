@@ -523,11 +523,18 @@ internal fun ScanToolsDrawer(capture: ScannerCapture, enabled: Boolean, onClose:
         ) {
             Column(Modifier.fillMaxWidth().padding(TerminalTokens.sm), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
                 Text("SCAN TOOLS", style = MaterialTheme.typography.titleSmall, color = TerminalTokens.warning)
-                DrawerItem("QR / BARCODE", TerminalIcon.CAMERA, "TOOL_QR", enabled) {
-                    onClose(); capture.camera()
-                }
-                DrawerItem("OCR", TerminalIcon.SCANNER, "TOOL_OCR", enabled) {
-                    onClose(); capture.ocr(); capture.ocrCamera()
+                // PHASE 3: the CT40 APPLICATION hides the camera read methods —
+                // the integrated Honeywell imager is the scanner there. The
+                // universal app (AUTO) and the Phone app keep the full set.
+                val cameraToolsHidden = com.ayrovi.worker.BuildConfig.DEVICE_PROFILE ==
+                    com.ayrovi.worker.di.DeviceProfiles.CT40
+                if (!cameraToolsHidden) {
+                    DrawerItem("QR / BARCODE", TerminalIcon.CAMERA, "TOOL_QR", enabled) {
+                        onClose(); capture.camera()
+                    }
+                    DrawerItem("OCR", TerminalIcon.SCANNER, "TOOL_OCR", enabled) {
+                        onClose(); capture.ocr(); capture.ocrCamera()
+                    }
                 }
                 DrawerItem("MANUEL", TerminalIcon.MANUAL, "TOOL_MANUAL", enabled) {
                     onClose(); capture.manual()

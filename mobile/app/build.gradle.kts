@@ -48,11 +48,41 @@ android {
         applicationId = "com.ayrovi.worker"
         minSdk = 26
         targetSdk = 35
-        versionCode = 77
-        versionName = "1.8.0-batch.10"
+        versionCode = 78
+        versionName = "1.8.0-split.1"
         buildConfigField("String", "API_BASE_URL", "\"${apiBaseUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
         buildConfigField("boolean", "WORKER_LEGACY_FALLBACK", legacyFallback.get().toString())
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    // PHASE 3 (ORDER 1, 2026-09-12): ONE codebase, THREE device applications.
+    // A flavor only pins the application identity and the device profile —
+    // every screen, the shared core modules, the backend configuration, auth,
+    // tasks and permissions stay common (no duplicated logic anywhere).
+    //   phone     -> AYROVI Phone  (com.ayrovi.phone): camera scanning app
+    //   ct40      -> AYROVI CT40   (com.ayrovi.ct40): industrial app, imager
+    //   universal -> AYROVI Worker (com.ayrovi.worker): the transition app,
+    //               hardware-sensed exactly as before (unchanged behaviour).
+    flavorDimensions += "device"
+    productFlavors {
+        create("phone") {
+            dimension = "device"
+            applicationId = "com.ayrovi.phone"
+            resValue("string", "app_name", "AYROVI Phone")
+            buildConfigField("String", "DEVICE_PROFILE", "\"PHONE\"")
+        }
+        create("ct40") {
+            dimension = "device"
+            applicationId = "com.ayrovi.ct40"
+            resValue("string", "app_name", "AYROVI CT40")
+            buildConfigField("String", "DEVICE_PROFILE", "\"CT40\"")
+        }
+        create("universal") {
+            dimension = "device"
+            applicationId = "com.ayrovi.worker"
+            resValue("string", "app_name", "AYROVI Worker")
+            buildConfigField("String", "DEVICE_PROFILE", "\"AUTO\"")
+        }
     }
 
     buildTypes {
