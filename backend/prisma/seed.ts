@@ -275,7 +275,7 @@ const ROLES: Array<{
       // v72 (owner order): the batch lane is BATCH-ONLY — no receiving perms,
       // so the worker HOME renders exactly BATCH + BATCH IN (no RECEIVING).
       'expected_arrivals.view', 'shipments.view',
-      'batch.view', 'batch.execute', 'batch.receive',
+      'batch.view', 'batch.create', 'batch.execute', 'batch.receive',
     ],
   },
   {
