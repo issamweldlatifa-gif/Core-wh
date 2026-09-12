@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { BarcodeFormat, QRCodeWriter } from '@zxing/library';
+import { BarcodeFormat, Code128Writer } from '@zxing/library';
 import { useAuth } from '../../context/AuthContext';
 import { apiErrorMessage } from '../../api/client';
 import {
@@ -17,16 +17,17 @@ import { useAsync } from './useAsync';
  *
  * The batch card is its OWN isolated board (never mixed into the CRM
  * arrivals flow): review worker-created customers (needsReview tag) →
- * ACCEPT → PRINT the batch label → SEND to receiving; VOID+reason instead
+ * ONE fused "Accept & send to receiving" click (both endpoints fire, audit
+ * keeps both transitions — owner decision 2026-09-12); VOID+reason instead
  * of delete. Buttons are the pure batchActions() matrix (status ×
  * permissions, mirroring the backend state machine); every click is
  * re-validated server-side.
  *
- * Print = the batch identity (AYB code QR + readable lines) through the
- * browser print dialog — the WORKER app prints per-unit AYP labels; the QR
- * is encoded locally with the already-bundled @zxing/library (no new
- * dependency, no network). The worker app remains the single label surface
- * for units; this prints the PARCEL (batch) label only.
+ * Print = the batch identity through the browser print dialog: a LINEAR
+ * CODE 128 barcode of the AYB code with the code printed beneath it —
+ * nothing else (owner label contract 2026-09-12). Encoded locally with the
+ * already-bundled @zxing/library; the WORKER app prints per-unit AYP labels
+ * under the same contract. This prints the PARCEL (batch) label only.
  */
 
 const STATUSES = [
@@ -40,14 +41,14 @@ const STATUSES = [
 ];
 
 const ACTION_LABEL: Record<BatchUiAction, string> = {
-  accept: 'Accept',
+  'accept-send': 'Accept & send to receiving',
   send: 'Send to receiving',
   void: 'Void…',
   print: 'Print label',
 };
 
 const ACTION_CLASS: Record<BatchUiAction, string> = {
-  accept: 'os-btn os-btn--primary',
+  'accept-send': 'os-btn os-btn--primary',
   send: 'os-btn os-btn--primary',
   void: 'os-btn os-btn--danger',
   print: 'os-btn os-btn--ghost',
@@ -58,35 +59,31 @@ function fmt(iso: string | null): string {
   return new Date(iso).toLocaleString();
 }
 
-/** QR for the batch code, drawn locally (zxing encode → canvas). */
-function drawBatchQr(canvas: HTMLCanvasElement | null, value: string) {
+/** CODE 128 of the batch code, drawn locally (zxing encode → canvas). */
+function drawBatchBarcode(canvas: HTMLCanvasElement | null, value: string) {
   if (!canvas) return;
-  // Encoded locally with the already-bundled @zxing/library — no new
-  // dependency, no network, the same encoder family the mobile app uses.
-  const size = 232;
-  const matrix = new QRCodeWriter().encode(value, BarcodeFormat.QR_CODE, size, size, new Map());
-  canvas.width = size;
-  canvas.height = size;
+  const width = 560;
+  const height = 120;
+  const matrix = new Code128Writer().encode(value, BarcodeFormat.CODE_128, width, height);
+  canvas.width = width;
+  canvas.height = height;
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
   ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, size, size);
+  ctx.fillRect(0, 0, width, height);
   ctx.fillStyle = '#000000';
-  const cell = size / matrix.getWidth();
-  for (let y = 0; y < matrix.getHeight(); y += 1) {
-    for (let x = 0; x < matrix.getWidth(); x += 1) {
-      if (matrix.get(x, y)) {
-        ctx.fillRect(Math.floor(x * cell), Math.floor(y * cell), Math.ceil(cell), Math.ceil(cell));
-      }
+  const cell = width / matrix.getWidth();
+  for (let x = 0; x < matrix.getWidth(); x += 1) {
+    if (matrix.get(x, 0)) {
+      ctx.fillRect(Math.floor(x * cell), 0, Math.ceil(cell), height);
     }
   }
 }
 
-/** Transient print surface (self-contained styles; nothing else prints). */
-function BatchPrintLabel({ code, customer, units, canvasRef }: {
+/** Transient print surface (self-contained styles; nothing else prints).
+ * OWNER LABEL CONTRACT: the barcode + its number beneath — nothing else. */
+function BatchPrintLabel({ code, canvasRef }: {
   code: string;
-  customer: string;
-  units: number;
   canvasRef: React.RefObject<HTMLCanvasElement>;
 }) {
   return (
@@ -97,17 +94,12 @@ function BatchPrintLabel({ code, customer, units, canvasRef }: {
           .ac-bprint, .ac-bprint * { visibility: visible !important; }
           .ac-bprint { position: absolute; inset: 0; background: #fff; padding: 24px; }
         }
-        .ac-bprint { display: flex; gap: 18px; align-items: center; background: #fff; color: #000; padding: 12px; }
-        .ac-bprint canvas { width: 232px; height: 232px; image-rendering: pixelated; }
-        .ac-bprint h2 { margin: 0 0 6px; font-size: 22px; letter-spacing: 0.08em; }
-        .ac-bprint p { margin: 2px 0; font-size: 13px; }
+        .ac-bprint { display: flex; flex-direction: column; align-items: center; gap: 10px; background: #fff; color: #000; padding: 16px; }
+        .ac-bprint canvas { width: 560px; max-width: 92vw; height: 120px; image-rendering: pixelated; }
+        .ac-bprint h2 { margin: 0; font-size: 26px; letter-spacing: 0.1em; }
       `}</style>
       <canvas ref={canvasRef} aria-hidden="true" />
-      <div>
-        <h2>{code}</h2>
-        <p>AYROVI BATCH — {units} unit(s)</p>
-        <p>Customer: {customer}</p>
-      </div>
+      <h2>{code}</h2>
     </div>
   );
 }
@@ -128,11 +120,11 @@ export default function BatchesAdmin() {
   const [err, setErr] = useState<string | null>(null);
   const [voidTarget, setVoidTarget] = useState<BatchRow | null>(null);
   const [voidReason, setVoidReason] = useState('');
-  const [printCode, setPrintCode] = useState<{ code: string; customer: string; units: number } | null>(null);
+  const [printCode, setPrintCode] = useState<{ code: string } | null>(null);
   const printCanvas = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
-    if (printCode) drawBatchQr(printCanvas.current, printCode.code);
+    if (printCode) drawBatchBarcode(printCanvas.current, printCode.code);
   }, [printCode]);
 
   async function act(fn: () => Promise<unknown>) {
@@ -151,7 +143,7 @@ export default function BatchesAdmin() {
 
   function onAction(row: BatchRow, action: BatchUiAction) {
     if (action === 'print') {
-      setPrintCode({ code: row.batchCode, customer: row.customer?.name ?? '—', units: row.totalExpected });
+      setPrintCode({ code: row.batchCode });
       setTimeout(() => {
         window.print();
         setPrintCode(null);
@@ -163,7 +155,15 @@ export default function BatchesAdmin() {
       setVoidReason('');
       return;
     }
-    if (action === 'accept') void act(() => batchesAdminApi.accept(row.id, operatorId));
+    // OWNER DECISION: one click — accept then send fire back-to-back (both
+    // audited server-side). If the send leg fails the batch stays ACCEPTED
+    // and the card offers the plain Send button (recovery path).
+    if (action === 'accept-send') {
+      void act(async () => {
+        await batchesAdminApi.accept(row.id, operatorId);
+        await batchesAdminApi.send(row.id, operatorId);
+      });
+    }
     if (action === 'send') void act(() => batchesAdminApi.send(row.id, operatorId));
   }
 
@@ -305,12 +305,7 @@ export default function BatchesAdmin() {
       )}
 
       {printCode && (
-        <BatchPrintLabel
-          code={printCode.code}
-          customer={printCode.customer}
-          units={printCode.units}
-          canvasRef={printCanvas}
-        />
+        <BatchPrintLabel code={printCode.code} canvasRef={printCanvas} />
       )}
     </div>
   );

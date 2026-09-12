@@ -75,14 +75,10 @@ fun BatchScreen(
     val context = LocalContext.current
     val customerName = state.batch?.customer?.name
 
+    // v1.8-batch.7 (74) owner contract: the label carries ONLY the unit's
+    // own unique barcode identity (AYP) — no customer/context lines.
     fun unitLabels(): List<BatchBarcodeRenderer.Label> = state.units.map { row ->
-        BatchBarcodeRenderer.unitLabel(
-            unitCode = row.ayp,
-            originalBarcode = row.originalBarcode,
-            originalSku = row.originalSku,
-            customerName = customerName,
-            batchCode = state.batch?.batchCode,
-        )
+        BatchBarcodeRenderer.unitLabel(row.ayp)
     }
 
     Box(Modifier.fillMaxSize()) {

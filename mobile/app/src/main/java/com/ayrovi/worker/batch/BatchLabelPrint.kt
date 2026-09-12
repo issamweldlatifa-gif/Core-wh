@@ -99,56 +99,53 @@ object BatchLabelPrint {
 
 
 
-        /** QR matrix -> white-background bitmap (modulePx px per module). The
-         * renderer itself stays android-free; pixels live on the print side. */
-        private fun bitmapFor(label: BatchBarcodeRenderer.Label, modulePx: Int): android.graphics.Bitmap {
-            val side = label.size * modulePx
-            val bitmap = android.graphics.Bitmap.createBitmap(side, side, android.graphics.Bitmap.Config.RGB_565)
+        /** CODE 128 matrix (one module row) -> white-background bitmap:
+         * each module becomes a FULL-HEIGHT vertical bar (modulePx px wide,
+         * barHeightPx tall). The renderer stays android-free; pixels live on
+         * the print side. */
+        private fun bitmapFor(label: BatchBarcodeRenderer.Label, modulePx: Int, barHeightPx: Int): android.graphics.Bitmap {
+            val bitmap = android.graphics.Bitmap.createBitmap(label.width * modulePx, barHeightPx, android.graphics.Bitmap.Config.RGB_565)
             bitmap.eraseColor(Color.WHITE)
             val dark = android.graphics.Paint()
             dark.color = Color.BLACK
             val canvas = android.graphics.Canvas(bitmap)
-            for (y in 0 until label.size) {
-                for (x in 0 until label.size) {
-                    if (label.matrix[y][x]) {
-                        canvas.drawRect(
-                            (x * modulePx).toFloat(), (y * modulePx).toFloat(),
-                            ((x + 1) * modulePx).toFloat(), ((y + 1) * modulePx).toFloat(),
-                            dark,
-                        )
-                    }
+            val row = label.matrix[0]
+            for (x in 0 until label.width) {
+                if (row[x]) {
+                    canvas.drawRect(
+                        (x * modulePx).toFloat(), 0f,
+                        ((x + 1) * modulePx).toFloat(), barHeightPx.toFloat(),
+                        dark,
+                    )
                 }
             }
             return bitmap
         }
 
         private fun renderLabel(page: android.graphics.pdf.PdfDocument.Page, label: BatchBarcodeRenderer.Label) {
-            // Content size from the page info (public API): the content rect
-            // excludes the printable margins.
+            // OWNER LABEL CONTRACT (2026-09-12): the barcode + its number
+            // beneath it — nothing else on the page.
             val canvas = page.canvas
             val content = page.info.contentRect
             val pageWidth = content.width().toFloat()
             val pageHeight = content.height().toFloat()
             val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
 
-            // QR block: ~70% of the page width, centered near the top.
-            val qrSize = pageWidth * 0.7f
-            val qrBitmap = bitmapFor(label, modulePx = 4)
-            val left = (pageWidth - qrSize) / 2f
-            val top = pageHeight * 0.06f
-            canvas.drawBitmap(qrBitmap, null, android.graphics.RectF(left, top, left + qrSize, top + qrSize), paint)
+            // Bars: ~92% of the page width, vertically centered upper-third.
+            val barW = pageWidth * 0.92f
+            val barH = pageHeight * 0.30f
+            val modulePx = (barW / label.width).toInt().coerceAtLeast(2)
+            val left = (pageWidth - label.width * modulePx) / 2f
+            val top = pageHeight * 0.22f
+            val bars = bitmapFor(label, modulePx, barH.toInt())
+            canvas.drawBitmap(bars, null, android.graphics.RectF(left, top, left + label.width * modulePx, top + barH), paint)
 
-            // Readable lines under the code (value + context).
-            var y = top + qrSize + pageHeight * 0.05f
+            // The number beneath the bars: the identity itself, centered, large.
             paint.color = Color.BLACK
-            for (line in label.lines) {
-                val isHead = line.label.startsWith("AYROVI")
-                paint.textSize = if (isHead) pageWidth * 0.075f else pageWidth * 0.055f
-                paint.isFakeBoldText = isHead
-                canvas.drawText("${line.label}: ${line.value}", pageWidth * 0.08f, y, paint)
-                y += if (isHead) pageWidth * 0.1f else pageWidth * 0.08f
-                if (y > pageHeight * 0.97f) break
-            }
+            paint.textAlign = android.graphics.Paint.Align.CENTER
+            paint.textSize = pageWidth * 0.085f
+            paint.isFakeBoldText = true
+            canvas.drawText(label.value, pageWidth / 2f, top + barH + pageHeight * 0.09f, paint)
         }
     }
 }

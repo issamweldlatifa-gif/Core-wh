@@ -81,7 +81,7 @@ export const BATCH_VOIDABLE_STATES = [
   'RECEIVING_IN_PROGRESS',
 ];
 
-export type BatchUiAction = 'accept' | 'send' | 'void' | 'print';
+export type BatchUiAction = 'accept-send' | 'send' | 'void' | 'print';
 
 /**
  * Pure rule: which actions a given batch card offers, from the STATUS ×
@@ -91,7 +91,10 @@ export type BatchUiAction = 'accept' | 'send' | 'void' | 'print';
 export function batchActions(status: string, has: (perm: string) => boolean): BatchUiAction[] {
   const out: BatchUiAction[] = [];
   if (has('batch.view')) out.push('print');
-  if (status === 'SUBMITTED' && has('batch.accept')) out.push('accept');
+  // OWNER DECISION (2026-09-12): admin -> receiving is AUTOMATIC — reviewing
+  // a SUBMITTED batch fuses accept+send into ONE click (both endpoints are
+  // still called, so the audit trail keeps both transitions).
+  if (status === 'SUBMITTED' && has('batch.accept') && has('batch.send')) out.push('accept-send');
   if (status === 'ACCEPTED' && has('batch.send')) out.push('send');
   if (BATCH_VOIDABLE_STATES.includes(status) && has('batch.void')) out.push('void');
   return out;

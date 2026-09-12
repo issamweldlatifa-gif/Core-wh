@@ -11,11 +11,11 @@ describe('batchActions — status × permission matrix', () => {
   const viewer = (p: string) => p === 'batch.view';
   const acceptOnly = (p: string) => p === 'batch.view' || p === 'batch.accept';
 
-  it('SUBMITTED offers accept (+ print), not send', () => {
-    expect(batchActions('SUBMITTED', admin).sort()).toEqual(['accept', 'print', 'void']);
+  it('SUBMITTED offers the FUSED accept-send (+ print) — owner decision 2026-09-12', () => {
+    expect(batchActions('SUBMITTED', admin).sort()).toEqual(['accept-send', 'print', 'void']);
   });
 
-  it('ACCEPTED offers send (+ print), not accept', () => {
+  it('ACCEPTED offers the plain send (recovery path) (+ print)', () => {
     expect(batchActions('ACCEPTED', admin).sort()).toEqual(['print', 'send', 'void']);
   });
 
@@ -29,7 +29,9 @@ describe('batchActions — status × permission matrix', () => {
 
   it('permissions gate every action (viewer gets print only)', () => {
     expect(batchActions('SUBMITTED', viewer)).toEqual(['print']);
+    // accept WITHOUT send permission → no fused click (needs both).
     expect(batchActions('ACCEPTED', acceptOnly).sort()).toEqual(['print']);
+    expect(batchActions('SUBMITTED', acceptOnly)).toEqual(['print', 'void']);
   });
 
   it('an unknown status degrades to print only — no invented offers', () => {

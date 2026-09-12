@@ -1,69 +1,47 @@
 package com.ayrovi.worker.batch
 
 import com.google.zxing.BarcodeFormat
-import com.google.zxing.EncodeHintType
-import com.google.zxing.qrcode.QRCodeWriter
+import com.google.zxing.oned.Code128Writer
 
 /**
- * BATCH/UNIT LABEL ENCODER — v1.8 Phase 2 (feature/ayrovi-batch).
+ * BATCH/UNIT LABEL ENCODER — v1.8-batch.7 (74), OWNER DECISION 2026-09-12:
  *
- * PURE encoding only: a value in -> a QR matrix out + the human-readable
- * lines printed UNDER the code (the value itself + context). No android.*
- * imports, no UI: the screen/Print stage (Worker App phase) consumes this;
- * JVM tests verify a real ENCODE->DECODE roundtrip.
+ * The label is a LINEAR BARCODE (CODE 128) of the AYROVI identity with the
+ * identity itself printed beneath it as the human-readable number — NOTHING
+ * else: no customer, no original-product info, no time, no address, no QR.
+ * Every scanned unit already owns its unique serial identity (AYP-000000001,
+ * AYP-000000002, …) so every printed barcode is different by construction.
  *
- * Identity rules baked in here:
- *  - a UNIT label carries the AYROVI unit code (AYP-…) + the ORIGINAL
- *    barcode/SKU + customer + batch code as context lines;
- *  - a BATCH label carries the batch code (AYB-…) — the parcel identity.
- * The original identity is never replaced; MANUAL units simply have no
- * original line.
+ * PURE encoding only (no android.*): the print stage consumes the matrix;
+ * JVM tests verify a real ENCODE->DECODE roundtrip. The camera scanner is
+ * ML Kit (reads CODE_128 natively) and the CT40 hardware scanner reads 1-D
+ * symbologies natively — BATCH IN keeps scanning the printed labels.
  */
 object BatchBarcodeRenderer {
 
-    /** One human-readable line under the QR: `LABEL: VALUE`. */
-    data class LabelLine(val label: String, val value: String)
-
-    /** The encoded label: QR matrix + the readable lines (value first). */
+    /** One row of [width] modules: true = dark bar (CODE 128 is 1-D). */
     data class Label(
         val value: String,
-        /** QR matrix, [y][x], true = dark module (size × size). */
         val matrix: List<BooleanArray>,
-        val size: Int,
-        val lines: List<LabelLine>,
+        val width: Int,
+        val height: Int,
     )
 
-    fun unitLabel(
-        unitCode: String,
-        originalBarcode: String?,
-        originalSku: String?,
-        customerName: String?,
-        batchCode: String?,
-    ): Label {
+    /** Per-unit label: the unique AYROVI unit code (AYP-…). */
+    fun unitLabel(unitCode: String): Label {
         require(unitCode.startsWith("AYP")) { "unit label needs an AYROVI unit code (AYP-…): $unitCode" }
-        val lines = buildList {
-            add(LabelLine("AYROVI UNIT", unitCode))
-            originalBarcode?.takeIf { it.isNotBlank() }?.let { add(LabelLine("ORIGINAL BARCODE", it)) }
-            originalSku?.takeIf { it.isNotBlank() }?.let { add(LabelLine("ORIGINAL SKU", it)) }
-            customerName?.takeIf { it.isNotBlank() }?.let { add(LabelLine("CUSTOMER", it)) }
-            batchCode?.takeIf { it.isNotBlank() }?.let { add(LabelLine("BATCH", it)) }
-        }
-        return encode(unitCode, lines)
+        return encode(unitCode)
     }
 
-    fun batchLabel(batchCode: String, customerName: String?): Label {
+    /** Parcel label: the batch code (AYB-…). */
+    fun batchLabel(batchCode: String): Label {
         require(batchCode.startsWith("AYB")) { "batch label needs an AYROVI batch code (AYB-…): $batchCode" }
-        val lines = buildList {
-            add(LabelLine("AYROVI BATCH", batchCode))
-            customerName?.takeIf { it.isNotBlank() }?.let { add(LabelLine("CUSTOMER", it)) }
-        }
-        return encode(batchCode, lines)
+        return encode(batchCode)
     }
 
-    private fun encode(value: String, lines: List<LabelLine>): Label {
-        val hints = mapOf(EncodeHintType.MARGIN to 2)
-        val matrix = QRCodeWriter().encode(value, BarcodeFormat.QR_CODE, 0, 0, hints)
-        val grid = List(matrix.height) { y -> BooleanArray(matrix.width) { x -> matrix.get(x, y) } }
-        return Label(value, grid, matrix.width, lines)
+    private fun encode(value: String): Label {
+        val m = Code128Writer().encode(value, BarcodeFormat.CODE_128, 0, 0)
+        val row = BooleanArray(m.width) { x -> m.get(x, 0) }
+        return Label(value, listOf(row), m.width, 1)
     }
 }
