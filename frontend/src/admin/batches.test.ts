@@ -29,9 +29,10 @@ describe('batchActions — status × permission matrix', () => {
 
   it('permissions gate every action (viewer gets print only)', () => {
     expect(batchActions('SUBMITTED', viewer)).toEqual(['print']);
-    // accept WITHOUT send permission → no fused click (needs both).
+    // accept WITHOUT send/void permissions → no fused click (needs both),
+    // no void — print only.
     expect(batchActions('ACCEPTED', acceptOnly).sort()).toEqual(['print']);
-    expect(batchActions('SUBMITTED', acceptOnly)).toEqual(['print', 'void']);
+    expect(batchActions('SUBMITTED', acceptOnly)).toEqual(['print']);
   });
 
   it('an unknown status degrades to print only — no invented offers', () => {
