@@ -32,6 +32,9 @@ export default function Exceptions() {
               {s}
             </button>
           ))}
+          {/* COMMAND 01 P3 (2026-09-12): resolving here writes corrections —
+              the append-only ledger is one click away. */}
+          <button type="button" className="os-btn" onClick={() => navigate('/admin/corrections')}>Corrections</button>
         </div>
       </header>
 

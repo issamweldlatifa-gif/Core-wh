@@ -288,6 +288,9 @@ export default function SessionDetailPage() {
           {canCorrect && s.status !== 'RECEIVING' && (
             <button type="button" className="os-btn" onClick={() => setReopen(true)}>Reopen</button>
           )}
+          {/* COMMAND 01 P3 (2026-09-12): the append-only ledger surfaced in
+              context — per-session corrections stay inline below. */}
+          <button type="button" className="os-btn" onClick={() => navigate('/admin/corrections')}>Corrections</button>
           <button type="button" className="os-btn" onClick={() => navigate(-1)}>Back</button>
         </div>
       </header>

@@ -31,10 +31,6 @@ function metricLabel(c: MetricCell) {
   return c.unit ? `${base} ${c.unit.toUpperCase()}` : base;
 }
 
-function prettyAction(a: string) {
-  return a.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (x) => x.toUpperCase());
-}
-
 function fmtAgo(iso: string | null | undefined): string {
   if (!iso) return '—';
   const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
@@ -355,29 +351,26 @@ function ExcRow({ x }: { x: ExceptionRowLight }) {
   );
 }
 
-/** Live activity stream (§9). */
+/** Live activity counter (§9) — COMMAND 01 P1 (2026-09-12): the full event
+ *  stream is the Live Activity page (/admin/activity, 15s poll). The Control
+ *  Center keeps only the summary counter and a fast path to the full board. */
 export function ActivityPanel({ events }: { events: ActivityEvent[] }) {
   const navigate = useNavigate();
+  const last = events[0]?.at ?? null;
   return (
     <div className="os-card">
       <div className="cc-head">
         <h2 className="cc-title"><span className="live-dot live-dot--ok" />Live Activity</h2>
         <button className="os-btn" onClick={() => navigate('/admin/activity')}>VIEW ALL</button>
       </div>
-      {events.length === 0 ? (
-        <div className="os-empty">No operational events recorded yet.</div>
-      ) : (
-        <div className="ac-activity">
-          {events.map((e) => (
-            <div key={e.id} className="ac-ev">
-              <span className="ac-ev-time">{new Date(e.at).toLocaleTimeString([], { hour12: false })}</span>
-              <span className="ac-ev-entity">{e.entity ?? <span className="ac-na">—</span>}</span>
-              <span className="ac-ev-action">→ {prettyAction(e.action)}</span>
-              <span className="ac-ev-worker">{e.worker?.name ?? '—'}</span>
-            </div>
-          ))}
+      <div className="ac-statusline">
+        <div className="ac-status-cell">
+          <div className="ac-kpi-value mono">{events.length}</div>
+          <div className="ac-kpi-label">
+            Recent events{last ? ` · latest ${new Date(last).toLocaleTimeString([], { hour12: false })}` : ''}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -440,6 +433,7 @@ export function WarehouseStatus({ o }: { o: OpsOverview }) {
 
 export default function ControlCenter() {
   const { overview, loading, error, lastUpdated, reload } = useControlData();
+  const navigate = useNavigate();
 
   if (loading && !overview) return <div className="os-empty">loading control room…</div>;
   if (!overview) {
@@ -455,11 +449,16 @@ export default function ControlCenter() {
         <div>
           <h1 className="ac-title">Control Center</h1>
           <p className="ac-sub">
-            Warehouse control room · refreshed{' '}
+            Warehouse control room · summary &amp; alerts · refreshed{' '}
             {lastUpdated ? new Date(lastUpdated).toLocaleTimeString() : '…'} · auto every 30s
           </p>
         </div>
-        <button type="button" className="os-btn" onClick={() => void reload()}>Refresh</button>
+        <div className="os-row">
+          {/* COMMAND 01 P2 (2026-09-12): Operations is the ONE operational
+              workspace (sessions follow-up lives there, not here). */}
+          <button type="button" className="os-btn" onClick={() => navigate('/admin/operations')}>OPERATIONS</button>
+          <button type="button" className="os-btn" onClick={() => void reload()}>Refresh</button>
+        </div>
       </header>
 
       {error && <div className="ac-error" style={{ marginBottom: 12 }}>{error}</div>}
@@ -474,10 +473,6 @@ export default function ControlCenter() {
         <ContainersPanel o={o} kind="receiving" />
         <ContainersPanel o={o} kind="customer" />
       </div>
-
-      <section className="cc-section">
-        <OperationsPanel operations={o.operations} />
-      </section>
 
       <div className="ac-2col">
         <WorkersPanel o={o} />
