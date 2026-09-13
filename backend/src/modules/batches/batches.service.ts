@@ -76,6 +76,12 @@ export class BatchesService {
     return to;
   }
 
+  private async customerOf(customerId: string | null | undefined) {
+    return customerId
+      ? this.prisma.batchCustomer.findUnique({ where: { id: customerId } })
+      : null;
+  }
+
   private isP2002(e: unknown): boolean {
     return typeof e === 'object' && e !== null && (e as { code?: string }).code === 'P2002';
   }
@@ -152,7 +158,10 @@ export class BatchesService {
       if (violations.length) throw new BadRequestException(violations.join('; '));
     }
     const replay = await this.prisma.batch.findUnique({ where: { idempotencyKey: dto.idempotencyKey } });
-    if (replay) return { batch: replay, replayed: true };
+    // ORDER 01 follow-up: a replay MUST carry the customer like a fresh
+    // create — the builder screen shows CUSTOMER from this payload, and a
+    // replayed create used to render an empty "CUSTOMER —".
+    if (replay) return { batch: replay, customer: await this.customerOf(replay.customerId), replayed: true };
 
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -211,7 +220,7 @@ export class BatchesService {
       // day-sequence clash) retries the whole create once with fresh state.
       if (this.isP2002(e)) {
         const winner = await this.prisma.batch.findUnique({ where: { idempotencyKey: dto.idempotencyKey } });
-        if (winner) return { batch: winner, replayed: true };
+        if (winner) return { batch: winner, customer: await this.customerOf(winner.customerId), replayed: true };
         if (depth < 1) return this.create(actor, dto, depth + 1);
       }
       throw e;
