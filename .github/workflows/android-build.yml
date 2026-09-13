@@ -123,7 +123,7 @@ jobs:
             # sequence — screenrecord runs while ONLY the new test class runs.
             adb shell "screenrecord --time-limit 180 /sdcard/scanner-v77-demo.mp4" &
             REC=$!
-            sh ./gradlew :app:connectedPhoneDebugAndroidTest --no-daemon --console=plain -Pandroid.testInstrumentationRunnerArguments.class=com.ayrovi.worker.ScannerContinuousUiTest; demo=$?
+            sh ./gradlew :app:connectedPhoneDebugAndroidTest --no-daemon --console=plain -Pandroid.testInstrumentationRunnerArguments.class=com.ayrovi.worker.ScannerContinuousUiTest; echo $? > /tmp/exit-demo
             wait $REC || true
             mkdir -p /tmp/worker-ui-evidence
             adb pull /sdcard/scanner-v77-demo.mp4 /tmp/worker-ui-evidence/ || true
@@ -131,18 +131,18 @@ jobs:
             echo "::notice::Continuous-scan demo video: $(find /tmp/worker-ui-evidence -name '*.mp4' | wc -l) file(s)"
             # PHASE 3: the full suite runs on BOTH applications — AYROVI Phone
             # (camera profile) and AYROVI CT40 (industrial profile).
-            set +e
-            sh ./gradlew :app:connectedPhoneDebugAndroidTest --no-daemon --console=plain; phone=$?
-            sh ./gradlew :app:connectedCt40DebugAndroidTest --no-daemon --console=plain; ct40=$?
+            sh ./gradlew :app:connectedPhoneDebugAndroidTest --no-daemon --console=plain; echo $? > /tmp/exit-phone
+            sh ./gradlew :app:connectedCt40DebugAndroidTest --no-daemon --console=plain; echo $? > /tmp/exit-ct40
             echo "::notice::Native UI fixture screenshots: $(find /tmp/worker-ui-evidence -name '*.png' | wc -l)"
-            # ORDER 01 follow-up: include the continuous-scan acceptance run in
-            # the gate, persist the worst exit for the always() summary step —
-            # the runner action has been observed to swallow a non-zero script
-            # exit, and a red suite behind a green flag is unacceptable.
-            code=$(( demo > phone ? demo : phone )); code=$(( code > ct40 ? code : ct40 ))
-            echo "$code" > /tmp/worker-worst-exit
-            echo "::notice::worst emulator exit: $code"
-            exit $code
+            # ORDER 01 follow-up: android-emulator-runner executes EACH script
+            # line as its own `sh -c`, so shell variables ($phone/$ct40/...)
+            # do NOT survive between lines — the old worst-exit math consumed
+            # empty variables and always exited 0 (run 34733637618: BUILD
+            # FAILED yet green). Exit codes are persisted to files on the
+            # SAME line as each gradle run, and the worst exit is computed,
+            # logged, persisted and exited in ONE line. The always() summary
+            # step re-flags the job from the persisted file as a second net.
+            code=$(( $(cat /tmp/exit-demo) > $(cat /tmp/exit-phone) ? $(cat /tmp/exit-demo) : $(cat /tmp/exit-phone) )); code=$(( code > $(cat /tmp/exit-ct40) ? code : $(cat /tmp/exit-ct40) )); echo "$code" > /tmp/worker-worst-exit; echo "::notice::worst emulator exit: $code"; exit $code
       - name: Summarize Android test evidence
         if: always()
         working-directory: mobile
