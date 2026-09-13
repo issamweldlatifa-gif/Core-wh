@@ -169,28 +169,6 @@ export const TASK_REGISTRY: OperationalTask[] = [
     // device is not blocked (same policy as receiving).
     stationDepartments: ['BATCH'],
   },
-  {
-    // AYROVI BATCH IN (Phase 2 receiving slice): the admin SENT the batch;
-    // this task receives it (scan every AYP unit -> 10/10 -> complete).
-    // Lives in the dedicated BATCH department (same station family as the
-    // build task). DISPATCH remains outbound-only — never hosts batch work.
-    key: 'batch-in',
-    label: 'Batch IN',
-    path: '/terminal/batch-in',
-    department: 'BATCH',
-    permission: 'batch.receive',
-    ready: true,
-    operation: 'Batch IN',
-    work: 'استلام الدفعات (فحص AYP → 10/10 → إكمال)',
-    // INCIDENT FIX (owner, 2026-09-13): batch cards auto-dispatched to
-    // receiving were UNREACHABLE — no station in the warehouse has the BATCH
-    // department, so the ['BATCH'] gate hid Batch IN from every device while
-    // 8 auto-sent batches sat in the shared queue. The batch-in queue is
-    // permission-gated server-side (batch.receive), so receiving-department
-    // stations (where the cards actually land after the automatic
-    // batch -> admin -> receiving dispatch) serve it too.
-    stationDepartments: ['BATCH', 'RECEIVING'],
-  },
 ];
 
 export function taskByKey(key: string): OperationalTask | undefined {

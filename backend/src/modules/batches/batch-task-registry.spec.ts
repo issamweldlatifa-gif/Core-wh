@@ -1,4 +1,4 @@
-import { isSharedTask, taskByKey } from '../operations/task-registry';
+import { isSharedTask, TASK_REGISTRY, taskByKey } from '../operations/task-registry';
 
 /**
  * BATCH tasks in the worker terminal registry (Phase 2).
@@ -32,20 +32,15 @@ describe('task registry — batch build task', () => {
   });
 
   describe('batch-in (receiving slice)', () => {
-    const receive = taskByKey('batch-in');
 
-    it('exists, ready, gated by batch.receive, served at BATCH and RECEIVING stations', () => {
-      expect(receive).toBeDefined();
-      expect(receive!.ready).toBe(true);
-      expect(receive!.permission).toBe('batch.receive');
-      expect(receive!.department).toBe('BATCH');
-      // INCIDENT 2026-09-13: no station has the BATCH department, so the
-      // ['BATCH']-only gate made auto-dispatched batch cards unreachable from
-      // every device. Receiving stations (where batch -> admin -> receiving
-      // lands the cards) serve Batch IN too.
-      expect(receive!.stationDepartments).toEqual(['BATCH', 'RECEIVING']);
-      expect(receive!.stationRequired).toBeUndefined();
-      expect(isSharedTask('batch-in')).toBe(false);
+    it('RETIRED (owner 2026-09-13): no dedicated Batch IN station task — batch cards are received INSIDE the RECEIVING feed', () => {
+      // OWNER: «ميهمنيش في batch in... فزدتنا خدمة» — exactly TWO stations:
+      // BATCH (worker scans goods, sends cards to admin) and RECEIVING
+      // (goods land; the dispatched cards are received there). The batch
+      // merge into the receiving home feed (receiving-batch-merge.spec.ts)
+      // is THE receiving path; a separate Batch IN tile was extra work.
+      expect(taskByKey('batch-in')).toBeUndefined();
+      expect(TASK_REGISTRY.every((t) => t.stationDepartments !== undefined ? !t.stationDepartments.includes('BATCH') || t.department === 'BATCH' : true)).toBe(true);
     });
 
     it('DISPATCH reuse check stands: no batch task rides the DISPATCH department', () => {
@@ -53,7 +48,10 @@ describe('task registry — batch build task', () => {
       // lane lives in its own BATCH department — never DISPATCH.
       const { TASK_REGISTRY } = require('../operations/task-registry');
       const batchTasks = TASK_REGISTRY.filter((t: { key: string }) => t.key.startsWith('batch'));
-      expect(batchTasks.length).toBe(2);
+      // RETIRED: the dedicated batch-in task is gone — only the BATCH build
+      // task remains in the registry.
+      expect(batchTasks.length).toBe(1);
+      expect(batchTasks[0].key).toBe('batch');
       expect(batchTasks.every((t: { stationDepartments?: string[] }) =>
         !(t.stationDepartments ?? []).includes('DISPATCH'),
       )).toBe(true);
