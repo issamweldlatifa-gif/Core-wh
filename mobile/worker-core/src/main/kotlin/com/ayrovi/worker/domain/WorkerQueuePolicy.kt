@@ -27,6 +27,10 @@ object WorkerQueuePolicy {
     private val labels = mapOf(
         "receiving" to "RECEIVING", "sorting" to "SORTING", "putaway" to "PUTAWAY",
         "temporary-storage" to "TEMP STORAGE", "shipping" to "SHIPPING", "archive-trace" to "TRACE",
+        // ORDER 01: the packing screen, route and guard always existed — the
+        // tile label was the missing half of the wiring, so PACKING never
+        // rendered on Home even when the backend served the task.
+        "packing" to "PACKING",
         // AYROVI BATCH (v71, owner-approved): the batch lanes render as station
         // tiles when the backend serves them — the routes/screens already exist.
         "batch" to "BATCH", "batch-in" to "BATCH IN",

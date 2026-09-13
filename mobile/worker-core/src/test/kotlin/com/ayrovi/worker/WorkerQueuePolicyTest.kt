@@ -54,4 +54,15 @@ class WorkerQueuePolicyTest {
         // tiles click through their own handlers regardless.
         assertTrue(items.none { it.badgeCount != null })
     }
+
+    @Test
+    fun `packing renders as a station tile when served`() {
+        // ORDER 01: the packing screen/route/guard always existed; the tile
+        // label was the missing half of the wiring, so PACKING never rendered
+        // on Home even when the backend served the task.
+        val served = listOf(TerminalTask(key = "packing", ready = true))
+        val items = WorkerQueuePolicy.items(served, null)
+        assertEquals(listOf("packing"), items.map { it.key })
+        assertEquals("PACKING", items.first().label)
+    }
 }

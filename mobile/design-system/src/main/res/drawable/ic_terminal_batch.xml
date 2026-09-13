@@ -1,0 +1,4 @@
+<!-- AYROVI original geometric icon, Apache-2.0. BATCH station: a unit placed onto the stack being built. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFFFF" android:pathData="M10,2.5h4v4h-4z M4,8.5h16v3H4z M4,13.5h16v3H4z M4,18.5h16v3H4z" />
+</vector>

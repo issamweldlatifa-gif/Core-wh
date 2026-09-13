@@ -98,15 +98,7 @@ internal fun WorkerHomeScreen(
                 stations.chunked(3).forEach { row ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
                         row.forEach { item ->
-                            WorkflowTile(item.label, when (item.key) {
-                                "sorting" -> TerminalIcon.SORTING
-                                "temporary-storage" -> TerminalIcon.STORAGE
-                                "shipping" -> TerminalIcon.CARTON
-                                "archive-trace" -> TerminalIcon.STATION
-                                "batch" -> TerminalIcon.PRODUCT
-                                "batch-in" -> TerminalIcon.RECEIVING
-                                else -> TerminalIcon.PUTAWAY
-                            }, item.badgeCount,
+                            WorkflowTile(item.label, stationIcon(item.key), item.badgeCount,
                                 // Every station keeps its own handler — nothing
                                 // is nested inside another card (§15).
                                 available = true, state.verified && !state.busy,
@@ -146,6 +138,29 @@ internal fun WorkerHomeScreen(
             }
         }
     }
+}
+
+/**
+ * ORDER 01 (station UI cleanup): the ONE station -> icon mapping for the HOME
+ * STATIONS grid. Keys are the backend task-registry keys
+ * (backend/src/modules/operations/task-registry.ts) — the same keys the route
+ * guards and WorkerQueuePolicy use. Rule: each station renders ONLY its own
+ * icon. The old inline map leaked other stations' glyphs onto BATCH (PRODUCT =
+ * the Receiving product-lane icon, RECEIVING = the Receiving tile icon),
+ * SHIPPING (CARTON = the Receiving carton-lane icon) and PACKING (PUTAWAY
+ * fallback). Unknown keys fall back to the generic STATION glyph.
+ * Unit-tested by StationIconMappingTest.
+ */
+internal fun stationIcon(key: String): TerminalIcon = when (key) {
+    "sorting" -> TerminalIcon.SORTING
+    "putaway" -> TerminalIcon.PUTAWAY
+    "temporary-storage" -> TerminalIcon.STORAGE
+    "packing" -> TerminalIcon.PACKING
+    "shipping" -> TerminalIcon.DISPATCH
+    "archive-trace" -> TerminalIcon.STATION
+    "batch" -> TerminalIcon.BATCH
+    "batch-in" -> TerminalIcon.BATCH_IN
+    else -> TerminalIcon.STATION
 }
 
 /** Flat section divider — uppercase label + rule, no nested boxes (§15). */

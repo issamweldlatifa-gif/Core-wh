@@ -100,7 +100,10 @@ fun WorkerTerminalApp(
         // exposes the task (station changed / permission removed), never keep
         // the worker on a screen they can no longer operate.
         if (route == TerminalRoute.TEMPORARY && state.me != null && state.tasks.none { it.key == "temporary-storage" }) route = TerminalRoute.QUEUE
-        if (route == TerminalRoute.SORTING && state.me != null && state.tasks.none { it.key == "customer-sorting" }) route = TerminalRoute.QUEUE
+        // ORDER 01: the task registry key is "sorting" (task-registry.ts) — the old
+        // "customer-sorting" spelling is an admin-board tile id, so this guard
+        // never matched and evicted the worker from the SORTING screen.
+        if (route == TerminalRoute.SORTING && state.me != null && state.tasks.none { it.key == "sorting" }) route = TerminalRoute.QUEUE
         if (route == TerminalRoute.PACKING && state.me != null && state.tasks.none { it.key == "packing" }) route = TerminalRoute.QUEUE
         if (route == TerminalRoute.SHIPPING && state.me != null && state.tasks.none { it.key == "shipping" }) route = TerminalRoute.QUEUE
         // BATCH build is permission-served work: if the backend stops serving
@@ -319,7 +322,7 @@ fun WorkerTerminalApp(
                 },
                 otherTask = { key ->
                     when (key) {
-                        "customer-sorting" -> route = TerminalRoute.SORTING
+                        "sorting" -> route = TerminalRoute.SORTING
                         "packing" -> route = TerminalRoute.PACKING
                         "shipping" -> route = TerminalRoute.SHIPPING
                         "archive-trace" -> route = TerminalRoute.TRACE

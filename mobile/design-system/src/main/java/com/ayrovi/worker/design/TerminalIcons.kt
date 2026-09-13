@@ -19,6 +19,12 @@ enum class TerminalIcon(@DrawableRes val resource: Int) {
     STORAGE(R.drawable.ic_terminal_storage),
     PRODUCT(R.drawable.ic_terminal_product), CARTON(R.drawable.ic_terminal_carton),
     GLARE(R.drawable.ic_terminal_glare),
+    // ORDER 01 (station UI cleanup): every station key renders its OWN glyph —
+    // batch entries no longer borrow Receiving's PRODUCT/RECEIVING icons,
+    // SHIPPING no longer borrows the Receiving CARTON icon, PACKING no longer
+    // falls back to PUTAWAY.
+    BATCH(R.drawable.ic_terminal_batch), BATCH_IN(R.drawable.ic_terminal_batch_in),
+    PACKING(R.drawable.ic_terminal_packing), DISPATCH(R.drawable.ic_terminal_dispatch),
 }
 
 @Composable
