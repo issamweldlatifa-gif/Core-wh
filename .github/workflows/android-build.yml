@@ -135,11 +135,23 @@ jobs:
             sh ./gradlew :app:connectedPhoneDebugAndroidTest --no-daemon --console=plain; phone=$?
             sh ./gradlew :app:connectedCt40DebugAndroidTest --no-daemon --console=plain; ct40=$?
             echo "::notice::Native UI fixture screenshots: $(find /tmp/worker-ui-evidence -name '*.png' | wc -l)"
-            code=$(( phone > ct40 ? phone : ct40 )); exit $code
+            # ORDER 01 follow-up: include the continuous-scan acceptance run in
+            # the gate, persist the worst exit for the always() summary step —
+            # the runner action has been observed to swallow a non-zero script
+            # exit, and a red suite behind a green flag is unacceptable.
+            code=$(( demo > phone ? demo : phone )); code=$(( code > ct40 ? code : ct40 ))
+            echo "$code" > /tmp/worker-worst-exit
+            echo "::notice::worst emulator exit: $code"
+            exit $code
       - name: Summarize Android test evidence
         if: always()
         working-directory: mobile
-        run: python3 ../.github/workflows/annotate-android.py 0 /dev/null --android-only
+        run: |
+          if [ -f /tmp/worker-worst-exit ] && [ "$(cat /tmp/worker-worst-exit)" != "0" ]; then
+            echo "::error::Emulator suite failed (worst exit $(cat /tmp/worker-worst-exit)) — flagging the job red."
+            exit 1
+          fi
+          python3 ../.github/workflows/annotate-android.py 0 /dev/null --android-only
       - name: Upload emulator evidence
         if: always()
         uses: actions/upload-artifact@v4

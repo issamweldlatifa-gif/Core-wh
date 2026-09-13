@@ -91,6 +91,13 @@ class UnifiedScannerTsUiTest {
 
     @Test
     fun tempStorageOpensOnReadyToScanAndKeepsToolsInTheDrawer() {
+        // ORDER 01 follow-up: this is the PHONE drawer contract (edge button +
+        // full tool set). On the CT40 application the edge button is retired
+        // by owner order, so the test must SKIP BEFORE touching any UI — the
+        // mid-test assume sat below phone-only asserts and let CT40 runs
+        // fail on them first.
+        org.junit.Assume.assumeTrue(
+            com.ayrovi.worker.BuildConfig.DEVICE_PROFILE != com.ayrovi.worker.di.DeviceProfiles.CT40)
         openTempStorage()
 
         // The shared GLARE BOOST sun lives in this station's footer too.
@@ -119,9 +126,6 @@ class UnifiedScannerTsUiTest {
         // §17/§18: the drawer is the ONLY way to the other read methods.
         compose.onNodeWithTag("SCAN_TOOLS_ARROW").performClick()
         waitForTag("SCAN_TOOLS_DRAWER")
-        // PHASE 3: the CT40 application hides the camera read methods.
-        org.junit.Assume.assumeTrue(
-            com.ayrovi.worker.BuildConfig.DEVICE_PROFILE != com.ayrovi.worker.di.DeviceProfiles.CT40)
         compose.onNodeWithTag("TOOL_QR").assertIsDisplayed()
         compose.onNodeWithTag("TOOL_OCR").assertIsDisplayed()
         compose.onNodeWithTag("TOOL_MANUAL").assertIsDisplayed()
