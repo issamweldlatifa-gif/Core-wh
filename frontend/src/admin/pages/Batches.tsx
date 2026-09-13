@@ -16,12 +16,12 @@ import { useAsync } from './useAsync';
  * AYROVI BATCH — Admin board (Phase 2 slice 3).
  *
  * The batch card is its OWN isolated board (never mixed into the CRM
- * arrivals flow): review worker-created customers (needsReview tag) →
- * ONE verify click (accept) — the server atomically chains the AUTOMATIC
- * send to receiving (owner order 2026-09-13; the admin board is only
- * verify/add/print); VOID+reason instead of delete. Buttons are the pure
- * batchActions() matrix (status × permissions, mirroring the backend state
- * machine); every click is re-validated server-side.
+ * arrivals flow): the worker's SUBMIT routes the batch DIRECTLY to
+ * receiving (atomically server-side — owner order 2026-09-13, revised: NO
+ * admin approval). The board is view + print (+ VOID+reason instead of
+ * delete). Buttons are the pure batchActions() matrix (status ×
+ * permissions, mirroring the backend state machine); every click is
+ * re-validated server-side.
  *
  * Print = the batch identity through the browser print dialog: a LINEAR
  * CODE 128 barcode of the AYB code with the code printed beneath it —
@@ -41,13 +41,11 @@ const STATUSES = [
 ];
 
 const ACTION_LABEL: Record<BatchUiAction, string> = {
-  accept: 'Verify & send to receiving',
   void: 'Void…',
   print: 'Print label',
 };
 
 const ACTION_CLASS: Record<BatchUiAction, string> = {
-  accept: 'os-btn os-btn--primary',
   void: 'os-btn os-btn--danger',
   print: 'os-btn os-btn--ghost',
 };
@@ -153,13 +151,9 @@ export default function BatchesAdmin() {
       setVoidReason('');
       return;
     }
-    // OWNER ORDER (2026-09-13): ONE click verifies (accept); the server
-    // atomically chains the automatic send to receiving inside the same
-    // transaction (both audit rows server-side). No client send leg, no
-    // recovery path — the ACCEPTED-but-unsent window no longer exists.
-    if (action === 'accept') {
-      void act(() => batchesAdminApi.accept(row.id, operatorId));
-    }
+    // OWNER ORDER (2026-09-13, revised): NO admin approval exists — the
+    // worker's submit routed the batch directly to receiving server-side.
+    // The admin board is view + print (+ VOID).
   }
 
   const rows = batches.data ?? [];
@@ -168,7 +162,7 @@ export default function BatchesAdmin() {
     <div>
       <h1 className="ac-title">Batches</h1>
       <p className="ac-sub">
-        AYROVI batch cards — review → verify (the send to receiving is automatic) → print. VOID+audit replaces delete.
+        AYROVI batch cards — submitted batches route DIRECTLY to receiving (automatic; nothing to approve here). Review, print, VOID+audit.
       </p>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '12px 0' }}>

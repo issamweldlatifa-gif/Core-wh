@@ -82,12 +82,12 @@ export const BATCH_VOIDABLE_STATES = [
 ];
 
 /**
- * OWNER ORDER (2026-09-13): the batch→admin→receiving send is AUTOMATIC —
- * the server chains SENT_TO_RECEIVING onto accept atomically, so the admin
- * board is only verify (accept) / add / print (+ VOID for problems). There
- * is NO manual send action anymore.
+ * OWNER ORDER (2026-09-13, revised): the worker's SUBMIT routes the batch
+ * DIRECTLY to receiving — atomically server-side, with NO admin approval.
+ * The admin board is VIEW + PRINT (+ VOID for problems). There is no accept
+ * and no send action at all.
  */
-export type BatchUiAction = 'accept' | 'void' | 'print';
+export type BatchUiAction = 'void' | 'print';
 
 /**
  * Pure rule: which actions a given batch card offers, from the STATUS ×
@@ -97,11 +97,10 @@ export type BatchUiAction = 'accept' | 'void' | 'print';
 export function batchActions(status: string, has: (perm: string) => boolean): BatchUiAction[] {
   const out: BatchUiAction[] = [];
   if (has('batch.view')) out.push('print');
-  // OWNER ORDER (2026-09-13): ONE click verifies (accept) and the server
-  // atomically chains the automatic send to receiving (both audit rows kept
-  // server-side). The old ACCEPTED "recovery send" state is unreachable:
-  // accept and send now commit together.
-  if (status === 'SUBMITTED' && has('batch.accept') && has('batch.send')) out.push('accept');
+  // OWNER ORDER (2026-09-13, revised): the submit auto-routes the batch to
+  // receiving — SUBMITTED/ACCEPTED are transient server-side states, never a
+  // waiting-for-approval queue. The admin sees no action button for them.
+
   if (BATCH_VOIDABLE_STATES.includes(status) && has('batch.void')) out.push('void');
   return out;
 }

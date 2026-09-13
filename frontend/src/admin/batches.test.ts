@@ -11,8 +11,8 @@ describe('batchActions — status × permission matrix', () => {
   const viewer = (p: string) => p === 'batch.view';
   const acceptOnly = (p: string) => p === 'batch.view' || p === 'batch.accept';
 
-  it('SUBMITTED offers ONE verify action — the server auto-sends to receiving (+ print) — owner order 2026-09-13', () => {
-    expect(batchActions('SUBMITTED', admin).sort()).toEqual(['accept', 'print', 'void']);
+  it('SUBMITTED needs NO admin action — the submit auto-routes it to receiving (view/print/void only) — owner order 2026-09-13', () => {
+    expect(batchActions('SUBMITTED', admin).sort()).toEqual(['print', 'void']);
   });
 
   it('ACCEPTED offers NO send (transient: accept commits the automatic send) (+ print)', () => {
@@ -32,7 +32,7 @@ describe('batchActions — status × permission matrix', () => {
     // accept WITHOUT send/void permissions → no fused click (needs both),
     // no void — print only.
     expect(batchActions('ACCEPTED', acceptOnly).sort()).toEqual(['print']);
-    expect(batchActions('SUBMITTED', acceptOnly)).toEqual(['print']);
+    expect(batchActions('SUBMITTED', acceptOnly)).toEqual(['print']); // no void perm → print only
   });
 
   it('an unknown status degrades to print only — no invented offers', () => {

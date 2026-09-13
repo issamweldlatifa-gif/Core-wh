@@ -157,18 +157,28 @@ describe('addUnit — AYP identity, optimistic totalExpected, replay', () => {
 });
 
 describe('submit / accept — state machine + per-op idempotency', () => {
-  it('submits: CREATED → SUBMITTED, key stored, guard on the exact read state', async () => {
+  it('submit routes DIRECTLY to receiving: SUBMITTED → ACCEPTED → SENT_TO_RECEIVING chained atomically (owner 2026-09-13)', async () => {
     const { svc, db, audit } = build();
     db.batch.findUnique.mockResolvedValue({
       id: 'b1', batchCode: 'AYB-20260911-00005', status: 'CREATED', totalExpected: 3, submitIdempotencyKey: null,
     });
     const res: any = await svc.submit(ACTOR, 'b1', { idempotencyKey: 'key-submit-001' });
-    const call = db.batch.updateMany.mock.calls[0][0];
-    expect(call.where).toEqual({ id: 'b1', status: 'CREATED', submitIdempotencyKey: null });
-    expect(call.data.status).toBe('SUBMITTED');
-    expect(call.data.submitIdempotencyKey).toBe('key-submit-001');
-    expect(res.batch.status).toBe('SUBMITTED');
+    const submitCall = db.batch.updateMany.mock.calls[0][0];
+    expect(submitCall.where).toEqual({ id: 'b1', status: 'CREATED', submitIdempotencyKey: null });
+    expect(submitCall.data.status).toBe('SUBMITTED');
+    expect(submitCall.data.submitIdempotencyKey).toBe('key-submit-001');
+    const acceptCall = db.batch.updateMany.mock.calls[1][0];
+    expect(acceptCall.where).toEqual({ id: 'b1', status: 'SUBMITTED' });
+    expect(acceptCall.data).toMatchObject({ status: 'ACCEPTED', acceptedById: ACTOR.id });
+    const sendCall = db.batch.updateMany.mock.calls[2][0];
+    expect(sendCall.where).toEqual({ id: 'b1', status: 'ACCEPTED', sendIdempotencyKey: null });
+    expect(sendCall.data).toMatchObject({ status: 'SENT_TO_RECEIVING', sendIdempotencyKey: 'auto:b1' });
+    expect(res.batch.status).toBe('SENT_TO_RECEIVING');
     expect(audit.log.mock.calls[0][0].action).toBe('BATCH_SUBMITTED');
+    expect(audit.log.mock.calls[1][0].action).toBe('BATCH_ACCEPTED');
+    expect(audit.log.mock.calls[1][0].metadata.automatic).toBe(true);
+    expect(audit.log.mock.calls[2][0].action).toBe('BATCH_SENT_TO_RECEIVING');
+    expect(audit.log.mock.calls[2][0].metadata.automatic).toBe(true);
   });
 
   it('refuses an EMPTY submit and replays a repeated key', async () => {
@@ -179,7 +189,7 @@ describe('submit / accept — state machine + per-op idempotency', () => {
     await expect(svc.submit(ACTOR, 'b1', { idempotencyKey: 'key-submit-001' })).rejects.toThrow(ConflictException);
 
     db.batch.findUnique.mockResolvedValue({
-      id: 'b1', status: 'SUBMITTED', totalExpected: 3, submitIdempotencyKey: 'key-submit-001',
+      id: 'b1', status: 'SENT_TO_RECEIVING', totalExpected: 3, submitIdempotencyKey: 'key-submit-001',
     });
     const res: any = await svc.submit(ACTOR, 'b1', { idempotencyKey: 'key-submit-001' });
     expect(res.replayed).toBe(true);

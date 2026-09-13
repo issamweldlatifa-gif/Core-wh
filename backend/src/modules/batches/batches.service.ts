@@ -276,7 +276,10 @@ export class BatchesService {
       const batch = await tx.batch.findUnique({ where: { id: batchId } });
       if (!batch) throw new NotFoundException('BATCH_NOT_FOUND');
       if (batch.submitIdempotencyKey === dto.idempotencyKey) {
-        if (batch.status === 'SUBMITTED') return { batch, replayed: true };
+        // Replay is valid in the transient SUBMITTED state and in the final
+        // auto-routed SENT_TO_RECEIVING state (owner order 2026-09-13: the
+        // submit routes the batch DIRECTLY to receiving).
+        if (batch.status === 'SUBMITTED' || batch.status === 'SENT_TO_RECEIVING') return { batch, replayed: true };
         throw new ConflictException('IDEMPOTENCY_KEY_REUSED');
       }
       if (batch.totalExpected < 1) throw new ConflictException('BATCH_EMPTY: submit needs at least one unit');
@@ -297,7 +300,47 @@ export class BatchesService {
         },
         tx,
       );
-      return { batch: { ...batch, status: to }, replayed: false };
+      // OWNER ORDER 2026-09-13 («تتعدي ديركت متستناش موافقه ادمين لازم تلقاءيا»):
+      // the worker's submit routes the batch DIRECTLY to receiving — the
+      // accept+send transitions are chained HERE, atomically, with their own
+      // audit rows (deterministic idempotency keys — the chain cannot replay).
+      // The admin no longer approves anything: they only view and print.
+      const accepted = await tx.batch.updateMany({
+        where: { id: batch.id, status: 'SUBMITTED' },
+        data: { status: 'ACCEPTED', acceptedAt: new Date(), acceptedById: actor.id },
+      });
+      if (accepted.count !== 1) throw new ConflictException('BATCH_STATE_CHANGED');
+      await this.audit.log(
+        {
+          actorUserId: actor.id,
+          action: 'BATCH_ACCEPTED' as never,
+          entityType: 'batch',
+          entityId: batch.id,
+          ipAddress: actor.ip ?? null,
+          metadata: { batchCode: batch.batchCode, operatorId: actor.id, automatic: true, chainedFrom: 'BATCH_SUBMITTED' },
+        },
+        tx,
+      );
+      const sent = await tx.batch.updateMany({
+        where: { id: batch.id, status: 'ACCEPTED', sendIdempotencyKey: null },
+        data: {
+          status: 'SENT_TO_RECEIVING', sentAt: new Date(), sentById: actor.id,
+          sendIdempotencyKey: `auto:${batch.id}`,
+        },
+      });
+      if (sent.count !== 1) throw new ConflictException('BATCH_STATE_CHANGED');
+      await this.audit.log(
+        {
+          actorUserId: actor.id,
+          action: 'BATCH_SENT_TO_RECEIVING' as never,
+          entityType: 'batch',
+          entityId: batch.id,
+          ipAddress: actor.ip ?? null,
+          metadata: { batchCode: batch.batchCode, operatorId: actor.id, automatic: true, chainedFrom: 'BATCH_SUBMITTED' },
+        },
+        tx,
+      );
+      return { batch: { ...batch, status: 'SENT_TO_RECEIVING' as const }, replayed: false };
     });
   }
 
