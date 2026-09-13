@@ -269,6 +269,10 @@ private fun ScanToolsArrow(modifier: Modifier = Modifier, onClick: () -> Unit) {
  */
 @Composable
 internal fun ScanToolsEdgeButton(onOpenTools: () -> Unit) {
+    // ORDER 01 follow-up (OWNER, 2026-09-13): the edge button is RETIRED on
+    // the CT40 application — the integrated imager is the scanner there and
+    // the tab only distracted the operator. Phone / universal keep it.
+    if (com.ayrovi.worker.BuildConfig.DEVICE_PROFILE == com.ayrovi.worker.di.DeviceProfiles.CT40) return
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterEnd) {
         ScanToolsArrow(onClick = onOpenTools)
     }
@@ -540,7 +544,7 @@ internal fun ScanToolsDrawer(capture: ScannerCapture, enabled: Boolean, onClose:
                     onClose(); capture.manual()
                 }
                 if (capture.hardwareAvailable) {
-                    DrawerItem("CT40", TerminalIcon.CHECK, "TOOL_CT40", enabled) {
+                    DrawerItem("IMAGER", TerminalIcon.CHECK, "TOOL_CT40", enabled) {
                         onClose(); capture.cancel() // back to the hardware scanner default
                     }
                 }

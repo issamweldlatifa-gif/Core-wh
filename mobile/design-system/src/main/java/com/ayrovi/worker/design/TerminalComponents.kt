@@ -307,15 +307,19 @@ fun GlareFooterAction(on: Boolean, onToggle: () -> Unit, modifier: Modifier = Mo
 private fun TerminalAction(label: String, onClick: () -> Unit, enabled: Boolean, modifier: Modifier, primary: Boolean = false, danger: Boolean = false, icon: TerminalIcon? = null) {
     // Glove mode: every action target grows +8 dp (56→64, 64→72).
     val size = modifier.heightIn(min = (if (primary) TerminalTokens.primaryTouch else TerminalTokens.touch) + if (LocalGloveMode.current) 8.dp else 0.dp)
-    val style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 0.75.sp)
+    // ORDER 01 follow-up (CT40 floor): footer labels like MANUAL / SUBMIT
+    // used to wrap ("MANUA L") on the 4-up footer. One line, and the type
+    // steps down for longer labels so nothing ever clips or wraps.
+    val style = if (label.length >= 6) MaterialTheme.typography.labelMedium.copy(letterSpacing = 0.5.sp)
+        else MaterialTheme.typography.labelLarge.copy(letterSpacing = 0.75.sp)
     val text: @Composable RowScope.() -> Unit = {
         if (icon != null) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
                 WorkerIcon(icon, null, Modifier.size(TerminalTokens.iconSmall), LocalContentColor.current)
-                Text(label, style = style, textAlign = TextAlign.Center, maxLines = 2)
+                Text(label, style = style, textAlign = TextAlign.Center, maxLines = 1)
             }
         } else {
-            Text(label, style = style, textAlign = TextAlign.Center, maxLines = 2)
+            Text(label, style = style, textAlign = TextAlign.Center, maxLines = 1)
         }
     }
     val flat = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp,

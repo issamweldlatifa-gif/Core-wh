@@ -1,12 +1,16 @@
 package com.ayrovi.worker.presentation
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
@@ -19,6 +23,7 @@ import com.ayrovi.worker.design.*
 import com.ayrovi.worker.domain.MessageTone
 import com.ayrovi.worker.scanner.WorkerDevice
 import com.ayrovi.worker.scanner.rememberScannerCapture
+import kotlinx.coroutines.delay
 
 /**
  * BATCH (native, Phase 2) — the worker builds the batch:
@@ -97,7 +102,10 @@ fun BatchScreen(
                             if (state.batch != null) model.workflow.leaveActive() else onBack()
                         }, !state.busy, Modifier.weight(1f))
                         if (state.batch != null) {
-                            SecondaryAction("MANUAL", { model.workflow.addManual() }, model.captureAllowed, Modifier.weight(1f))
+                            // ORDER 01 follow-up: MANUAL is now the ONE manual
+                            // entry (the CT40 edge button is retired): it opens
+                            // the type-in tool; a blank unit can be added there.
+                            SecondaryAction("MANUAL", { capture.manual() }, model.captureAllowed, Modifier.weight(1f))
                             SecondaryAction("SUBMIT", { model.workflow.submit() },
                                 !state.busy && !state.submittedDone && state.units.isNotEmpty(), Modifier.weight(1f))
                         }
@@ -151,33 +159,56 @@ fun BatchScreen(
                 ) {
                     TerminalPanel(currentBatch.batchCode) {
                         val live = state.units.size
-                        Text(
-                            "UNITS $live · CUSTOMER ${customerName ?: "—"}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = TerminalTokens.muted,
-                        )
+                        val target = currentBatch.totalExpected
+                        // ORDER 01 follow-up: the running total is THE number
+                        // of this station — big, glanceable, one line.
+                        Row(verticalAlignment = Alignment.Bottom) {
+                            Text("$live", style = MaterialTheme.typography.displayMedium, color = TerminalTokens.text)
+                            if (target > 0) Text(" / $target", style = MaterialTheme.typography.titleLarge, color = TerminalTokens.muted)
+                            Spacer(Modifier.weight(1f))
+                            Text("CUSTOMER ${customerName ?: "—"}", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)
+                        }
+                        Text("UNITS ADDED", style = MaterialTheme.typography.labelSmall, color = TerminalTokens.muted)
                         TaskInstruction(
                             currentBatch.batchCode,
                             if (model.captureAllowed) "Scan ONE product per beep. Same product on several pieces = scan each piece."
                             else "Scanning is paused.",
                         )
+                        if (model.captureAllowed) {
+                            Row(
+                                Modifier.fillMaxWidth().background(TerminalTokens.surface)
+                                    .testTag("SCANNER_READY_STRIP").padding(TerminalTokens.sm),
+                                horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                WorkerIcon(TerminalIcon.SCANNER, null, Modifier.size(TerminalTokens.iconSmall), TerminalTokens.success)
+                                Text("SCANNER READY — PULL THE TRIGGER TO ADD A UNIT",
+                                    style = MaterialTheme.typography.labelMedium, color = TerminalTokens.muted)
+                            }
+                        }
                         state.message?.takeIf { it.tone == MessageTone.INFO || it.tone == MessageTone.WARNING }
                             ?.let { OperationalMessageView(it) }
                         if (state.lastAdded != null) {
+                            // ORDER 01 follow-up: visible "SENT" state blocks the
+                            // double tap that printed a duplicate label stack.
+                            var lastSent by remember { mutableStateOf(false) }
+                            LaunchedEffect(lastSent) { if (lastSent) { delay(2500); lastSent = false } }
                             SecondaryAction(
-                                "PRINT LAST LABEL (${state.lastAdded})",
-                                { BatchLabelPrint.printUnitLabels(context, unitLabels().takeLast(1), "ayrovi-unit-${state.lastAdded}") },
-                                true,
+                                if (lastSent) "LABEL SENT ✓" else "PRINT LAST LABEL (${state.lastAdded})",
+                                { BatchLabelPrint.printUnitLabels(context, unitLabels().takeLast(1), "ayrovi-unit-${state.lastAdded}"); lastSent = true },
+                                !lastSent,
                                 Modifier.fillMaxWidth().testTag("BATCH_PRINT_LAST"),
                             )
                         }
                     }
                     if (state.units.isNotEmpty()) {
                         SectionDivider("LABELS (${state.units.size})")
+                        var allSent by remember { mutableStateOf(false) }
+                        LaunchedEffect(allSent) { if (allSent) { delay(2500); allSent = false } }
                         SecondaryAction(
-                            "PRINT ALL LABELS",
-                            { BatchLabelPrint.printUnitLabels(context, unitLabels(), "ayrovi-units-${currentBatch.batchCode}") },
-                            true,
+                            if (allSent) "${state.units.size} LABELS SENT ✓" else "PRINT ALL LABELS (${state.units.size})",
+                            { BatchLabelPrint.printUnitLabels(context, unitLabels(), "ayrovi-units-${currentBatch.batchCode}"); allSent = true },
+                            !allSent,
                             Modifier.fillMaxWidth().testTag("BATCH_PRINT_ALL"),
                         )
                         state.units.asReversed().forEach { row ->
@@ -214,6 +245,30 @@ fun BatchScreen(
             ScanToolsEdgeButton { scanTools = true }
         }
         if (scanTools) ScanToolsDrawer(capture, model.captureAllowed, onClose = { scanTools = false })
+        // ORDER 01 follow-up: the type-in manual entry renders at screen level
+        // so it WORKS on the CT40 (the old path lived inside the camera
+        // overlay, which never opens on an imager device — the drawer MANUEL
+        // button did nothing there). SUBMIT CODE runs the SAME scan pipeline.
+        if (capture.manualOpen && !cameraActive) {
+            Box(Modifier.fillMaxSize().testTag("MANUAL_ENTRY_OVERLAY")) {
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)).clickable(onClick = capture.cancel))
+                Surface(
+                    Modifier.align(Alignment.Center).fillMaxWidth().padding(TerminalTokens.sm),
+                    color = TerminalTokens.surface, shape = MaterialTheme.shapes.medium,
+                    border = BorderStroke(TerminalTokens.stroke, TerminalTokens.border),
+                ) {
+                    Column(Modifier.padding(TerminalTokens.sm), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+                        ManualScan(capture, model.captureAllowed)
+                        SecondaryAction(
+                            "ADD UNIT WITHOUT ORIGINAL",
+                            { model.workflow.addManual(); capture.cancel() },
+                            model.captureAllowed && !state.busy,
+                            Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            }
+        }
         if (resultShown) {
             ScanVerdict(capture = capture,
                 ok = result.tone == MessageTone.SUCCESS,

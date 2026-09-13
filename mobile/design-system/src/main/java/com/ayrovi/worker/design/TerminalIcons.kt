@@ -23,6 +23,13 @@ enum class TerminalIcon(@DrawableRes val resource: Int) {
     // batch entries no longer borrow Receiving's PRODUCT/RECEIVING icons,
     // SHIPPING no longer borrows the Receiving CARTON icon, PACKING no longer
     // falls back to PUTAWAY.
+    //
+    // STATION GLYPH STANDARD (ORDER 01 follow-up, applies to future stations):
+    // 24dp viewport, 2dp stroke weight drawn as flat bars (nonZero, single
+    // fill #FFFFFFFF, tinted by WorkerIcon), outlined look — no solid blocks.
+    // Material Outlined icons (RECEIVING/SORTING/CAMERA/...) already match
+    // this weight; new station icons MUST follow it so any mix of tiles on
+    // one Home reads as one family.
     BATCH(R.drawable.ic_terminal_batch), BATCH_IN(R.drawable.ic_terminal_batch_in),
     PACKING(R.drawable.ic_terminal_packing), DISPATCH(R.drawable.ic_terminal_dispatch),
 }

@@ -1,4 +1,5 @@
-<!-- AYROVI original geometric icon, Apache-2.0. BATCH station: a unit placed onto the stack being built. -->
+<!-- AYROVI station glyph — ORDER 01 icon standard: 24dp grid, 2dp stroke
+     weight drawn as flat bars (nonZero), single fill, no solid blocks. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
-    <path android:fillColor="#FFFFFFFF" android:pathData="M10,2.5h4v4h-4z M4,8.5h16v3H4z M4,13.5h16v3H4z M4,18.5h16v3H4z" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M9,2h6v1.6H9z M9,4.4h6v1.6H9z M9,2h1.6v4H9z M13.4,2H15v4h-1.6z M4,9h16v2.4H4z M4,13.3h16v2.4H4z M4,17.6h16v2.4H4z" />
 </vector>
