@@ -20,6 +20,7 @@ describe('TerminalService.context routing', () => {
     receiving?: { code: string; startedAt: Date } | null;
     putaway?: { code: string; startedAt: Date } | null;
     station?: unknown;
+    stagingAssignment?: { id: string; code: string } | null;
   }) {
     const receivingSession = {
       findFirst: jest.fn().mockResolvedValue(
@@ -46,7 +47,11 @@ describe('TerminalService.context routing', () => {
           : null,
       ),
     };
-    const prisma = { receivingSession, putawaySession } as never;
+    const prisma = {
+      receivingSession,
+      putawaySession,
+      station: { findFirst: jest.fn().mockResolvedValue(opts.stagingAssignment ?? null) },
+    } as never;
     const stations = {
       forWorker: jest.fn().mockResolvedValue(
         opts.station === undefined
@@ -108,6 +113,34 @@ describe('TerminalService.context routing', () => {
     // tasks — resume ALWAYS wins over the picker.
     expect(ctx.readyTaskCount).toBe(2);
     expect(ctx.home).toBe('/terminal/putaway');
+  });
+
+  it('RAPPORT LOOP (owner 2026-09-13): a worker ASSIGNED to an ACTIVE STAGING station sees TEMPORARY STORAGE even when the device is homed at a RECEIVING station', async () => {
+    const { service, user } = build({
+      permissions: ['receiving.execute'],
+      receiving: null,
+      putaway: null,
+      stagingAssignment: { id: 's-stg', code: 'ST-INBOUND-01' },
+    });
+
+    const ctx = await service.context(user);
+
+    const keys = ctx.tasks.map((t: any) => t.key);
+    expect(keys).toContain('temporary-storage');
+    expect(ctx.stagingStation).toMatchObject({ code: 'ST-INBOUND-01' });
+  });
+
+  it('a worker with NO staging assignment still has no TEMPORARY STORAGE at a RECEIVING station (the screen needs the binding)', async () => {
+    const { service, user } = build({
+      permissions: ['receiving.execute'],
+      receiving: null,
+      putaway: null,
+    });
+
+    const ctx = await service.context(user);
+
+    expect(ctx.tasks.map((t: any) => t.key)).not.toContain('temporary-storage');
+    expect(ctx.stagingStation).toBeNull();
   });
 
   it('RETIRED (owner 2026-09-13): the Batch IN tile is never served — batch cards are received INSIDE the RECEIVING feed', async () => {
@@ -237,10 +270,11 @@ describe('TerminalService.context routing', () => {
 
 
 describe('TerminalService.context — Temporary Storage task gating', () => {
-  function build(station: unknown) {
+  function build(station: unknown, stagingAssignment: unknown = null) {
     const prisma = {
       receivingSession: { findFirst: jest.fn().mockResolvedValue(null) },
       putawaySession: { findFirst: jest.fn().mockResolvedValue(null) },
+      station: { findFirst: jest.fn().mockResolvedValue(stagingAssignment) },
     } as never;
     const stations = { forWorker: jest.fn().mockResolvedValue(station) } as never;
     const service = new TerminalService(prisma, stations, {
@@ -266,6 +300,17 @@ describe('TerminalService.context — Temporary Storage task gating', () => {
     const none = build(null);
     const noneCtx = await none.service.context(none.user);
     expect(noneCtx.tasks.some((t) => t.key === 'temporary-storage')).toBe(false);
+
+    // RAPPORT LOOP FIX: a device homed at RECEIVING but whose worker is the
+    // ASSIGNED worker of an ACTIVE STAGING station sees the task (staffing
+    // by assignment, wherever the device is).
+    const homedElsewhere = build(
+      { id: 's2', code: 'ST-REC-01', name: 'Receiving 1', department: 'RECEIVING', capabilities: [] },
+      { id: 's1', code: 'ST-STG-01' },
+    );
+    const homedCtx = await homedElsewhere.service.context(homedElsewhere.user);
+    expect(homedCtx.tasks.some((t) => t.key === 'temporary-storage')).toBe(true);
+    expect(homedCtx.stagingStation).toMatchObject({ code: 'ST-STG-01' });
   });
 
   it('registers the temporary-storage task with its terminal route, ready', async () => {

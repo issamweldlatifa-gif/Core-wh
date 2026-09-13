@@ -44,12 +44,26 @@ export class TerminalService {
     // normal state, not an error. Resolved FIRST so department-gated tasks
     // (Temporary Storage = STAGING) can be filtered authoritatively below.
     const station = await this.stations.forWorker(user.id).catch(() => null);
+    // RAPPORT LOOP FIX (owner order 2026-09-13): Temporary Storage is staffed
+    // by ASSIGNMENT, not by the device's home station. The receiving rapport
+    // hands the confirmed goods to STAGING (productStationMove); the worker
+    // assigned to the ACTIVE STAGING station must therefore see the
+    // TEMPORARY STORAGE task even when the device is homed at a RECEIVING
+    // station (single-device floor). The temporary-storage service itself
+    // still resolves the worker's STAGING station by this assignment
+    // (requireStation), so the physical model (that station's sections and
+    // containers) is untouched.
+    const stagingAssignment = await this.prisma.station.findFirst({
+      where: { assignedWorkerId: user.id, status: 'ACTIVE', department: 'STAGING' },
+      select: { id: true, code: true },
+    });
     // STATION ↔ OPERATION gate (reference workflow): a worker bound to a
     // station only sees THAT station department's operation(s). A worker with
     // NO station still works (station-less devices must not be blocked) except
     // for station-bound tasks (Temporary Storage needs its STAGING station).
     const departmentAllows = (t: OperationalTask) => {
       if (!t.stationDepartments) return true;
+      if (t.stationDepartments.includes('STAGING') && stagingAssignment) return true;
       if (!station) return t.stationRequired !== true;
       return t.stationDepartments.includes(station.department);
     };
@@ -103,6 +117,9 @@ export class TerminalService {
       tasks,
       readyTaskCount: readyTasks.length,
       home,
+      // The worker's ACTIVE STAGING assignment (Temporary Storage staffing);
+      // null when unassigned — the temporary-storage screen requires it.
+      stagingStation: stagingAssignment,
       station: station
         ? {
             id: station.id,
