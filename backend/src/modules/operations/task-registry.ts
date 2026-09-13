@@ -182,7 +182,14 @@ export const TASK_REGISTRY: OperationalTask[] = [
     ready: true,
     operation: 'Batch IN',
     work: 'استلام الدفعات (فحص AYP → 10/10 → إكمال)',
-    stationDepartments: ['BATCH'],
+    // INCIDENT FIX (owner, 2026-09-13): batch cards auto-dispatched to
+    // receiving were UNREACHABLE — no station in the warehouse has the BATCH
+    // department, so the ['BATCH'] gate hid Batch IN from every device while
+    // 8 auto-sent batches sat in the shared queue. The batch-in queue is
+    // permission-gated server-side (batch.receive), so receiving-department
+    // stations (where the cards actually land after the automatic
+    // batch -> admin -> receiving dispatch) serve it too.
+    stationDepartments: ['BATCH', 'RECEIVING'],
   },
 ];
 

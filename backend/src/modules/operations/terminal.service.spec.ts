@@ -110,6 +110,19 @@ describe('TerminalService.context routing', () => {
     expect(ctx.home).toBe('/terminal/putaway');
   });
 
+  it('INCIDENT 2026-09-13: Batch IN is served at a RECEIVING-department station (auto-dispatched batch cards must be receivable there)', async () => {
+    const { service, user } = build({
+      permissions: ['receiving.execute', 'batch.receive'],
+      receiving: null,
+      putaway: null,
+    });
+
+    const ctx = await service.context(user);
+
+    const keys = ctx.tasks.map((t: any) => t.key);
+    expect(keys).toContain('batch-in');
+  });
+
   it('opens the single ready task directly when nothing is in flight', async () => {
     const { service, user } = build({
       permissions: ['receiving.execute'],
