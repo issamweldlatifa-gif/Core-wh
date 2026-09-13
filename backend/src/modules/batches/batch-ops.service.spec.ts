@@ -191,15 +191,23 @@ describe('submit / accept — state machine + per-op idempotency', () => {
     await expect(svc.accept(ACTOR, 'b1', { operatorId: 'op-1' } as any)).rejects.toThrow(ConflictException);
   });
 
-  it('accept from SUBMITTED stores attribution and is guarded', async () => {
+  it('accept from SUBMITTED stores attribution, then the send to receiving fires AUTOMATICALLY (same tx)', async () => {
     const { svc, db, audit } = build();
     db.batch.findUnique.mockResolvedValue({ id: 'b1', batchCode: 'AYB-20260911-00005', status: 'SUBMITTED' });
     const res: any = await svc.accept(ACTOR, 'b1', { operatorId: 'op-9' } as any);
-    const call = db.batch.updateMany.mock.calls[0][0];
-    expect(call.where).toEqual({ id: 'b1', status: 'SUBMITTED' });
-    expect(call.data.acceptedById).toBe('op-9');
-    expect(res.batch.status).toBe('ACCEPTED');
+    const acceptCall = db.batch.updateMany.mock.calls[0][0];
+    expect(acceptCall.where).toEqual({ id: 'b1', status: 'SUBMITTED' });
+    expect(acceptCall.data.acceptedById).toBe('op-9');
+    // OWNER ORDER 2026-09-13: the admin→receiving dispatch is AUTOMATIC —
+    // chained in the same transaction, deterministic idempotency key.
+    const sendCall = db.batch.updateMany.mock.calls[1][0];
+    expect(sendCall.where).toEqual({ id: 'b1', status: 'ACCEPTED', sendIdempotencyKey: null });
+    expect(sendCall.data.status).toBe('SENT_TO_RECEIVING');
+    expect(sendCall.data.sendIdempotencyKey).toBe('auto:b1');
+    expect(res.batch.status).toBe('SENT_TO_RECEIVING');
     expect(audit.log.mock.calls[0][0].action).toBe('BATCH_ACCEPTED');
+    expect(audit.log.mock.calls[1][0].action).toBe('BATCH_SENT_TO_RECEIVING');
+    expect(audit.log.mock.calls[1][0].metadata.automatic).toBe(true);
   });
 });
 

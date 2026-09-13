@@ -11,12 +11,12 @@ describe('batchActions — status × permission matrix', () => {
   const viewer = (p: string) => p === 'batch.view';
   const acceptOnly = (p: string) => p === 'batch.view' || p === 'batch.accept';
 
-  it('SUBMITTED offers the FUSED accept-send (+ print) — owner decision 2026-09-12', () => {
-    expect(batchActions('SUBMITTED', admin).sort()).toEqual(['accept-send', 'print', 'void']);
+  it('SUBMITTED offers ONE verify action — the server auto-sends to receiving (+ print) — owner order 2026-09-13', () => {
+    expect(batchActions('SUBMITTED', admin).sort()).toEqual(['accept', 'print', 'void']);
   });
 
-  it('ACCEPTED offers the plain send (recovery path) (+ print)', () => {
-    expect(batchActions('ACCEPTED', admin).sort()).toEqual(['print', 'send', 'void']);
+  it('ACCEPTED offers NO send (transient: accept commits the automatic send) (+ print)', () => {
+    expect(batchActions('ACCEPTED', admin).sort()).toEqual(['print', 'void']);
   });
 
   it('RECEIVING_COMPLETED is terminal: print only, even for the admin', () => {

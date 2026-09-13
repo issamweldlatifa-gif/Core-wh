@@ -121,7 +121,15 @@ fun WorkerTerminalApp(
             // existing PRODUCT / CARTON lane scanners. No intermediate picker.
             ReceivingHomeRoute(container, state, connection, model,
                 onExitSession = { route = TerminalRoute.QUEUE; model.refresh() },
-                vmKey = "receiving-home", openWith = null, ocrFirst = false,
+                vmKey = "receiving-home",
+                // OWNER ORDER (2026-09-13, CT40): the RECEIVING tile IS the
+                // scan entry — it lands DIRECTLY on the unified CT40 scan face
+                // (the AUTO scanner: product-first, then carton, the SAME
+                // ScannerPanel design as every station). CT40 has no QR CODE /
+                // OCR icons anymore. PHONE (frozen) keeps the work-center
+                // landing with its standalone tools.
+                openWith = if (container.device == WorkerDevice.CT40) ReceivingHomeIntent.OpenAutoScan else null,
+                ocrFirst = false,
                 glove = glove, glare = glare,
                 onToggleTheme = appearance::toggleTheme,
                 onToggleGlove = appearance::toggleGlove, onToggleGlare = appearance::toggleGlare,

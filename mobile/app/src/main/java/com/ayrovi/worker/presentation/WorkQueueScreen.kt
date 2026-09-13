@@ -81,7 +81,11 @@ internal fun WorkerHomeScreen(
             //      scanner DIRECTLY — no lane picker, no intermediate screen.
             //      These tools ARE the receiving scan surface, so they follow
             //      the same station-isolation rule as the RECEIVING tile.
-            if (receivingAssigned) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+            // OWNER ORDER (2026-09-13, CT40): the QR CODE and OCR icons are
+            // REMOVED from the CT40 home — scanning enters through the
+            // RECEIVING tile, which lands DIRECTLY on the unified CT40 scan
+            // face (the AUTO scanner). PHONE (frozen) keeps this tools row.
+            if (receivingAssigned && !industrial) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
                 Box(Modifier.weight(1f).testTag("HOME_OCR")) {
                     LaneTile("OCR", TerminalIcon.CAMERA, state.verified, openOcr, Modifier.fillMaxWidth())
                 }

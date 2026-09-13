@@ -301,7 +301,16 @@ export class BatchesService {
     });
   }
 
-  /** Admin accepts — SUBMITTED → ACCEPTED (attribution via operatorId). */
+  /**
+   * Admin accepts — SUBMITTED → ACCEPTED, then the dispatch to receiving
+   * fires AUTOMATICALLY in the SAME transaction (owner order 2026-09-13:
+   * «الإرسال كون تلقائي batch → admin → receiving»; the admin board is only
+   * verify / add / print). Both transitions keep their own audit rows, so
+   * the trail is identical to the old manual two-click flow — minus the
+   * failure window where a batch could stay ACCEPTED with the send leg lost.
+   * The standalone send endpoint remains for recovery/API compat but no
+   * surface offers it anymore.
+   */
   async accept(actor: BatchActor, batchId: string, dto: BatchDecisionDto) {
     await this.assertEnabled();
     return this.prisma.$transaction(async (tx) => {
@@ -324,7 +333,28 @@ export class BatchesService {
         },
         tx,
       );
-      return { batch: { ...batch, status: to }, replayed: false };
+      // AUTOMATIC SEND (chained, same tx): ACCEPTED → SENT_TO_RECEIVING.
+      // Deterministic idempotency key — the chain itself can never replay.
+      const sent = await tx.batch.updateMany({
+        where: { id: batch.id, status: to, sendIdempotencyKey: null },
+        data: {
+          status: 'SENT_TO_RECEIVING', sentAt: new Date(), sentById: dto.operatorId,
+          sendIdempotencyKey: `auto:${batch.id}`,
+        },
+      });
+      if (sent.count !== 1) throw new ConflictException('BATCH_STATE_CHANGED');
+      await this.audit.log(
+        {
+          actorUserId: actor.id,
+          action: 'BATCH_SENT_TO_RECEIVING' as never,
+          entityType: 'batch',
+          entityId: batch.id,
+          ipAddress: actor.ip ?? null,
+          metadata: { batchCode: batch.batchCode, operatorId: dto.operatorId, automatic: true, chainedFrom: 'BATCH_ACCEPTED' },
+        },
+        tx,
+      );
+      return { batch: { ...batch, status: 'SENT_TO_RECEIVING' as const }, replayed: false };
     });
   }
 
