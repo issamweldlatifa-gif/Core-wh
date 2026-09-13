@@ -44,6 +44,14 @@ internal fun WorkerHomeScreen(
     val industrial = device == WorkerDevice.CT40
     val receivingItem = state.queueItems.firstOrNull { it.key == "receiving" }
     val receivingReady = receivingItem?.available == true
+    // ORDER 01 follow-up (owner, 2026-09-13, CT40 station isolation): the
+    // queue only contains what the SERVER serves for this worker's
+    // permissions + assigned station. RECEIVING — the work center, its scan
+    // tools (OCR / QR CODE open the Receiving scanner) and its RAPPORT —
+    // must therefore render ONLY when receiving is actually served. The old
+    // always-on tiles showed a dead "NOT ASSIGNED" RECEIVING plus
+    // receiving-lane tools to e.g. a BATCH-station worker.
+    val receivingAssigned = receivingItem != null
     Column(Modifier.fillMaxSize().background(TerminalTokens.background).safeDrawingPadding().testTag(if (industrial) "CT40_HOME" else "PHONE_HOME")) {
         // §16: NO settings icon in the header. Settings lives on Home.
         TerminalHeader("AYROVI", worker, station, connection, industrial = industrial, showSettingsIcon = false)
@@ -58,8 +66,8 @@ internal fun WorkerHomeScreen(
             if (!state.verified && !state.busy) WarningState("CONNECTION UNAVAILABLE", "Refresh the connection before starting work.")
             if (state.me != null && state.queueItems.isEmpty() && !state.busy) EmptyState("NO WORK AVAILABLE", "Ask your supervisor to check your assignment.")
 
-            // ---- The main entry: RECEIVING (§3) ----
-            Box(Modifier.fillMaxWidth().testTag("HOME_RECEIVING")) {
+            // ---- The main entry: RECEIVING (§3) — only when served ----
+            if (receivingAssigned) Box(Modifier.fillMaxWidth().testTag("HOME_RECEIVING")) {
                 LaneTile("RECEIVING", TerminalIcon.RECEIVING, receivingReady, receiving,
                     Modifier.fillMaxWidth(), dot = (state.unreadBadge ?: 0) > 0,
                     reason = if (receivingReady) null else tileReason(state, connection))
@@ -71,7 +79,9 @@ internal fun WorkerHomeScreen(
 
             // ---- Independent tools (§9/§14): OCR and QR CODE open their
             //      scanner DIRECTLY — no lane picker, no intermediate screen.
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+            //      These tools ARE the receiving scan surface, so they follow
+            //      the same station-isolation rule as the RECEIVING tile.
+            if (receivingAssigned) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
                 Box(Modifier.weight(1f).testTag("HOME_OCR")) {
                     LaneTile("OCR", TerminalIcon.CAMERA, state.verified, openOcr, Modifier.fillMaxWidth())
                 }
@@ -79,16 +89,21 @@ internal fun WorkerHomeScreen(
                     LaneTile("QR CODE", TerminalIcon.SCANNER, state.verified, openQr, Modifier.fillMaxWidth())
                 }
             }
-            // §8: RAPPORT and SETTINGS are INDEPENDENT Home entries — never
-            // gated behind another feature. The report screen itself explains
-            // when there is no session to report yet.
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
-                Box(Modifier.weight(1f).testTag("HOME_RAPPORT")) {
-                    LaneTile("RAPPORT", TerminalIcon.REPORT, state.verified, report, Modifier.fillMaxWidth())
+            // §8: SETTINGS is an INDEPENDENT Home entry and stays on every
+            // station (its ONE entry point, §16). RAPPORT is the receiving
+            // verification report, so it renders only when receiving is
+            // served (§3 station isolation).
+            if (receivingAssigned) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+                    Box(Modifier.weight(1f).testTag("HOME_RAPPORT")) {
+                        LaneTile("RAPPORT", TerminalIcon.REPORT, state.verified, report, Modifier.fillMaxWidth())
+                    }
+                    Box(Modifier.weight(1f).testTag("HOME_SETTINGS")) {
+                        LaneTile("SETTINGS", TerminalIcon.SETTINGS, true, settings, Modifier.fillMaxWidth())
+                    }
                 }
-                Box(Modifier.weight(1f).testTag("HOME_SETTINGS")) {
-                    LaneTile("SETTINGS", TerminalIcon.SETTINGS, true, settings, Modifier.fillMaxWidth())
-                }
+            } else {
+                LaneTile("SETTINGS", TerminalIcon.SETTINGS, true, settings, Modifier.fillMaxWidth().testTag("HOME_SETTINGS"))
             }
 
             // ---- The worker's other assigned stations (§17: preserved) ----
