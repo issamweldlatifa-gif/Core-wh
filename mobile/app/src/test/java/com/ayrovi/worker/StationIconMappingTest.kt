@@ -2,9 +2,9 @@ package com.ayrovi.worker
 
 import com.ayrovi.worker.design.TerminalIcon
 import com.ayrovi.worker.presentation.stationIcon
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
-import org.junit.Test
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Test
 
 /**
  * ORDER 01 (CT40 station UI cleanup) — station isolation contract for the
@@ -25,7 +25,7 @@ class StationIconMappingTest {
         val receivingFamily = listOf(TerminalIcon.RECEIVING, TerminalIcon.PRODUCT, TerminalIcon.CARTON)
         for (key in listOf("batch", "batch-in")) {
             for (foreign in receivingFamily) {
-                assertNotEquals("station '$key' must not render receiving icon $foreign", foreign, stationIcon(key))
+                assertNotEquals(foreign, stationIcon(key), "station '$key' must not render receiving icon $foreign")
             }
         }
     }
@@ -52,7 +52,7 @@ class StationIconMappingTest {
             "shipping", "archive-trace", "batch", "batch-in",
         )
         val icons = liveStationKeys.map { stationIcon(it) }
-        assertEquals("two stations share one icon", icons.size, icons.distinct().size)
+        assertEquals(icons.size, icons.distinct().size, "two stations share one icon")
     }
 
     @Test
@@ -66,7 +66,7 @@ class StationIconMappingTest {
         val receivingOwned = listOf(TerminalIcon.RECEIVING, TerminalIcon.PRODUCT, TerminalIcon.CARTON)
         for (key in liveStationKeys) {
             for (foreign in receivingOwned) {
-                assertNotEquals("station '$key' borrows receiving icon $foreign", foreign, stationIcon(key))
+                assertNotEquals(foreign, stationIcon(key), "station '$key' borrows receiving icon $foreign")
             }
         }
     }
