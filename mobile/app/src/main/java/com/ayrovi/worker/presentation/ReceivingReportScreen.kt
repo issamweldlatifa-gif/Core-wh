@@ -206,7 +206,7 @@ fun ReceivingReportScreen(
             appVersion = appVersion,
             deviceCode = deviceCode,
             device = device,
-                onClose = { settings = false },            onClose = { settings = false },
+                onClose = { settings = false },
             onChangeDisplay = onToggleTheme,
             gloveOn = gloveOn,
             onToggleGlove = onToggleGlove,
