@@ -3,6 +3,7 @@ name: Android Native Build
 on:
   push:
     branches:
+      - 'master'
       - 'arena/**'
     paths:
       - 'mobile/**'
