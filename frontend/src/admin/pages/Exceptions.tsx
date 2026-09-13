@@ -5,6 +5,13 @@ import { useAsync } from './useAsync';
 import CorrectionDialog from './CorrectionDialog';
 import { useAuth } from '../../context/AuthContext';
 
+/**
+ * ORDER 01 follow-up (2026-09-13): rows with kind === 'worker_report' come
+ * from the worker app's SEND REPORT / REPORT A PROBLEM (operationalException
+ * table). Resolving them goes to the fulfillment resolve endpoint; session-
+ * born discrepancies keep the corrections path. */
+type FeedRow = ExceptionRow & { kind?: 'worker_report'; station?: string | null; code?: string };
+
 /** Exception Center (§38) with an authorised, audited resolution path (§39). */
 export default function Exceptions() {
   const [status, setStatus] = useState<'OPEN' | 'RESOLVED' | 'ALL'>('OPEN');
@@ -54,9 +61,14 @@ export default function Exceptions() {
               </tr>
             </thead>
             <tbody>
-              {data.map((x) => (
+              {(data as FeedRow[]).map((x) => (
                 <tr key={x.id}>
-                  <td><span className="os-tag os-tag--err">{x.type.replace(/_/g, ' ')}</span></td>
+                  <td>
+                    <span className="os-tag os-tag--err">{x.type.replace(/_/g, ' ')}</span>
+                    {x.kind === 'worker_report' && (
+                      <span className="os-tag" style={{ marginLeft: 6 }}>WORKER REPORT</span>
+                    )}
+                  </td>
                   <td>
                     {x.session ? (
                       <button className="ac-linkbtn mono" onClick={() => navigate(`/admin/sessions/${x.session!.id}`)}>
@@ -69,6 +81,7 @@ export default function Exceptions() {
                     {x.reason ?? (x.expectedQuantity != null
                       ? `expected ${x.expectedQuantity}, actual ${x.actualQuantity}`
                       : '—')}
+                    {x.kind === 'worker_report' && x.station ? ` · station ${x.station}` : ''}
                   </td>
                   <td className="os-muted">{new Date(x.createdAt).toLocaleString()}</td>
                   <td>
@@ -81,6 +94,10 @@ export default function Exceptions() {
                       <button className="ac-linkbtn" onClick={() => setTarget(x)}>resolve</button>
                     )}
                   </td>
+                  {/*
+                    worker-report rows render a WORKER REPORT tag above; the
+                    detail line already carries the stage prefix.
+                  */}
                 </tr>
               ))}
             </tbody>
@@ -99,7 +116,8 @@ export default function Exceptions() {
           }}
           confirmLabel="Resolve exception"
           onConfirm={async (reason) => {
-            await adminApi.resolveException(target.id, reason);
+            if ((target as FeedRow).kind === 'worker_report') await adminApi.resolveWorkerReport(target.id, reason);
+            else await adminApi.resolveException(target.id, reason);
             await reload();
           }}
           onClose={() => setTarget(null)}

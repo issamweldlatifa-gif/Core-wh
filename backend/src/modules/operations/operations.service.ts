@@ -2160,23 +2160,51 @@ export class OperationsService {
     };
   }
 
-  /** Exception Center feed (§38) — each row carries its severity policy. */
+  /**
+   * Exception Center feed (§38) — each row carries its severity policy.
+   * ORDER 01 follow-up (2026-09-13): WORKER REPORTS join the feed. The
+   * worker app's SEND REPORT / REPORT A PROBLEM writes operationalException
+   * rows (stage "WORKER_APP:…"), which no admin surface read — the report
+   * loop was open. They now appear here with severity LOW/MEDIUM (free-text
+   * reports carry no quantities), resolvable through the fulfillment
+   * resolve endpoint the Exception Center already calls for operational
+   * exceptions.
+   */
   async exceptions(status: 'OPEN' | 'RESOLVED' | 'REJECTED' | 'ALL' = 'OPEN') {
-    const rows = await this.prisma.receivingDiscrepancy.findMany({
-      where: status === 'ALL' ? {} : { status },
-      orderBy: { createdAt: 'desc' },
-      take: 200,
-      include: {
-        session: {
-          select: {
-            id: true,
-            code: true,
-            startedBy: true,
-            expectedArrival: { select: { code: true, customerName: true } },
+    const where = status === 'ALL' ? {} : { status };
+    const [rows, workerReports] = await Promise.all([
+      this.prisma.receivingDiscrepancy.findMany({
+        where: where,
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+        include: {
+          session: {
+            select: {
+              id: true,
+              code: true,
+              startedBy: true,
+              expectedArrival: { select: { code: true, customerName: true } },
+            },
           },
         },
-      },
-    });
+      }),
+      this.prisma.operationalException.findMany({
+        where: where,
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+        include: { station: { select: { id: true, code: true } } },
+      }),
+    ]);
+
+    // Resolve report authors in one query (no relation on the model).
+    const reporterIds = [...new Set(workerReports.map((r) => r.reportedById).filter(Boolean))] as string[];
+    const reporters = reporterIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: reporterIds } },
+          select: { id: true, name: true, employeeCode: true },
+        })
+      : [];
+    const reporterById = new Map(reporters.map((u) => [u.id, u]));
 
     const workerIds = [...new Set(rows.map((r) => r.session?.startedBy).filter(Boolean))] as string[];
     const workers = workerIds.length
@@ -2187,7 +2215,7 @@ export class OperationsService {
       : [];
     const byId = new Map(workers.map((w) => [w.id, w]));
 
-    return rows.map((r) => ({
+    const discrepancyRows = rows.map((r) => ({
       id: r.id,
       type: r.type,
       severity: exceptionSeverity(r.type),
@@ -2202,5 +2230,30 @@ export class OperationsService {
       session: r.session ? { id: r.session.id, code: r.session.code, arrival: r.session.expectedArrival } : null,
       worker: r.session?.startedBy ? (byId.get(r.session.startedBy) ?? null) : null,
     }));
+
+    // Worker reports (WORKER_APP stage prefix). The Exception Center's
+    // resolve action must hit the fulfillment resolve endpoint for these
+    // rows — the row kind is encoded in `kind` so the UI can route it.
+    const reportRows = workerReports.map((r) => ({
+      id: r.id,
+      kind: 'worker_report' as const,
+      type: r.type,
+      severity: exceptionSeverity(r.type) === 'CRITICAL' ? 'MEDIUM' : exceptionSeverity(r.type),
+      status: r.status,
+      reason: r.reason,
+      expectedQuantity: null,
+      actualQuantity: null,
+      difference: null,
+      createdAt: r.createdAt,
+      resolvedAt: r.resolvedAt,
+      resolution: r.resolution,
+      session: null,
+      worker: r.reportedById ? (reporterById.get(r.reportedById) ?? null) : null,
+      station: r.station?.code ?? null,
+    }));
+
+    return [...discrepancyRows, ...reportRows].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
   }
 }

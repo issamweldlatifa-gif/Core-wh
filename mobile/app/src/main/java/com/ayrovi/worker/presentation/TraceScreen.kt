@@ -167,7 +167,7 @@ fun TraceScreen(
             WorkerSettingsDialog(
                 repository = repository, worker = worker, station = station, connection = connection,
                 appVersion = appVersion, deviceCode = deviceCode, device = device,
-                onSwitchMode = { settings = false; onBack() }, onClose = { settings = false },
+                onClose = { settings = false },
                 onChangeDisplay = onToggleTheme, gloveOn = gloveOn, onToggleGlove = onToggleGlove,
                 glareOn = glareOn, onToggleGlare = onToggleGlare,
             )

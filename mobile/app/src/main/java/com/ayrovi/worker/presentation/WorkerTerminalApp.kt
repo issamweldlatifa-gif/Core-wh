@@ -340,12 +340,14 @@ fun WorkerTerminalApp(
             appVersion = com.ayrovi.worker.BuildConfig.VERSION_NAME,
             deviceCode = model.deviceCode,
             device = container.device,
-            onSwitchMode = { showSettings = false },
             onClose = { showSettings = false },
             onPurgeData = { model.purgeOperationalData() },
             onChangeDisplay = appearance::toggleTheme,
             gloveOn = glove,
             onToggleGlove = appearance::toggleGlove,
+            // ORDER 01 follow-up: receiving-only sections (rapport history)
+            // render only for workers who actually serve receiving.
+            receivingVisible = state.tasks.any { it.key == "receiving" },
         )
     }
 }

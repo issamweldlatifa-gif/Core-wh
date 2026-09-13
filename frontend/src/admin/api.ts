@@ -573,6 +573,11 @@ export const adminApi = {
     client.post('/v1/operations/corrections/correct-quantity', { receivingProductId, newQuantity, reason }).then((r) => r.data),
   resolveException: (discrepancyId: string, reason: string, resolution?: string) =>
     client.post('/v1/operations/corrections/resolve-exception', { discrepancyId, reason, resolution }).then((r) => r.data),
+  // ORDER 01 follow-up: worker app reports live in operationalException —
+  // resolved through the fulfillment endpoint (audited), not the corrections
+  // discrepancy path.
+  resolveWorkerReport: (exceptionId: string, resolution: string, note?: string) =>
+    client.post(`/v1/fulfillment/exceptions/${exceptionId}/resolve`, { resolution, note }).then((r) => r.data),
   reopenSession: (sessionId: string, reason: string) =>
     client.post('/v1/operations/corrections/reopen-session', { sessionId, reason }).then((r) => r.data),
   reopenCustomerBin: (containerCode: string, reason: string) =>

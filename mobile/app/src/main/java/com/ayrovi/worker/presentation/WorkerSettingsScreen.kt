@@ -41,7 +41,23 @@ internal enum class ProblemCategory(val label: String, val backendType: String) 
     OCR("OCR / label reading problem", "OCR_PROBLEM"),
     CARD("Card problem (product / carton)", "CARD_PROBLEM"),
     NETWORK("Network / connection problem", "NETWORK_PROBLEM"),
-    OTHER("Other problem", "MANUAL_REPORT"),
+    BATCH("Batch problem", "BATCH_PROBLEM"),
+    OTHER("Other problem", "MANUAL_REPORT");
+
+    companion object {
+        /**
+         * ORDER 01 follow-up (settings cleanup): the picker lists the flows
+         * that actually exist on THIS build. The CT40 app has no OCR / card
+         * lane (camera tools are imager-replaced), and batch problems only
+         * exist where the batch station is served.
+         */
+        fun forDevice(device: WorkerDevice, hasBatch: Boolean): List<ProblemCategory> = when {
+            device == WorkerDevice.CT40 -> buildList {
+                add(SCANNER); if (hasBatch) add(BATCH); add(NETWORK); add(OTHER)
+            }
+            else -> entries.toList()
+        }
+    }
 }
 
 internal data class WorkerSettingsState(
@@ -136,7 +152,6 @@ fun WorkerSettingsDialog(
     appVersion: String,
     deviceCode: String,
     device: WorkerDevice,
-    onSwitchMode: () -> Unit,
     onClose: () -> Unit,
     onChangeDisplay: (() -> Unit)? = null,
     gloveOn: Boolean = false,
@@ -145,6 +160,8 @@ fun WorkerSettingsDialog(
     onToggleGlare: (() -> Unit)? = null,
     /** v1.7.5: wipe operational traces stored on this device (two-tap confirm). */
     onPurgeData: (() -> Unit)? = null,
+    /** ORDER 01 follow-up: whether THIS worker serves receiving at all — gates receiving-only sections. */
+    receivingVisible: Boolean = true,
 ) {
     val vm: WorkerSettingsViewModel? = if (repository != null) viewModel(
         factory = factory {
@@ -171,12 +188,16 @@ fun WorkerSettingsDialog(
                 }
 
                 SettingsGroup("OPERATIONS") {
-                    SecondaryAction("SWITCH MODE", onSwitchMode, !state.busy)
+                    // ORDER 01 follow-up: "SWITCH MODE" removed — its only
+                    // effect was closing this dialog (a dead control).
                     onChangeDisplay?.let { SecondaryAction("CHANGE DISPLAY", it, !state.busy) }
                     onToggleGlove?.let { SecondaryAction(if (gloveOn) "GLOVE MODE: ON" else "GLOVE MODE: OFF", it, !state.busy) }
                 }
 
-                if (model != null) {
+                // ORDER 01 follow-up: RAPPORT HISTORY is receiving-session
+                // history — a station whose task set has no receiving sees
+                // nothing here instead of a permanently empty section.
+                if (model != null && receivingVisible) {
                     LaunchedEffect(Unit) { model.loadHistory() }
                     SettingsGroup("RAPPORT HISTORY") {
                         ReportHistoryBody(state)
@@ -200,7 +221,7 @@ fun WorkerSettingsDialog(
                                 TerminalTone.SUCCESS)
                         }
                         SecondaryAction(
-                            if (confirmPurge) "TAP AGAIN TO CONFIRM" else "CLEAR SESSION DATA",
+                            if (confirmPurge) "TAP AGAIN TO CONFIRM" else "CLEAR RECEIVING MARKS",
                             {
                                 if (confirmPurge) {
                                     onPurgeData(); purged = true; confirmPurge = false
@@ -213,7 +234,8 @@ fun WorkerSettingsDialog(
                 }
 
                 SettingsGroup("ABOUT") {
-                    Text("AYROVI Warehouse Worker", style = MaterialTheme.typography.bodyMedium)
+                    Text(if (device == WorkerDevice.CT40) "AYROVI CT40" else "AYROVI Warehouse Worker",
+                        style = MaterialTheme.typography.bodyMedium)
                 }
             }
         },
@@ -224,6 +246,8 @@ fun WorkerSettingsDialog(
         SupportFormDialog(
             isProblem = state.form == SupportForm.PROBLEM,
             busy = state.busy,
+            device = device,
+            hasBatch = receivingVisible || state.history?.isNotEmpty() == true,
             onSubmit = { category, description, reference -> model.submit(state.form, category, description, reference) },
             onDismiss = { if (!state.busy) model.closeForm() },
         )
@@ -268,6 +292,8 @@ private fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> 
 private fun SupportFormDialog(
     isProblem: Boolean,
     busy: Boolean,
+    device: WorkerDevice,
+    hasBatch: Boolean,
     onSubmit: (ProblemCategory?, String, String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -281,7 +307,7 @@ private fun SupportFormDialog(
             Column(verticalArrangement = Arrangement.spacedBy(TerminalTokens.sm)) {
                 if (isProblem) {
                     Text("What is the problem?", style = MaterialTheme.typography.labelMedium)
-                    ProblemCategory.entries.forEach { c ->
+                    ProblemCategory.forDevice(device, hasBatch).forEach { c ->
                         SecondaryAction(c.label, { category = c }, true, Modifier.fillMaxWidth())
                     }
                     Text("Selected · ${category?.label ?: "—"}", style = MaterialTheme.typography.bodyMedium, color = TerminalTokens.muted)
