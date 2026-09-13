@@ -34,12 +34,16 @@ describe('task registry — batch build task', () => {
   describe('batch-in (receiving slice)', () => {
     const receive = taskByKey('batch-in');
 
-    it('exists, ready, gated by batch.receive, bound to BATCH stations', () => {
+    it('exists, ready, gated by batch.receive, served at BATCH and RECEIVING stations', () => {
       expect(receive).toBeDefined();
       expect(receive!.ready).toBe(true);
       expect(receive!.permission).toBe('batch.receive');
       expect(receive!.department).toBe('BATCH');
-      expect(receive!.stationDepartments).toEqual(['BATCH']);
+      // INCIDENT 2026-09-13: no station has the BATCH department, so the
+      // ['BATCH']-only gate made auto-dispatched batch cards unreachable from
+      // every device. Receiving stations (where batch -> admin -> receiving
+      // lands the cards) serve Batch IN too.
+      expect(receive!.stationDepartments).toEqual(['BATCH', 'RECEIVING']);
       expect(receive!.stationRequired).toBeUndefined();
       expect(isSharedTask('batch-in')).toBe(false);
     });
