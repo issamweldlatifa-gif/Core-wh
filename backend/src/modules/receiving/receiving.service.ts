@@ -1491,13 +1491,12 @@ export class ReceivingService {
     const item: any = (unit?.batchItems ?? []).find((it: any) =>
       ['SENT_TO_RECEIVING', 'RECEIVING_IN_PROGRESS'].includes(it.batch?.status));
     if (!item) return null;
-    if (!(actor.permissions ?? []).includes('batch.receive')) {
-      return {
-        ok: false as const, sessionId: null,
-        flash: { kind: 'MISMATCH', cardType: 'PRODUCT', code: term, message: 'Batch units need the batch receive permission — ask your supervisor.' },
-        home: await this.workerHome(actor.id, actor),
-      };
-    }
+    // OWNER INCIDENT (2026-09-13, screenshot from ST-REC-01): the extra
+    // batch.receive wall here blocked the owner's contract — the RECEIVING
+    // station receives the dispatched cards, full stop. This endpoint is
+    // already permission-gated (receiving.execute) by the route guard; the
+    // batch.receive permission stays only on the legacy /batches receiving
+    // endpoints (no surface calls them anymore).
     if (item.batch.status === 'SENT_TO_RECEIVING') {
       await this.batches.startReceiving(batchActor, item.batch.id);
     }

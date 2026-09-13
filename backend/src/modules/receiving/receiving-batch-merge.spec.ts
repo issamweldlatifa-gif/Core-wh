@@ -130,7 +130,7 @@ describe('Receiving home × batches (the admin-dispatched cards are received in 
     expect(res.ok).toBe(true);
   });
 
-  it('a batch unit WITHOUT batch.receive gets a precise flash — never a 403 that would kick the worker out', async () => {
+  it('INCIDENT (ST-REC-01 screenshot): a receiving worker WITHOUT batch.receive receives batch units — receiving.execute is the only gate', async () => {
     db.batch.findMany.mockResolvedValue([]);
     db.expectedArrival.findMany.mockResolvedValue([]);
     db.ayroviUnit.findUnique.mockResolvedValue({
@@ -141,9 +141,9 @@ describe('Receiving home × batches (the admin-dispatched cards are received in 
       { identifier: 'AYP-000000042', identifierType: 'BARCODE', quantity: 1, operationId: 'op-4', source: 'IMAGER' } as never,
       { ...ACTOR, permissions: ['receiving.execute'] },
     );
-    expect(batches.receiveUnit).not.toHaveBeenCalled();
-    expect(res.flash.kind).toBe('MISMATCH');
-    expect(res.flash.message).toContain('batch receive permission');
+    expect(batches.startReceiving).toHaveBeenCalled();
+    expect(batches.receiveUnit).toHaveBeenCalled();
+    expect(res.flash.kind).toBe('MATCH');
   });
 
   it('an unknown code (no arrival, no batch) keeps the classic MISMATCH path', async () => {
