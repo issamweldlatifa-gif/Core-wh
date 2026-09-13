@@ -1471,6 +1471,59 @@ export class ReceivingService {
   }
 
   /**
+   * RAPPORT LOOP (owner order 2026-09-13): a batch received at the RECEIVING
+   * station flows through the SAME session → rapport → handoff machinery as
+   * a CRM arrival. The batch is projected as an ExpectedArrival (code = the
+   * batch code, customerArrivalCardId = batch-<id> idempotency anchor), so
+   * the worker's scans open a REAL receiving session, the RAPPORT tile finds
+   * it (ORDER 04), CONFIRMER ET ENVOYER locks the report and the existing
+   * handoff carries the confirmed goods to Temporary Storage — no new
+   * schema, no second write path.
+   */
+  private async ensureBatchArrival(batch: { id: string; batchCode: string; customerId?: string | null; customer?: { name: string } | null }) {
+    const existing = await this.prisma.expectedArrival.findFirst({ where: { code: batch.batchCode } });
+    if (existing) return existing;
+    return this.prisma.expectedArrival.create({
+      data: {
+        code: batch.batchCode,
+        customerArrivalCardId: `batch-${batch.id}`,
+        arrivalId: batch.id,
+        customerId: batch.customerId ?? 'BATCH',
+        customerName: batch.customer?.name ?? 'BATCH',
+        storeName: 'BATCH',
+        status: 'RECEIVING' as never,
+      },
+    });
+  }
+
+  /**
+   * ONE unit = ONE report line: the scanned AYP unit becomes a
+   * ReceivingProduct row (sku = the unit code, expected 1 / received 1 →
+   * CONFIRMED), so the rapport shows exactly what was received and the
+   * handoff moves exactly those units to Temporary Storage. Idempotent per
+   * session+unit (a replayed scan never creates a second line).
+   */
+  private async recordBatchUnitProduct(sessionId: string, unitCode: string, batch: { customer?: { name: string } | null }) {
+    const existing = await this.prisma.receivingProduct.findFirst({
+      where: { receivingSessionId: sessionId, sku: unitCode },
+      select: { id: true },
+    });
+    if (existing) return;
+    await this.prisma.receivingProduct.create({
+      data: {
+        receivingSessionId: sessionId,
+        sku: unitCode,
+        productName: batch.customer?.name ? `${batch.customer.name} · ${unitCode}` : unitCode,
+        expectedQuantity: 1,
+        receivedQuantity: 1,
+        difference: 0,
+        status: 'RECEIVED' as never,
+        categoryStatus: 'CONFIRMED' as never,
+      },
+    });
+  }
+
+  /**
    * The batch branch of the receiving-home PRODUCT confirm (owner order
    * 2026-09-13): a scanned code matching NO arrival card may be an AYP unit
    * of a batch the admin already dispatched to receiving. It is received
@@ -1500,9 +1553,20 @@ export class ReceivingService {
     if (item.batch.status === 'SENT_TO_RECEIVING') {
       await this.batches.startReceiving(batchActor, item.batch.id);
     }
+    // RAPPORT LOOP: open (or reuse) the batch's receiving session and record
+    // the unit as a report line, so CONFIRMER ET ENVOYER becomes possible
+    // after the matching and the handoff reaches Temporary Storage.
+    const unitCode = term.toUpperCase();
+    const batchFull: any = await this.prisma.batch.findUnique({
+      where: { id: item.batch.id },
+      include: { customer: true },
+    });
+    const batchArrival: any = await this.ensureBatchArrival(batchFull);
+    const batchSessionId: string = await this.ensureWorkerSession(batchArrival.id, { id: actor.id, name: actor.name, permissions: actor.permissions });
+    await this.recordBatchUnitProduct(batchSessionId, unitCode, batchFull);
     // term comes back lower-cased from the arrival-side normalizer; the
     // batches contract stores AYP codes upper-case.
-    const scan: any = await this.batches.receiveUnit(batchActor, item.batch.id, { unitCode: term.toUpperCase() });
+    const scan: any = await this.batches.receiveUnit(batchActor, item.batch.id, { unitCode });
     if (scan.alreadyReceived) {
       return {
         ok: true as const, sessionId: null,

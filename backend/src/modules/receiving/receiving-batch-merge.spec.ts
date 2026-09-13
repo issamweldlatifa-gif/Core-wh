@@ -57,6 +57,16 @@ describe('Receiving home × batches (the admin-dispatched cards are received in 
       receiveUnit: jest.fn().mockResolvedValue({ unitCode: 'AYP-000000042', alreadyReceived: false, totalScanned: 1, totalExpected: 2 }),
       completeReceiving: jest.fn().mockResolvedValue({ batch: { status: 'RECEIVING_COMPLETED' } }),
     };
+    // RAPPORT LOOP mocks: the batch's projected arrival + its session exist.
+    db.expectedArrival.findFirst.mockResolvedValue({
+      id: 'arr-b1', code: 'AYB-20260913-00007', status: 'RECEIVING', shipments: [],
+    });
+    db.expectedArrival.create.mockResolvedValue({ id: 'arr-b1', code: 'AYB-20260913-00007' });
+    db.receivingSession.findFirst.mockResolvedValue({ id: 'sess-b1', status: 'RECEIVING' });
+    db.batch.findUnique.mockResolvedValue({
+      id: 'b1', batchCode: 'AYB-20260913-00007', customerId: 'cus-1',
+      customer: { name: 'OUSAM' },
+    });
     service = new ReceivingService(db, audit as never, assignments as never, dispatch as never, batches as never);
   });
 
@@ -144,6 +154,46 @@ describe('Receiving home × batches (the admin-dispatched cards are received in 
     expect(batches.startReceiving).toHaveBeenCalled();
     expect(batches.receiveUnit).toHaveBeenCalled();
     expect(res.flash.kind).toBe('MATCH');
+  });
+
+  it('RAPPORT LOOP: the confirmed unit opens the batch session and records a 1/1 report line (rapport + handoff become possible)', async () => {
+    db.batch.findMany.mockResolvedValue([]);
+    db.expectedArrival.findMany.mockResolvedValue([]);
+    db.ayroviUnit.findUnique.mockResolvedValue({
+      code: 'AYP-000000042',
+      batchItems: [{ batch: { id: 'b1', batchCode: 'AYB-20260913-00007', status: 'SENT_TO_RECEIVING' } }],
+    });
+    db.receivingProduct.findFirst.mockResolvedValue(null);
+    await service.homeConfirmProduct(
+      { identifier: 'AYP-000000042', identifierType: 'BARCODE', quantity: 1, operationId: 'op-6', source: 'IMAGER' } as never, ACTOR,
+    );
+    // the batch's projected arrival + its session
+    expect(db.expectedArrival.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { code: 'AYB-20260913-00007' } }));
+    expect(db.receivingProduct.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        receivingSessionId: 'sess-b1',
+        sku: 'AYP-000000042',
+        expectedQuantity: 1,
+        receivedQuantity: 1,
+        status: 'RECEIVED',
+      }),
+    }));
+  });
+
+  it('RAPPORT LOOP: a replayed unit never duplicates its report line', async () => {
+    db.batch.findMany.mockResolvedValue([]);
+    db.expectedArrival.findMany.mockResolvedValue([]);
+    db.ayroviUnit.findUnique.mockResolvedValue({
+      code: 'AYP-000000042',
+      batchItems: [{ batch: { id: 'b1', batchCode: 'AYB-20260913-00007', status: 'RECEIVING_IN_PROGRESS' } }],
+    });
+    // call order: findProductArrival's withSession probe first (null), then
+    // the report-line dedupe probe (already present).
+    db.receivingProduct.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 'rp-1' });
+    await service.homeConfirmProduct(
+      { identifier: 'AYP-000000042', identifierType: 'BARCODE', quantity: 1, operationId: 'op-7', source: 'IMAGER' } as never, ACTOR,
+    );
+    expect(db.receivingProduct.create).not.toHaveBeenCalled();
   });
 
   it('an unknown code (no arrival, no batch) keeps the classic MISMATCH path', async () => {

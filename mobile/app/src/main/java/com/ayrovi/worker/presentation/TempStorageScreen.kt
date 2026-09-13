@@ -220,7 +220,7 @@ private fun TsHomeBody(
         MetricBox("CONTAINERS", home.header?.containers ?: 0, TerminalTokens.instruction, Modifier.weight(1f))
         MetricBox("", 0, TerminalTokens.muted, Modifier.weight(1f), blank = true)
     }
-    TaskInstruction("SCAN PRODUCT", "The system finds the customer → section → target container.")
+    TaskInstruction("STORAGE", "Scan the product card — the FIRST LETTER of its name gives the section; the system picks the target container.")
 
     if (home.sections.isNotEmpty()) {
         // §4/§5: sections are INDICATORS, never selection buttons — the scan
@@ -247,8 +247,8 @@ private fun TsHomeBody(
     }
     ScannerPanel(
         capture = capture, enabled = model.captureAllowed,
-        title = "SCAN PRODUCT",
-        subtitle = "Scan the product — the system resolves customer → section → target container.",
+        title = "STORAGE",
+        subtitle = "Scan the product card — the FIRST LETTER of its name gives its section; the system picks the target container.",
         onOpenTools = onOpenScanTools,
     )
 }
