@@ -28,6 +28,9 @@ function prisma(): any {
     receivingCarton: model(),
     receivingDiscrepancy: model(),
     receivingWorkerLog: model(),
+    batch: model(),
+    batchItem: model(),
+    ayroviUnit: model(),
     warehouseCarton: model(),
     warehouseShipment: model(),
     station: model(),
@@ -106,7 +109,7 @@ describe('ReceivingService (card-based, device-side matching)', () => {
       receivingCompleted: jest.fn(),
     };
     dispatch = { onReceivingCompleted: jest.fn() };
-    service = new ReceivingService(db, audit as never, assignments as never, dispatch as never);
+    service = new ReceivingService(db, audit as never, assignments as never, dispatch as never, {} as never);
 
     // sessionDetail chain (called by every confirm/report endpoint at the end)
     db.receivingSession.findUnique.mockResolvedValue(fullSession());

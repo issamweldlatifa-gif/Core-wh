@@ -25,7 +25,7 @@ function prisma(): any {
     receivingProduct: model(), receivingScanEvent: model(), receivingCarton: model(),
     receivingDiscrepancy: model(), receivingWorkerLog: model(), warehouseCarton: model(),
     warehouseShipment: model(), workerTaskAssignment: model(), station: model(),
-    user: model(), auditLog: model(),
+    user: model(), auditLog: model(), batch: model(), batchItem: model(), ayroviUnit: model(),
   };
 }
 
@@ -64,7 +64,7 @@ describe('Unified card delivery pipeline (delivery matrix)', () => {
     db.$transaction = jest.fn((action: any) => action(db));
     service = new ReceivingService(db, { log: jest.fn() } as any,
       { assertOperationalAccess: jest.fn(), receivingStarted: jest.fn() } as any,
-      { onReceivingCompleted: jest.fn() } as any);
+      { onReceivingCompleted: jest.fn() } as any, {} as never);
     // Open floor: no assignment holds these arrivals.
     db.workerTaskAssignment.findMany.mockResolvedValue([]);
     db.receivingProduct.findMany.mockResolvedValue([]);

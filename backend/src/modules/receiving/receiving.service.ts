@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AssignmentsService } from '../assignments/assignments.service';
 import { TaskDispatchService } from '../assignments/dispatch.service';
+import { BatchesService } from '../batches/batches.service';
 import { normalizeScan, sameScanCode, OPERATIONAL_ERRORS } from '../../common/scan-normalizer';
 
 const RCV_PREFIX = 'RCV-';
@@ -15,6 +16,8 @@ export interface ReceivingActor {
   // role-derived capability flag (resolve via permissions guard upstream).
   canResolveDiscrepancy?: boolean;
   ip?: string | null;
+  /** Route permissions (RBAC passthrough for cross-task branches, e.g. batch units). */
+  permissions?: string[];
 }
 
 export interface StartOpts {
@@ -170,6 +173,7 @@ export class ReceivingService {
     private readonly audit: AuditService,
     private readonly assignments: AssignmentsService,
     private readonly dispatch: TaskDispatchService,
+    private readonly batches: BatchesService,
   ) {}
 
   // ---------- helpers ----------
@@ -1339,6 +1343,42 @@ export class ReceivingService {
       }
     }
 
+    // OWNER ORDER 2026-09-13: the admin dispatches batch cards to the
+    // RECEIVING station — they are received HERE, in this feed. Batches in
+    // SENT_TO_RECEIVING / RECEIVING_IN_PROGRESS are merged in as PRODUCT
+    // cards whose identifiers are the batch's AYP unit codes (UPPERCASED —
+    // the device matcher compares identifiers to the normalized scan). The
+    // batch code itself is NEVER a model field (sku/reference), so scanning
+    // the parcel label cannot count a unit. One scan = one AYP unit; the
+    // counters/duplicates/completion stay the batches service's audited
+    // logic (see confirmBatchUnit).
+    const activeBatches = await this.prisma.batch.findMany({
+      where: { status: { in: ['SENT_TO_RECEIVING', 'RECEIVING_IN_PROGRESS'] } },
+      orderBy: { sentAt: 'asc' },
+      take: 50,
+      include: { items: { include: { unit: { select: { code: true } } } } },
+    });
+    for (const b of activeBatches) {
+      const expected = Math.max(1, b.totalExpected || 0);
+      const received = Math.min(expected, Math.max(0, b.totalScanned || 0));
+      if (received >= expected) continue;
+      const codes = (b.items ?? [])
+        .map((it: any) => String(it.unit?.code ?? '').toUpperCase())
+        .filter(Boolean)
+        .slice(0, 100);
+      if (codes.length === 0) continue;
+      productCards.push({
+        id: `batch-unit-${b.id}`,
+        sku: null, reference: null,
+        productName: `BATCH ${b.batchCode} · من الأدمن`,
+        category: null, subcategory: null, categoryStatus: 'CONFIRMED',
+        expected, received, remaining: expected - received,
+        status: b.status,
+        identifiers: codes,
+      });
+      productList.push({ arrivalCode: b.batchCode, reference: null, label: `BATCH ${b.batchCode}`, remaining: expected - received });
+    }
+
     return {
       productCards,
       cartonCards,
@@ -1415,6 +1455,10 @@ export class ReceivingService {
     if (!term) throw new BadRequestException(OPERATIONAL_ERRORS.productNotMatched);
     const arrival = await this.findProductArrival(actor.id, term);
     if (!arrival) {
+      // OWNER ORDER 2026-09-13: not an arrival card — try the batch branch
+      // (an AYP unit of a batch the admin sent to receiving).
+      const batchResult = await this.confirmBatchUnit(term, actor);
+      if (batchResult) return batchResult;
       // MISMATCH with no owning arrival: nothing to confirm. Logged as a
       // terminal-level failure via the most recent open session if one
       // exists, otherwise returned as a plain verdict (no state changes).
@@ -1424,6 +1468,63 @@ export class ReceivingService {
     const sessionId = await this.ensureWorkerSession(arrival.id, actor);
     const detail = await this.confirmProduct(sessionId, input, actor);
     return { ok: true as const, sessionId, flash: detail.flash, home: await this.workerHome(actor.id, actor) };
+  }
+
+  /**
+   * The batch branch of the receiving-home PRODUCT confirm (owner order
+   * 2026-09-13): a scanned code matching NO arrival card may be an AYP unit
+   * of a batch the admin already dispatched to receiving. It is received
+   * through the batches service's OWN audited logic — start → ONE scan =
+   * ONE unit → auto-complete at n/n — and answered in the exact flash
+   * vocabulary the device already renders (MATCH / UNIT_ALREADY_SCANNED).
+   * Null when the code belongs to no active batch (the caller keeps the
+   * MISMATCH path). RBAC: the receiving route grants receiving.execute, so
+   * the batch branch itself demands batch.receive (never a 403 to the floor
+   * device — a precise flash instead).
+   */
+  private async confirmBatchUnit(term: string, actor: ReceivingActor) {
+    const batchActor = { id: actor.id, name: actor.name ?? null, ip: actor.ip ?? null };
+    const unit: any = await this.prisma.ayroviUnit.findUnique({
+      where: { code: term },
+      include: { batchItems: { include: { batch: true } } },
+    });
+    const item: any = (unit?.batchItems ?? []).find((it: any) =>
+      ['SENT_TO_RECEIVING', 'RECEIVING_IN_PROGRESS'].includes(it.batch?.status));
+    if (!item) return null;
+    if (!(actor.permissions ?? []).includes('batch.receive')) {
+      return {
+        ok: false as const, sessionId: null,
+        flash: { kind: 'MISMATCH', cardType: 'PRODUCT', code: term, message: 'Batch units need the batch receive permission — ask your supervisor.' },
+        home: await this.workerHome(actor.id, actor),
+      };
+    }
+    if (item.batch.status === 'SENT_TO_RECEIVING') {
+      await this.batches.startReceiving(batchActor, item.batch.id);
+    }
+    // term comes back lower-cased from the arrival-side normalizer; the
+    // batches contract stores AYP codes upper-case.
+    const scan: any = await this.batches.receiveUnit(batchActor, item.batch.id, { unitCode: term.toUpperCase() });
+    if (scan.alreadyReceived) {
+      return {
+        ok: true as const, sessionId: null,
+        flash: { kind: 'UNIT_ALREADY_SCANNED', cardType: 'PRODUCT', code: term, message: OPERATIONAL_ERRORS.unitAlreadyScanned },
+        home: await this.workerHome(actor.id, actor),
+      };
+    }
+    const done = scan.totalScanned >= scan.totalExpected;
+    if (done) {
+      await this.batches.completeReceiving(batchActor, item.batch.id, { idempotencyKey: `auto-complete:${item.batch.id}` });
+    }
+    return {
+      ok: true as const, sessionId: null,
+      flash: {
+        kind: 'MATCH', cardType: 'PRODUCT', code: term,
+        message: done
+          ? `BATCH ${item.batch.batchCode} COMPLETE · ${scan.totalScanned}/${scan.totalExpected}`
+          : `BATCH ${item.batch.batchCode} · ${scan.totalScanned}/${scan.totalExpected}`,
+      },
+      home: await this.workerHome(actor.id, actor),
+    };
   }
 
   /**

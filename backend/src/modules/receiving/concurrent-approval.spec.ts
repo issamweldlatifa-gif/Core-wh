@@ -19,7 +19,7 @@ function prisma(): any {
     receivingSession: model(), expectedArrival: model(), receivingProduct: model(),
     receivingScanEvent: model(), receivingCarton: model(), receivingDiscrepancy: model(),
     receivingWorkerLog: model(), warehouseCarton: model(), warehouseShipment: model(),
-    workerTaskAssignment: model(), station: model(), user: model(), auditLog: model(),
+    workerTaskAssignment: model(), station: model(), user: model(), auditLog: model(), batch: model(), batchItem: model(), ayroviUnit: model(),
   };
 }
 const ACTOR: any = { id: 'w-1', name: 'W', ip: null };
@@ -29,7 +29,7 @@ function build() {
   db.$transaction = jest.fn((a: any) => a(db));
   const svc = new ReceivingService(db, { log: jest.fn() } as any,
     { assertOperationalAccess: jest.fn(), receivingStarted: jest.fn() } as any,
-    { onReceivingCompleted: jest.fn() } as any);
+    { onReceivingCompleted: jest.fn() } as any, {} as never);
   // A confirmable open session on an EXPECTED arrival.
   db.receivingSession.findUnique.mockResolvedValue({
     id: 's-1', arrivalId: 'arr-1', status: 'RECEIVING', code: 'RCV-1',

@@ -40,6 +40,9 @@ export class ReceivingController {
       name: user?.name ?? user?.employeeCode,
       canResolveDiscrepancy: perms.includes('receiving.resolve_discrepancy'),
       ip: req.ip ?? null,
+      // RBAC passthrough for cross-task branches (batch units inside the
+      // receiving home flow demand batch.receive).
+      permissions: perms,
     };
   }
 

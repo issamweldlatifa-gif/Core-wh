@@ -7,6 +7,7 @@ import { ReceivingReportsService } from './receiving-reports.service';
 import { ReceivingController } from './receiving.controller';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { WorkflowModule } from '../workflow/workflow.module';
+import { BatchesModule } from '../batches/batches.module';
 
 /**
  * Receiving — physical receipt of Expected Arrivals/Shipments pushed by the
@@ -15,7 +16,7 @@ import { WorkflowModule } from '../workflow/workflow.module';
  * discrepancies) without ever mutating the expected data.
  */
 @Module({
-  imports: [PrismaModule, AuditModule, AssignmentsModule, NotificationsModule, WorkflowModule],
+  imports: [PrismaModule, AuditModule, AssignmentsModule, NotificationsModule, WorkflowModule, BatchesModule],
   controllers: [ReceivingController],
   providers: [ReceivingService, ReceivingReportsService],
   exports: [ReceivingService, ReceivingReportsService],

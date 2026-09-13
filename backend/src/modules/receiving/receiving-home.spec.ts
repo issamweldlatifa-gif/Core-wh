@@ -23,6 +23,9 @@ function prisma(): any {
     receivingCarton: model(),
     receivingDiscrepancy: model(),
     receivingWorkerLog: model(),
+    batch: { findMany: jest.fn().mockResolvedValue([]) },
+    batchItem: model(),
+    ayroviUnit: model(),
     warehouseCarton: model(),
     warehouseShipment: model(),
     workerTaskAssignment: model(),
@@ -70,7 +73,7 @@ describe('ReceivingService HOME (automatic dispatch feed)', () => {
     audit = { log: jest.fn() };
     assignments = { assertOperationalAccess: jest.fn(), receivingStarted: jest.fn() };
     dispatch = { onReceivingCompleted: jest.fn() };
-    service = new ReceivingService(db, audit, assignments, dispatch);
+    service = new ReceivingService(db, audit, assignments, dispatch, {} as never);
 
     // Open floor work: an arrival with NO receiving assignment rows is in
     // every receiving worker's scope (same policy assertOperationalAccess).

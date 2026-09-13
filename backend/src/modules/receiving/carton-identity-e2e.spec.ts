@@ -60,7 +60,7 @@ function prismaMock(): any {
     expectedArrival: model(), warehouseShipment: model(), warehouseCarton: model(),
     workerTaskAssignment: model(), receivingSession: model(), receivingProduct: model(),
     receivingCarton: model(), receivingScanEvent: model(), receivingDiscrepancy: model(),
-    receivingWorkerLog: model(), station: model(), user: model(), auditLog: model(),
+    receivingWorkerLog: model(), station: model(), user: model(), auditLog: model(), batch: model(), batchItem: model(), ayroviUnit: model(),
   };
 }
 
@@ -181,7 +181,7 @@ describe('CARTON CARD — Worker API returns it AS A CARTON', () => {
     db.workerTaskAssignment.findMany.mockResolvedValue([]);
     receiving = new ReceivingService(db, { log: jest.fn() } as any,
       { assertOperationalAccess: jest.fn(), receivingStarted: jest.fn() } as any,
-      { onReceivingCompleted: jest.fn() } as any);
+      { onReceivingCompleted: jest.fn() } as any, {} as never);
   });
 
   const ACTOR: any = { id: 'w-1', name: 'Worker', ip: null };
