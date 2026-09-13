@@ -59,7 +59,7 @@ class ReportHistoryUiTest {
                     if (open) {
                         WorkerSettingsDialog(repository = repository, worker = "W-001 · UI TEST FIXTURE",
                             station = "REC-01", connection = "ONLINE", appVersion = "test", deviceCode = "TEST-CODE",
-                            device = WorkerDevice.PHONE, onSwitchMode = {}, onClose = { open = false })
+                            device = WorkerDevice.PHONE, onClose = { open = false })
                     }
                 }
             }

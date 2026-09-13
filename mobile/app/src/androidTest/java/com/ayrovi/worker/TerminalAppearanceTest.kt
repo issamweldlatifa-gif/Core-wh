@@ -121,7 +121,7 @@ class TerminalAppearanceTest {
                     observedBackground = TerminalTokens.background
                     WorkerSettingsDialog(repository = null, worker = "W-001 · UI TEST FIXTURE", station = "REC-01",
                         connection = "ONLINE", appVersion = "test", deviceCode = "TEST-CODE",
-                        device = WorkerDevice.PHONE, onSwitchMode = {}, onClose = {},
+                        device = WorkerDevice.PHONE, onClose = {},
                         onChangeDisplay = { mode = mode.next() })
                 }
             }
