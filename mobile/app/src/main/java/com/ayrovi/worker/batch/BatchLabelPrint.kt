@@ -31,6 +31,7 @@ import kotlin.math.roundToInt
  * printer sees exactly the label. Bars are vector rects, crisp at any DPI
  * (no bitmap resample). No label-printer SDK and no new dependency.
  */
+// (requeue marker 27b7722: paths-filter needs a real mobile/ change to fire CI)
 object BatchLabelPrint {
 
     /** Label stock: 60×40 mm. PDF page units are points (1 pt = 1/72 in). */
