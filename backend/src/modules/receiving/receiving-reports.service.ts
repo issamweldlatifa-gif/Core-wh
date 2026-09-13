@@ -11,6 +11,7 @@ import { AuditService } from '../audit/audit.service';
 import { AssignmentsService } from '../assignments/assignments.service';
 import { PushService } from '../notifications/push.service';
 import { WorkflowService } from '../workflow/workflow.service';
+import { ReceivingService } from './receiving.service';
 import { computeLineVerification, receivingTaskStatus } from './verification-status';
 
 export interface ReportActor {
@@ -67,6 +68,7 @@ export class ReceivingReportsService {
     private readonly assignments: AssignmentsService,
     private readonly push: PushService,
     private readonly workflow: WorkflowService,
+    private readonly receiving: ReceivingService,
   ) {}
 
   // ---------- helpers ----------
@@ -475,6 +477,9 @@ export class ReceivingReportsService {
     }
     const photos = this.validatePhotos(input.photos);
 
+    // Captured out of the transaction for the post-commit §9 dispatch.
+    let completionApplied = false;
+    let completedSessionCode: string | null = null;
     const reportId = await this.prisma.$transaction(async (tx) => {
       const live = await this.computeLive(tx, sessionId);
       const station = await this.stationSnapshot(tx, actor.id);
@@ -555,6 +560,29 @@ export class ReceivingReportsService {
         id: actor.id,
         ip: actor.ip ?? null,
       });
+      // OWNER ORDER 2026-09-13 (R1 — the receiving pipeline stall):
+      // CONFIRMER ET ENVOYER now CLOSES the receiving session atomically
+      // with the report: clean tally → COMPLETED + arrival RECEIVED;
+      // discrepancies → COMPLETED_WITH_DISCREPANCY (+ SHORT marking). Nothing
+      // in the product could complete a session before — it stayed RECEIVING
+      // forever (live proof: RCV-000201 / WAR-001002 stuck since 2026-09-11).
+      // Shared audited write, guarded: an already-completed session answers
+      // applied:false and the submit still succeeds (idempotent).
+      const completionTally = await this.receiving.reconcile(sessionId);
+      const completion = await this.receiving.applyCompletionTx(
+        tx,
+        {
+          id: live.session.id,
+          arrivalId: live.session.arrivalId,
+          code: live.session.code,
+          stationId: live.session.stationId ?? null,
+        },
+        completionTally,
+        { id: actor.id, ip: actor.ip ?? null },
+        live.session.status,
+      );
+      completionApplied = completion.applied;
+      completedSessionCode = live.session.code;
       await this.audit.log(
         {
           actorUserId: actor.id,
@@ -574,6 +602,18 @@ export class ReceivingReportsService {
       );
       return report.id;
     });
+
+    // §9 next-station tasks after the committed completion (best-effort —
+    // the report and the completion are already durably committed).
+    if (completionApplied) {
+      try {
+        await this.receiving.fireReceivingCompletedTasks(
+          sessionId, actor.id, `receiving ${completedSessionCode} completed (report submit)`,
+        );
+      } catch (e) {
+        this.logger.warn(`Receiving-completion dispatch failed for ${completedSessionCode}: ${(e as Error).message}`);
+      }
+    }
 
     // Admin notification never fails the submit (best-effort delivery).
     let notifiedAdmins = 0;

@@ -781,41 +781,99 @@ export class ReceivingService {
       throw new ForbiddenException('Receiving has discrepancies; a supervisor must close it.');
     }
 
-    const finalStatus = hasOpenDiscrepancies ? 'COMPLETED_WITH_DISCREPANCY' : 'COMPLETED';
-    const arrivalStatus = hasOpenDiscrepancies ? 'RECEIVED_WITH_DISCREPANCY' : 'RECEIVED';
-
-    await this.prisma.$transaction(async (tx) => {
+    const completion = await this.prisma.$transaction(async (tx) => {
       await this.assignments.assertOperationalAccess(actor.id, 'receiving', { arrivalId: session.arrivalId }, tx);
-      const changed = await tx.receivingSession.updateMany({
-        where: { id: sessionId, status: 'RECEIVING' },
-        data: { status: finalStatus as any, completedBy: actor.id, completedAt: new Date() },
-      });
-      if (changed.count !== 1) throw new ConflictException('Receiving already changed or completed.');
-      await tx.expectedArrival.update({ where: { id: session.arrivalId }, data: { status: arrivalStatus as any } });
-      // Mark short lines.
-      if (hasOpenDiscrepancies) {
-        await tx.receivingProduct.updateMany({
-          where: { receivingSessionId: sessionId, status: { in: ['EXPECTED', 'PARTIALLY_RECEIVED'] } },
-          data: { status: 'SHORT' },
-        });
-      }
-      await this.audit.log({
-        actorUserId: actor.id,
-        action: (hasOpenDiscrepancies ? 'RECEIVING_COMPLETED_WITH_DISCREPANCY' : 'RECEIVING_COMPLETED') as never,
-        entityType: 'receiving_session', entityId: sessionId, ipAddress: actor.ip ?? null,
-        metadata: { finalStatus: arrivalStatus, tally, workerId: actor.id, stationId: session.stationId, previousState: session.status },
-      }, tx);
-      await this.assignments.receivingCompleted(session.arrivalId, hasOpenDiscrepancies, session.code, actor.id, tx);
-    }).then(() => {
-      // Master Order §9: RECEIVING COMPLETED → the container/placement task
-      // for each tote of the session is auto-created for the next worker.
-      return this.dispatch.onReceivingCompleted(
-        { id: session.id, code: session.code, arrivalId: session.arrivalId },
-        actor.id,
-        { reason: `receiving ${session.code} completed` },
-      );
+      return this.applyCompletionTx(tx, session, tally, actor, session.status);
     });
+    if (!completion.applied) throw new ConflictException('Receiving already changed or completed.');
+    // Master Order §9: RECEIVING COMPLETED → the container/placement task
+    // for each tote of the session is auto-created for the next worker.
+    await this.dispatch.onReceivingCompleted(
+      { id: session.id, code: session.code, arrivalId: session.arrivalId },
+      actor.id,
+      { reason: `receiving ${session.code} completed` },
+    );
     return this.sessionDetail(sessionId);
+  }
+
+  /**
+   * The shared RECEIVING completion WRITE (transaction-aware). R1 fix (owner
+   * order 2026-09-13): CONFIRMER ET ENVOYER closes the receiving session with
+   * the report, so the completion logic is now SHARED by the worker complete
+   * endpoint, the report submit and the operations recovery endpoint — one
+   * semantics: clean tally → COMPLETED + arrival RECEIVED; discrepancies →
+   * COMPLETED_WITH_DISCREPANCY (+ SHORT marking). Guarded: only a session
+   * still in RECEIVING transitions; a lost race answers { applied: false }
+   * and writes nothing (a session can never be completed twice).
+   */
+  async applyCompletionTx(
+    tx: Prisma.TransactionClient,
+    session: { id: string; arrivalId: string; code: string; stationId: string | null },
+    tally: { openDiscrepancies: number; shortUnits: number; overageUnits: number; unexpectedProducts: number; missingCartons: number },
+    actor: { id: string; ip?: string | null },
+    previousState: string,
+  ): Promise<{ finalStatus: 'COMPLETED' | 'COMPLETED_WITH_DISCREPANCY'; arrivalStatus: 'RECEIVED' | 'RECEIVED_WITH_DISCREPANCY'; applied: boolean }> {
+    const hasOpenDiscrepancies = tally.openDiscrepancies > 0
+      || tally.shortUnits > 0 || tally.overageUnits > 0 || tally.unexpectedProducts > 0 || tally.missingCartons > 0;
+    const finalStatus = hasOpenDiscrepancies ? 'COMPLETED_WITH_DISCREPANCY' as const : 'COMPLETED' as const;
+    const arrivalStatus = hasOpenDiscrepancies ? 'RECEIVED_WITH_DISCREPANCY' as const : 'RECEIVED' as const;
+    const changed = await tx.receivingSession.updateMany({
+      where: { id: session.id, status: 'RECEIVING' },
+      data: { status: finalStatus as any, completedBy: actor.id, completedAt: new Date() },
+    });
+    if (changed.count === 0) return { finalStatus, arrivalStatus, applied: false };
+    await tx.expectedArrival.update({ where: { id: session.arrivalId }, data: { status: arrivalStatus as any } });
+    // Mark short lines.
+    if (hasOpenDiscrepancies) {
+      await tx.receivingProduct.updateMany({
+        where: { receivingSessionId: session.id, status: { in: ['EXPECTED', 'PARTIALLY_RECEIVED'] } },
+        data: { status: 'SHORT' },
+      });
+    }
+    await this.audit.log({
+      actorUserId: actor.id,
+      action: (hasOpenDiscrepancies ? 'RECEIVING_COMPLETED_WITH_DISCREPANCY' : 'RECEIVING_COMPLETED') as never,
+      entityType: 'receiving_session', entityId: session.id, ipAddress: actor.ip ?? null,
+      metadata: { finalStatus: arrivalStatus, tally, workerId: actor.id, stationId: session.stationId, previousState },
+    }, tx);
+    await this.assignments.receivingCompleted(session.arrivalId, hasOpenDiscrepancies, session.code, actor.id, tx);
+    return { finalStatus, arrivalStatus, applied: true };
+  }
+
+  /**
+   * Operations recovery (R1): complete a stuck receiving session with
+   * SUPERVISOR authority — the exact audited completion path, without the
+   * worker-floor assert (the endpoint is gated by `operations.correct`) and
+   * always allowed to close over open discrepancies. §9 next-station tasks
+   * fire on success.
+   */
+  async recoverStuckSession(sessionId: string, actor: { id: string; ip?: string | null }) {
+    const session = await this.requireActiveSession(sessionId);
+    const tally = await this.reconcile(sessionId);
+    const completion = await this.prisma.$transaction(async (tx) =>
+      this.applyCompletionTx(tx, session, tally, actor, session.status),
+    );
+    if (!completion.applied) throw new ConflictException('Receiving already changed or completed.');
+    await this.dispatch.onReceivingCompleted(
+      { id: session.id, code: session.code, arrivalId: session.arrivalId },
+      actor.id,
+      { reason: `receiving ${session.code} completed (operations recovery)` },
+    );
+    return this.sessionDetail(sessionId);
+  }
+
+  /** §9 next-station tasks after a report-submit completion (post-commit; caller keeps it best-effort). */
+  async fireReceivingCompletedTasks(sessionId: string, actorId: string, reason: string) {
+    const session = await this.prisma.receivingSession.findUnique({
+      where: { id: sessionId },
+      select: { id: true, code: true, arrivalId: true },
+    });
+    if (!session) return null;
+    return this.dispatch.onReceivingCompleted(
+      { id: session.id, code: session.code, arrivalId: session.arrivalId },
+      actorId,
+      { reason },
+    );
   }
 
   // ---------- read ----------

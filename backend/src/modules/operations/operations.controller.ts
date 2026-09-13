@@ -8,6 +8,7 @@ import { CorrectionsService } from './corrections.service';
 import { TerminalService } from './terminal.service';
 import { AssignmentsService, WORKER_ISSUE_TYPES } from '../assignments/assignments.service';
 import { ReceivingReportsService } from '../receiving/receiving-reports.service';
+import { ReceivingService } from '../receiving/receiving.service';
 import { TASK_REGISTRY } from './task-registry';
 import { RequireApplication } from '../../common/decorators/require-application.decorator';
 
@@ -184,6 +185,7 @@ export class OperationsController {
     private readonly correctionsSvc: CorrectionsService,
     private readonly assignmentsSvc: AssignmentsService,
     private readonly reportsSvc: ReceivingReportsService,
+    private readonly receivingOps: ReceivingService,
   ) {}
 
   @Get('overview')
@@ -546,5 +548,12 @@ export class OperationsController {
   @ApiOperation({ summary: 'ORDER 01: CLOSE a reviewed/submitted report.' })
   closeReport(@Param('id') id: string, @Req() req: any) {
     return this.reportsSvc.closeReport(id, { id: actorOf(req).id });
+  }
+
+  @Post('receiving-sessions/:id/complete')
+  @RequirePermissions('operations.correct')
+  @ApiOperation({ summary: 'R1 recovery: complete a stuck receiving session with supervisor authority (audited; fires the §9 next-station tasks).' })
+  recoverReceivingSession(@Param('id') id: string, @Req() req: any) {
+    return this.receivingOps.recoverStuckSession(id, { id: actorOf(req).id, ip: req.ip ?? null });
   }
 }
