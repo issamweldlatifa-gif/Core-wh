@@ -464,7 +464,8 @@ function AddWorkerModal({ onDone, onClose }: { onDone: (m: string) => void; onCl
         <div>
           <label className="os-label" htmlFor="aw-role">Worker role</label>
           <select id="aw-role" className="os-input os-select" value={role} onChange={(e) => setRole(e.target.value)}>
-            {WORKER_ROLE_OPTIONS.map((r) => <option key={r.name} value={r.name}>{r.label} ({r.name})</option>)}
+            {WORKER_ROLE_OPTIONS.filter((r) => !('legacy' in r && r.legacy))
+              .map((r) => <option key={r.name} value={r.name}>{r.label} ({r.name})</option>)}
           </select>
         </div>
         <div>

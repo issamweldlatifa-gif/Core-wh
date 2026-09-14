@@ -181,11 +181,14 @@ export const WORKER_ROLE_OPTIONS = [
   { name: 'PUTAWAY_WORKER', label: 'Putaway Worker' },
   { name: 'PACKING_WORKER', label: 'Packing Worker' },
   { name: 'SHIPPING_WORKER', label: 'Shipping Worker' },
-  // Compatibility / legacy roles (kept — never deleted without migration).
-  { name: 'INBOUND_WORKER', label: 'Inbound (compatibility)' },
-  { name: 'PICKER', label: 'Picker (legacy)' },
-  { name: 'PACKER', label: 'Packer (legacy)' },
-];
+  // Compatibility / legacy roles (kept in the SYSTEM for existing users —
+  // never deleted without migration — but OWNER 2026-09-14: the new
+  // workflow maps workers to STATIONS, so these are no longer offered
+  // when creating a worker).
+  { name: 'INBOUND_WORKER', label: 'Inbound (compatibility)', legacy: true },
+  { name: 'PICKER', label: 'Picker (legacy)', legacy: true },
+  { name: 'PACKER', label: 'Packer (legacy)', legacy: true },
+] as const;
 
 export interface WorkerDetail {
   worker: WorkerRow & { operations?: WorkerOperation[] };

@@ -41,34 +41,55 @@ function fmtAgo(iso: string | null | undefined): string {
   return `${h}h ago`;
 }
 
-/** OPERATION PIPELINE — one flow box per stage (§4B). */
+/** OPERATION PIPELINE — one flow box per stage.
+ *  OWNER 2026-09-14 («تستعمل في داتا قديمة»): the MAIN path is the NEW
+ *  workflow — BATCH → RECEIVING → TEMPORARY STORAGE → outbound. The OLD CRM
+ *  arrival flow (ARRIVAL, RECEIVING CONTAINER/TOTE) is legacy: its counters
+ *  still count real (old) records, which read as stale data on the main
+ *  strip. Those stages are rendered COLLAPSED under an explicit legacy
+ *  label — display-only, the API payload is untouched. Live poll §15 (30s). */
+const LEGACY_STAGE_IDS = new Set(['arrival', 'receiving-container']);
+
 export function Pipeline({ stages }: { stages: OpsOverview['pipeline'] }) {
+  const main = stages.filter((s) => !LEGACY_STAGE_IDS.has(s.id));
+  const legacy = stages.filter((s) => LEGACY_STAGE_IDS.has(s.id));
+  const strip = (rows: OpsOverview['pipeline']) => (
+    <div className="ac-pipe">
+      {rows.map((s, i) => (
+        <div key={s.id} style={{ display: 'flex', alignItems: 'stretch' }}>
+          {i > 0 && <div className="ac-pipe-arrow">▸</div>}
+          <div className="ac-stage">
+            <div className="ac-stage-idx">0{i + 1}</div>
+            <div className="ac-stage-title">{s.title}</div>
+            <div className="ac-stage-cells">
+              {s.cells.map((c) => (
+                <div key={c.key} className="ac-metric">
+                  <span className={`ac-metric-value ${CELL_TONE[c.key] ?? 'tone-info'}`}>{c.value}</span>
+                  <span className="ac-metric-label">{metricLabel(c)}</span>
+                </div>
+              ))}
+              {s.cells.length === 0 && <span className="os-muted" style={{ fontSize: 11 }}>not available</span>}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
   return (
     <div className="os-card">
       <div className="cc-head">
         <h2 className="cc-title">Operation Pipeline</h2>
-        <span className="os-muted" style={{ fontSize: 12 }}>arrival → … → archive / trace · real counts only · no category gate</span>
+        <span className="os-muted" style={{ fontSize: 12 }}>batch → receiving → temporary storage → outbound · live · auto-refresh 30s</span>
       </div>
-      <div className="ac-pipe">
-        {stages.map((s, i) => (
-          <div key={s.id} style={{ display: 'flex', alignItems: 'stretch' }}>
-            {i > 0 && <div className="ac-pipe-arrow">▸</div>}
-            <div className="ac-stage">
-              <div className="ac-stage-idx">0{i + 1}</div>
-              <div className="ac-stage-title">{s.title}</div>
-              <div className="ac-stage-cells">
-                {s.cells.map((c) => (
-                  <div key={c.key} className="ac-metric">
-                    <span className={`ac-metric-value ${CELL_TONE[c.key] ?? 'tone-info'}`}>{c.value}</span>
-                    <span className="ac-metric-label">{metricLabel(c)}</span>
-                  </div>
-                ))}
-                {s.cells.length === 0 && <span className="os-muted" style={{ fontSize: 11 }}>not available</span>}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
+      {strip(main)}
+      {legacy.length > 0 && (
+        <details style={{ margin: '8px 12px 12px' }}>
+          <summary className="os-muted" style={{ fontSize: 12, cursor: 'pointer' }}>
+            LEGACY FLOW ({legacy.length}) — the old CRM arrival path; kept for history, not the current main path
+          </summary>
+          {strip(legacy)}
+        </details>
+      )}
     </div>
   );
 }

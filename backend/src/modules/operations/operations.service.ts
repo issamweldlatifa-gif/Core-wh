@@ -543,7 +543,7 @@ export class OperationsService {
         cells: [
           ['active', d.batchesActive, 'batches'],
           ['waiting', d.batchesInReceiving, 'in receiving'],
-          ['done', d.batchesCompleted, 'done'],
+          ['done', d.batchesCompleted, 'batches'],
         ],
       },
       {
