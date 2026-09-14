@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 
 import { useAuth } from '../../context/AuthContext';
 import { apiErrorMessage } from '../../api/client';
-import { PrintSheet, drawCode128 } from '../print-sheet';
+import { printLabelsInNewWindow } from '../print-sheet';
 import {
   BATCH_STATUS_TAG,
   batchActions,
@@ -58,29 +58,6 @@ function fmt(iso: string | null): string {
 
 
 
-/** Transient print surface (PRINT FIX: portal + display-based print root —
- * print-sheet.tsx; the visibility trick printed blank pages on Android
- * Chrome). OWNER LABEL CONTRACT: the barcode + its number beneath — nothing
- * else. */
-function BatchPrintLabel({ code, canvasRef }: {
-  code: string;
-  canvasRef: React.RefObject<HTMLCanvasElement>;
-}) {
-  return (
-    <PrintSheet>
-      <div className="ac-bprint">
-        <style>{`
-          .ac-bprint { display: flex; flex-direction: column; align-items: center; gap: 10px; background: #fff; color: #000; padding: 16px; }
-          .ac-bprint canvas { width: 560px; max-width: 92vw; height: 120px; image-rendering: pixelated; }
-          .ac-bprint h2 { margin: 0; font-size: 26px; letter-spacing: 0.1em; }
-        `}</style>
-        <canvas ref={canvasRef} aria-hidden="true" />
-        <h2>{code}</h2>
-      </div>
-    </PrintSheet>
-  );
-}
-
 export default function BatchesAdmin() {
   const { me, hasPermission } = useAuth();
   const operatorId = me?.user?.id ?? 'admin';
@@ -97,13 +74,6 @@ export default function BatchesAdmin() {
   const [err, setErr] = useState<string | null>(null);
   const [voidTarget, setVoidTarget] = useState<BatchRow | null>(null);
   const [voidReason, setVoidReason] = useState('');
-  const [printCode, setPrintCode] = useState<{ code: string } | null>(null);
-  const printCanvas = useRef<HTMLCanvasElement>(null);
-
-  useEffect(() => {
-    if (printCode) drawCode128(printCanvas.current, printCode.code);
-  }, [printCode]);
-
   async function act(fn: () => Promise<unknown>) {
     setBusy(true);
     setErr(null);
@@ -120,12 +90,10 @@ export default function BatchesAdmin() {
 
   function onAction(row: BatchRow, action: BatchUiAction) {
     if (action === 'print') {
-      setPrintCode({ code: row.batchCode });
-      // PRINT FIX: let the portaled canvas draw before the dialog opens.
-      setTimeout(() => {
-        window.print();
-        setPrintCode(null);
-      }, 300);
+      // Self-contained print tab (Android-Chrome-safe; print-sheet.tsx).
+      if (!printLabelsInNewWindow([row.batchCode])) {
+        window.alert('Pop-up blocked — allow pop-ups for this site, then try again.');
+      }
       return;
     }
     if (action === 'void') {
@@ -275,9 +243,6 @@ export default function BatchesAdmin() {
         </div>
       )}
 
-      {printCode && (
-        <BatchPrintLabel code={printCode.code} canvasRef={printCanvas} />
-      )}
     </div>
   );
 }

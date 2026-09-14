@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { PrintSheet, drawCode128 } from '../print-sheet';
+import { useState } from 'react';
+import { printLabelsInNewWindow } from '../print-sheet';
 import { useAuth } from '../../context/AuthContext';
 import { apiErrorMessage } from '../../api/client';
 import { tsAdminApi, type TsOverview, type TsReportDetail, type TsReportRow } from '../temp-storage';
@@ -28,43 +28,6 @@ function fmt(iso: string | null): string {
 
 
 
-/**
- * SHELF LABELS (owner request 2026-09-13: «نسكاني étagère اللي في المستودع؟»):
- * the worker must SCAN the shelf label after placing the product, so the
- * shelves need printed codes. Container codes are deterministic per section
- * (Letter+Number: K1, K2, … — nextContainerCode); a pre-printed sheet
- * therefore matches exactly what the system will target. OWNER LABEL
- * CONTRACT: the barcode + its number beneath — nothing else.
- */
-function ShelfLabelSheet({ codes, canvasRefs }: {
-  codes: string[];
-  canvasRefs: React.MutableRefObject<(HTMLCanvasElement | null)[]>;
-}) {
-  useEffect(() => {
-    codes.forEach((c, i) => drawCode128(canvasRefs.current[i], c));
-  }, [codes, canvasRefs]);
-  // PRINT FIX: portal + display-based print root (print-sheet.tsx) — the
-  // visibility trick printed blank pages on Android Chrome.
-  return (
-    <PrintSheet>
-      <div className="ts-sheet">
-        <style>{`
-          .ts-sheet { display: flex; flex-direction: column; gap: 14px; background: #fff; color: #000; padding: 16px; }
-          .ts-sheet .ts-lbl { display: flex; flex-direction: column; align-items: center; gap: 6px; page-break-inside: avoid; border-bottom: 1px dashed #bbb; padding-bottom: 10px; }
-          .ts-sheet canvas { width: 560px; max-width: 92vw; height: 120px; image-rendering: pixelated; }
-          .ts-sheet h2 { margin: 0; font-size: 26px; letter-spacing: 0.1em; }
-        `}</style>
-        {codes.map((c, i) => (
-          <div key={c} className="ts-lbl">
-            <canvas ref={(el) => { canvasRefs.current[i] = el; }} aria-hidden="true" />
-            <h2>{c}</h2>
-          </div>
-        ))}
-      </div>
-    </PrintSheet>
-  );
-}
-
 export default function TemporaryStorageAdmin() {
   const { hasPermission } = useAuth();
   const canManage = hasPermission('stations.manage');
@@ -83,11 +46,9 @@ export default function TemporaryStorageAdmin() {
 
   const cfg = overview.data?.capacity ?? 20;
   const [capacity, setCapacity] = useState<number | null>(null);
-  // SHELF LABELS print sheet (Letter+Number container codes, e.g. K1…K5).
+  // SHELF LABELS printing (Letter+Number container codes, e.g. K1…K5).
   const [shelfLetter, setShelfLetter] = useState('');
   const [shelfCount, setShelfCount] = useState(5);
-  const [shelfCodes, setShelfCodes] = useState<string[]>([]);
-  const shelfCanvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
 
   async function saveCapacity() {
     setBusy(true); setErr(null);
@@ -209,8 +170,11 @@ export default function TemporaryStorageAdmin() {
                     disabled={!shelfLetter}
                     onClick={() => {
                       const codes = Array.from({ length: shelfCount }, (_, i) => `${shelfLetter}${i + 1}`);
-                      setShelfCodes(codes);
-                      setTimeout(() => window.print(), 300); // PRINT FIX: let the canvases draw first
+                      // Opens a self-contained tab with the labels and its print
+                      // dialog (Android-Chrome-safe; see print-sheet.tsx).
+                      if (!printLabelsInNewWindow(codes)) {
+                        window.alert('Pop-up blocked — allow pop-ups for this site, then try again.');
+                      }
                     }}
                   >
                     PRINT LABELS
@@ -374,7 +338,6 @@ export default function TemporaryStorageAdmin() {
           )}
         </div>
       )}
-      {shelfCodes.length > 0 && <ShelfLabelSheet codes={shelfCodes} canvasRefs={shelfCanvasRefs} />}
     </div>
   );
 }
