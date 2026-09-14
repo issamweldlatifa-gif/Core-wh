@@ -217,6 +217,8 @@ enum AuditAction {
   DEVICE_UPDATED
   DEVICE_STATUS_CHANGED
   DEVICE_ASSIGNED
+  /// OWNER 2026-09-14: full registry removal (audited hard delete).
+  DEVICE_REMOVED
   // Master workflow chain — automatic task dispatch + container staging +
   // customer container QR/lock + shipping verification.
   TASK_AUTO_DISPATCHED // backend auto-generated the next operational task
@@ -251,6 +253,8 @@ enum AuditAction {
   BATCH_UNIT_RECEIVED
   BATCH_RECEIVING_COMPLETED
   BATCH_VOIDED
+  /// OWNER 2026-09-14 («الادمن ينجم يحذف»): audited HARD delete, any status.
+  BATCH_HARD_DELETED
 }
 
 enum ApiClientStatus {

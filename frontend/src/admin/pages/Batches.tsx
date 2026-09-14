@@ -44,11 +44,13 @@ const STATUSES = [
 const ACTION_LABEL: Record<BatchUiAction, string> = {
   void: 'Void…',
   print: 'Print label',
+  delete: 'Delete',
 };
 
 const ACTION_CLASS: Record<BatchUiAction, string> = {
   void: 'os-btn os-btn--danger',
   print: 'os-btn os-btn--ghost',
+  delete: 'os-btn os-btn--danger',
 };
 
 function fmt(iso: string | null): string {
@@ -74,6 +76,8 @@ export default function BatchesAdmin() {
   const [err, setErr] = useState<string | null>(null);
   const [voidTarget, setVoidTarget] = useState<BatchRow | null>(null);
   const [voidReason, setVoidReason] = useState('');
+  // OWNER 2026-09-14: hard delete (any status, audited, units cascade).
+  const [deleteTarget, setDeleteTarget] = useState<BatchRow | null>(null);
   async function act(fn: () => Promise<unknown>) {
     setBusy(true);
     setErr(null);
@@ -98,6 +102,10 @@ export default function BatchesAdmin() {
       } catch (e) {
         window.alert(`Print error: ${e instanceof Error ? e.message : String(e)}`);
       }
+      return;
+    }
+    if (action === 'delete') {
+      setDeleteTarget(row);
       return;
     }
     if (action === 'void') {
@@ -214,6 +222,32 @@ export default function BatchesAdmin() {
         );
       })}
       {!batches.loading && rows.length === 0 && <p className="os-empty">No batches{status ? ` in ${status}` : ''}.</p>}
+
+      {deleteTarget && (
+        <div className="ac-modal" role="dialog" aria-modal="true" aria-label="Delete batch">
+          <div className="ac-modal-box">
+            <h2 className="ac-modal-title">DELETE {deleteTarget.batchCode}</h2>
+            <p className="ac-modal-warn">
+              Permanent removal — the batch and its {deleteTarget.totalScanned}/{deleteTarget.totalExpected} unit
+              records are deleted now. This cannot be undone (an audit entry keeps what was removed).
+            </p>
+            <div className="ac-modal-actions">
+              <button className="os-btn" onClick={() => setDeleteTarget(null)} disabled={busy}>Cancel</button>
+              <button
+                className="os-btn os-btn--danger"
+                disabled={busy}
+                onClick={() => {
+                  const target = deleteTarget;
+                  setDeleteTarget(null);
+                  void act(() => batchesAdminApi.remove(target.id));
+                }}
+              >
+                Delete permanently
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {voidTarget && (
         <div className="ac-modal" role="dialog" aria-modal="true" aria-label="Void batch">

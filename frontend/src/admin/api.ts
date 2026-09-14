@@ -529,6 +529,9 @@ export const adminApi = {
 
   // Devices — hardware registered for the Native Worker App (ADMIN_WEB only).
   devices: () => client.get<DeviceRow[]>('/v1/devices').then((r) => r.data),
+  /** OWNER 2026-09-14: full registry removal (audited; sessions revoked). */
+  removeDevice: (idOrCode: string) =>
+    client.delete<{ ok: true; removed: string; revokedSessions: number }>(`/v1/devices/${idOrCode}`).then((r) => r.data),
   createDevice: (d: { code: string; name: string; model?: string; stationCode?: string; workerId?: string }) =>
     client.post<DeviceRow>('/v1/devices', d).then((r) => r.data),
   deviceStatus: (id: string, status: 'ACTIVE' | 'DISABLED') =>

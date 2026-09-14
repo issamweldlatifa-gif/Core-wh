@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiPropertyOptional, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { DeviceStatus } from '@prisma/client';
 import { IsIn, IsOptional, IsString } from 'class-validator';
@@ -75,6 +75,14 @@ export class DevicesController {
   status(@Param('id') id: string, @Body() dto: ChangeDeviceStatusDto, @Req() req: any) {
     const a = actorOf(req);
     return this.devices.changeStatus(id, dto.status, a.id, a.ip);
+  }
+
+  @Delete(':idOrCode')
+  @RequirePermissions('stations.manage')
+  @ApiOperation({ summary: 'OWNER 2026-09-14: remove a device from the registry (revokes live sessions; audited).' })
+  remove(@Req() req: any, @Param('idOrCode') idOrCode: string) {
+    const { id, ip } = actorOf(req);
+    return this.devices.remove(idOrCode, id, ip);
   }
 
   @Post(':id/assign')

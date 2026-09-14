@@ -194,13 +194,37 @@ export default function TemporaryStorageAdmin() {
           {(ov.stations.length === 0) && <div className="os-empty">No Temporary Storage station has containers yet.</div>}
           <div className="os-row" style={{ gap: 12, flexWrap: 'wrap', alignItems: 'stretch', marginBottom: 18 }}>
             {ov.stations.map((s) => (
-              <div key={s.station.id} className="os-card" style={{ padding: '12px 16px', minWidth: 260 }}>
+              <div key={s.station.id} className="os-card" style={{ padding: '12px 16px', minWidth: 260, flex: '1 1 300px' }}>
                 <div style={{ fontWeight: 800 }}>{s.station.code} <span className="os-tag os-tag--muted">{s.station.status}</span></div>
                 <div className="os-muted" style={{ margin: '2px 0 8px' }}>{s.station.name}</div>
-                <div className="os-row" style={{ gap: 6, flexWrap: 'wrap' }}>
-                  {s.sections.map((l) => <span key={l} className="os-tag os-tag--info">{l}</span>)}
-                  {s.sections.length === 0 && <span className="os-muted">—</span>}
-                </div>
+                {(s.containerList ?? []).length > 0 && s.sections.map((sec) => {
+                  const boxes = (s.containerList ?? []).filter((k) => k.section === sec);
+                  if (boxes.length === 0) return null;
+                  return (
+                    <div key={sec} style={{ marginBottom: 10 }}>
+                      <div className="os-tag os-tag--info" style={{ marginBottom: 6 }}>{sec}</div>
+                      <div className="ts-squares">
+                        {boxes.map((k) => {
+                          const ratio = k.capacity > 0 ? Math.min(1, k.stored / k.capacity) : 0;
+                          const tone = ratio <= 0 ? 'ts-sq--empty' : ratio >= 1 ? 'ts-sq--full' : 'ts-sq--part';
+                          return (
+                            <div key={k.id} className={`ts-sq ${tone}`} title={`${k.code} · ${k.stored}/${k.capacity} stored · section ${sec}`}>
+                              <span className="ts-sq-code">{k.code}</span>
+                              <span className="ts-sq-fill">{k.stored}/{k.capacity}</span>
+                              <span className="ts-sq-bar" style={{ width: `${Math.round(ratio * 100)}%` }} />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+                {(s.containerList ?? []).length === 0 && (
+                  <div className="os-row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                    {s.sections.map((l) => <span key={l} className="os-tag os-tag--info">{l}</span>)}
+                    <span className="os-muted">— no containers yet</span>
+                  </div>
+                )}
                 <div className="os-muted" style={{ marginTop: 8, fontSize: '0.78rem' }}>
                   {s.containers} containers · <b>{s.stored}</b>/{s.capacity} stored · {s.remaining} free
                   {s.reviewItems > 0 && <span style={{ color: 'var(--error)' }}> · {s.reviewItems} REVIEW</span>}

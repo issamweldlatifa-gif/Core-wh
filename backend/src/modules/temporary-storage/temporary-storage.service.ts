@@ -1153,6 +1153,15 @@ export class TemporaryStorageService {
         station: { id: s.id, code: s.code, name: s.name, status: s.status },
         sections: [...new Set(c.map((k) => k.sectionLetter))].sort(),
         containers: c.length,
+        // OWNER 2026-09-14: per-container rows for the admin SQUARES grid
+        // (each square = one container, colored by its fill ratio).
+        containerList: c.map((k) => ({
+          id: k.id,
+          code: k.code,
+          section: k.sectionLetter,
+          stored: k.items.reduce((x, i) => x + i.quantity, 0),
+          capacity: k.capacity,
+        })),
         stored,
         capacity,
         remaining: Math.max(0, capacity - stored),

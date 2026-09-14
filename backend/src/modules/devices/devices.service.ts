@@ -200,6 +200,33 @@ export class DevicesService {
   }
 
   /** Touched on every authenticated request from a device-bound session. */
+  /**
+   * OWNER 2026-09-14 («نجمو نحذفو اي جهاز»): full removal from the registry.
+   * Live sessions are revoked first (same semantics as DISABLED), the audit
+   * trail keeps the entry, and the schema relations (session.device /
+   * station.device) are ON DELETE SET NULL, so the row deletes cleanly.
+   */
+  async remove(idOrCode: string, actorUserId: string, ip?: string) {
+    const existing = await this.prisma.device.findFirst({
+      where: { OR: [{ id: idOrCode }, { code: idOrCode }] },
+    });
+    if (!existing) throw new NotFoundException('Device not found.');
+    const revoked = await this.prisma.session.updateMany({
+      where: { deviceId: existing.id, status: 'ACTIVE' },
+      data: { status: 'REVOKED', revokedAt: new Date() },
+    });
+    await this.prisma.device.delete({ where: { id: existing.id } });
+    await this.audit.log({
+      actorUserId,
+      action: 'DEVICE_REMOVED' as never,
+      entityType: 'device',
+      entityId: existing.id,
+      ipAddress: ip,
+      metadata: { code: existing.code, name: existing.name, revokedSessions: revoked.count },
+    });
+    return { ok: true as const, removed: existing.code, revokedSessions: revoked.count };
+  }
+
   async touch(deviceId: string, ip?: string, appVersion?: string) {
     await this.prisma.device.update({
       where: { id: deviceId },

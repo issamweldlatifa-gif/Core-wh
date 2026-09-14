@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { RequireApplication } from '../../common/decorators/require-application.decorator';
@@ -94,6 +94,13 @@ export class BatchesController {
   @RequirePermissions('batch.void')
   void(@Req() req: any, @Param('id') id: string, @Body() dto: BatchVoidDto) {
     return this.batches.voidBatch(this.actor(req), id, dto);
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'OWNER 2026-09-14: audited HARD delete (any status). Units cascade.' })
+  @RequirePermissions('batch.void')
+  hardDelete(@Req() req: any, @Param('id') id: string) {
+    return this.batches.hardDelete(this.actor(req), id);
   }
 
   @Post(':id/receiving/start')

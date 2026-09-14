@@ -9,6 +9,8 @@ export interface TsAdminStationRow {
   station: { id: string; code: string; name: string; status: string };
   sections: string[];
   containers: number;
+  /** OWNER 2026-09-14: per-container rows for the admin SQUARES grid. */
+  containerList: Array<{ id: string; code: string; section: string; stored: number; capacity: number }>;
   stored: number;
   capacity: number;
   remaining: number;

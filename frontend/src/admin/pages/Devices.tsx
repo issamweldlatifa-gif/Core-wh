@@ -154,12 +154,23 @@ export default function Devices() {
                     ) : (d.assignedWorker?.name ?? <span className="os-muted">unassigned</span>)}
                   </td>
                   <td className="os-muted">{fmt(d.lastSeenAt)}</td>
-                  <td>
+                  <td style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                     {canManage && (
-                      <button className="ac-linkbtn"
-                        onClick={() => act(() => adminApi.deviceStatus(d.id, d.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE'))}>
-                        {d.status === 'ACTIVE' ? 'disable' : 'activate'}
-                      </button>
+                      <>
+                        <button className="ac-linkbtn"
+                          onClick={() => act(() => adminApi.deviceStatus(d.id, d.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE'))}>
+                          {d.status === 'ACTIVE' ? 'disable' : 'activate'}
+                        </button>
+                        {/* OWNER 2026-09-14: full registry removal (audited; sessions revoked). */}
+                        <button className="ac-linkbtn" style={{ color: '#e5534b', fontWeight: 700 }}
+                          onClick={() => {
+                            if (window.confirm(`Remove ${d.code} from the registry?\nIts live sessions are revoked and this cannot be undone.`)) {
+                              void act(() => adminApi.removeDevice(d.id));
+                            }
+                          }}>
+                          remove
+                        </button>
+                      </>
                     )}
                   </td>
                 </tr>
