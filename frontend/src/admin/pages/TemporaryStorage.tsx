@@ -172,8 +172,12 @@ export default function TemporaryStorageAdmin() {
                       const codes = Array.from({ length: shelfCount }, (_, i) => `${shelfLetter}${i + 1}`);
                       // Opens a self-contained tab with the labels and its print
                       // dialog (Android-Chrome-safe; see print-sheet.tsx).
-                      if (!printLabelsInNewWindow(codes)) {
-                        window.alert('Pop-up blocked — allow pop-ups for this site, then try again.');
+                      try {
+                        if (!printLabelsInNewWindow(codes)) {
+                          window.alert('Pop-up blocked — allow pop-ups for this site, then try again.');
+                        }
+                      } catch (e) {
+                        window.alert(`Print error: ${e instanceof Error ? e.message : String(e)}`);
                       }
                     }}
                   >

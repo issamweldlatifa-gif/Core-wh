@@ -91,8 +91,12 @@ export default function BatchesAdmin() {
   function onAction(row: BatchRow, action: BatchUiAction) {
     if (action === 'print') {
       // Self-contained print tab (Android-Chrome-safe; print-sheet.tsx).
-      if (!printLabelsInNewWindow([row.batchCode])) {
-        window.alert('Pop-up blocked — allow pop-ups for this site, then try again.');
+      try {
+        if (!printLabelsInNewWindow([row.batchCode])) {
+          window.alert('Pop-up blocked — allow pop-ups for this site, then try again.');
+        }
+      } catch (e) {
+        window.alert(`Print error: ${e instanceof Error ? e.message : String(e)}`);
       }
       return;
     }
