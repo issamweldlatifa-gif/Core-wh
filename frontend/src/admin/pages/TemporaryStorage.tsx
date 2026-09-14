@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { BarcodeFormat, MultiFormatWriter } from '@zxing/library';
 import { useAuth } from '../../context/AuthContext';
 import { apiErrorMessage } from '../../api/client';
 import { tsAdminApi, type TsOverview, type TsReportDetail, type TsReportRow } from '../temp-storage';
@@ -25,6 +26,65 @@ function fmt(iso: string | null): string {
   return d.toLocaleString();
 }
 
+/** CODE 128 of a shelf/container code, drawn locally (zxing encode → canvas). */
+function drawShelfBarcode(canvas: HTMLCanvasElement | null, value: string) {
+  if (!canvas) return;
+  const width = 560;
+  const height = 120;
+  const matrix = new MultiFormatWriter().encode(value, BarcodeFormat.CODE_128, width, height, new Map());
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = '#000000';
+  const cell = width / matrix.getWidth();
+  for (let x = 0; x < matrix.getWidth(); x += 1) {
+    if (matrix.get(x, 0)) {
+      ctx.fillRect(Math.floor(x * cell), 0, Math.ceil(cell), height);
+    }
+  }
+}
+
+/**
+ * SHELF LABELS (owner request 2026-09-13: «نسكاني étagère اللي في المستودع؟»):
+ * the worker must SCAN the shelf label after placing the product, so the
+ * shelves need printed codes. Container codes are deterministic per section
+ * (Letter+Number: K1, K2, … — nextContainerCode); a pre-printed sheet
+ * therefore matches exactly what the system will target. OWNER LABEL
+ * CONTRACT: the barcode + its number beneath — nothing else.
+ */
+function ShelfLabelSheet({ codes, canvasRefs }: {
+  codes: string[];
+  canvasRefs: React.MutableRefObject<(HTMLCanvasElement | null)[]>;
+}) {
+  useEffect(() => {
+    codes.forEach((c, i) => drawShelfBarcode(canvasRefs.current[i], c));
+  }, [codes, canvasRefs]);
+  return (
+    <div className="ts-sheet">
+      <style>{`
+        @media print {
+          body * { visibility: hidden !important; }
+          .ts-sheet, .ts-sheet * { visibility: visible !important; }
+          .ts-sheet { position: absolute; inset: 0; background: #fff; padding: 16px; }
+        }
+        .ts-sheet { display: flex; flex-direction: column; gap: 14px; background: #fff; color: #000; padding: 16px; }
+        .ts-sheet .ts-lbl { display: flex; flex-direction: column; align-items: center; gap: 6px; page-break-inside: avoid; border-bottom: 1px dashed #bbb; padding-bottom: 10px; }
+        .ts-sheet canvas { width: 560px; max-width: 92vw; height: 120px; image-rendering: pixelated; }
+        .ts-sheet h2 { margin: 0; font-size: 26px; letter-spacing: 0.1em; }
+      `}</style>
+      {codes.map((c, i) => (
+        <div key={c} className="ts-lbl">
+          <canvas ref={(el) => { canvasRefs.current[i] = el; }} aria-hidden="true" />
+          <h2>{c}</h2>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function TemporaryStorageAdmin() {
   const { hasPermission } = useAuth();
   const canManage = hasPermission('stations.manage');
@@ -43,6 +103,11 @@ export default function TemporaryStorageAdmin() {
 
   const cfg = overview.data?.capacity ?? 20;
   const [capacity, setCapacity] = useState<number | null>(null);
+  // SHELF LABELS print sheet (Letter+Number container codes, e.g. K1…K5).
+  const [shelfLetter, setShelfLetter] = useState('');
+  const [shelfCount, setShelfCount] = useState(5);
+  const [shelfCodes, setShelfCodes] = useState<string[]>([]);
+  const shelfCanvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
 
   async function saveCapacity() {
     setBusy(true); setErr(null);
@@ -129,6 +194,53 @@ export default function TemporaryStorageAdmin() {
               </div>
             </div>
           </div>
+
+            <div className="os-card" style={{ padding: '10px 16px' }}>
+              <div className="os-row" style={{ gap: 8, alignItems: 'flex-end' }}>
+                <div>
+                  <label className="os-label" htmlFor="ts-shelf-letter">SHELF LABELS · SECTION</label>
+                  <input
+                    id="ts-shelf-letter"
+                    className="os-input"
+                    style={{ width: 70, textTransform: 'uppercase' }}
+                    maxLength={1}
+                    placeholder="K"
+                    value={shelfLetter}
+                    onChange={(e) => setShelfLetter(e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))}
+                  />
+                </div>
+                <div>
+                  <label className="os-label" htmlFor="ts-shelf-count">COUNT</label>
+                  <input
+                    id="ts-shelf-count"
+                    type="number"
+                    min={1}
+                    max={40}
+                    className="os-input"
+                    style={{ width: 80 }}
+                    value={shelfCount}
+                    onChange={(e) => setShelfCount(Math.max(1, Math.min(40, Number(e.target.value) || 1)))}
+                  />
+                </div>
+                {canManage && (
+                  <button
+                    type="button"
+                    className="os-btn os-btn--primary"
+                    disabled={!shelfLetter}
+                    onClick={() => {
+                      const codes = Array.from({ length: shelfCount }, (_, i) => `${shelfLetter}${i + 1}`);
+                      setShelfCodes(codes);
+                      setTimeout(() => window.print(), 120);
+                    }}
+                  >
+                    PRINT LABELS
+                  </button>
+                )}
+              </div>
+              <div className="os-muted" style={{ fontSize: 12, marginTop: 4 }}>
+                Stick K1, K2, … on the section's shelves — the worker scans the shelf after placing the product.
+              </div>
+            </div>
 
           <h2 className="os-card-title">STATIONS · SECTIONS</h2>
           {(ov.stations.length === 0) && <div className="os-empty">No Temporary Storage station has containers yet.</div>}
@@ -282,6 +394,7 @@ export default function TemporaryStorageAdmin() {
           )}
         </div>
       )}
+      {shelfCodes.length > 0 && <ShelfLabelSheet codes={shelfCodes} canvasRefs={shelfCanvasRefs} />}
     </div>
   );
 }
