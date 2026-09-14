@@ -1,6 +1,7 @@
 package com.ayrovi.worker.presentation
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -43,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathMeasure
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import android.app.Activity
 import android.content.ContextWrapper
@@ -373,23 +375,54 @@ internal fun CameraToolOverlay(capture: ScannerCapture, enabled: Boolean, onBack
                     // THE verdict mark (green ✓ / red ✕) — centred IN the
                     // camera, over the live preview, brief and auto-clearing
                     // (the engine in ScannerCaptureHost owns the timing).
+                    // v87 OWNER redesign («أكثر احترافية»): scale-in landing
+                    // with a controlled overshoot, a dark contrast disc under
+                    // a crisp white ring, and the ✓ / ✕ drawn as animated
+                    // strokes — no flat glyph on a coloured disc.
                     capture.feedback?.let { fb ->
                         val okMark = fb.success
+                        val enter = remember(fb) { Animatable(0f) }
+                        LaunchedEffect(fb) {
+                            enter.animateTo(1f, tween(320, easing = CubicBezierEasing(0.34f, 1.56f, 0.64f, 1f)))
+                        }
+                        val e = enter.value
+                        val tone = if (okMark) TerminalTokens.success else TerminalTokens.error
                         Box(
-                            Modifier.align(Alignment.Center).size(112.dp)
-                                .background(
-                                    (if (okMark) TerminalTokens.success else TerminalTokens.error).copy(alpha = 0.92f),
-                                    CircleShape,
-                                )
+                            Modifier.align(Alignment.Center)
+                                .size(118.dp)
+                                .graphicsLayer(scaleX = 0.6f + 0.4f * e, scaleY = 0.6f + 0.4f * e, alpha = e.coerceIn(0f, 1f))
+                                .background(Color.Black.copy(alpha = 0.38f), CircleShape)
+                                .border(2.dp, Color.White.copy(alpha = 0.55f), CircleShape)
+                                .padding(10.dp)
+                                .background(tone.copy(alpha = 0.95f), CircleShape)
                                 .testTag(if (okMark) "SCAN_FEEDBACK_OK" else "SCAN_FEEDBACK_ERR"),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text(
-                                if (okMark) "✓" else "✕",
-                                color = Color.White,
-                                style = MaterialTheme.typography.displayLarge,
-                                fontWeight = FontWeight.Black,
-                            )
+                            Canvas(Modifier.size(56.dp)) {
+                                val stroke = Stroke(width = 7.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                                if (okMark) {
+                                    val check = Path().apply {
+                                        moveTo(size.width * 0.22f, size.height * 0.54f)
+                                        lineTo(size.width * 0.42f, size.height * 0.72f)
+                                        lineTo(size.width * 0.80f, size.height * 0.30f)
+                                    }
+                                    val pm = PathMeasure()
+                                    pm.setPath(check, false)
+                                    val segment = Path()
+                                    pm.getSegment(0f, pm.length * e, segment, true)
+                                    drawPath(segment, Color.White, style = stroke)
+                                } else {
+                                    // ✕ drawn as two trimmed strokes in sequence.
+                                    val a0 = Offset(size.width * 0.24f, size.height * 0.24f)
+                                    val a1 = Offset(size.width * 0.76f, size.height * 0.76f)
+                                    val b0 = Offset(size.width * 0.76f, size.height * 0.24f)
+                                    val b1 = Offset(size.width * 0.24f, size.height * 0.76f)
+                                    val half = (e * 2f).coerceIn(0f, 1f)
+                                    drawLine(Color.White, a0, Offset(a0.x + (a1.x - a0.x) * half, a0.y + (a1.y - a0.y) * half), stroke.width, stroke.cap)
+                                    val half2 = (e * 2f - 1f).coerceIn(0f, 1f)
+                                    if (half2 > 0f) drawLine(Color.White, b0, Offset(b0.x + (b1.x - b0.x) * half2, b0.y + (b1.y - b0.y) * half2), stroke.width, stroke.cap)
+                                }
+                            }
                         }
                     }
 
@@ -785,35 +818,67 @@ internal fun ScanResultOverlay(
 }
 
 /**
- * The OWNER success mark: a circle that DRAWS itself (stroke arc sweep),
- * then the check stroke draws inside it, the mark glyph fading in with it.
+ * The OWNER verdict mark (v87 redesign — «لازم تكون أكثر احترافية»): a
+ * three-phase, single-drawing animation.
+ *
+ *   1. RING  (0 → 0.55): the circle sweeps in with an ease-out curve while
+ *      the whole mark scales in with a small overshoot (lands, never bounces).
+ *      A faint outer halo ring trails the main stroke for depth.
+ *   2. CHECK (0.5 → 0.85): the ✓ path trims along its length (PathMeasure) —
+ *      drawn ONCE, so the mark is no longer doubled by a fading glyph on top.
+ *   3. SETTLE (0.85 → 1): a soft glow pulse breathes out behind the ring.
+ *
+ * Non-success marks (! / ✕) keep a glyph, faded + scaled in after the ring.
  * Pure Compose Canvas — no dependency, no images.
  */
 @Composable
 private fun AnimatedVerdictMark(tone: Color, mark: String) {
     val progress = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
-        progress.animateTo(1f, tween(700, easing = FastOutSlowInEasing))
+        progress.animateTo(1f, tween(900, easing = CubicBezierEasing(0.22f, 0.9f, 0.3f, 1f)))
     }
     val p = progress.value
-    Box(Modifier.size(124.dp).testTag("SCAN_SUCCESS_MARK"), contentAlignment = Alignment.Center) {
+    // easeOutBack (standard constants): lands with a controlled overshoot,
+    // then settles exactly at 1.
+    val t = p - 1f
+    val back = 1f + 2.70158f * t * t * t + 1.70158f * t * t
+    val scale = (0.8f + 0.2f * back).coerceIn(0.8f, 1.06f)
+    val checkIsDrawn = mark == "✓"
+    Box(
+        Modifier.size(124.dp).testTag("SCAN_SUCCESS_MARK")
+            .graphicsLayer(scaleX = scale, scaleY = scale, alpha = (p / 0.25f).coerceIn(0f, 1f)),
+        contentAlignment = Alignment.Center,
+    ) {
         Canvas(Modifier.fillMaxSize()) {
-            val strokeW = 10.dp.toPx()
-            val stroke = Stroke(width = strokeW, cap = StrokeCap.Round)
-            val inset = strokeW
+            val strokeW = 9.dp.toPx()
+            val inset = strokeW + 2.dp.toPx()
             val arcSize = Size(size.width - 2 * inset, size.height - 2 * inset)
-            val circleP = (p / 0.6f).coerceIn(0f, 1f)
-            drawArc(
-                color = tone,
-                startAngle = -90f,
-                sweepAngle = 360f * circleP,
-                useCenter = false,
-                topLeft = Offset(inset, inset),
-                size = arcSize,
-                style = stroke,
-            )
-            val checkP = ((p - 0.6f) / 0.4f).coerceIn(0f, 1f)
-            if (checkP > 0f) {
+            val center = Offset(size.width / 2f, size.height / 2f)
+            // Phase 1 — halo (fast, faint) then the crisp ring.
+            val ringP = (p / 0.55f).coerceIn(0f, 1f)
+            if (ringP > 0f) {
+                drawArc(
+                    color = tone.copy(alpha = 0.16f),
+                    startAngle = -90f,
+                    sweepAngle = 360f * ringP,
+                    useCenter = false,
+                    topLeft = Offset(inset - 5.dp.toPx(), inset - 5.dp.toPx()),
+                    size = Size(arcSize.width + 10.dp.toPx(), arcSize.height + 10.dp.toPx()),
+                    style = Stroke(width = strokeW + 6.dp.toPx(), cap = StrokeCap.Round),
+                )
+                drawArc(
+                    color = tone,
+                    startAngle = -90f,
+                    sweepAngle = 360f * ringP,
+                    useCenter = false,
+                    topLeft = Offset(inset, inset),
+                    size = arcSize,
+                    style = Stroke(width = strokeW, cap = StrokeCap.Round),
+                )
+            }
+            // Phase 2 — the check draws along its own length (single mark).
+            val checkP = ((p - 0.5f) / 0.35f).coerceIn(0f, 1f)
+            if (checkIsDrawn && checkP > 0f) {
                 val check = Path().apply {
                     moveTo(size.width * 0.28f, size.height * 0.53f)
                     lineTo(size.width * 0.44f, size.height * 0.69f)
@@ -823,14 +888,29 @@ private fun AnimatedVerdictMark(tone: Color, mark: String) {
                 pm.setPath(check, false)
                 val segment = Path()
                 pm.getSegment(0f, pm.length * checkP, segment, true)
-                drawPath(segment, tone, style = stroke)
+                drawPath(segment, tone, style = Stroke(width = strokeW * 1.1f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+            }
+            // Phase 3 — a breathing glow settles behind the finished mark.
+            val glowP = ((p - 0.85f) / 0.15f).coerceIn(0f, 1f)
+            if (glowP > 0f) {
+                drawCircle(
+                    color = tone.copy(alpha = 0.20f * (1f - glowP)),
+                    radius = (size.minDimension / 2f) * (0.98f + 0.10f * glowP),
+                    center = center,
+                )
             }
         }
-        Text(
-            mark,
-            style = MaterialTheme.typography.displayLarge,
-            color = tone,
-            modifier = Modifier.graphicsLayer(alpha = ((p - 0.55f) / 0.45f).coerceIn(0f, 1f)),
-        )
+        if (!checkIsDrawn) {
+            Text(
+                mark,
+                style = MaterialTheme.typography.displayLarge,
+                color = tone,
+                modifier = Modifier.graphicsLayer(
+                    alpha = ((p - 0.55f) / 0.35f).coerceIn(0f, 1f),
+                    scaleX = 0.85f + 0.15f * ((p - 0.55f) / 0.35f).coerceIn(0f, 1f),
+                    scaleY = 0.85f + 0.15f * ((p - 0.55f) / 0.35f).coerceIn(0f, 1f),
+                ),
+            )
+        }
     }
 }

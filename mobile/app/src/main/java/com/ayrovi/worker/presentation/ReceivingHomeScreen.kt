@@ -267,10 +267,14 @@ fun ReceivingHomeScreen(
                 // v77: per-read identity — identical consecutive verdicts
                 // must still flash the circle every time.
                 epoch = state.scanEpoch,
-                onBack = {
-                    model.workflow.dismissResult()
-                    onExitSession?.invoke()
-                },
+                // v87 OWNER FIX (2026-09-14): the verdict dismiss NEVER exits
+                // the session. Every earlier release called onExitSession here,
+                // and the 1200ms auto-rearm fires this callback after EVERY
+                // successful scan — the worker was thrown back to the MAIN
+                // home and had to re-enter RECEIVING for each scan. Now the
+                // dismiss only clears the verdict and the scan face stays up;
+                // leaving is deliberate (camera ✕ close / system BACK).
+                onBack = { model.workflow.dismissResult() },
             )
         }
     }
