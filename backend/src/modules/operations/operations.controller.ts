@@ -352,6 +352,16 @@ export class OperationsController {
     return this.ops.dataControlVoided();
   }
 
+  @Post('data-control/trial-reset')
+  @RequirePermissions('operations.correct')
+  @ApiOperation({ summary: 'OWNER 2026-09-14: wipe ALL operational trial data (batches/receiving/TS/putaway/assignments/exceptions). Users, devices, stations, products and the audit trail are KEPT. Requires reason + the exact word RESET.' })
+  dataControlTrialReset(
+    @Body() body: { reason?: string; confirm?: string },
+    @Req() req: any,
+  ) {
+    return this.ops.dataControlTrialReset(body, actorOf(req));
+  }
+
   @Post('data-control/void')
   @RequirePermissions('operations.correct')
   @ApiOperation({ summary: 'Soft-void an operational record (admin only, audited, never deletes).' })

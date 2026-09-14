@@ -399,6 +399,10 @@ export class OperationsService {
       batchesActive,
       batchesAwaitingReview,
       batchesInReceiving,
+      batchesCompleted,
+      tsContainers,
+      tsStoredAgg,
+      tsReview,
     ] = await Promise.all([
       this.containersBoard({ type: 'RECEIVING', take: 10 }),
       this.containersBoard({ type: 'CUSTOMER', take: 10 }),
@@ -410,12 +414,22 @@ export class OperationsService {
       this.prisma.batch.count({ where: { status: { notIn: ['VOIDED', 'RECEIVING_COMPLETED'] } } }),
       this.prisma.batch.count({ where: { status: 'SUBMITTED' } }),
       this.prisma.batch.count({ where: { status: 'RECEIVING_IN_PROGRESS' } }),
+      // OWNER 2026-09-14: the NEW workflow pipeline stages — BATCH and
+      // TEMPORARY STORAGE (goods reach TS straight after receiving).
+      this.prisma.batch.count({ where: { status: 'RECEIVING_COMPLETED' } }),
+      this.prisma.temporaryStorageContainer.count(),
+      this.prisma.temporaryStorageItem.aggregate({ where: { status: 'STORED' }, _sum: { quantity: true } }),
+      this.prisma.temporaryStorageItem.count({ where: { status: 'REVIEW' } }),
     ]);
     counters.activeReceivingContainers = receivingContainersActive;
     counters.batchesActive = batchesActive;
     counters.batchesAwaitingReview = batchesAwaitingReview;
     counters.batchesInReceiving = batchesInReceiving;
     counters.articlesInOperation = articlesInOperation;
+    counters.batchesCompleted = batchesCompleted;
+    counters.tsContainers = tsContainers;
+    counters.tsStored = tsStoredAgg._sum.quantity ?? 0;
+    counters.tsReview = tsReview;
 
     return {
       generatedAt: new Date().toISOString(),
@@ -446,6 +460,10 @@ export class OperationsService {
         shippedToday,
         shippedTotal,
         closedBinsTotal,
+        batchesCompleted,
+        tsContainers,
+        tsStored: tsStoredAgg._sum.quantity ?? 0,
+        tsReview,
       }),
       operations: this.buildOperations({
         activeSessions: activeSessions.length,
@@ -518,6 +536,17 @@ export class OperationsService {
       cells: Array<[string, number | null, string]>;
     }> = [
       {
+        // OWNER 2026-09-14: the NEW workflow starts at the BATCH card (worker
+        // submit routes DIRECTLY to receiving; admin views/voids/deletes).
+        id: 'batch',
+        title: 'BATCH',
+        cells: [
+          ['active', d.batchesActive, 'batches'],
+          ['waiting', d.batchesInReceiving, 'in receiving'],
+          ['done', d.batchesCompleted, 'done'],
+        ],
+      },
+      {
         id: 'arrival',
         title: 'ARRIVAL',
         cells: [
@@ -541,6 +570,18 @@ export class OperationsService {
         cells: [
           ['active', d.toteContainersActive, 'totes'],
           ['waiting', d.articlesInTotes, 'articles'],
+        ],
+      },
+      {
+        // OWNER 2026-09-14: goods reach TEMPORARY STORAGE straight after
+        // receiving (staging squares; sections by first letter). The stages
+        // below stay for the outbound chain.
+        id: 'temp-storage',
+        title: 'TEMPORARY STORAGE',
+        cells: [
+          ['info', d.tsContainers, 'containers'],
+          ['done', d.tsStored, 'stored'],
+          ['exceptions', d.tsReview, 'review'],
         ],
       },
       {
@@ -1578,6 +1619,71 @@ export class OperationsService {
           : null,
       },
     };
+  }
+
+  /**
+   * OWNER 2026-09-14 («اعمل restart للبينات تجربيه كل»): TRIAL RESET — wipe
+   * the OPERATIONAL trial data so a fresh pilot starts clean. Scope agreed
+   * with the owner: batches (+units), arrivals, receiving sessions/products/
+   * reports/cartons, temporary storage, putaway, product moves, corrections,
+   * exceptions, worker task assignments, article/operational containers.
+   * KEPT: users, devices, sessions, stations, zones/locations, products
+   * master data, settings and the AUDIT TRAIL (history is never deleted).
+   * Confirmation is enforced server-side: written reason + the exact word
+   * RESET. The audit entry is written BEFORE the wipe and survives it.
+   */
+  async dataControlTrialReset(input: { reason?: string; confirm?: string }, actor: { id: string; ip?: string }) {
+    const reason = (input.reason ?? '').trim();
+    if (reason.length < 3) throw new BadRequestException('A written reason (at least 3 characters) is required for the trial reset.');
+    if ((input.confirm ?? '').trim() !== 'RESET') {
+      throw new BadRequestException('Confirmation failed: type RESET exactly to wipe the trial data.');
+    }
+    // Order matters: children (or SetNull refs) before parents. BatchItems
+    // cascade with Batch; AyroviUnit is Restrict-locked ONLY by BatchItem.
+    const wipe: Array<[string, (tx: Prisma.TransactionClient) => Promise<{ count: number }>]> = [
+      ['temporaryStorageReport', (tx) => tx.temporaryStorageReport.deleteMany()],
+      ['temporaryStorageItem', (tx) => tx.temporaryStorageItem.deleteMany()],
+      ['temporaryStorageContainer', (tx) => tx.temporaryStorageContainer.deleteMany()],
+      ['operationCorrection', (tx) => tx.operationCorrection.deleteMany()],
+      ['cartonPlacement', (tx) => tx.cartonPlacement.deleteMany()],
+      ['putawaySession', (tx) => tx.putawaySession.deleteMany()],
+      ['productStationMove', (tx) => tx.productStationMove.deleteMany()],
+      ['receivingReport', (tx) => tx.receivingReport.deleteMany()],
+      ['receivingWorkerLog', (tx) => tx.receivingWorkerLog.deleteMany()],
+      ['receivingDiscrepancy', (tx) => tx.receivingDiscrepancy.deleteMany()],
+      ['receivingScanEvent', (tx) => tx.receivingScanEvent.deleteMany()],
+      ['receivingCarton', (tx) => tx.receivingCarton.deleteMany()],
+      ['receivingProduct', (tx) => tx.receivingProduct.deleteMany()],
+      ['receivingSession', (tx) => tx.receivingSession.deleteMany()],
+      ['workerTaskAssignment', (tx) => tx.workerTaskAssignment.deleteMany()],
+      ['expectedArrivalItem', (tx) => tx.expectedArrivalItem.deleteMany()],
+      ['expectedArrival', (tx) => tx.expectedArrival.deleteMany()],
+      ['operationalException', (tx) => tx.operationalException.deleteMany()],
+      ['warehouseCarton', (tx) => tx.warehouseCarton.deleteMany()],
+      ['operationalContainer', (tx) => tx.operationalContainer.deleteMany()],
+      ['articleUnit', (tx) => tx.articleUnit.deleteMany()],
+      ['batch', (tx) => tx.batch.deleteMany()],
+      ['ayroviUnit', (tx) => tx.ayroviUnit.deleteMany()],
+      ['batchCustomer', (tx) => tx.batchCustomer.deleteMany()],
+    ];
+    const removed: Record<string, number> = {};
+    await this.prisma.$transaction(async (tx) => {
+      for (const [name, run] of wipe) {
+        const res = await run(tx);
+        removed[name] = res.count;
+      }
+    });
+    await this.prisma.auditLog.create({
+      data: {
+        actorUserId: actor.id || null,
+        ipAddress: actor.ip ?? null,
+        action: 'DATA_TRIAL_RESET',
+        entityType: 'operational',
+        entityId: 'trial-reset',
+        metadata: { action: 'TRIAL_RESET', reason, removed },
+      },
+    });
+    return { ok: true as const, reset: true, removed };
   }
 
   /**

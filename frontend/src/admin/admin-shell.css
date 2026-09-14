@@ -325,3 +325,59 @@ textarea.os-input { resize: vertical; }
 .live-badge.tone-err { background: rgba(231,76,60,0.15); color: #E74C3C; }
 .live-badge.tone-info { background: rgba(74,144,226,0.15); color: #4A90E2; }
 .live-payload { color: #c8d0db; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+
+/* ==== OWNER 2026-09-14: TS sections as SQUARES (like the best systems) +
+   responsive admin (tables/cards reflow on phones & tablets) ==== */
+.ts-squares {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+  gap: 8px;
+}
+.ts-sq {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  border-radius: 10px;
+  border: 1px solid rgba(127,140,170,.35);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  overflow: hidden;
+  background: rgba(127,140,170,.08);
+}
+.ts-sq-code { font-weight: 800; font-size: .82rem; letter-spacing: .02em; }
+.ts-sq-fill { font-size: .68rem; opacity: .85; }
+.ts-sq-bar { position: absolute; left: 0; bottom: 0; height: 4px; border-radius: 2px; }
+.ts-sq--empty { background: rgba(127,140,170,.10); }
+.ts-sq--empty .ts-sq-bar { background: #7f8caa; }
+.ts-sq--part { background: rgba(240,180,41,.16); border-color: rgba(240,180,41,.55); }
+.ts-sq--part .ts-sq-bar { background: #f0b429; }
+.ts-sq--part .ts-sq-code { color: #f0b429; }
+.ts-sq--full { background: rgba(229,83,75,.16); border-color: rgba(229,83,75,.6); }
+.ts-sq--full .ts-sq-bar { background: #e5534b; }
+.ts-sq--full .ts-sq-code { color: #e5534b; }
+
+@media (max-width: 860px) {
+  .ac-head { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .ac-head .os-row { flex-wrap: wrap; }
+  .os-table { display: block; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
+  .os-grid2 { grid-template-columns: 1fr !important; }
+  .os-card { min-width: 0 !important; }
+  .ac-modal-box { width: min(94vw, 560px) !important; max-height: 92vh; overflow-y: auto; }
+}
+
+/* ==== OWNER 2026-09-14: admin polish — interactive, professional ==== */
+.os-btn { transition: transform .12s ease, box-shadow .12s ease, background .12s ease, border-color .12s ease; }
+.os-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 2px 10px rgba(0,0,0,.22); }
+.os-btn:active:not(:disabled) { transform: translateY(0); }
+.os-btn:focus-visible, .os-input:focus-visible, .os-select:focus-visible {
+  outline: 2px solid rgba(88,166,255,.65); outline-offset: 1px;
+}
+.os-card { transition: border-color .15s ease, box-shadow .15s ease; }
+.os-card:hover { border-color: rgba(127,140,170,.4); box-shadow: 0 4px 18px rgba(0,0,0,.16); }
+.os-table th { position: sticky; top: 0; z-index: 1; }
+.ac-linkbtn { transition: color .12s ease, opacity .12s ease; }
+.ac-linkbtn:hover { opacity: .82; text-decoration: underline; }
+.os-tag { transition: filter .12s ease; }
+.os-tag:hover { filter: brightness(1.15); }

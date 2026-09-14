@@ -400,17 +400,46 @@ function AddWorkerModal({ onDone, onClose }: { onDone: (m: string) => void; onCl
   const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState('INBOUND_WORKER');
+  // OWNER 2026-09-14 («مهام نتاعو ناقصه كمل حط مهام»): the creation form now
+  // completes the whole setup — station binding + the worker's task list.
+  const [stationId, setStationId] = useState('');
+  const [tasks, setTasks] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const stations = useAsync(() => adminApi.stations().catch(() => [] as StationRow[]), []).data ?? [];
 
   const valid = name.trim().length >= 2 && code.trim().length >= 3 && password.length >= 6;
+
+  function toggleTask(key: string) {
+    setTasks((t) => (t.includes(key) ? t.filter((k) => k !== key) : [...t, key]));
+  }
 
   async function submit() {
     if (!valid || busy) return;
     setBusy(true); setError(null);
     try {
-      await adminApi.createWorker({ name: name.trim(), employeeCode: code.trim(), password, roles: [role] });
-      onDone(`Worker ${code.trim()} created (ACTIVE). Assign a station from the Stations screen when ready.`);
+      const worker = await adminApi.createWorker({ name: name.trim(), employeeCode: code.trim(), password, roles: [role] });
+      const done: string[] = [];
+      if (stationId) {
+        await adminApi.assignStation(stationId, worker.id);
+        done.push('station bound');
+      }
+      for (const key of tasks) {
+        const label = TASK_CATALOG.find((t) => t.key === key)?.label ?? key;
+        await adminApi.workerTaskCreate({
+          workerId: worker.id,
+          taskKey: key,
+          title: label,
+          stationId: stationId || null,
+        });
+        done.push(label.split('—')[0].trim());
+      }
+      onDone(
+        `Worker ${code.trim()} created (ACTIVE)` +
+        (stationId ? ' + station bound' : '') +
+        (tasks.length ? ` + ${tasks.length} task${tasks.length > 1 ? 's' : ''} assigned (${done.slice(tasks.length ? 1 : 0).join(', ')})` : '') +
+        '.',
+      );
     } catch (e) { setError(apiErrorMessage(e)); setBusy(false); }
   }
 
@@ -437,6 +466,36 @@ function AddWorkerModal({ onDone, onClose }: { onDone: (m: string) => void; onCl
           <select id="aw-role" className="os-input os-select" value={role} onChange={(e) => setRole(e.target.value)}>
             {WORKER_ROLE_OPTIONS.map((r) => <option key={r.name} value={r.name}>{r.label} ({r.name})</option>)}
           </select>
+        </div>
+        <div>
+          <label className="os-label" htmlFor="aw-station">Station (bind now — optional)</label>
+          <select id="aw-station" className="os-input os-select" value={stationId} onChange={(e) => setStationId(e.target.value)}>
+            <option value="">— bind later from Stations —</option>
+            {stations.map((s) => (
+              <option key={s.id} value={s.id}>{s.code} · {s.name}{s.assignedWorker ? ' (taken)' : ''}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <span className="os-label">Tasks to assign immediately (optional)</span>
+          <div className="os-row" style={{ flexWrap: 'wrap', gap: 6 }}>
+            {TASK_CATALOG.map((t) => (
+              <label key={t.key}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+                  border: '1px solid ' + (tasks.includes(t.key) ? 'var(--accent-2, #58a6ff)' : 'var(--border, #2a3140)'),
+                  borderRadius: 999, padding: '5px 12px', fontSize: '0.8rem',
+                  background: tasks.includes(t.key) ? 'rgba(88,166,255,.12)' : 'transparent',
+                }}>
+                <input type="checkbox" checked={tasks.includes(t.key)} onChange={() => toggleTask(t.key)} />
+                {t.label.split('—')[0].trim()}
+              </label>
+            ))}
+          </div>
+          <p className="os-muted" style={{ fontSize: '0.75rem', margin: '6px 0 0' }}>
+            Each checked task lands in the worker's terminal as ASSIGNED right after creation.
+          </p>
         </div>
 
         {error && <div className="ac-error">{error}</div>}

@@ -87,7 +87,7 @@ export const BATCH_VOIDABLE_STATES = [
  * The admin board is VIEW + PRINT (+ VOID for problems). There is no accept
  * and no send action at all.
  */
-export type BatchUiAction = 'void' | 'print';
+export type BatchUiAction = 'void' | 'print' | 'delete';
 
 /**
  * Pure rule: which actions a given batch card offers, from the STATUS ×
@@ -102,6 +102,8 @@ export function batchActions(status: string, has: (perm: string) => boolean): Ba
   // waiting-for-approval queue. The admin sees no action button for them.
 
   if (BATCH_VOIDABLE_STATES.includes(status) && has('batch.void')) out.push('void');
+  // OWNER 2026-09-14: hard delete is available in ANY state (audited).
+  if (has('batch.void')) out.push('delete');
   return out;
 }
 
@@ -136,4 +138,8 @@ export const batchesAdminApi = {
 
   voidBatch: (id: string, operatorId: string, reason: string) =>
     client.post(`/v1/batches/${id}/void`, { operatorId, reason }).then((r) => r.data),
+
+  /** OWNER 2026-09-14: audited HARD delete (any status; units cascade). */
+  remove: (id: string) =>
+    client.delete<{ ok: true; removed: string; items: number }>(`/v1/batches/${id}`).then((r) => r.data),
 };

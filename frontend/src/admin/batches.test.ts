@@ -12,19 +12,19 @@ describe('batchActions — status × permission matrix', () => {
   const acceptOnly = (p: string) => p === 'batch.view' || p === 'batch.accept';
 
   it('SUBMITTED needs NO admin action — the submit auto-routes it to receiving (view/print/void only) — owner order 2026-09-13', () => {
-    expect(batchActions('SUBMITTED', admin).sort()).toEqual(['print', 'void']);
+    expect(batchActions('SUBMITTED', admin).sort()).toEqual(['delete', 'print', 'void']);
   });
 
   it('ACCEPTED offers NO send (transient: accept commits the automatic send) (+ print)', () => {
-    expect(batchActions('ACCEPTED', admin).sort()).toEqual(['print', 'void']);
+    expect(batchActions('ACCEPTED', admin).sort()).toEqual(['delete', 'print', 'void']);
   });
 
-  it('RECEIVING_COMPLETED is terminal: print only, even for the admin', () => {
-    expect(batchActions('RECEIVING_COMPLETED', admin)).toEqual(['print']);
+  it('RECEIVING_COMPLETED is terminal: print + hard delete (owner 2026-09-14) only', () => {
+    expect(batchActions('RECEIVING_COMPLETED', admin)).toEqual(['print', 'delete']);
   });
 
-  it('VOIDED is terminal too', () => {
-    expect(batchActions('VOIDED', admin)).toEqual(['print']);
+  it('VOIDED is terminal too (print + hard delete per owner 2026-09-14)', () => {
+    expect(batchActions('VOIDED', admin)).toEqual(['print', 'delete']);
   });
 
   it('permissions gate every action (viewer gets print only)', () => {
@@ -35,11 +35,11 @@ describe('batchActions — status × permission matrix', () => {
     expect(batchActions('SUBMITTED', acceptOnly)).toEqual(['print']); // no void perm → print only
   });
 
-  it('an unknown status degrades to print only — no invented offers', () => {
-    expect(batchActions('SOMETHING_ELSE', admin)).toEqual(['print']);
+  it('an unknown status degrades to print + hard delete — no invented offers', () => {
+    expect(batchActions('SOMETHING_ELSE', admin)).toEqual(['print', 'delete']);
   });
 
-  it('every non-terminal state offers void (no real DELETE exists)', () => {
+  it('every non-terminal state offers void (VOID ≠ the owner-ordered hard delete)', () => {
     for (const s of ['CREATED', 'SUBMITTED', 'ACCEPTED', 'SENT_TO_RECEIVING', 'RECEIVING_IN_PROGRESS']) {
       expect(batchActions(s, admin)).toContain('void');
       expect(BATCH_VOIDABLE_STATES).toContain(s);

@@ -529,6 +529,9 @@ export const adminApi = {
 
   // Devices — hardware registered for the Native Worker App (ADMIN_WEB only).
   devices: () => client.get<DeviceRow[]>('/v1/devices').then((r) => r.data),
+  /** OWNER 2026-09-14: full registry removal (audited; sessions revoked). */
+  removeDevice: (idOrCode: string) =>
+    client.delete<{ ok: true; removed: string; revokedSessions: number }>(`/v1/devices/${idOrCode}`).then((r) => r.data),
   createDevice: (d: { code: string; name: string; model?: string; stationCode?: string; workerId?: string }) =>
     client.post<DeviceRow>('/v1/devices', d).then((r) => r.data),
   deviceStatus: (id: string, status: 'ACTIVE' | 'DISABLED') =>
@@ -599,6 +602,11 @@ export const adminApi = {
       .get<ForceDeletePreview>('/v1/operations/data-control/force-delete/preview', { params: { kind, code, id } })
       .then((r) => r.data),
   /** Requires a written reason AND the exact code typed back (confirmation #2). */
+  /** OWNER 2026-09-14: wipe ALL operational trial data (audited; keeps users/devices/stations/products/audit). */
+  dataControlTrialReset: (reason: string, confirm: string) =>
+    client
+      .post<{ ok: true; reset: boolean; removed: Record<string, number> }>('/v1/operations/data-control/trial-reset', { reason, confirm })
+      .then((r) => r.data),
   dataControlForceDelete: (kind: ForceDeleteKind, code: string, reason: string, confirm: string, id?: string) =>
     client
       .post<ForceDeleteResult>('/v1/operations/data-control/force-delete', { kind, code, reason, confirm, id })

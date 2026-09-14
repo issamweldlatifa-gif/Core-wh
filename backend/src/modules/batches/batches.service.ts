@@ -590,6 +590,42 @@ export class BatchesService {
     });
   }
 
+  /**
+   * OWNER 2026-09-14 («الادمن ينجم يحذف ويتحكم بيهم»): a real, audited HARD
+   * delete, available in ANY status. BatchItems cascade (schema:
+   * BatchItem.batch onDelete: Cascade); no other table holds a Batch FK
+   * (receiving lines store the batch code as plain strings). The audit
+   * trail records exactly what was removed.
+   */
+  async hardDelete(actor: BatchActor, batchId: string) {
+    await this.assertEnabled();
+    return this.prisma.$transaction(async (tx) => {
+      const batch = await tx.batch.findUnique({
+        where: { id: batchId },
+        include: { _count: { select: { items: true } } },
+      });
+      if (!batch) throw new NotFoundException('BATCH_NOT_FOUND');
+      await tx.batch.delete({ where: { id: batch.id } });
+      await this.audit.log(
+        {
+          actorUserId: actor.id,
+          action: 'BATCH_HARD_DELETED' as never,
+          entityType: 'batch',
+          entityId: batch.id,
+          ipAddress: actor.ip ?? null,
+          metadata: {
+            batchCode: batch.batchCode,
+            status: batch.status,
+            items: batch._count.items,
+            by: actor.name ?? null,
+          },
+        },
+        tx,
+      );
+      return { ok: true as const, removed: batch.batchCode, items: batch._count.items };
+    });
+  }
+
   // ---------------------------------------------------------------- reads
 
   async list(filter: { status?: string }) {
