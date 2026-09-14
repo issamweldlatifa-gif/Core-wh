@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { BarcodeFormat, MultiFormatWriter } from '@zxing/library';
+import { PrintSheet, drawCode128 } from '../print-sheet';
 import { useAuth } from '../../context/AuthContext';
 import { apiErrorMessage } from '../../api/client';
 import { tsAdminApi, type TsOverview, type TsReportDetail, type TsReportRow } from '../temp-storage';
@@ -26,26 +26,7 @@ function fmt(iso: string | null): string {
   return d.toLocaleString();
 }
 
-/** CODE 128 of a shelf/container code, drawn locally (zxing encode → canvas). */
-function drawShelfBarcode(canvas: HTMLCanvasElement | null, value: string) {
-  if (!canvas) return;
-  const width = 560;
-  const height = 120;
-  const matrix = new MultiFormatWriter().encode(value, BarcodeFormat.CODE_128, width, height, new Map());
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, width, height);
-  ctx.fillStyle = '#000000';
-  const cell = width / matrix.getWidth();
-  for (let x = 0; x < matrix.getWidth(); x += 1) {
-    if (matrix.get(x, 0)) {
-      ctx.fillRect(Math.floor(x * cell), 0, Math.ceil(cell), height);
-    }
-  }
-}
+
 
 /**
  * SHELF LABELS (owner request 2026-09-13: «نسكاني étagère اللي في المستودع؟»):
@@ -60,28 +41,27 @@ function ShelfLabelSheet({ codes, canvasRefs }: {
   canvasRefs: React.MutableRefObject<(HTMLCanvasElement | null)[]>;
 }) {
   useEffect(() => {
-    codes.forEach((c, i) => drawShelfBarcode(canvasRefs.current[i], c));
+    codes.forEach((c, i) => drawCode128(canvasRefs.current[i], c));
   }, [codes, canvasRefs]);
+  // PRINT FIX: portal + display-based print root (print-sheet.tsx) — the
+  // visibility trick printed blank pages on Android Chrome.
   return (
-    <div className="ts-sheet">
-      <style>{`
-        @media print {
-          body * { visibility: hidden !important; }
-          .ts-sheet, .ts-sheet * { visibility: visible !important; }
-          .ts-sheet { position: absolute; inset: 0; background: #fff; padding: 16px; }
-        }
-        .ts-sheet { display: flex; flex-direction: column; gap: 14px; background: #fff; color: #000; padding: 16px; }
-        .ts-sheet .ts-lbl { display: flex; flex-direction: column; align-items: center; gap: 6px; page-break-inside: avoid; border-bottom: 1px dashed #bbb; padding-bottom: 10px; }
-        .ts-sheet canvas { width: 560px; max-width: 92vw; height: 120px; image-rendering: pixelated; }
-        .ts-sheet h2 { margin: 0; font-size: 26px; letter-spacing: 0.1em; }
-      `}</style>
-      {codes.map((c, i) => (
-        <div key={c} className="ts-lbl">
-          <canvas ref={(el) => { canvasRefs.current[i] = el; }} aria-hidden="true" />
-          <h2>{c}</h2>
-        </div>
-      ))}
-    </div>
+    <PrintSheet>
+      <div className="ts-sheet">
+        <style>{`
+          .ts-sheet { display: flex; flex-direction: column; gap: 14px; background: #fff; color: #000; padding: 16px; }
+          .ts-sheet .ts-lbl { display: flex; flex-direction: column; align-items: center; gap: 6px; page-break-inside: avoid; border-bottom: 1px dashed #bbb; padding-bottom: 10px; }
+          .ts-sheet canvas { width: 560px; max-width: 92vw; height: 120px; image-rendering: pixelated; }
+          .ts-sheet h2 { margin: 0; font-size: 26px; letter-spacing: 0.1em; }
+        `}</style>
+        {codes.map((c, i) => (
+          <div key={c} className="ts-lbl">
+            <canvas ref={(el) => { canvasRefs.current[i] = el; }} aria-hidden="true" />
+            <h2>{c}</h2>
+          </div>
+        ))}
+      </div>
+    </PrintSheet>
   );
 }
 
@@ -230,7 +210,7 @@ export default function TemporaryStorageAdmin() {
                     onClick={() => {
                       const codes = Array.from({ length: shelfCount }, (_, i) => `${shelfLetter}${i + 1}`);
                       setShelfCodes(codes);
-                      setTimeout(() => window.print(), 120);
+                      setTimeout(() => window.print(), 300); // PRINT FIX: let the canvases draw first
                     }}
                   >
                     PRINT LABELS
