@@ -602,6 +602,11 @@ export const adminApi = {
       .get<ForceDeletePreview>('/v1/operations/data-control/force-delete/preview', { params: { kind, code, id } })
       .then((r) => r.data),
   /** Requires a written reason AND the exact code typed back (confirmation #2). */
+  /** OWNER 2026-09-14: wipe ALL operational trial data (audited; keeps users/devices/stations/products/audit). */
+  dataControlTrialReset: (reason: string, confirm: string) =>
+    client
+      .post<{ ok: true; reset: boolean; removed: Record<string, number> }>('/v1/operations/data-control/trial-reset', { reason, confirm })
+      .then((r) => r.data),
   dataControlForceDelete: (kind: ForceDeleteKind, code: string, reason: string, confirm: string, id?: string) =>
     client
       .post<ForceDeleteResult>('/v1/operations/data-control/force-delete', { kind, code, reason, confirm, id })

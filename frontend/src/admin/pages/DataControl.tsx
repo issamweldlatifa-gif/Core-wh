@@ -51,6 +51,11 @@ export default function DataControl() {
   const [target, setTarget] = useState<DataControlHit | null>(null);
   const [forceTarget, setForceTarget] = useState<DataControlHit | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
+  // OWNER 2026-09-14: TRIAL RESET — one wipe of ALL operational trial data.
+  const [resetReason, setResetReason] = useState('');
+  const [resetConfirm, setResetConfirm] = useState('');
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetResult, setResetResult] = useState<Record<string, number> | null>(null);
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -233,6 +238,58 @@ export default function DataControl() {
           </div>
         )}
       </section>
+
+      {/* ---- TRIAL RESET (owner 2026-09-14) ----------------------------- */}
+      {canCorrect && (
+        <section className="os-card" style={{ marginTop: 14, borderLeft: '3px solid #e5534b' }}>
+          <h2 className="os-card-title">TRIAL RESET — wipe all operational trial data</h2>
+          <p className="os-muted" style={{ fontSize: '0.82rem', lineHeight: 1.7 }}>
+            Deletes EVERYTHING the pilot produced: batches + units, arrivals, receiving sessions/products/reports/
+            cartons, temporary storage (containers/squares), putaway, product moves, corrections, exceptions and
+            worker task assignments.
+            <br />
+            <b>KEPT:</b> users, devices, sessions, stations, warehouses/zones, product master data, settings and the
+            full audit trail. <b style={{ color: '#e5534b' }}>This cannot be undone.</b>
+          </p>
+          <div className="os-grid2" style={{ marginTop: 10 }}>
+            <div>
+              <label className="os-label" htmlFor="tr-reason">Reason (required)</label>
+              <input id="tr-reason" className="os-input" value={resetReason}
+                onChange={(e) => setResetReason(e.target.value)}
+                placeholder="e.g. end of pilot — fresh start" />
+            </div>
+            <div>
+              <label className="os-label" htmlFor="tr-confirm">Type RESET to confirm</label>
+              <input id="tr-confirm" className="os-input" value={resetConfirm}
+                onChange={(e) => setResetConfirm(e.target.value.toUpperCase())}
+                placeholder="RESET" />
+            </div>
+          </div>
+          <div className="os-row" style={{ gap: 10, marginTop: 10, alignItems: 'center' }}>
+            <button
+              className="os-btn os-btn--danger"
+              disabled={resetBusy || resetReason.trim().length < 3 || resetConfirm.trim() !== 'RESET'}
+              onClick={async () => {
+                setResetBusy(true); setError(null);
+                try {
+                  const r = await adminApi.dataControlTrialReset(resetReason.trim(), resetConfirm.trim());
+                  setResetResult(r.removed);
+                  setResetReason(''); setResetConfirm('');
+                  setFlash('TRIAL RESET done — operational data wiped. Audit entry recorded.');
+                } catch (e) { setError(apiErrorMessage(e)); }
+                finally { setResetBusy(false); }
+              }}
+            >
+              {resetBusy ? 'Resetting…' : 'Wipe trial data'}
+            </button>
+            {resetResult && (
+              <span className="os-muted" style={{ fontSize: '0.8rem' }}>
+                Removed: {Object.entries(resetResult).filter(([, n]) => n > 0).map(([k, n]) => `${k} ${n}`).join(' · ') || 'nothing (already clean)'}
+              </span>
+            )}
+          </div>
+        </section>
+      )}
 
       {target && (
         <VoidDialog

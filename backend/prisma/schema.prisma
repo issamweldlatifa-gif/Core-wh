@@ -255,6 +255,8 @@ enum AuditAction {
   BATCH_VOIDED
   /// OWNER 2026-09-14 («الادمن ينجم يحذف»): audited HARD delete, any status.
   BATCH_HARD_DELETED
+  /// OWNER 2026-09-14: operational trial-data wipe (DataControl TRIAL RESET).
+  DATA_TRIAL_RESET
 }
 
 enum ApiClientStatus {
