@@ -305,9 +305,17 @@ class UnifiedScannerUiTest {
      * onExitSession (the app shell then lands on the MAIN home; the reported
      * "back keeps landing on a scan page with a button"). Red itself still
      * never auto-dismisses.
+     *
+     * v87 OWNER ORDER (2026-09-14, «سكان يخرج بعد كل سكان»): the verdict BACK
+     * NEVER exits the session any more — for ANY tone. It dismisses the
+     * verdict and the RECEIVING scan face stays up for the next unit. Leaving
+     * the session is deliberate: the camera ✕ close (cameraBackEndsTheSession)
+     * or the system BACK. Previously every GREEN scan was auto-exited by the
+     * 1.2s re-arm firing onBack → the worker had to re-enter RECEIVING for
+     * every single unit.
      */
     @Test
-    fun redVerdictBackEndsTheSession() {
+    fun redVerdictBackDismissesStaysInSession() {
         val exited = java.util.concurrent.atomic.AtomicBoolean(false)
         val model = ReceivingHomeViewModel(ReceivingUiGateway(), "worker", setOf("receiving.view", "receiving.execute"))
         compose.setContent {
@@ -335,7 +343,10 @@ class UnifiedScannerUiTest {
 
         compose.onNodeWithTag("RESULT_BACK").performClick()
         compose.waitUntil(10_000) { compose.onAllNodesWithTag("SCAN_RESULT").fetchSemanticsNodes().isEmpty() }
-        org.junit.Assert.assertTrue("BACK on red must raise onExitSession", exited.get())
+        // v87: the verdict is gone but the SESSION STAYS — the scan face is
+        // live again for the next unit and no exit was raised.
+        org.junit.Assert.assertFalse("verdict BACK must NOT exit the session (v87)", exited.get())
+        waitForTag("READY_TO_SCAN")
     }
 
     /**
