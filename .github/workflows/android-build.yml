@@ -42,8 +42,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Install Android platform
         run: |
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+          SDKM=/usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager
+          [ -x "$SDKM" ] || SDKM=$(ls /usr/local/lib/android/sdk/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)
+          yes | "$SDKM" --licenses > /dev/null 2>&1 || true
+          "$SDKM" 'platforms;android-35' 'build-tools;35.0.0'
       - name: Compile, test and lint
         shell: bash
         run: |
