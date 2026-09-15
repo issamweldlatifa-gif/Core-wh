@@ -162,6 +162,11 @@ fun WorkerSettingsDialog(
     onPurgeData: (() -> Unit)? = null,
     /** ORDER 01 follow-up: whether THIS worker serves receiving at all — gates receiving-only sections. */
     receivingVisible: Boolean = true,
+    /** PRINTER MANAGER (2026-09-15): local Bluetooth print bridge for the
+     *  Admin web on THIS device. Null callbacks hide the section (phone). */
+    printerBridgeRunning: Boolean = false,
+    printerBridgeState: String? = null,
+    onTogglePrinterBridge: (() -> Unit)? = null,
 ) {
     val vm: WorkerSettingsViewModel? = if (repository != null) viewModel(
         factory = factory {
@@ -185,6 +190,26 @@ fun WorkerSettingsDialog(
                 SettingsGroup("ACCOUNT") {
                     Text(worker, style = MaterialTheme.typography.titleMedium)
                     station?.let { Text("Station · $it", style = MaterialTheme.typography.bodyMedium) }
+                }
+
+                if (onTogglePrinterBridge != null) {
+                    SettingsGroup("PRINTER BRIDGE") {
+                        Text(
+                            if (printerBridgeRunning) "RUNNING · 127.0.0.1:8787" else "OFF",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = if (printerBridgeRunning) TerminalTokens.success else TerminalTokens.muted,
+                        )
+                        Text(
+                            printerBridgeState ?: "Local print service for the Admin web (labels over Bluetooth).",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TerminalTokens.muted,
+                        )
+                        SecondaryAction(
+                            if (printerBridgeRunning) "DISABLE BRIDGE" else "ENABLE BRIDGE",
+                            onTogglePrinterBridge,
+                            true,
+                        )
+                    }
                 }
 
                 SettingsGroup("OPERATIONS") {

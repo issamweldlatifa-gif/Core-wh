@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -6,6 +7,18 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Receiving card notifications (new Product / Carton card dispatched). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- PRINTER MANAGER (2026-09-15): Bluetooth Classic SPP to the PM-241-BT
+         thermal label printer. Version-gated permissions per task §8:
+         legacy BLUETOOTH/ADMIN up to Android 11, BLUETOOTH_SCAN/CONNECT on
+         12+ (scan declared neverForLocation — no location permission needed
+         on 12+; FINE_LOCATION only for 11- discovery). -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="s" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
     <!-- Honeywell rugged devices (CT40): required by some firmwares to
          receive barcode broadcasts from the scanner service. Absent and
          harmless on normal phones. -->
@@ -47,6 +60,11 @@
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
+        <!-- PRINTER MANAGER: loopback print bridge for the Admin web on this
+             device (127.0.0.1 only; owns the single Bluetooth SPP link). -->
+        <service
+            android:name=".printer.PrintBridgeService"
+            android:exported="false" />
 
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"

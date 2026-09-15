@@ -56,6 +56,7 @@ const NAV: NavEntry[] = [
   // STATIONS — physical resources: stations, devices, operational containers.
   { to: '/admin/stations', label: 'Stations', group: 'STATIONS', permission: 'stations.view' },
   { to: '/admin/devices', label: 'Devices', group: 'STATIONS', permission: 'stations.view' },
+  { to: '/admin/printers', label: 'Printers', group: 'STATIONS', permission: 'stations.view' },
   { to: '/admin/receiving-containers', label: 'Receiving Containers', group: 'STATIONS', permission: 'operations.view' },
   { to: '/admin/temporary-storage', label: 'Temporary Storage', group: 'STATIONS', permission: 'operations.view' },
 

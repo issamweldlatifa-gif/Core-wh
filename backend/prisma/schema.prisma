@@ -257,6 +257,15 @@ enum AuditAction {
   BATCH_HARD_DELETED
   /// OWNER 2026-09-14: operational trial-data wipe (DataControl TRIAL RESET).
   DATA_TRIAL_RESET
+  /// PRINTER MANAGER (2026-09-15): CT40 → SPP → PM-241-BT lifecycle events
+  /// reported from the local print bridge (metadata holds name/address/result).
+  PRINTER_ADDED
+  PRINTER_CONNECTED
+  PRINTER_DISCONNECTED
+  PRINTER_REMOVED
+  PRINTER_TEST_PRINTED
+  PRINTER_CONFIGURATION_CHANGED
+  PRINT_FAILED
 }
 
 enum ApiClientStatus {

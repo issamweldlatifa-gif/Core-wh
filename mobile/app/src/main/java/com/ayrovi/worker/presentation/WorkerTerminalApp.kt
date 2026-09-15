@@ -6,7 +6,15 @@ import com.ayrovi.worker.scanner.WorkerDevice
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
+import android.Manifest
+import android.content.Intent
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import com.ayrovi.worker.printer.PrintBridgeService
+import com.ayrovi.worker.printer.PrinterStore
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModel
@@ -46,6 +54,41 @@ fun WorkerTerminalApp(
     val glove by appearance.glove.collectAsStateWithLifecycle()
     val glare by appearance.glare.collectAsStateWithLifecycle()
     val coachPending by appearance.coachPending.collectAsStateWithLifecycle()
+
+    // PRINTER MANAGER (2026-09-15): the loopback print bridge for the Admin
+    // web on THIS device. Enable/disable lives in the SETTINGS sheet; the
+    // service keeps running while the app process lives.
+    val appContext = LocalContext.current
+    val printerStore = remember { PrinterStore(appContext) }
+    val bridgeRunning by PrintBridgeService.BridgeStatus.bridgeRunning.collectAsStateWithLifecycle()
+    val bridgePrinterState by PrintBridgeService.BridgeStatus.printerState.collectAsStateWithLifecycle()
+    val btPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { grants ->
+        val granted = if (Build.VERSION.SDK_INT >= 31) {
+            grants[Manifest.permission.BLUETOOTH_CONNECT] == true || grants[Manifest.permission.BLUETOOTH_SCAN] == true
+        } else {
+            grants[Manifest.permission.ACCESS_FINE_LOCATION] == true
+        }
+        if (granted) {
+            printerStore.setBridgeEnabled(true)
+            runCatching { appContext.startService(Intent(appContext, PrintBridgeService::class.java)) }
+        }
+    }
+    val onTogglePrinterBridge = {
+        if (PrintBridgeService.BridgeStatus.bridgeRunning.value) {
+            printerStore.setBridgeEnabled(false)
+            runCatching { appContext.stopService(Intent(appContext, PrintBridgeService::class.java)) }
+        } else {
+            val needed = if (Build.VERSION.SDK_INT >= 31) {
+                arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
+            } else {
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+            }
+            btPermissionLauncher.launch(needed)
+        }
+        Unit
+    }
     val themeWarning by appearance.warning.collectAsStateWithLifecycle()
     val androidContext = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(themeWarning) { themeWarning?.let { android.widget.Toast.makeText(androidContext, it, android.widget.Toast.LENGTH_LONG).show() } }
@@ -356,6 +399,9 @@ fun WorkerTerminalApp(
             // ORDER 01 follow-up: receiving-only sections (rapport history)
             // render only for workers who actually serve receiving.
             receivingVisible = state.tasks.any { it.key == "receiving" },
+            printerBridgeRunning = bridgeRunning,
+            printerBridgeState = if (bridgeRunning) bridgePrinterState.name else null,
+            onTogglePrinterBridge = onTogglePrinterBridge,
         )
     }
 }

@@ -610,6 +610,15 @@ export const adminApi = {
     client
       .post<{ ok: true; reset: boolean; removed: Record<string, number> }>('/v1/operations/data-control/trial-reset', { reason, confirm })
       .then((r) => r.data),
+  /** PRINTER MANAGER (2026-09-15): printer lifecycle events → existing audit. */
+  printersAudit: (payload: {
+    event: string;
+    printerName: string;
+    address?: string;
+    model?: string;
+    firmware?: string;
+    detail?: string;
+  }) => client.post<{ ok: true }>('/v1/printers/audit', payload).then((r) => r.data),
   dataControlForceDelete: (kind: ForceDeleteKind, code: string, reason: string, confirm: string, id?: string) =>
     client
       .post<ForceDeleteResult>('/v1/operations/data-control/force-delete', { kind, code, reason, confirm, id })

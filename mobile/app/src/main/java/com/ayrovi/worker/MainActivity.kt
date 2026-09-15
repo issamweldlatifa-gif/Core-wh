@@ -11,6 +11,8 @@ import androidx.activity.enableEdgeToEdge
 import com.ayrovi.worker.design.*
 import com.ayrovi.worker.di.AppContainer
 import com.ayrovi.worker.presentation.WorkerTerminalApp
+import com.ayrovi.worker.printer.PrintBridgeService
+import com.ayrovi.worker.printer.PrinterStore
 import com.ayrovi.worker.ui.AyroviApp
 
 /** One native app/launcher. No WebView, no independent client per workflow. */
@@ -30,6 +32,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         container = runCatching { (application as AyroviWorkerApplication).container }.getOrNull()
+        // PRINTER MANAGER (2026-09-15): restore the loopback print bridge for
+        // the Admin web when the owner left it enabled.
+        if (PrinterStore(this).bridgeEnabled()) {
+            runCatching { startService(Intent(this, PrintBridgeService::class.java)) }
+        }
         if (intent?.getBooleanExtra(EXTRA_OPEN_RECEIVING, false) == true) openReceivingRequests.value += 1
         applyAppearance(if (BuildConfig.WORKER_LEGACY_FALLBACK) TerminalThemeMode.BLACK
             else container?.appearance?.theme?.value ?: TerminalThemeMode.WHITE)
