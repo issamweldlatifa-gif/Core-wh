@@ -3,9 +3,171 @@ import { adminApi } from '../api';
 import { useAsync } from './useAsync';
 import { useAuth } from '../../context/AuthContext';
 import { apiErrorMessage } from '../../api/client';
+import { displayUrl, isDisplayOnline, relativeTime } from '../../display/display-view';
 
 const DEPARTMENTS = ['RECEIVING', 'SORTING', 'PUTAWAY', 'PACKING', 'INVENTORY', 'DISPATCH', 'STAGING', 'BATCH'];
 const CAPS = ['CAMERA', 'BARCODE_SCANNER', 'QR_SCANNER', 'OCR', 'PRINTER', 'SCALE'];
+
+/** §4 Data Visibility — every switch is configurable per display. */
+const DISPLAY_FIELDS: Array<{ key: string; label: string }> = [
+  { key: 'worker', label: 'Worker' },
+  { key: 'operation', label: 'Current Operation' },
+  { key: 'task', label: 'Current Task' },
+  { key: 'lastScan', label: 'Last Scan' },
+  { key: 'product', label: 'Product' },
+  { key: 'customer', label: 'Customer' },
+  { key: 'quantity', label: 'Quantity' },
+  { key: 'status', label: 'Transaction Status' },
+  { key: 'progress', label: 'Progress' },
+  { key: 'station', label: 'Current Station' },
+  { key: 'reports', label: 'Reports' },
+];
+
+type DisplayRow = {
+  id: string; name: string; enabled: boolean; displayType: string;
+  lastSeenAt: string | null; createdAt: string; config: Record<string, unknown>;
+};
+
+/** Station → Display Mode panel (owner order 2026-09-16): create/configure/
+ * open/copy/regenerate/disable/delete read-only live displays. A display is
+ * a capability OF the station — never a station itself. */
+function StationDisplaysPanel({ stationId, stationName, canManage }: { stationId: string; stationName: string; canManage: boolean }) {
+  const [displays, setDisplays] = useState<DisplayRow[] | null>(null);
+  const [urls, setUrls] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Record<string, Record<string, boolean>>>({});
+
+  const load = async () => {
+    try { setDisplays(await adminApi.stationDisplays(stationId)); }
+    catch (ex) { setErr(apiErrorMessage(ex)); }
+  };
+  useEffect(() => { setDisplays(null); setUrls({}); setErr(null); setNote(null); void load(); /* eslint-disable-line */ }, [stationId]);
+
+  async function run(key: string, fn: () => Promise<void>) {
+    setBusy(key); setErr(null); setNote(null);
+    try { await fn(); await load(); }
+    catch (ex) { setErr(apiErrorMessage(ex)); }
+    finally { setBusy(null); }
+  }
+
+  const create = () => run('create', async () => {
+    const d = await adminApi.createStationDisplay(stationId, {});
+    setUrls((u) => ({ ...u, [d.id]: displayUrl(d.accessToken) }));
+    setNote(`Display created — copy its URL now (shown once per create/regenerate).`);
+  });
+
+  const regenerate = (id: string) => run(`reg-${id}`, async () => {
+    const d = await adminApi.regenerateStationDisplay(id);
+    setUrls((u) => ({ ...u, [d.id]: displayUrl(d.accessToken) }));
+    setNote('Access regenerated — the old display URL no longer works.');
+  });
+
+  const toggleConfig = (id: string, key: string, current: Record<string, unknown>) =>
+    setEditing((e) => {
+      const merged: Record<string, boolean> = { ...(e[id] ?? {}) };
+      merged[key] = !(e[id] ?? current)[key];
+      return { ...e, [id]: merged };
+    });
+
+  const saveConfig = (d: DisplayRow) => run(`cfg-${d.id}`, async () => {
+    const config = { ...d.config, ...(editing[d.id] ?? {}) } as Record<string, boolean>;
+    await adminApi.updateStationDisplay(d.id, { config });
+    setEditing((e) => { const n = { ...e }; delete n[d.id]; return n; });
+    setNote('Display configuration saved.');
+  });
+
+  async function copy(text: string) {
+    try { await navigator.clipboard.writeText(text); setNote('URL copied.'); }
+    catch { window.prompt('Copy the display URL:', text); }
+  }
+
+  return (
+    <section className="os-card" style={{ marginTop: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <div>
+          <h3 style={{ margin: 0 }}>Display Mode — {stationName}</h3>
+          <div className="os-muted" style={{ fontSize: '0.8rem' }}>
+            Read-only live view of this station's transactions. Open the URL on any screen (PC / TV / tablet).
+          </div>
+        </div>
+        {canManage && (
+          <button className="os-btn os-btn--primary" disabled={busy === 'create'} onClick={create}>
+            {busy === 'create' ? 'creating…' : '+ Create Display'}
+          </button>
+        )}
+      </div>
+
+      {err && <div className="os-tag os-tag--muted" style={{ color: '#ff5d5d', marginTop: 8 }}>{err}</div>}
+      {note && <div className="os-muted" style={{ marginTop: 8, fontSize: '0.8rem' }}>{note}</div>}
+
+      {displays === null ? <div className="os-empty">loading…</div> : displays.length === 0 ? (
+        <div className="os-empty">No displays for this station yet.</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
+          {displays.map((d) => {
+            const online = isDisplayOnline(d.lastSeenAt);
+            const url = urls[d.id];
+            const cfg = { ...d.config, ...(editing[d.id] ?? {}) } as Record<string, boolean>;
+            return (
+              <div key={d.id} style={{ border: '1px solid var(--line, #24303d)', borderRadius: 10, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <span className={`os-tag ${online && d.enabled ? 'os-tag--ok' : 'os-tag--muted'}`}>
+                    {d.enabled ? (online ? 'Connected' : 'Offline') : 'Disabled'}
+                  </span>
+                  <b>{d.name}</b>
+                  <span className="os-muted" style={{ fontSize: '0.75rem' }}>
+                    {d.displayType} · last seen {relativeTime(d.lastSeenAt)}
+                  </span>
+                  <span style={{ flex: 1 }} />
+                  {url ? (
+                    <>
+                      <code style={{ fontSize: '0.72rem' }}>{url}</code>
+                      <button className="ac-linkbtn" onClick={() => void copy(url)}>Copy URL</button>
+                      <a className="ac-linkbtn" href={url} target="_blank" rel="noreferrer">Open Display</a>
+                    </>
+                  ) : canManage ? (
+                    <button className="ac-linkbtn" disabled={busy === `reg-${d.id}`} onClick={() => void regenerate(d.id)}>
+                      {busy === `reg-${d.id}` ? '…' : 'Get URL (regenerate access)'}
+                    </button>
+                  ) : null}
+                  {canManage && (
+                    <>
+                      <button className="ac-linkbtn" disabled={busy === `en-${d.id}`}
+                        onClick={() => void run(`en-${d.id}`, async () => { await adminApi.updateStationDisplay(d.id, { enabled: !d.enabled }); })}>
+                        {d.enabled ? 'Disable' : 'Enable'}
+                      </button>
+                      <button className="ac-linkbtn" style={{ color: '#ff5d5d' }} disabled={busy === `del-${d.id}`}
+                        onClick={() => { if (window.confirm('Delete this display? Its URL stops working.')) void run(`del-${d.id}`, async () => { await adminApi.deleteStationDisplay(d.id); }); }}>
+                        Delete
+                      </button>
+                    </>
+                  )}
+                </div>
+                <div className="os-row" style={{ flexWrap: 'wrap', gap: 10 }}>
+                  {DISPLAY_FIELDS.map((f) => (
+                    <label key={f.key} className="os-row" style={{ gap: 5, fontSize: '0.78rem' }}>
+                      <input type="checkbox" checked={cfg[f.key] !== false && (f.key !== 'reports' || cfg[f.key] === true)}
+                        disabled={!canManage || busy === `cfg-${d.id}`}
+                        onChange={() => toggleConfig(d.id, f.key, d.config)} />
+                      {f.label}
+                    </label>
+                  ))}
+                </div>
+                {canManage && editing[d.id] && (
+                  <div><button className="os-btn" disabled={busy === `cfg-${d.id}`} onClick={() => void saveConfig(d)}>
+                    {busy === `cfg-${d.id}` ? 'saving…' : 'Save configuration'}
+                  </button></div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
 
 /** Station registry + worker assignment + station/zone configuration (S10/S11).
  *
@@ -27,6 +189,7 @@ export default function Stations() {
     if (whId) adminApi.zones(whId).then(setZones).catch(() => setZones([]));
   }, [whId]);
 
+  const [displayStation, setDisplayStation] = useState<{ id: string; name: string } | null>(null);
   const [form, setForm] = useState({ code: '', name: '', department: 'RECEIVING', capabilities: ['CAMERA'] as string[], zoneId: '' });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -170,12 +333,17 @@ export default function Stations() {
                   <td>
                     <span className={`os-tag ${s.status === 'ACTIVE' ? 'os-tag--ok' : 'os-tag--muted'}`}>{s.status}</span>
                   </td>
-                  <td>
+                  <td style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                     {canManage && (
-                      <button className="ac-linkbtn"
-                        onClick={() => act(() => adminApi.stationStatus(s.id, s.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'))}>
-                        {s.status === 'ACTIVE' ? 'deactivate' : 'activate'}
-                      </button>
+                      <>
+                        <button className="ac-linkbtn" onClick={() => setDisplayStation(displayStation?.id === s.id ? null : { id: s.id, name: s.name })}>
+                          Display Mode
+                        </button>
+                        <button className="ac-linkbtn"
+                          onClick={() => act(() => adminApi.stationStatus(s.id, s.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'))}>
+                          {s.status === 'ACTIVE' ? 'deactivate' : 'activate'}
+                        </button>
+                      </>
                     )}
                   </td>
                 </tr>
@@ -185,6 +353,10 @@ export default function Stations() {
           </table>
         )}
       </section>
+
+      {displayStation && canManage && (
+        <StationDisplaysPanel stationId={displayStation.id} stationName={displayStation.name} canManage={canManage} />
+      )}
     </>
   );
 }

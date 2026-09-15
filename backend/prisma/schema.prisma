@@ -266,6 +266,15 @@ enum AuditAction {
   PRINTER_TEST_PRINTED
   PRINTER_CONFIGURATION_CHANGED
   PRINT_FAILED
+  /// Station Display Mode (owner order 2026-09-16): admin lifecycle of the
+  /// per-station read-only live displays.
+  DISPLAY_CREATED
+  DISPLAY_UPDATED
+  DISPLAY_ENABLED
+  DISPLAY_DISABLED
+  DISPLAY_DELETED
+  DISPLAY_ACCESS_REGENERATED
+  DISPLAY_STATION_CHANGED
 }
 
 enum ApiClientStatus {
@@ -2351,6 +2360,7 @@ model Station {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  displays         StationDisplay[]       @relation("StationDisplays")
   productMovesFrom ProductStationMove[] @relation("ProductMoveFrom")
   productMovesTo   ProductStationMove[] @relation("ProductMoveTo")
   corrections      OperationCorrection[]
@@ -2366,6 +2376,40 @@ model Station {
   @@index([assignedWorkerId])
   @@index([zoneId])
   @@map("stations")
+}
+
+/// v1 ships a single display kind; the enum keeps future wall-display types
+/// (media, announcements, KPI) additive without a schema redesign.
+enum StationDisplayType {
+  LIVE_STATION
+}
+
+/// Station Display Mode (owner order 2026-09-16): a READ-ONLY live view bound
+/// to one station, opened by URL on any browser screen (PC / TV / tablet).
+/// A display is a capability OF a station, never a station itself; one
+/// station can serve many displays. The token in the URL is the display's
+/// only credential: it grants read + stream access to that station's view
+/// and nothing else — no admin and no worker authority travels with it.
+model StationDisplay {
+  id          String             @id @default(uuid())
+  stationId   String
+  station     Station            @relation("StationDisplays", fields: [stationId], references: [id], onDelete: Cascade)
+  name        String
+  enabled     Boolean            @default(true)
+  displayType StationDisplayType @default(LIVE_STATION)
+  /// 256-bit random hex, regenerable. Lives in the display URL path
+  /// (/display/:token). Unique globally — knowing it IS the display auth.
+  accessToken String             @unique
+  /// Visibility switches rendered by the display page; enforced server-side
+  /// when the snapshot is built (hidden fields never leave the API).
+  config      Json               @default("{}")
+  /// Last stream/snapshot hit — powers the Connected/Offline status pill.
+  lastSeenAt  DateTime?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@index([stationId])
+  @@map("station_displays")
 }
 
 /// What an admin is allowed to do to a recorded operation (§7/§39).

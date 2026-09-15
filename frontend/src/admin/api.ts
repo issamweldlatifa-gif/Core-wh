@@ -619,6 +619,22 @@ export const adminApi = {
     firmware?: string;
     detail?: string;
   }) => client.post<{ ok: true }>('/v1/printers/audit', payload).then((r) => r.data),
+  // ---- Station Display Mode (owner order 2026-09-16) --------------------
+  stationDisplays: (stationId: string) =>
+    client.get<Array<{
+      id: string; name: string; enabled: boolean; displayType: string;
+      lastSeenAt: string | null; createdAt: string; config: Record<string, unknown>;
+    }>>(`/v1/stations/${stationId}/displays`).then((r) => r.data),
+  createStationDisplay: (stationId: string, d: { name?: string; config?: Record<string, boolean> }) =>
+    client.post<{ id: string; name: string; enabled: boolean; accessToken: string; urlPath: string }>(
+      `/v1/stations/${stationId}/displays`, d).then((r) => r.data),
+  updateStationDisplay: (id: string, d: { name?: string; enabled?: boolean; config?: Record<string, boolean>; stationId?: string }) =>
+    client.patch<{ id: string; name: string; enabled: boolean; config: Record<string, unknown> }>(
+      `/v1/station-displays/${id}`, d).then((r) => r.data),
+  regenerateStationDisplay: (id: string) =>
+    client.post<{ id: string; accessToken: string; urlPath: string }>(`/v1/station-displays/${id}/regenerate`).then((r) => r.data),
+  deleteStationDisplay: (id: string) =>
+    client.delete<{ ok: true }>(`/v1/station-displays/${id}`).then((r) => r.data),
   dataControlForceDelete: (kind: ForceDeleteKind, code: string, reason: string, confirm: string, id?: string) =>
     client
       .post<ForceDeleteResult>('/v1/operations/data-control/force-delete', { kind, code, reason, confirm, id })

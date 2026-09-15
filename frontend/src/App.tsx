@@ -48,6 +48,8 @@ const AdminOutboundShipments = lazy(() => import('./admin/pages/OutboundShipment
 const AdminTasks = lazy(() => import('./admin/pages/Tasks'));
 const AdminActivity = lazy(() => import('./admin/pages/Activity'));
 const AdminLiveBoard = lazy(() => import('./admin/pages/LiveBoard'));
+// Station Display Mode (owner order 2026-09-16): public read-only live view.
+const StationDisplay = lazy(() => import('./display/StationDisplay'));
 const AdminDataControl = lazy(() => import('./admin/pages/DataControl'));
 const AdminReceivingContainers = lazy(() => import('./admin/pages/ReceivingContainers'));
 const AdminTemporaryStorage = lazy(() => import('./admin/pages/TemporaryStorage'));
@@ -142,6 +144,9 @@ export default function App() {
         <Suspense fallback={<div className="login-wrap"><div className="spinner" style={{ color: 'var(--accent-2)' }} /></div>}>
         <Routes>
           <Route path="/login" element={<Login />} />
+          {/* PUBLIC read-only station display — token in the URL is the only
+              credential; no shell, no auth gate, no write path. */}
+          <Route path="/display/:token" element={<StationDisplay />} />
           {/* RECEIVING CONSOLIDATION — ONE canonical route: /terminal/receiving
               (the worker-terminal workspace). Every legacy path redirects there,
               so no entry point can ever reach the old terminal UI again. */}
