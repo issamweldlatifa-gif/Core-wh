@@ -1,6 +1,7 @@
 package com.ayrovi.worker.printer
 
 import android.annotation.SuppressLint
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothClass
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
@@ -22,7 +23,7 @@ class BtPrinterFinder(private val context: Context) : PrinterFinder {
         fun isLikelyPrinter(name: String?, clazz: BluetoothClass?): Boolean {
             if (name != null && NAME_HINTS.containsMatchIn(name)) return true
             if (clazz != null) {
-                if (clazz.deviceClass == BluetoothClass.Device.PRINTER) return true
+                // Printers report the IMAGING major device class (printer/scanner/camera family)
                 if (clazz.majorDeviceClass == BluetoothClass.Device.Major.IMAGING) return true
             }
             return false
