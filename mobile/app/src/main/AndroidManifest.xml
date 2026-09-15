@@ -19,6 +19,7 @@
         tools:targetApi="s" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" android:maxSdkVersion="30" />
     <!-- Honeywell rugged devices (CT40): required by some firmwares to
          receive barcode broadcasts from the scanner service. Absent and
          harmless on normal phones. -->
