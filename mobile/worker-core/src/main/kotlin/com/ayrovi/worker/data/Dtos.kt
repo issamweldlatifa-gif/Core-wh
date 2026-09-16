@@ -325,9 +325,15 @@ import kotlinx.serialization.json.JsonElement
     val letter: String? = null, val products: Int? = null, val stored: Int? = null,
     val customers: List<TsCustomerSummary> = emptyList(),
 )
+/** One storage container square (home face) — mirrors the admin TS squares. */
+@Serializable data class TsContainerSquare(
+    val id: String? = null, val code: String? = null, val section: String? = null,
+    val stored: Int? = null, val capacity: Int? = null,
+)
 @Serializable data class TsHomePayload(
     val station: TsStationRef? = null, val header: TsHeader? = null,
     val currentSection: String? = null, val sections: List<TsSectionSummary> = emptyList(),
+    val containerList: List<TsContainerSquare> = emptyList(),
 )
 @Serializable data class TsContainerCard(
     val code: String? = null, val current: Int? = null, val capacity: Int? = null,

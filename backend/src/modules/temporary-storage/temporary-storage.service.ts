@@ -294,6 +294,15 @@ export class TemporaryStorageService {
       },
       currentSection: activeTarget?.sectionLetter ?? null,
       sections,
+      // Per-container squares for the worker's home face (same data the admin
+      // STATIONS·SECTIONS squares use) — additive, ignored by older clients.
+      containerList: containers.map((c) => ({
+        id: c.id,
+        code: c.code,
+        section: c.sectionLetter,
+        stored: c.currentQuantity,
+        capacity: c.capacity,
+      })),
     };
   }
 

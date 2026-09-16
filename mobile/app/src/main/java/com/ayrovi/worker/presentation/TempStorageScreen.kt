@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -242,6 +243,17 @@ private fun TsHomeBody(
                     },
                     modifier = Modifier.testTag("TS_SECTION_${(section.letter ?: "?").uppercase()}"),
                 )
+                // OWNER 2026-09-14 («اجعلها مثل قسم مربعات»): the same
+                // containers-as-squares board the admin TS page has, per
+                // section — fill tone shows how full each container is.
+                val squares = home.containerList.filter { it.section == section.letter }
+                if (squares.isNotEmpty()) {
+                    ContainerSquares(
+                        squares = squares,
+                        activeCode = null,
+                        modifier = Modifier.testTag("TS_SQUARES_${(section.letter ?: "?").uppercase()}"),
+                    )
+                }
             }
         }
     }
@@ -251,6 +263,78 @@ private fun TsHomeBody(
         subtitle = "Scan the product card — the FIRST LETTER of its name gives its section; the system picks the target container.",
         onOpenTools = onOpenScanTools,
     )
+}
+
+/**
+ * Containers-as-squares board (owner order 2026-09-14, CT40 faces): the same
+ * reading as the admin TS squares — grey = empty, amber = partially filled
+ * (with a fill bar), red = FULL. Indicators only, never buttons (§4/§5).
+ */
+@Composable
+private fun ContainerSquares(
+    squares: List<com.ayrovi.worker.data.TsContainerSquare>,
+    activeCode: String?,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+        squares.chunked(3).forEach { rowSquares ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(TerminalTokens.xs)) {
+                rowSquares.forEach { k ->
+                    val stored = k.stored ?: 0
+                    val capacity = k.capacity ?: 0
+                    val ratio = if (capacity > 0) (stored.toFloat() / capacity.toFloat()).coerceIn(0f, 1f) else 0f
+                    val full = ratio >= 1f
+                    val partial = ratio > 0f && !full
+                    Surface(
+                        modifier = Modifier.weight(1f),
+                        color = TerminalTokens.surface,
+                        shape = MaterialTheme.shapes.small,
+                        border = BorderStroke(
+                            TerminalTokens.stroke,
+                            when {
+                                full -> TerminalTokens.error
+                                k.code == activeCode -> TerminalTokens.warning
+                                partial -> TerminalTokens.warning.copy(alpha = 0.55f)
+                                else -> TerminalTokens.border
+                            },
+                        ),
+                    ) {
+                        Column(Modifier.padding(horizontal = TerminalTokens.xs, vertical = 6.dp)) {
+                            Text(
+                                k.code ?: "—",
+                                style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
+                                color = if (k.code == activeCode) TerminalTokens.warning else TerminalTokens.text,
+                                maxLines = 1,
+                            )
+                            Text(
+                                "$stored/$capacity",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = when {
+                                    full -> TerminalTokens.error
+                                    partial -> TerminalTokens.warning
+                                    else -> TerminalTokens.muted
+                                },
+                            )
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(3.dp)
+                                    .background(TerminalTokens.border),
+                            ) {
+                                Box(
+                                    Modifier
+                                        .fillMaxWidth(ratio)
+                                        .height(3.dp)
+                                        .background(if (full) TerminalTokens.error else TerminalTokens.warning),
+                                )
+                            }
+                        }
+                    }
+                }
+                repeat(3 - rowSquares.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
 }
 
 @Composable
