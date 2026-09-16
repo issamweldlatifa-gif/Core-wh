@@ -23,7 +23,8 @@ import kotlinx.coroutines.launch
  *
  *   1. `GET  /v1/print-jobs/pending`   — labels queued for the worker's stations
  *   2. print it through [PrinterManager] (TSPL over the existing SPP link,
- *      duplicate-protected by the server's job id — a re-poll never re-prints)
+ *      duplicate-protected by the server's job id — a re-poll never re-prints,
+ *      and never counts an already-printed label as new work either)
  *   3. `POST /v1/print-jobs/:id/result` — PRINTED or FAILED, so the audit trail
  *      says what physically happened (the same contract the browser uses)
  *
@@ -82,8 +83,11 @@ class PrintAgentRunner(
     }
 
     /**
-     * ONE cycle. Returns how many labels actually left the printer (0 when there
-     * is nothing to do, no printer is paired, or the link is down).
+     * ONE cycle. Returns how many labels physically left the printer IN THIS
+     * cycle — 0 when there is nothing to do, no printer is paired, the link is
+     * down, or everything the server is offering is already on paper (the queue
+     * keeps re-offering a job until the report lands, so a re-poll finding its
+     * own previous output is the NORMAL case, not new work).
      */
     suspend fun tick(): Int {
         // No printer on this device → the agent is simply not for this CT40.
@@ -121,21 +125,29 @@ class PrintAgentRunner(
             // stays per physical label (a lost link in the middle of a run of 3
             // must not silently drop the remaining two).
             val wanted = job.copies.coerceAtLeast(1)
-            var copiesPrinted = 0
+            // `onPaper` = copies this handheld has handled (freshly printed now or
+            // recognised as already printed by an earlier cycle); `fresh` = copies
+            // that really moved paper right now. A duplicate means the previous
+            // cycle printed it and only the report was lost — reporting PRINTED
+            // again is exactly what closes that loop, but it is NOT new work and
+            // must not be counted as such.
+            var onPaper = 0
+            var fresh = 0
             for (copy in 1..wanted) {
                 val outcome = printer.print("${job.id}#$copy", job.label.toSpec())
                 if (!outcome.ok) {
                     failure = outcome.error?.code ?: "PRINT_FAILED"
                     break
                 }
-                copiesPrinted++
+                onPaper++
+                if (!outcome.duplicate) fresh++
             }
-            printed += copiesPrinted
+            printed += fresh
             // The JOB is reported once (the server holds `copies`) and only after
             // the physical attempt: PRINTED means every requested copy left the
             // printer — a partial run is FAILED, never a half-true «printed».
-            agent.report(job.id, printed = copiesPrinted == wanted, error = failure)
-            if (copiesPrinted < wanted) break // link is sick → stop, next cycle retries
+            agent.report(job.id, printed = onPaper == wanted, error = failure)
+            if (onPaper < wanted) break // link is sick → stop, next cycle retries
         }
 
         lastError = failure
