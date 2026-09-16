@@ -7,6 +7,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.IBinder
+import com.ayrovi.worker.AyroviWorkerApplication
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -21,6 +26,13 @@ class PrintBridgeService : Service() {
     private var server: PrintBridgeServer? = null
     private var manager: PrinterManager? = null
     private var finder: BtPrinterFinder? = null
+
+    /** PRINT AGENT (open item «PC → CT40 printer»): while this service runs,
+     *  the app also claims the labels queued for this worker's stations and
+     *  prints them on the paired printer. Same lifecycle as the bridge, same
+     *  already-paired link — no extra permission dance, nothing to enable. */
+    private var agentRunner: PrintAgentRunner? = null
+    private val agentScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val aclReceiver = object : BroadcastReceiver() {
         override fun onReceive(ctx: Context, intent: Intent) {
@@ -50,12 +62,25 @@ class PrintBridgeService : Service() {
         }
         server?.start()
         BridgeStatus.bridgeRunning.value = true
+
+        // The agent only needs the worker's own session (WorkerTransport) — the
+        // server scopes every label to the stations assigned to that worker.
+        runCatching {
+            val container = (application as AyroviWorkerApplication).container
+            agentRunner = PrintAgentRunner(container.repository.transport, mgr, store, agentScope) { printed, error ->
+                BridgeStatus.agentPrinted.value += printed
+                BridgeStatus.agentDetail.value = error
+                BridgeStatus.agentLastCycleAt.value = System.currentTimeMillis()
+            }.also { it.start() }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
 
     override fun onDestroy() {
         BridgeStatus.bridgeRunning.value = false
+        agentRunner?.stop()
+        agentScope.cancel()
         server?.shutdown()
         manager?.disconnect()
         finder?.stopScan()
@@ -200,6 +225,10 @@ class PrintBridgeService : Service() {
         val bridgeRunning = MutableStateFlow(false)
         val printerState = MutableStateFlow(PrinterConnectionState.DISCONNECTED)
         val detail = MutableStateFlow<String?>(null)
+        /** PRINT AGENT liveness — what the terminal shows instead of guessing. */
+        val agentPrinted = MutableStateFlow(0)
+        val agentDetail = MutableStateFlow<String?>(null)
+        val agentLastCycleAt = MutableStateFlow<Long?>(null)
         private var manager: PrinterManager? = null
 
         fun attach(mgr: PrinterManager) {

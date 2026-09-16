@@ -62,6 +62,9 @@ fun WorkerTerminalApp(
     val printerStore = remember { PrinterStore(appContext) }
     val bridgeRunning by PrintBridgeService.BridgeStatus.bridgeRunning.collectAsStateWithLifecycle()
     val bridgePrinterState by PrintBridgeService.BridgeStatus.printerState.collectAsStateWithLifecycle()
+    // PRINT AGENT (open item 2026-09-16): labels queued for THIS handheld by any
+    // station screen, printed here and reported back. Shown, never guessed.
+    val agentPrinted by PrintBridgeService.BridgeStatus.agentPrinted.collectAsStateWithLifecycle()
     val btPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { grants ->
@@ -400,7 +403,11 @@ fun WorkerTerminalApp(
             // render only for workers who actually serve receiving.
             receivingVisible = state.tasks.any { it.key == "receiving" },
             printerBridgeRunning = bridgeRunning,
-            printerBridgeState = if (bridgeRunning) bridgePrinterState.name else null,
+            printerBridgeState = when {
+                !bridgeRunning -> null
+                agentPrinted > 0 -> "${bridgePrinterState.name} · $agentPrinted label(s) printed here"
+                else -> bridgePrinterState.name
+            },
             onTogglePrinterBridge = onTogglePrinterBridge,
         )
     }
