@@ -115,6 +115,13 @@ class PrintAgentTest {
         assertEquals(emptyList(), PrintAgent.parseJobs("""{"jobs":[]}"""))
         // a job without an id is dropped, the readable ones survive
         assertEquals(listOf("job-1"), PrintAgent.parseJobs("""{"jobs":[{"payload":{}},{"id":"job-1"}]}""").map { it.id })
+        // No id (missing or blank) = a label the agent could never REPORT, so it
+        // must never reach paper: the queue would re-offer it for ever and the
+        // operator would print the same box again and again.
+        assertEquals(
+            listOf("job-2"),
+            PrintAgent.parseJobs("""{"jobs":[{"id":"","payload":{"code":"SA-1"}},{"id":"   "},{"id":"job-2"}]}""").map { it.id },
+        )
     }
 
     @Test fun `the agent only knows the two agent endpoints (no print, no display token)`() = runBlocking {

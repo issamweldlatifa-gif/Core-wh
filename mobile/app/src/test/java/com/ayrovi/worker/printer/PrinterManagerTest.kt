@@ -45,15 +45,19 @@ private class FakeFinder : PrinterFinder {
     override fun stopScan() { scanStarted = false }
 }
 
-private class FakePersistence : PrinterPersistence {
+private class FakePersistence(private val rememberDelayMs: Long = 0) : PrinterPersistence {
     var saved: PrinterInfo? = null
     val jobs = LinkedHashSet<String>()
     var enabled = false
+    private val lock = Any()
     override fun loadSaved(): PrinterInfo? = saved
     override fun saveSaved(printer: PrinterInfo) { saved = printer }
     override fun clearSaved() { saved = null }
-    override fun seenJob(jobId: String): Boolean = jobs.contains(jobId)
-    override fun rememberJob(jobId: String) { jobs.add(jobId) }
+    override fun seenJob(jobId: String): Boolean = synchronized(lock) { jobs.contains(jobId) }
+    override fun rememberJob(jobId: String) {
+        if (rememberDelayMs > 0) Thread.sleep(rememberDelayMs)
+        synchronized(lock) { jobs.add(jobId) }
+    }
     override fun bridgeEnabled(): Boolean = enabled
     override fun setBridgeEnabled(value: Boolean) { enabled = value }
 }
@@ -120,6 +124,43 @@ class PrinterManagerTest {
         assertTrue(first.ok && !first.duplicate)
         assertTrue(second.ok && second.duplicate)
         assertEquals(1, t.writes)
+    }
+
+    @Test
+    fun `a job without an id is refused, never printed (owner rule - one action = one label)`() {
+        val t = FakeTransport()
+        val m = manager(transport = t)
+        m.connect("E9:BD:F6:4B:95:40", "PM-241-BT")
+
+        val outcome = m.print("", LabelSpec(title = "A"))
+
+        assertEquals(0, t.writes)                       // nothing physically moved
+        assertFalse(outcome.ok)
+        assertEquals("JOB_ID_REQUIRED", outcome.error?.code)
+        // A caller mistake is not a printer fault: the link is still healthy.
+        assertEquals(PrinterConnectionState.CONNECTED, m.state)
+        assertTrue(m.connectedPrinter != null)
+    }
+
+    @Test
+    fun `two retries of one job arriving together still write one label (owner rule)`() {
+        val t = FakeTransport()
+        val m = manager(transport = t, store = FakePersistence(rememberDelayMs = 25))
+        m.connect("E9:BD:F6:4B:95:40", "PM-241-BT")
+        val threads = 8
+        val start = java.util.concurrent.CountDownLatch(1)
+        val finished = java.util.concurrent.CountDownLatch(threads)
+        repeat(threads) {
+            Thread {
+                start.await()
+                m.print("job-retry", LabelSpec(title = "A"))
+                finished.countDown()
+            }.start()
+        }
+        start.countDown()
+        assertTrue(finished.await(10, java.util.concurrent.TimeUnit.SECONDS))
+
+        assertEquals(1, t.writes) // ONE label for one action, however many callers
     }
 
     @Test

@@ -45,12 +45,15 @@ class PrintBridgeService : Service() {
     override fun onCreate() {
         super.onCreate()
         val store = PrinterStore(this)
-        finder = BtPrinterFinder(this)
+        val scanFinder = BtPrinterFinder(this)
+        finder = scanFinder
         // ONE SPP link shared by manager + queue — two transports would mean
-        // the queue writing to a socket that was never connected.
+        // the queue writing to a socket that was never connected. Same rule for
+        // the finder: the manager and the /printers routes get the SAME object,
+        // so there is exactly one discovery component on this device.
         val spp = SppPrinterTransport(this)
         val queue = PrintQueue(spp, store)
-        val mgr = PrinterManager(store, spp, BtPrinterFinder(this), queue)
+        val mgr = PrinterManager(store, spp, scanFinder, queue)
         manager = mgr
         BridgeStatus.attach(mgr)
         androidx.core.content.ContextCompat.registerReceiver(
@@ -157,7 +160,16 @@ class PrintBridgeService : Service() {
                 PrintBridgeServer.Response(200, """{"ok":true}""")
             }
             request.method == "POST" && (request.path == "/print" || request.path == "/print/test" || request.path == "/print/qr" || request.path == "/print/barcode") -> {
-                val jobId = jsonField(request.body, "jobId") ?: "job-${System.currentTimeMillis()}"
+                // The id is the duplicate-protection key (queue + server). A
+                // made-up id per request would give every retry a fresh label,
+                // so a caller that sends none is answered, not served.
+                val jobId = jsonField(request.body, "jobId")
+                if (jobId.isNullOrBlank()) {
+                    return PrintBridgeServer.Response(
+                        400,
+                        """{"ok":false,"error":"JOB_ID_REQUIRED","detail":"Send a jobId — it is what stops the same label printing twice."}""",
+                    )
+                }
                 val outcome = when (request.path) {
                     "/print/test" -> mgr.testPrint(jobId, jsonField(request.body, "printerName"))
                     "/print/qr" -> mgr.printQrLabel(jobId, labelFrom(request.body))

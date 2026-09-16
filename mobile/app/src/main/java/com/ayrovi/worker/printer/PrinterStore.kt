@@ -7,6 +7,13 @@ import android.content.SharedPreferences
  * Saved printer + job-id + bridge preference persistence on the CT40
  * (task §11/§18). Flat preference keys — no JSON dependency, unit-testable
  * through the [PrinterPersistence] interface.
+ *
+ * The claimed job ids are kept in CLAIM ORDER (one newline-separated string,
+ * oldest first) rather than a `StringSet`: a set has no order, so trimming it
+ * to the window dropped an arbitrary id — possibly the label the server is
+ * still offering — and the next poll printed it twice. See [JobIdWindow].
+ * Ids written by an older build are read from the legacy set once and merged
+ * in front (they are the oldest) so no install loses its protection.
  */
 class PrinterStore(context: Context) : PrinterPersistence {
 
@@ -41,16 +48,25 @@ class PrinterStore(context: Context) : PrinterPersistence {
             .remove(KEY_FIRMWARE).remove(KEY_LAST_OK).remove(KEY_LAST_STATUS).apply()
     }
 
-    override fun seenJob(jobId: String): Boolean = prefs.getStringSet(KEY_JOBS, emptySet())!!.contains(jobId)
+    override fun seenJob(jobId: String): Boolean = claimedWindow().contains(jobId)
 
     override fun rememberJob(jobId: String) {
-        val current = prefs.getStringSet(KEY_JOBS, emptySet())!!.toMutableSet()
-        current.add(jobId)
-        // Ring of the most recent ids only (duplicate protection window).
-        while (current.size > MAX_JOBS) {
-            current.remove(current.first())
-        }
-        prefs.edit().putStringSet(KEY_JOBS, current).apply()
+        val window = claimedWindow()
+        window.remember(jobId)
+        prefs.edit()
+            .putString(KEY_JOB_ORDER, window.ids().joinToString(SEPARATOR))
+            .remove(KEY_JOBS) // legacy unordered key is folded in above
+            .apply()
+    }
+
+    /** The window as it stands on disk: legacy ids first (oldest), then the ring. */
+    private fun claimedWindow(): JobIdWindow {
+        val legacy = prefs.getStringSet(KEY_JOBS, emptySet()).orEmpty()
+        val ordered = prefs.getString(KEY_JOB_ORDER, null)
+            ?.split(SEPARATOR)
+            ?.filter(String::isNotBlank)
+            .orEmpty()
+        return JobIdWindow.of(legacy.toList() + ordered, MAX_JOBS)
     }
 
     override fun bridgeEnabled(): Boolean = prefs.getBoolean(KEY_BRIDGE, false)
@@ -75,6 +91,8 @@ class PrinterStore(context: Context) : PrinterPersistence {
         const val KEY_LAST_OK = "printer_last_ok"
         const val KEY_LAST_STATUS = "printer_last_status"
         const val KEY_JOBS = "recent_job_ids"
+        const val KEY_JOB_ORDER = "recent_job_ids_order"
+        const val SEPARATOR = "\n"
         const val KEY_BRIDGE = "bridge_enabled"
         const val KEY_TOKEN = "bridge_token"
         const val MAX_JOBS = 200

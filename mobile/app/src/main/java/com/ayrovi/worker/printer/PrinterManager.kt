@@ -156,8 +156,25 @@ class PrinterManager(
      * ONE job through the queue; blocks until the bytes are written (the
      * bridge calls this from its request thread — the Bluetooth link stays
      * strictly sequential, task §17).
+     *
+     * A job without an id is REFUSED, never printed: the id is the only thing
+     * that makes a print exactly-once (it is what the queue remembers and what
+     * the server is told), so a caller that sends none would otherwise get a
+     * fresh label on every retry — precisely the duplicate the owner forbids.
+     * The refusal is a caller mistake, not a printer fault: the link state is
+     * left untouched.
      */
     fun print(jobId: String, spec: LabelSpec): PrintOutcome {
+        if (jobId.isBlank()) {
+            return PrintOutcome(
+                ok = false,
+                duplicate = false,
+                error = PrinterError(
+                    "JOB_ID_REQUIRED",
+                    "Printing needs a job id — it is what stops the same label printing twice.",
+                ),
+            )
+        }
         if (persistence.seenJob(jobId)) return PrintOutcome(ok = true, duplicate = true)
         if (!requireConnected()) return PrintOutcome(ok = false, duplicate = false, error = lastError)
         val commands = TsplEncoder.encode(spec, connectedPrinter?.name)
