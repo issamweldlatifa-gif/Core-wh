@@ -75,7 +75,11 @@ const PROBE_SQL = `
     (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'operational_containers' AND column_name = 'stagingStationId') AS container_staging,
     (SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'warehouse_orders'       AND column_name = 'customerName')     AS order_customer_name,
     (SELECT COUNT(*) FROM information_schema.tables  WHERE table_schema = 'public' AND table_name = 'shipping_verifications')  AS shipping_verifications,
-    (SELECT COUNT(*) FROM information_schema.tables  WHERE table_schema = 'public' AND table_name = 'operational_exceptions')  AS operational_exceptions
+    (SELECT COUNT(*) FROM information_schema.tables  WHERE table_schema = 'public' AND table_name = 'operational_exceptions')  AS operational_exceptions,
+    (SELECT COUNT(*) FROM information_schema.tables  WHERE table_schema = 'public' AND table_name = 'station_displays')          AS station_displays,
+    (SELECT COUNT(*) FROM information_schema.tables  WHERE table_schema = 'public' AND table_name = 'station_display_actions')  AS station_display_actions,
+    (SELECT COUNT(*) FROM information_schema.tables  WHERE table_schema = 'public' AND table_name = 'station_print_jobs')       AS station_print_jobs,
+    (SELECT COUNT(*) FROM information_schema.tables  WHERE table_schema = 'public' AND table_name = 'station_display_messages') AS station_display_messages
 `;
 
 /**
@@ -523,6 +527,102 @@ END $$`,
   `CREATE INDEX IF NOT EXISTS "operational_exceptions_status_idx" ON "operational_exceptions"("status")`,
   `CREATE INDEX IF NOT EXISTS "operational_exceptions_type_idx" ON "operational_exceptions"("type")`,
   `DO $$ BEGIN ALTER TABLE "operational_exceptions" ADD CONSTRAINT "operational_exceptions_stationId_fkey" FOREIGN KEY ("stationId") REFERENCES "stations"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  // ------------------------------------------------------------------
+  // STATION DISPLAY MODE (2026-09-16) + DISPLAY v2 INTERACTIVE (2026-09-16
+  // stage 2): the display tables and the display action vocabulary. Additive,
+  // idempotent — a healthy database skips this whole block via the probe.
+  // ------------------------------------------------------------------
+  `DO $$ BEGIN
+    ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'DISPLAY_CREATED';
+    ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'DISPLAY_UPDATED';
+    ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'DISPLAY_ENABLED';
+    ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'DISPLAY_DISABLED';
+    ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'DISPLAY_DELETED';
+    ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'DISPLAY_ACCESS_REGENERATED';
+    ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'DISPLAY_STATION_CHANGED';
+    ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'DISPLAY_ACTION_ACK';
+    ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'DISPLAY_HELP_REQUESTED';
+    ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'DISPLAY_EXCEPTION_RAISED';
+    ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'DISPLAY_PRINT_REQUESTED';
+    ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'DISPLAY_PRINT_COMPLETED';
+    ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'DISPLAY_PRINT_FAILED';
+    ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'DISPLAY_MESSAGE_SENT';
+    ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'DISPLAY_MESSAGE_ACK';
+    ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'DISPLAY_BULK_CREATED';
+    ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'DISPLAY_BULK_CONFIGURED';
+    ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'DISPLAY_BULK_ENABLED_CHANGED';
+  EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  `DO $$ BEGIN CREATE TYPE "StationDisplayType" AS ENUM ('LIVE_STATION'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  `CREATE TABLE IF NOT EXISTS "station_displays" (
+    "id" TEXT NOT NULL,
+    "stationId" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "enabled" BOOLEAN NOT NULL DEFAULT true,
+    "displayType" "StationDisplayType" NOT NULL DEFAULT 'LIVE_STATION',
+    "accessToken" TEXT NOT NULL,
+    "config" JSONB NOT NULL DEFAULT '{}',
+    "lastSeenAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    CONSTRAINT "station_displays_pkey" PRIMARY KEY ("id")
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "station_displays_accessToken_key" ON "station_displays"("accessToken")`,
+  `CREATE INDEX IF NOT EXISTS "station_displays_stationId_idx" ON "station_displays"("stationId")`,
+  `DO $$ BEGIN ALTER TABLE "station_displays" ADD CONSTRAINT "station_displays_stationId_fkey" FOREIGN KEY ("stationId") REFERENCES "stations"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  `CREATE TABLE IF NOT EXISTS "station_display_actions" (
+    "id" TEXT NOT NULL,
+    "displayId" TEXT NOT NULL,
+    "stationId" TEXT NOT NULL,
+    "kind" TEXT NOT NULL,
+    "summary" TEXT,
+    "refId" TEXT,
+    "metadata" JSONB,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "station_display_actions_pkey" PRIMARY KEY ("id")
+  )`,
+  `CREATE INDEX IF NOT EXISTS "station_display_actions_displayId_createdAt_idx" ON "station_display_actions"("displayId", "createdAt")`,
+  `CREATE INDEX IF NOT EXISTS "station_display_actions_stationId_createdAt_idx" ON "station_display_actions"("stationId", "createdAt")`,
+  `DO $$ BEGIN ALTER TABLE "station_display_actions" ADD CONSTRAINT "station_display_actions_displayId_fkey" FOREIGN KEY ("displayId") REFERENCES "station_displays"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  `CREATE TABLE IF NOT EXISTS "station_print_jobs" (
+    "id" TEXT NOT NULL,
+    "displayId" TEXT,
+    "stationId" TEXT NOT NULL,
+    "target" TEXT NOT NULL,
+    "targetRef" TEXT,
+    "payload" JSONB NOT NULL,
+    "transport" TEXT NOT NULL DEFAULT 'BROWSER',
+    "status" TEXT NOT NULL DEFAULT 'QUEUED',
+    "copies" INTEGER NOT NULL DEFAULT 1,
+    "reprintOf" TEXT,
+    "requestedBy" TEXT,
+    "claimedBy" TEXT,
+    "claimedAt" TIMESTAMP(3),
+    "resultAt" TIMESTAMP(3),
+    "error" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    CONSTRAINT "station_print_jobs_pkey" PRIMARY KEY ("id")
+  )`,
+  `CREATE INDEX IF NOT EXISTS "station_print_jobs_stationId_status_idx" ON "station_print_jobs"("stationId", "status")`,
+  `CREATE INDEX IF NOT EXISTS "station_print_jobs_displayId_createdAt_idx" ON "station_print_jobs"("displayId", "createdAt")`,
+  `DO $$ BEGIN ALTER TABLE "station_print_jobs" ADD CONSTRAINT "station_print_jobs_displayId_fkey" FOREIGN KEY ("displayId") REFERENCES "station_displays"("id") ON DELETE SET NULL ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  `DO $$ BEGIN ALTER TABLE "station_print_jobs" ADD CONSTRAINT "station_print_jobs_stationId_fkey" FOREIGN KEY ("stationId") REFERENCES "stations"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  `CREATE TABLE IF NOT EXISTS "station_display_messages" (
+    "id" TEXT NOT NULL,
+    "displayId" TEXT NOT NULL,
+    "stationId" TEXT NOT NULL,
+    "body" TEXT NOT NULL,
+    "severity" TEXT NOT NULL DEFAULT 'INFO',
+    "requireAck" BOOLEAN NOT NULL DEFAULT true,
+    "createdBy" TEXT,
+    "acknowledgedAt" TIMESTAMP(3),
+    "acknowledgedNote" TEXT,
+    "expiresAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "station_display_messages_pkey" PRIMARY KEY ("id")
+  )`,
+  `CREATE INDEX IF NOT EXISTS "station_display_messages_displayId_acknowledgedAt_idx" ON "station_display_messages"("displayId", "acknowledgedAt")`,
+  `DO $$ BEGIN ALTER TABLE "station_display_messages" ADD CONSTRAINT "station_display_messages_displayId_fkey" FOREIGN KEY ("displayId") REFERENCES "station_displays"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
 ];
 
 export async function repairSchemaDriftIfNeeded(): Promise<void> {

@@ -1,14 +1,32 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import type { DisplaySnapshot } from './display-view';
-import { relativeTime, viewState } from './display-view';
+import type { DisplayMessage, DisplaySnapshot } from './display-view';
+import {
+  ACTION_LABELS,
+  EXCEPTION_REASONS,
+  MESSAGE_STYLE,
+  availableActions,
+  relativeTime,
+  soundCueFor,
+  topMessage,
+  viewState,
+} from './display-view';
+import { printLabelByTransport, type LabelPayload } from './display-print';
 
 /**
- * Station Display page (owner order 2026-09-16) — /display/:token
- * READ-ONLY live view for any browser screen (PC / TV / tablet).
- * Transport: native EventSource (auto-reconnect) + a 10s snapshot poll that
- * self-heals anything a missed event could leave stale. No auth, no write
- * path, no operational buttons — only Enter Fullscreen (§22).
+ * Station Display page (owner order 2026-09-16; stage 2 the same day).
+ * /display/:token — a full-screen live view for any browser screen (PC / TV /
+ * tablet) that ALSO helps the operator at the station:
+ *
+ *  - READ  : the same transactions the CT40 wrote (same ids), live over SSE;
+ *  - ASSIST: NEXT/sound cues, operator messages from the admin;
+ *  - ACT   : print / reprint a label, acknowledge an alert, call a supervisor,
+ *            report a problem — ONLY when the admin switched that display to
+ *            interactive. The backend refuses every other case, so the button
+ *            bar is a rendering of the server's answer, never a client rule.
+ *
+ * Every action reports its real result (a label that failed to print says so),
+ * and each one is audited with this display's identity.
  */
 
 const API_BASE = (import.meta.env.VITE_API_BASE || '/api').replace(/\/$/, '');
@@ -20,12 +38,21 @@ const STATE_TEXT: Record<string, { label: string; color: string }> = {
   ERROR: { label: '✕ ERROR', color: '#ff5d5d' },
 };
 
+type Toast = { kind: 'ok' | 'err'; text: string } | null;
+
 export default function StationDisplay() {
   const { token = '' } = useParams();
   const [snap, setSnap] = useState<DisplaySnapshot | null>(null);
   const [fatal, setFatal] = useState<'NOT_FOUND' | null>(null);
   const [live, setLive] = useState(false); // stream connected
   const [clock, setClock] = useState(() => Date.now());
+  const [muted, setMuted] = useState(() => localStorage.getItem(`display-muted:${token}`) === '1');
+  const [busy, setBusy] = useState<string | null>(null);
+  const [toast, setToast] = useState<Toast>(null);
+  const [dialog, setDialog] = useState<'help' | 'exception' | null>(null);
+  const [note, setNote] = useState('');
+  const [reasonType, setReasonType] = useState(EXCEPTION_REASONS[0].type);
+  const [lastJob, setLastJob] = useState<{ id: string; ref: string | null } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
   const poll = useCallback(async () => {
@@ -52,11 +79,156 @@ export default function StationDisplay() {
     return () => { es.close(); clearInterval(fallback); clearInterval(tick); };
   }, [token, live, poll]);
 
+  // ----------------------------------------------------------------
+  // SOUND — a station screen must be audible across the aisle.
+  // ----------------------------------------------------------------
+  const prevCue = useRef<{ lastScanId: string | null; errorType: string | null; messageId: string | null }>({
+    lastScanId: null, errorType: null, messageId: null,
+  });
+  const audioCtx = useRef<AudioContext | null>(null);
+
+  const beep = useCallback((pattern: Array<[number, number, number]>) => {
+    try {
+      const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Ctor) return;
+      audioCtx.current ??= new Ctor();
+      const ctx = audioCtx.current;
+      if (ctx.state === 'suspended') void ctx.resume();
+      let at = ctx.currentTime;
+      for (const [freq, ms, gain] of pattern) {
+        const osc = ctx.createOscillator();
+        const vol = ctx.createGain();
+        osc.type = 'square';
+        osc.frequency.value = freq;
+        vol.gain.value = gain;
+        osc.connect(vol);
+        vol.connect(ctx.destination);
+        osc.start(at);
+        osc.stop(at + ms / 1000);
+        at += ms / 1000 + 0.03;
+      }
+    } catch { /* audio is a bonus — never break the screen */ }
+  }, []);
+
+  const soundAllowed = snap?.options?.sound !== false && !muted;
+
+  useEffect(() => {
+    const cue = soundCueFor(snap, prevCue.current);
+    prevCue.current = {
+      lastScanId: snap?.lastScan?.id ?? null,
+      errorType: snap?.error?.type ?? null,
+      messageId: topMessage(snap)?.id ?? null,
+    };
+    if (!cue || !soundAllowed) return;
+    if (cue === 'SCAN_OK') beep([[1180, 90, 0.05]]);
+    else if (cue === 'ERROR') beep([[320, 220, 0.08], [320, 220, 0.08]]);
+    else beep([[880, 160, 0.07], [1320, 160, 0.07], [880, 160, 0.07]]);
+  }, [snap, soundAllowed, beep]);
+
+  // Unlock audio on the first human interaction (browser autoplay policy).
+  useEffect(() => {
+    const unlock = () => { try { audioCtx.current?.resume(); } catch { /* ignore */ } };
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+  }, []);
+
+  // ----------------------------------------------------------------
+  // ACTIONS
+  // ----------------------------------------------------------------
+  const post = useCallback(async (path: string, body: unknown, label: string) => {
+    setBusy(label);
+    try {
+      const r = await fetch(`${API_BASE}/v1/display-views/${token}/${path}`, {
+        method: 'POST',
+        cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body ?? {}),
+      });
+      const data = (await r.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!r.ok) {
+        throw new Error(String(data.message ?? r.status));
+      }
+      void poll();
+      return data;
+    } catch (e) {
+      setToast({ kind: 'err', text: `${label} failed: ${e instanceof Error ? e.message : String(e)}` });
+      return null;
+    } finally {
+      setBusy(null);
+    }
+  }, [token, poll]);
+
+  const actions = useMemo(
+    () => availableActions(snap, { hasPrintable: Boolean(snap?.lastScan), hasReprintable: Boolean(lastJob) }),
+    [snap, lastJob],
+  );
+
+  const runPrint = useCallback(async (reprintOf?: string) => {
+    const label = reprintOf ? 'Reprint' : 'Print';
+    const data = await post('actions/print', reprintOf ? { reprintOf } : { target: 'SCAN' }, label);
+    const job = (data?.job ?? null) as { id: string; targetRef: string | null; transport: string; payload: LabelPayload } | null;
+    if (!job) return;
+    const outcome = await printLabelByTransport(job.payload, (job.transport as 'BROWSER' | 'BRIDGE' | 'CT40') ?? 'BROWSER');
+    await post(`actions/print/${job.id}/result`, {
+      status: outcome.ok ? 'PRINTED' : 'FAILED',
+      error: outcome.ok ? undefined : outcome.error,
+    }, 'Print result');
+    if (outcome.ok) {
+      setLastJob({ id: job.id, ref: job.targetRef });
+      setToast({
+        kind: 'ok',
+        text: `Label ${job.targetRef ?? ''} sent to ${outcome.via}${'fallback' in outcome && outcome.fallback ? ` (bridge: ${outcome.fallback})` : ''}`,
+      });
+    } else {
+      setToast({ kind: 'err', text: `Print failed: ${outcome.error}` });
+    }
+  }, [post]);
+
+  const runHelp = useCallback(async (urgent: boolean) => {
+    const res = await post('actions/help', { note, urgent }, 'Call supervisor');
+    if (res) setToast({ kind: 'ok', text: res.notified ? `Supervisor notified (${res.notified})` : 'Supervisor requested' });
+    setDialog(null);
+    setNote('');
+  }, [post, note]);
+
+  const runException = useCallback(async () => {
+    if (!note.trim()) { setToast({ kind: 'err', text: 'Describe the problem first' }); return; }
+    const res = await post('actions/exception', { type: reasonType, reason: note }, 'Report problem');
+    if (res) setToast({ kind: 'ok', text: `Exception ${res.exceptionCode} created` });
+    setDialog(null);
+    setNote('');
+  }, [post, note, reasonType]);
+
+  const runAck = useCallback(async () => {
+    const res = await post('actions/ack', {}, 'Acknowledge');
+    if (res) setToast({ kind: 'ok', text: 'Acknowledged' });
+  }, [post]);
+
+  const ackMessage = useCallback(async (m: DisplayMessage) => {
+    await post(`messages/${m.id}/ack`, {}, 'Message');
+  }, [post]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 6_000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
   async function goFullscreen() {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
       else await rootRef.current?.requestFullscreen();
     } catch { /* browser refused — button stays for another tap */ }
+  }
+
+  function toggleMute() {
+    const next = !muted;
+    setMuted(next);
+    localStorage.setItem(`display-muted:${token}`, next ? '1' : '0');
   }
 
   if (fatal === 'NOT_FOUND') {
@@ -73,6 +245,8 @@ export default function StationDisplay() {
   const scan = snap?.lastScan ?? null;
   const progress = snap?.progress ?? null;
   const pct = progress && progress.total > 0 ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0;
+  const message = topMessage(snap);
+  const msgStyle = MESSAGE_STYLE[message?.severity ?? 'INFO'] ?? MESSAGE_STYLE.INFO;
 
   return (
     <div ref={rootRef} style={{ ...wrap, justifyContent: 'space-between' }} data-testid="station-display">
@@ -93,6 +267,22 @@ export default function StationDisplay() {
           {!live && <span style={{ ...mid, color: '#ff9d00' }}>Connection lost — reconnecting…</span>}
         </div>
       </header>
+
+      {/* operator message (stage 2) — the supervisor speaks to this screen */}
+      {message && (
+        <div data-testid="operator-message" style={{
+          display: 'flex', alignItems: 'center', gap: 24, padding: '18px 28px', borderRadius: 16,
+          background: msgStyle.bg, border: `3px solid ${msgStyle.border}`, color: msgStyle.color,
+        }}>
+          <span style={{ fontSize: 30, fontWeight: 800, letterSpacing: 1 }}>📣 {message.severity}</span>
+          <span style={{ fontSize: 40, fontWeight: 700, flex: 1 }}>{message.body}</span>
+          {message.requireAck && (
+            <button style={actionBtn('#2f9dff')} disabled={busy === 'Message'} onClick={() => void ackMessage(message)}>
+              ✓ SEEN
+            </button>
+          )}
+        </div>
+      )}
 
       {/* body */}
       <main style={{ display: 'flex', flexDirection: 'column', gap: 28, alignItems: 'center', textAlign: 'center' }}>
@@ -135,18 +325,30 @@ export default function StationDisplay() {
 
             {snap?.recent && snap.recent.length > 0 && (
               <div data-testid="recent-feed" style={{ width: 'min(88vw, 1100px)', display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
-                {snap.recent.slice(0, 8).map((r) => (
-                  <div key={r.id} style={{ display: 'flex', gap: 18, alignItems: 'baseline', fontSize: 26, opacity: 0.92 }}>
-                    <span style={{ fontVariantNumeric: 'tabular-nums', opacity: 0.65 }}>
-                      {new Date(r.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                    <span style={{ minWidth: 190, fontWeight: 700, color: r.status && /RECEIVED|CONFIRMED|STORED|RECEIVING_COMPLETED/.test(r.status) ? '#39d98a' : '#4da3ff' }}>{r.kind}</span>
-                    <span style={{ fontWeight: 700, letterSpacing: 2 }}>{r.code ?? r.productName ?? '—'}</span>
-                    {typeof r.quantity === 'number' && r.quantity !== 1 && <span>×{r.quantity}</span>}
-                    {r.customerName && <span style={{ opacity: 0.7 }}>{r.customerName}</span>}
-                    <span style={{ marginLeft: 'auto', opacity: 0.75 }}>{r.status ?? ''}</span>
-                  </div>
-                ))}
+                {snap.recent.slice(0, 8).map((r) => {
+                  // Rows produced BY a screen (print / ack / help / exception /
+                  // message) carry a sentence instead of a barcode: they must
+                  // read as a log line, not as a product code.
+                  const isScreenAction = r.status === 'DISPLAY';
+                  return (
+                    <div key={r.id} style={{ display: 'flex', gap: 18, alignItems: 'baseline', fontSize: isScreenAction ? 22 : 26, opacity: 0.92 }}>
+                      <span style={{ fontVariantNumeric: 'tabular-nums', opacity: 0.65 }}>
+                        {new Date(r.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                      <span style={{ minWidth: 190, fontWeight: 700, color: isScreenAction ? '#c9a2ff' : r.status && /RECEIVED|CONFIRMED|STORED|RECEIVING_COMPLETED/.test(r.status) ? '#39d98a' : '#4da3ff' }}>{r.kind}</span>
+                      {isScreenAction ? (
+                        <span style={{ opacity: 0.85, fontStyle: 'italic' }}>{r.code ?? '—'}</span>
+                      ) : (
+                        <>
+                          <span style={{ fontWeight: 700, letterSpacing: 2 }}>{r.code ?? r.productName ?? '—'}</span>
+                          {typeof r.quantity === 'number' && r.quantity !== 1 && <span>×{r.quantity}</span>}
+                          {r.customerName && <span style={{ opacity: 0.7 }}>{r.customerName}</span>}
+                          <span style={{ marginLeft: 'auto', opacity: 0.75 }}>{r.status ?? ''}</span>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
 
@@ -164,13 +366,91 @@ export default function StationDisplay() {
         )}
       </main>
 
-      {/* footer: fullscreen + last update (§22) */}
+      {/* ACTION BAR (stage 2) — rendered only when the server says this screen may act */}
+      {actions.length > 0 && snap?.enabled !== false && (
+        <div data-testid="action-bar" style={{ display: 'flex', flexWrap: 'wrap', gap: 16, justifyContent: 'center' }}>
+          {actions.map((a) => (
+            <button
+              key={a}
+              style={actionBtn(a === 'exception' ? '#ff9d00' : a === 'help' ? '#ff5d5d' : '#2f9dff')}
+              disabled={busy !== null}
+              onClick={() => {
+                if (a === 'print') void runPrint();
+                else if (a === 'reprint') void runPrint(lastJob?.id);
+                else if (a === 'ack') void runAck();
+                else setDialog(a === 'help' ? 'help' : 'exception');
+              }}
+            >
+              {busy ? '…' : ACTION_LABELS[a]}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* footer: fullscreen + sound + last update (§22) */}
       <footer style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <button onClick={goFullscreen} style={fsBtn}>⛶ Enter Fullscreen</button>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <button onClick={goFullscreen} style={fsBtn}>⛶ Enter Fullscreen</button>
+          <button onClick={toggleMute} style={fsBtn} data-testid="sound-toggle">
+            {soundAllowed ? '🔔 Sound on' : '🔕 Muted'}
+          </button>
+        </div>
         <div style={{ ...mid, opacity: 0.7 }}>
           Last update: {relativeTime(snap?.lastUpdate, clock)}
         </div>
       </footer>
+
+      {/* dialogs: help / problem — big touch targets, one tap to a real record */}
+      {dialog && (
+        <div style={overlay} onClick={() => { setDialog(null); setNote(''); }}>
+          <div style={sheet} onClick={(e) => e.stopPropagation()}>
+            <div style={{ ...big(40, 800) }}>{dialog === 'help' ? 'CALL SUPERVISOR' : 'REPORT PROBLEM'}</div>
+            {dialog === 'exception' && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                {EXCEPTION_REASONS.map((r) => (
+                  <button
+                    key={r.type}
+                    onClick={() => setReasonType(r.type)}
+                    style={{ ...chip, ...(reasonType === r.type ? chipOn : {}) }}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <input
+              autoFocus
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder={dialog === 'help' ? 'What do you need? (optional)' : 'Describe the problem (required)'}
+              style={input}
+            />
+            <div style={{ display: 'flex', gap: 14, justifyContent: 'flex-end' }}>
+              <button style={fsBtn} onClick={() => { setDialog(null); setNote(''); }}>Cancel</button>
+              {dialog === 'help' ? (
+                <>
+                  <button style={actionBtn('#ff9d00')} disabled={busy !== null} onClick={() => void runHelp(false)}>SEND</button>
+                  <button style={actionBtn('#ff5d5d')} disabled={busy !== null} onClick={() => void runHelp(true)}>🚨 URGENT</button>
+                </>
+              ) : (
+                <button style={actionBtn('#ff9d00')} disabled={busy !== null} onClick={() => void runException()}>CREATE EXCEPTION</button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div data-testid="toast" style={{
+          position: 'fixed', bottom: 96, left: '50%', transform: 'translateX(-50%)',
+          padding: '16px 30px', borderRadius: 14, fontSize: 26, fontWeight: 700,
+          background: toast.kind === 'ok' ? 'rgba(57,217,138,.16)' : 'rgba(255,93,93,.18)',
+          border: `2px solid ${toast.kind === 'ok' ? '#39d98a77' : '#ff5d5d88'}`,
+          color: toast.kind === 'ok' ? '#b8f5d6' : '#ffc9c9',
+        }}>
+          {toast.text}
+        </div>
+      )}
     </div>
   );
 }
@@ -193,4 +473,33 @@ const mid: React.CSSProperties = { fontSize: 28, fontWeight: 500, opacity: 0.9 }
 const fsBtn: React.CSSProperties = {
   fontSize: 22, fontWeight: 600, padding: '10px 26px', borderRadius: 12,
   background: '#16222e', color: '#cfe3f5', border: '2px solid #2a3b4d', cursor: 'pointer',
+};
+
+function actionBtn(color: string): React.CSSProperties {
+  return {
+    fontSize: 30, fontWeight: 800, letterSpacing: 1, padding: '18px 34px', borderRadius: 16,
+    background: `${color}22`, color: '#f4f9ff', border: `3px solid ${color}`, cursor: 'pointer',
+    minWidth: 220,
+  };
+}
+
+const chip: React.CSSProperties = {
+  fontSize: 24, fontWeight: 700, padding: '12px 20px', borderRadius: 999,
+  background: '#16222e', color: '#cfe3f5', border: '2px solid #2a3b4d', cursor: 'pointer',
+};
+const chipOn: React.CSSProperties = { background: '#2f9dff33', borderColor: '#2f9dff', color: '#fff' };
+
+const input: React.CSSProperties = {
+  fontSize: 28, padding: '16px 20px', borderRadius: 12, width: '100%',
+  background: '#0e1725', color: '#eef4fa', border: '2px solid #2a3b4d',
+};
+
+const overlay: React.CSSProperties = {
+  position: 'fixed', inset: 0, background: 'rgba(4,8,14,.72)', zIndex: 60,
+  display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+};
+
+const sheet: React.CSSProperties = {
+  width: 'min(900px, 92vw)', display: 'flex', flexDirection: 'column', gap: 18,
+  background: '#0f1a26', border: '2px solid #24303d', borderRadius: 18, padding: 28,
 };

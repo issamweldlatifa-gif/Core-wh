@@ -181,7 +181,7 @@ describe('CARTON CARD — Worker API returns it AS A CARTON', () => {
     db.workerTaskAssignment.findMany.mockResolvedValue([]);
     receiving = new ReceivingService(db, { log: jest.fn() } as any,
       { assertOperationalAccess: jest.fn(), receivingStarted: jest.fn() } as any,
-      { onReceivingCompleted: jest.fn() } as any, {} as never);
+      { onReceivingCompleted: jest.fn() } as any, {} as never, { emit: jest.fn() } as any);
   });
 
   const ACTOR: any = { id: 'w-1', name: 'Worker', ip: null };

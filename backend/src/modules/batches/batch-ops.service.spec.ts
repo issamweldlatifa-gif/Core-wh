@@ -29,7 +29,7 @@ function build(flagRows: any[] = FLAG_ON) {
   db.$transaction = jest.fn((a: any) => a(db));
   db.systemSetting.findMany.mockResolvedValue(flagRows);
   const audit = { log: jest.fn().mockResolvedValue({ id: 'a1' }) };
-  const svc = new BatchesService(db, audit as any);
+  const svc = new BatchesService(db, audit as any, { emit: jest.fn() } as any);
   return { svc, db, audit };
 }
 

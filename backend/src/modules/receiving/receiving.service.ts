@@ -6,6 +6,8 @@ import { AssignmentsService } from '../assignments/assignments.service';
 import { TaskDispatchService } from '../assignments/dispatch.service';
 import { BatchesService } from '../batches/batches.service';
 import { normalizeScan, sameScanCode, OPERATIONAL_ERRORS } from '../../common/scan-normalizer';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { publishStationActivity } from '../../common/station-activity';
 
 const RCV_PREFIX = 'RCV-';
 const RCV_START = 200;
@@ -174,6 +176,8 @@ export class ReceivingService {
     private readonly assignments: AssignmentsService,
     private readonly dispatch: TaskDispatchService,
     private readonly batches: BatchesService,
+    /** Station Display Mode (stage 2): instant refresh of the wall screens. */
+    private readonly events: EventEmitter2,
   ) {}
 
   // ---------- helpers ----------
@@ -342,7 +346,11 @@ export class ReceivingService {
       }, tx);
       await this.assignments.receivingStarted(arrival.id, code, actor.id, tx);
       return session;
-    }).then((s) => this.sessionDetail(s.id));
+    }).then((s) => {
+      // Station Display Mode (stage 2): the wall screen sees the session start.
+      publishStationActivity(this.events, { stationId: s.stationId, kind: 'SESSION_START', ref: s.code });
+      return this.sessionDetail(s.id);
+    });
   }
 
   // ---------- PRODUCT lane: confirm a product card (device-side match) ----------
@@ -502,6 +510,7 @@ export class ReceivingService {
     // were computing. Re-run once against the now-current state; the scan is
     // either applied cleanly or reported as already complete.
     if (raced) return this.confirmProduct(sessionId, { ...input, operationId: undefined }, actor);
+    publishStationActivity(this.events, { stationId: session.stationId, kind: 'PRODUCT', ref: term });
     return this.sessionDetail(sessionId, {
       flash: { kind: 'MATCH', cardType: 'PRODUCT', code: ref, sku: term, expected: line.expectedQuantity, received },
     });
@@ -670,6 +679,7 @@ export class ReceivingService {
         metadata: { card: ref, number: carton.cartonNumber, of: carton.totalCartons, identifier: term, identifierType, source, receivingCartonId: rc.id, logId: log.id },
       }, tx);
     });
+    publishStationActivity(this.events, { stationId: session.stationId, kind: 'CARTON', ref });
     return this.sessionDetail(sessionId, {
       flash: {
         kind: 'MATCH', cardType: 'CARTON', code: ref,

@@ -5,7 +5,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, ScanSource } from '@prisma/client';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
+import { publishStationActivity } from '../../common/station-activity';
 import { AuditService } from '../audit/audit.service';
 import { CategoriesService } from '../categories/categories.service';
 import { AssignmentsService, CARTON_CLAIM_TTL_MS } from '../assignments/assignments.service';
@@ -52,6 +54,7 @@ export class PutawayService {
     private readonly audit: AuditService,
     private readonly categories: CategoriesService,
     private readonly assignments: AssignmentsService,
+    private readonly events: EventEmitter2,
   ) {}
 
   private async genCode(tx: Prisma.TransactionClient) {
@@ -103,6 +106,8 @@ export class PutawayService {
       entityId: session.id,
       metadata: { code: session.code },
     });
+    // Display stage 2: the putaway station's screen follows the session live.
+    publishStationActivity(this.events, { stationId: session.stationId, kind: 'PUTAWAY_START', ref: session.code });
     return this.detail(session.id);
   }
 
@@ -483,7 +488,7 @@ export class PutawayService {
       }
     }
 
-    return {
+    const out = {
       flash: {
         kind: 'STORED',
         carton: {
@@ -496,6 +501,16 @@ export class PutawayService {
       } as PutawayFlash,
       session: await this.detail(session.id),
     };
+    // Every REAL placement pings the station screen; re-scanning a carton into
+    // the location it already occupies is a no-op and stays silent.
+    if (!result.unchanged) {
+      publishStationActivity(this.events, {
+        stationId: session.stationId,
+        kind: 'STORAGE',
+        ref: location.locationCode,
+      });
+    }
+    return out;
   }
 
   // ---------- pause / resume / complete ----------
@@ -537,6 +552,7 @@ export class PutawayService {
       actorUserId: actor.id, action: 'PUTAWAY_COMPLETED',
       entityType: 'putaway_session', entityId: sessionId,
     });
+    publishStationActivity(this.events, { stationId: session.stationId, kind: 'PUTAWAY_DONE', ref: session.code });
     return this.detail(sessionId);
   }
 }

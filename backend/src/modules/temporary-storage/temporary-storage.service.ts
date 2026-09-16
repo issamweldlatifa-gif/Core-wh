@@ -9,6 +9,8 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PushService } from '../notifications/push.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { publishStationActivity } from '../../common/station-activity';
 
 export interface TempActor {
   id: string;
@@ -80,6 +82,8 @@ export class TemporaryStorageService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly push: PushService,
+    /** Station Display Mode (stage 2): instant refresh of the wall screens. */
+    private readonly events: EventEmitter2,
   ) {}
 
   // ------------------------------------------------------------------
@@ -822,6 +826,9 @@ export class TemporaryStorageService {
         remaining: Math.max(0, (await this.remainingAfter(tx, match.id))),
         nextTarget,
       };
+    }).then((res) => {
+      publishStationActivity(this.events, { stationId: station.id, kind: 'TEMP_PLACE', ref: term });
+      return res;
     });
   }
 
@@ -980,6 +987,7 @@ export class TemporaryStorageService {
         message: 'Product sent to the Review lane. An exception was created for the admin.',
       };
     }).then(async (res) => {
+      publishStationActivity(this.events, { stationId: st.id, kind: 'TEMP_REVIEW', ref: input.code });
       if (res.status === 'REVIEW') {
         const n = await this.notifyAdmins('REVIEW', {
           title: 'Temporary Storage — Review item',

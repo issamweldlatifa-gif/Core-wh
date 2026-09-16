@@ -11,6 +11,8 @@ import { AuditService } from '../audit/audit.service';
 import { AssignmentsService } from '../assignments/assignments.service';
 import { PushService } from '../notifications/push.service';
 import { WorkflowService } from '../workflow/workflow.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { publishStationActivity } from '../../common/station-activity';
 import { ReceivingService } from './receiving.service';
 import { computeLineVerification, receivingTaskStatus } from './verification-status';
 
@@ -69,6 +71,8 @@ export class ReceivingReportsService {
     private readonly push: PushService,
     private readonly workflow: WorkflowService,
     private readonly receiving: ReceivingService,
+    /** Station Display Mode (stage 2): the report submit lands on the screens. */
+    private readonly events: EventEmitter2,
   ) {}
 
   // ---------- helpers ----------
@@ -480,6 +484,7 @@ export class ReceivingReportsService {
     // Captured out of the transaction for the post-commit §9 dispatch.
     let completionApplied = false;
     let completedSessionCode: string | null = null;
+    let completedStationId: string | null = null;
     const reportId = await this.prisma.$transaction(async (tx) => {
       const live = await this.computeLive(tx, sessionId);
       const station = await this.stationSnapshot(tx, actor.id);
@@ -583,6 +588,7 @@ export class ReceivingReportsService {
       );
       completionApplied = completion.applied;
       completedSessionCode = live.session.code;
+      completedStationId = live.session.stationId ?? null;
       await this.audit.log(
         {
           actorUserId: actor.id,
@@ -602,6 +608,11 @@ export class ReceivingReportsService {
       );
       return report.id;
     });
+
+    // Station Display Mode (stage 2): the report is committed — tell the
+    // station screens (the handoff moves goods to STAGING, an OUT action for
+    // this station and an IN action for the staging one).
+    publishStationActivity(this.events, { stationId: completedStationId ?? null, kind: 'REPORT_SUBMITTED' });
 
     // §9 next-station tasks after the committed completion (best-effort —
     // the report and the completion are already durably committed).

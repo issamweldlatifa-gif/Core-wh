@@ -78,7 +78,7 @@ describe('Card delivery -> notification -> badge (end to end)', () => {
     db.$transaction = jest.fn((a: any) => a(db));
     service = new ReceivingService(db, { log: jest.fn() } as any,
       { assertOperationalAccess: jest.fn(), receivingStarted: jest.fn() } as any,
-      { onReceivingCompleted: jest.fn() } as any, {} as never);
+      { onReceivingCompleted: jest.fn() } as any, {} as never, { emit: jest.fn() } as any);
     db.workerTaskAssignment.findMany.mockResolvedValue([]);
     db.receivingProduct.findMany.mockResolvedValue([]);
     db.expectedArrival.findMany.mockResolvedValue([arrival()]);

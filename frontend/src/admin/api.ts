@@ -85,6 +85,11 @@ export interface OpsOverview {
     articlesAwaitingOrder: number;
     activeReceivingContainers: number;
     articlesInOperation: number;
+    /** Station Display Mode fleet counters (stage 2). */
+    stationsWithDisplay?: number;
+    stationsWithoutDisplay?: number;
+    displaysOnline?: number;
+    displaysInteractive?: number;
   };
   pipeline: PipelineStage[];
   operations: OperationRow[];
@@ -104,6 +109,11 @@ export interface OpsOverview {
     capabilities: string[];
     worker: { id: string; name: string; employeeCode: string } | null;
     workerTask: string | null;
+    /** Station Display Mode (stage 2): null when the station has NO display. */
+    display?: {
+      count: number; enabled: boolean; online: boolean; interactive: boolean;
+      lastSeenAt: string | null; name: string | null;
+    } | null;
   }>;
   activeSessions: Array<{
     id: string; code: string; status: string; startedAt: string;
@@ -628,13 +638,35 @@ export const adminApi = {
   createStationDisplay: (stationId: string, d: { name?: string; config?: Record<string, boolean> }) =>
     client.post<{ id: string; name: string; enabled: boolean; accessToken: string; urlPath: string }>(
       `/v1/stations/${stationId}/displays`, d).then((r) => r.data),
-  updateStationDisplay: (id: string, d: { name?: string; enabled?: boolean; config?: Record<string, boolean>; stationId?: string }) =>
+  updateStationDisplay: (id: string, d: { name?: string; enabled?: boolean; config?: Record<string, unknown>; stationId?: string }) =>
     client.patch<{ id: string; name: string; enabled: boolean; config: Record<string, unknown> }>(
       `/v1/station-displays/${id}`, d).then((r) => r.data),
   regenerateStationDisplay: (id: string) =>
     client.post<{ id: string; accessToken: string; urlPath: string }>(`/v1/station-displays/${id}/regenerate`).then((r) => r.data),
   deleteStationDisplay: (id: string) =>
     client.delete<{ ok: true }>(`/v1/station-displays/${id}`).then((r) => r.data),
+  // ---- STATION DISPLAYS — FLEET (stage 2, owner order 2026-09-16) --------
+  /** Every station with its display state — INCLUDING stations with no display. */
+  displayFleet: () =>
+    client.get<DisplayFleet>('/v1/station-displays').then((r) => r.data),
+  /** Bulk run over the fleet; audited once with the affected ids. */
+  stationDisplayBulk: (d: {
+    action: 'CREATE_MISSING' | 'APPLY_CONFIG' | 'SET_ENABLED' | 'SET_INTERACTIVE';
+    stationIds?: string[];
+    config?: Record<string, unknown>;
+    enabled?: boolean;
+    interactive?: boolean;
+  }) => client.post<{ action: string; applied: number; created: Array<{ displayId: string; stationId: string; stationCode: string; name: string; urlPath: string }> }>(
+    '/v1/station-displays/bulk', d).then((r) => r.data),
+  /** Admin → station screen message (shown until acknowledged). */
+  sendStationDisplayMessage: (displayId: string, d: { body: string; severity?: string; requireAck?: boolean; expiresInMinutes?: number }) =>
+    client.post<{ id: string; body: string; severity: string }>(`/v1/station-displays/${displayId}/message`, d).then((r) => r.data),
+  /** What humans did on this station's screens (print / ack / help / exception). */
+  stationDisplayActions: (stationId: string, take = 20) =>
+    client.get<Array<{
+      id: string; kind: string; summary: string | null; refId: string | null; createdAt: string;
+      display: { id: string; name: string } | null;
+    }>>(`/v1/station-displays/stations/${stationId}/actions`, { params: { take } }).then((r) => r.data),
   dataControlForceDelete: (kind: ForceDeleteKind, code: string, reason: string, confirm: string, id?: string) =>
     client
       .post<ForceDeleteResult>('/v1/operations/data-control/force-delete', { kind, code, reason, confirm, id })
@@ -657,6 +689,29 @@ export interface ForceDeletePreview {
   blockedBy: string | null;
   /** The exact text the admin must type to confirm. */
   requiresConfirmation: string;
+}
+
+export interface DisplayFleetRow {
+  stationId: string;
+  stationCode: string;
+  stationName: string;
+  department: string;
+  status: string;
+  zone: string | null;
+  worker: { name: string; code: string } | null;
+  displays: Array<{
+    id: string; name: string; enabled: boolean; displayType: string;
+    lastSeenAt: string | null; online: boolean; interactive: boolean;
+    actions: Record<string, boolean>; printTransport: string; visibility: Record<string, boolean>;
+  }>;
+}
+
+export interface DisplayFleet {
+  stations: DisplayFleetRow[];
+  counters: {
+    stations: number; stationsWithDisplay: number; stationsWithoutDisplay: number;
+    displays: number; online: number; offline: number; disabled: number; interactive: number;
+  };
 }
 
 export interface ForceDeleteResult {

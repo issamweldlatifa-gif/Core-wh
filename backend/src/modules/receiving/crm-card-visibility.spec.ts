@@ -47,7 +47,7 @@ describe('CRM card reaches the worker feed', () => {
     db = prisma(); db.$transaction = jest.fn((a: any) => a(db));
     svc = new ReceivingService(db, { log: jest.fn() } as any,
       { assertOperationalAccess: jest.fn(), receivingStarted: jest.fn() } as any,
-      { onReceivingCompleted: jest.fn() } as any, {} as never);
+      { onReceivingCompleted: jest.fn() } as any, {} as never, { emit: jest.fn() } as any);
     db.receivingProduct.findMany.mockResolvedValue([]);
   });
 

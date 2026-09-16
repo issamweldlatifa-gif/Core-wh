@@ -64,7 +64,7 @@ describe('Unified card delivery pipeline (delivery matrix)', () => {
     db.$transaction = jest.fn((action: any) => action(db));
     service = new ReceivingService(db, { log: jest.fn() } as any,
       { assertOperationalAccess: jest.fn(), receivingStarted: jest.fn() } as any,
-      { onReceivingCompleted: jest.fn() } as any, {} as never);
+      { onReceivingCompleted: jest.fn() } as any, {} as never, { emit: jest.fn() } as any);
     // Open floor: no assignment holds these arrivals.
     db.workerTaskAssignment.findMany.mockResolvedValue([]);
     db.receivingProduct.findMany.mockResolvedValue([]);

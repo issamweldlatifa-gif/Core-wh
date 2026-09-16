@@ -73,7 +73,7 @@ describe('ReceivingService HOME (automatic dispatch feed)', () => {
     audit = { log: jest.fn() };
     assignments = { assertOperationalAccess: jest.fn(), receivingStarted: jest.fn() };
     dispatch = { onReceivingCompleted: jest.fn() };
-    service = new ReceivingService(db, audit, assignments, dispatch, {} as never);
+    service = new ReceivingService(db, audit, assignments, dispatch, {} as never, { emit: jest.fn() } as never);
 
     // Open floor work: an arrival with NO receiving assignment rows is in
     // every receiving worker's scope (same policy assertOperationalAccess).

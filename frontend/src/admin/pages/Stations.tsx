@@ -8,8 +8,12 @@ import { displayUrl, isDisplayOnline, relativeTime } from '../../display/display
 const DEPARTMENTS = ['RECEIVING', 'SORTING', 'PUTAWAY', 'PACKING', 'INVENTORY', 'DISPATCH', 'STAGING', 'BATCH'];
 const CAPS = ['CAMERA', 'BARCODE_SCANNER', 'QR_SCANNER', 'OCR', 'PRINTER', 'SCALE'];
 
-/** §4 Data Visibility — every switch is configurable per display. */
-const DISPLAY_FIELDS: Array<{ key: string; label: string }> = [
+/** §4 Data Visibility — every switch is configurable per display.
+ * `recent` was missing from this list although the backend has supported it
+ * since the owner asked for the «ALL actions» feed (fix 2026-09-16 stage 2):
+ * the admin could not switch the feed on. `reports` stays visible-but-reserved
+ * so nobody wonders where it went (v1 never emits a reports section). */
+const DISPLAY_FIELDS: Array<{ key: string; label: string; reserved?: boolean }> = [
   { key: 'worker', label: 'Worker' },
   { key: 'operation', label: 'Current Operation' },
   { key: 'task', label: 'Current Task' },
@@ -20,7 +24,18 @@ const DISPLAY_FIELDS: Array<{ key: string; label: string }> = [
   { key: 'status', label: 'Transaction Status' },
   { key: 'progress', label: 'Progress' },
   { key: 'station', label: 'Current Station' },
-  { key: 'reports', label: 'Reports' },
+  { key: 'recent', label: 'Recent actions feed' },
+  { key: 'reports', label: 'Reports (reserved — v1 off)', reserved: true },
+];
+
+/** STAGE 2 — what the screen may DO. Default: nothing (read-only). */
+const DISPLAY_ACTIONS: Array<{ key: string; label: string }> = [
+  { key: 'print', label: 'Print label' },
+  { key: 'reprint', label: 'Reprint' },
+  { key: 'ack', label: 'Ack alert' },
+  { key: 'help', label: 'Call supervisor' },
+  { key: 'exception', label: 'Report problem' },
+  { key: 'message', label: 'Message seen' },
 ];
 
 type DisplayRow = {
@@ -37,7 +52,10 @@ function StationDisplaysPanel({ stationId, stationName, canManage }: { stationId
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
-  const [editing, setEditing] = useState<Record<string, Record<string, boolean>>>({});
+  const [editing, setEditing] = useState<Record<string, Record<string, unknown>>>({});
+  const [msgFor, setMsgFor] = useState<string | null>(null);
+  const [msgBody, setMsgBody] = useState('');
+  const [msgSeverity, setMsgSeverity] = useState('INFO');
 
   const load = async () => {
     try { setDisplays(await adminApi.stationDisplays(stationId)); }
@@ -64,18 +82,40 @@ function StationDisplaysPanel({ stationId, stationName, canManage }: { stationId
     setNote('Access regenerated — the old display URL no longer works.');
   });
 
+  /** FLAT switch (visibility + flags) — merged over the stored config. */
   const toggleConfig = (id: string, key: string, current: Record<string, unknown>) =>
     setEditing((e) => {
-      const merged: Record<string, boolean> = { ...(e[id] ?? {}) };
-      merged[key] = !(e[id] ?? current)[key];
+      const merged: Record<string, unknown> = { ...(e[id] ?? {}) };
+      merged[key] = !((e[id] ?? current)[key] === true);
+      return { ...e, [id]: merged };
+    });
+
+  /** NESTED switch (config.actions.*) — what this screen is allowed to DO. */
+  const toggleAction = (id: string, key: string, current: Record<string, unknown>) =>
+    setEditing((e) => {
+      const editingRow = (e[id] ?? {}) as Record<string, unknown>;
+      const base = ((editingRow.actions ?? current.actions ?? {}) as Record<string, boolean>);
+      const merged: Record<string, unknown> = { ...editingRow, actions: { ...base, [key]: !(base[key] === true) } };
       return { ...e, [id]: merged };
     });
 
   const saveConfig = (d: DisplayRow) => run(`cfg-${d.id}`, async () => {
-    const config = { ...d.config, ...(editing[d.id] ?? {}) } as Record<string, boolean>;
+    const patch = editing[d.id] ?? {};
+    const config = {
+      ...d.config,
+      ...patch,
+      ...(patch.actions ? { actions: { ...((d.config.actions ?? {}) as Record<string, boolean>), ...(patch.actions as Record<string, boolean>) } } : {}),
+    } as Record<string, unknown>;
     await adminApi.updateStationDisplay(d.id, { config });
     setEditing((e) => { const n = { ...e }; delete n[d.id]; return n; });
     setNote('Display configuration saved.');
+  });
+
+  const sendMessage = (displayId: string) => run(`msg-${displayId}`, async () => {
+    await adminApi.sendStationDisplayMessage(displayId, { body: msgBody, severity: msgSeverity });
+    setMsgBody('');
+    setMsgFor(null);
+    setNote('Message sent — the screen shows it until someone taps SEEN.');
   });
 
   async function copy(text: string) {
@@ -89,7 +129,9 @@ function StationDisplaysPanel({ stationId, stationName, canManage }: { stationId
         <div>
           <h3 style={{ margin: 0 }}>Display Mode — {stationName}</h3>
           <div className="os-muted" style={{ fontSize: '0.8rem' }}>
-            Read-only live view of this station's transactions. Open the URL on any screen (PC / TV / tablet).
+            Live view of this station's transactions. Open the URL on any screen (PC / TV / tablet).
+            Interactive actions (print / ack / help / exception) are opt-in per display — fleet view on
+            {' '}<a className="ac-linkbtn" href="/admin/displays">Station Displays</a>.
           </div>
         </div>
         {canManage && (
@@ -109,7 +151,10 @@ function StationDisplaysPanel({ stationId, stationName, canManage }: { stationId
           {displays.map((d) => {
             const online = isDisplayOnline(d.lastSeenAt);
             const url = urls[d.id];
-            const cfg = { ...d.config, ...(editing[d.id] ?? {}) } as Record<string, boolean>;
+            const edited = (editing[d.id] ?? {}) as Record<string, unknown>;
+            const cfg = { ...d.config, ...edited } as Record<string, unknown>;
+            const cfgActions = { ...((d.config.actions ?? {}) as Record<string, boolean>), ...((edited.actions ?? {}) as Record<string, boolean>) };
+            const interactive = cfg.interactive === true;
             return (
               <div key={d.id} style={{ border: '1px solid var(--line, #24303d)', borderRadius: 10, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -147,14 +192,74 @@ function StationDisplaysPanel({ stationId, stationName, canManage }: { stationId
                 </div>
                 <div className="os-row" style={{ flexWrap: 'wrap', gap: 10 }}>
                   {DISPLAY_FIELDS.map((f) => (
-                    <label key={f.key} className="os-row" style={{ gap: 5, fontSize: '0.78rem' }}>
-                      <input type="checkbox" checked={cfg[f.key] !== false && (f.key !== 'reports' || cfg[f.key] === true)}
-                        disabled={!canManage || busy === `cfg-${d.id}`}
+                    <label key={f.key} className="os-row" style={{ gap: 5, fontSize: '0.78rem', opacity: f.reserved ? 0.55 : 1 }}>
+                      <input type="checkbox"
+                        checked={f.reserved ? cfg[f.key] === true : cfg[f.key] !== false}
+                        disabled={!canManage || f.reserved || busy === `cfg-${d.id}`}
                         onChange={() => toggleConfig(d.id, f.key, d.config)} />
                       {f.label}
                     </label>
                   ))}
                 </div>
+
+                {/* STAGE 2 — assist & control from the screen */}
+                <div className="os-row" style={{ flexWrap: 'wrap', gap: 10, borderTop: '1px dashed var(--line, #24303d)', paddingTop: 8 }}>
+                  <label className="os-row" style={{ gap: 5, fontSize: '0.78rem', fontWeight: 600 }}>
+                    <input type="checkbox" checked={interactive} disabled={!canManage || busy === `cfg-${d.id}`}
+                      onChange={() => toggleConfig(d.id, 'interactive', d.config)} />
+                    ⚡ Interactive (allow actions from this screen)
+                  </label>
+                  <label className="os-row" style={{ gap: 5, fontSize: '0.78rem' }}>
+                    <input type="checkbox" checked={cfg.sound !== false} disabled={!canManage || busy === `cfg-${d.id}`}
+                      onChange={() => toggleConfig(d.id, 'sound', d.config)} />
+                    🔔 Sound
+                  </label>
+                  <label className="os-row" style={{ gap: 5, fontSize: '0.78rem' }}>
+                    Print via
+                    <select className="os-input" style={{ fontSize: '0.75rem' }} value={String(cfg.printTransport ?? 'BROWSER')}
+                      disabled={!canManage || busy === `cfg-${d.id}`}
+                      onChange={(e) => setEditing((x) => ({ ...x, [d.id]: { ...(x[d.id] ?? {}), printTransport: e.target.value } }))}>
+                      <option value="BROWSER">BROWSER (screen's printer)</option>
+                      <option value="CT40">CT40 (worker handheld bridge)</option>
+                      <option value="BRIDGE">BRIDGE (local agent)</option>
+                    </select>
+                  </label>
+                  {interactive && DISPLAY_ACTIONS.map((a) => (
+                    <label key={a.key} className="os-row" style={{ gap: 5, fontSize: '0.78rem' }}>
+                      <input type="checkbox" checked={cfgActions[a.key] === true}
+                        disabled={!canManage || busy === `cfg-${d.id}`}
+                        onChange={() => toggleAction(d.id, a.key, d.config)} />
+                      {a.label}
+                    </label>
+                  ))}
+                </div>
+                {interactive && (
+                  <div className="os-muted" style={{ fontSize: '0.72rem' }}>
+                    An interactive display reaches the backend with this URL — write access is an explicit,
+                    audited admin decision, and it dies instantly when you disable this display or regenerate
+                    its access. Every action records which screen did it.
+                  </div>
+                )}
+                {canManage && (
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <button className="ac-linkbtn" onClick={() => { setMsgFor(msgFor === d.id ? null : d.id); setMsgBody(''); }}>
+                      ✉ Message the screen
+                    </button>
+                  </div>
+                )}
+                {msgFor === d.id && (
+                  <div className="os-row" style={{ flexWrap: 'wrap', gap: 8 }}>
+                    <input className="os-input" style={{ flex: 1, minWidth: 240 }} placeholder="Message shown on the station screen…"
+                      value={msgBody} onChange={(e) => setMsgBody(e.target.value)} />
+                    <select className="os-input" value={msgSeverity} onChange={(e) => setMsgSeverity(e.target.value)}>
+                      <option value="INFO">INFO</option>
+                      <option value="WARNING">WARNING</option>
+                      <option value="URGENT">URGENT</option>
+                    </select>
+                    <button className="os-btn os-btn--primary" disabled={!msgBody.trim() || busy === `msg-${d.id}`}
+                      onClick={() => void sendMessage(d.id)}>Send</button>
+                  </div>
+                )}
                 {canManage && editing[d.id] && (
                   <div><button className="os-btn" disabled={busy === `cfg-${d.id}`} onClick={() => void saveConfig(d)}>
                     {busy === `cfg-${d.id}` ? 'saving…' : 'Save configuration'}

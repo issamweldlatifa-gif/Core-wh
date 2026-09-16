@@ -25,6 +25,22 @@ warehouse operational phases will build on.
 > input, one Receiving backend and one workflow, with session recovery and
 > idempotent scans.
 
+> **Station Display (implemented):** every station has a **single-URL screen**
+> at `/display/:token` (no login, no pin) that mirrors what the station is doing
+> RIGHT NOW — operation, progress, last scan, transactions, batch, live feed.
+> Screens are created per station and managed from one place
+> (**Admin → Station Displays**, `/admin/displays`): create for all stations at
+> once, apply a standard profile, enable/disable, switch a screen *interactive*
+> and send it a message. An interactive screen offers **PRINT + REPRINT** (the
+> owner's first batch); ack / call supervisor / report problem are switched on
+> per screen, and every action is audited with the display's identity.
+> Read the design and the interactive stage in
+> [`docs/STATION-DISPLAY-INTERACTIVE-AUDIT.md`](docs/STATION-DISPLAY-INTERACTIVE-AUDIT.md)
+> and the delivery report in
+> [`docs/STATION-DISPLAY-V2-INTERACTIVE-REPORT.md`](docs/STATION-DISPLAY-V2-INTERACTIVE-REPORT.md).
+> End-to-end check of the whole contract against a running stack:
+> `python3 tools/station-display-smoke.py` (40 checks).
+
 ---
 
 ## Repository layout

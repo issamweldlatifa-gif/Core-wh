@@ -67,7 +67,7 @@ describe('Receiving home × batches (the admin-dispatched cards are received in 
       id: 'b1', batchCode: 'AYB-20260913-00007', customerId: 'cus-1',
       customer: { name: 'OUSAM' },
     });
-    service = new ReceivingService(db, audit as never, assignments as never, dispatch as never, batches as never);
+    service = new ReceivingService(db, audit as never, assignments as never, dispatch as never, batches as never, { emit: jest.fn() } as never);
   });
 
   it('workerHome merges the dispatched batches as PRODUCT cards keyed by their AYP unit codes', async () => {

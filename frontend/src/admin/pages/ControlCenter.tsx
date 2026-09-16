@@ -220,7 +220,7 @@ export function StationsPanel({ o }: { o: OpsOverview }) {
       </div>
       <div className="ac-scroll">
         <table className="os-table">
-          <thead><tr><th>Station</th><th>Type</th><th>Worker</th><th>Current task</th><th>Status</th></tr></thead>
+          <thead><tr><th>Station</th><th>Type</th><th>Worker</th><th>Current task</th><th>Display</th><th>Status</th></tr></thead>
           <tbody>
             {o.stations.map((s) => (
               <tr key={s.id}>
@@ -228,10 +228,18 @@ export function StationsPanel({ o }: { o: OpsOverview }) {
                 <td className="os-muted">{s.department}</td>
                 <td>{s.worker?.name ?? <span className="os-muted">unassigned</span>}</td>
                 <td className="mono">{s.workerTask ?? <span className="os-muted">—</span>}</td>
+                {/* Station Display Mode (stage 2): none / offline / live + read-only-vs-interactive */}
+                <td>
+                  {!s.display ? <span className="os-tag os-tag--muted">no display</span>
+                    : !s.display.enabled ? <span className="os-tag os-tag--muted">disabled</span>
+                      : s.display.online
+                        ? <span className="os-tag os-tag--ok">{s.display.interactive ? '⚡ online' : '🟢 online'}</span>
+                        : <span className="os-tag os-tag--warn">offline</span>}
+                </td>
                 <td>{tag(s.status)}</td>
               </tr>
             ))}
-            {o.stations.length === 0 && <tr><td colSpan={5} className="os-empty">No stations configured.</td></tr>}
+            {o.stations.length === 0 && <tr><td colSpan={6} className="os-empty">No stations configured.</td></tr>}
           </tbody>
         </table>
       </div>

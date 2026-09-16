@@ -8,6 +8,8 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { publishStationActivity } from '../../common/station-activity';
 import { isBatchEnabled } from './batch-feature-flag';
 import { BATCH_CODE_PREFIX, UNIT_CODE_PREFIX, nextBatchCode, nextUnitCode } from './batch-codes';
 import { nextBatchStatus, type BatchAction, type BatchStatusValue } from './batch-status';
@@ -58,6 +60,10 @@ export class BatchesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    /** Station Display Mode (stage 2): batch stations get live screens too
+     * (batch writes carry no stationId — the display binds by assigned worker,
+     * the event only has to say «something moved»). */
+    private readonly events: EventEmitter2,
   ) {}
 
   // ---------------------------------------------------------------- helpers
@@ -266,6 +272,9 @@ export class BatchesService {
         tx,
       );
       return { ...created, replayed: false };
+    }).then((res) => {
+      if (!res.replayed) publishStationActivity(this.events, { kind: 'BATCH_UNIT', ref: res.unit.code });
+      return res;
     });
   }
 
@@ -522,6 +531,9 @@ export class BatchesService {
         totalScanned: batch.totalScanned + 1,
         totalExpected: batch.totalExpected,
       };
+    }).then((res) => {
+      if (!res.alreadyReceived) publishStationActivity(this.events, { kind: 'BATCH_RECEIVE', ref: res.unitCode });
+      return res;
     });
   }
 

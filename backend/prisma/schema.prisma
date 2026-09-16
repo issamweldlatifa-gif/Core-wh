@@ -275,6 +275,20 @@ enum AuditAction {
   DISPLAY_DELETED
   DISPLAY_ACCESS_REGENERATED
   DISPLAY_STATION_CHANGED
+  /// DISPLAY v2 — INTERACTIVE (owner order 2026-09-16, stage 2): every action
+  /// triggered from a display screen is audited with its displayId + stationId,
+  /// so the screen is never an anonymous actor.
+  DISPLAY_ACTION_ACK
+  DISPLAY_HELP_REQUESTED
+  DISPLAY_EXCEPTION_RAISED
+  DISPLAY_PRINT_REQUESTED
+  DISPLAY_PRINT_COMPLETED
+  DISPLAY_PRINT_FAILED
+  DISPLAY_MESSAGE_SENT
+  DISPLAY_MESSAGE_ACK
+  DISPLAY_BULK_CREATED
+  DISPLAY_BULK_CONFIGURED
+  DISPLAY_BULK_ENABLED_CHANGED
 }
 
 enum ApiClientStatus {
@@ -2361,6 +2375,7 @@ model Station {
   updatedAt DateTime @updatedAt
 
   displays         StationDisplay[]       @relation("StationDisplays")
+  printJobs        StationPrintJob[]      @relation("StationPrintJobs")
   productMovesFrom ProductStationMove[] @relation("ProductMoveFrom")
   productMovesTo   ProductStationMove[] @relation("ProductMoveTo")
   corrections      OperationCorrection[]
@@ -2384,12 +2399,18 @@ enum StationDisplayType {
   LIVE_STATION
 }
 
-/// Station Display Mode (owner order 2026-09-16): a READ-ONLY live view bound
-/// to one station, opened by URL on any browser screen (PC / TV / tablet).
+/// Station Display Mode (owner order 2026-09-16): a live view bound to one
+/// station, opened by URL on any browser screen (PC / TV / tablet).
 /// A display is a capability OF a station, never a station itself; one
 /// station can serve many displays. The token in the URL is the display's
-/// only credential: it grants read + stream access to that station's view
-/// and nothing else — no admin and no worker authority travels with it.
+/// only credential: it grants read + stream access to that station's view.
+///
+/// STAGE 2 (owner order 2026-09-16, «the display must help the worker and let
+/// us act from it»): a display MAY additionally trigger station actions
+/// (print/reprint, acknowledge, help, exception) — but ONLY when
+/// `config.interactive === true` (opt-in per display, default OFF), through
+/// the same token, always audited with the display's identity, rate-limited,
+/// and revoked instantly by disabling the display or regenerating its token.
 model StationDisplay {
   id          String             @id @default(uuid())
   stationId   String
@@ -2402,14 +2423,101 @@ model StationDisplay {
   accessToken String             @unique
   /// Visibility switches rendered by the display page; enforced server-side
   /// when the snapshot is built (hidden fields never leave the API).
+  /// Also holds the stage-2 switches: interactive / sound / actions{...}.
   config      Json               @default("{}")
   /// Last stream/snapshot hit — powers the Connected/Offline status pill.
   lastSeenAt  DateTime?
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
 
+  actions   StationDisplayAction[]
+  printJobs StationPrintJob[]
+  messages  StationDisplayMessage[]
+
   @@index([stationId])
   @@map("station_displays")
+}
+
+/// One action TRIGGERED FROM A DISPLAY (stage 2). The display's own log — the
+/// answer to «record every action»: print, reprint, acknowledge, help request,
+/// exception, message seen. AuditLog keeps the authority-grade record; this
+/// table is the station-stamped operational feed the screens render.
+model StationDisplayAction {
+  id        String         @id @default(uuid())
+  displayId String
+  display   StationDisplay @relation(fields: [displayId], references: [id], onDelete: Cascade)
+  stationId String
+  /// PRINT | REPRINT | ACK | HELP | EXCEPTION | MESSAGE_SENT | MESSAGE_SEEN
+  kind      String
+  /// Human summary rendered by the display feed and the admin panel.
+  summary   String?
+  /// Id of the row the action produced (print job, exception, message…).
+  refId     String?
+  metadata  Json?
+  createdAt DateTime       @default(now())
+
+  @@index([displayId, createdAt])
+  @@index([stationId, createdAt])
+  @@map("station_display_actions")
+}
+
+/// A label the station asked to print (stage 2). The display token reaches the
+/// backend only; the physical link stays wherever it already lives:
+///  - BROWSER : the display PC prints the rendered label (kiosk/browser print)
+///  - BRIDGE  : a local bridge agent on the display PC claims QUEUED jobs
+///  - CT40    : the worker's handheld bridge claims the job and prints over SPP
+/// The row is the source of truth for «what was printed where, and by which
+/// station screen» — no parallel truth, no silent print.
+model StationPrintJob {
+  id         String          @id @default(uuid())
+  displayId  String?
+  display    StationDisplay? @relation(fields: [displayId], references: [id], onDelete: SetNull)
+  stationId  String
+  station    Station         @relation("StationPrintJobs", fields: [stationId], references: [id], onDelete: Cascade)
+  /// SCAN | CARTON | UNIT | BATCH | STATION_SUMMARY
+  target     String
+  targetRef  String?
+  /// The rendered label (fields + text lines) — printed as-is by the client.
+  payload    Json
+  /// BROWSER | BRIDGE | CT40 (configurable per display; default BROWSER).
+  transport  String          @default("BROWSER")
+  /// QUEUED | CLAIMED | PRINTED | FAILED | EXPIRED
+  status     String          @default("QUEUED")
+  copies     Int             @default(1)
+  /// REPRINT points at the original job (same payload, marked reprint).
+  reprintOf  String?
+  requestedBy String?
+  claimedBy  String?
+  claimedAt  DateTime?
+  resultAt   DateTime?
+  error      String?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@index([stationId, status])
+  @@index([displayId, createdAt])
+  @@map("station_print_jobs")
+}
+
+/// Operator → station message (stage 2): a supervisor writes from the admin
+/// web, the station screen shows it full-width (+ sound) until acknowledged.
+model StationDisplayMessage {
+  id               String          @id @default(uuid())
+  displayId        String
+  display          StationDisplay  @relation(fields: [displayId], references: [id], onDelete: Cascade)
+  stationId        String
+  body             String
+  /// INFO | WARNING | URGENT
+  severity         String          @default("INFO")
+  requireAck       Boolean         @default(true)
+  createdBy        String?
+  acknowledgedAt   DateTime?
+  acknowledgedNote String?
+  expiresAt        DateTime?
+  createdAt        DateTime        @default(now())
+
+  @@index([displayId, acknowledgedAt])
+  @@map("station_display_messages")
 }
 
 /// What an admin is allowed to do to a recorded operation (§7/§39).

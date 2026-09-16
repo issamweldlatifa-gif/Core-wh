@@ -156,7 +156,12 @@ export class OperationsService {
     ] = await Promise.all([
       this.prisma.station.findMany({
         orderBy: [{ department: 'asc' }, { code: 'asc' }],
-        include: { assignedWorker: { select: { id: true, name: true, employeeCode: true } } },
+        include: {
+          assignedWorker: { select: { id: true, name: true, employeeCode: true } },
+          // Station Display Mode (stage 2 fleet console): the Control Center
+          // shows whether a station's screen exists / is live.
+          displays: { select: { id: true, name: true, enabled: true, lastSeenAt: true, config: true } },
+        },
       }),
       this.prisma.receivingSession.findMany({
         where: { status: { in: ['RECEIVING', 'PAUSED'] } },
@@ -343,7 +348,23 @@ export class OperationsService {
     });
 
     // ---- station worker task enrichment (derived, not guessed) ----------
-    const stationsMapped = stations.map((s) => ({
+    const displayOnlineAfter = Date.now() - 90_000; // same 90s bound as the displays module
+    const stationsMapped = stations.map((s) => {
+      // `displays` is optional so every other caller/test of this method keeps
+      // working unchanged.
+      const displays = ((s as { displays?: Array<{ id: string; name: string; enabled: boolean; lastSeenAt: Date | null; config: unknown }> }).displays ?? []).map((d) => {
+        const cfg = (d.config && typeof d.config === 'object' ? d.config : {}) as Record<string, unknown>;
+        return {
+          id: d.id,
+          name: d.name,
+          enabled: d.enabled,
+          interactive: cfg.interactive === true,
+          online: d.lastSeenAt ? +new Date(d.lastSeenAt) > displayOnlineAfter : false,
+          lastSeenAt: d.lastSeenAt,
+        };
+      });
+      const activeDisplay = displays.find((d) => d.enabled) ?? null;
+      return {
       id: s.id,
       code: s.code,
       name: s.name,
@@ -351,6 +372,16 @@ export class OperationsService {
       status: s.status,
       capabilities: s.capabilities,
       worker: s.assignedWorker,
+      display: displays.length === 0
+        ? null
+        : {
+            count: displays.length,
+            enabled: activeDisplay !== null,
+            online: activeDisplay?.online ?? false,
+            interactive: displays.some((d) => d.enabled && d.interactive),
+            lastSeenAt: activeDisplay?.lastSeenAt ?? null,
+            name: activeDisplay?.name ?? null,
+          },
       workerTask: s.assignedWorkerId
         ? (() => {
             const r = sessionByWorker.get(s.assignedWorkerId as string);
@@ -358,7 +389,8 @@ export class OperationsService {
             return r ? `RCV ${r.code}` : p ? `PUT ${p.code}` : null;
           })()
         : null,
-    }));
+      };
+    });
 
     const counters: Record<string, number> = {
       activeSessions: activeSessions.length,
@@ -369,6 +401,10 @@ export class OperationsService {
       correctionsToday: pendingCorrections,
       activeStations: stations.filter((s) => s.status === 'ACTIVE').length,
       stations: stations.length,
+      stationsWithDisplay: stationsMapped.filter((s) => s.display !== null).length,
+      stationsWithoutDisplay: stationsMapped.filter((s) => s.display === null).length,
+      displaysOnline: stationsMapped.filter((s) => s.display?.online).length,
+      displaysInteractive: stationsMapped.filter((s) => s.display?.interactive).length,
       activePutawaySessions: activePutaway.length,
       cartonsStoredToday,
       awaitingPutaway,

@@ -5,8 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { publishStationActivity } from '../../common/station-activity';
 
 export interface WorkflowActor {
   id: string;
@@ -87,6 +89,7 @@ export class WorkflowService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly events: EventEmitter2,
   ) {}
 
   chain() {
@@ -258,7 +261,7 @@ export class WorkflowService {
       });
       if (newer) throw new ConflictException('This move was superseded by a newer one.');
     }
-    return this.prisma.$transaction(async (tx) => {
+    const accepted = await this.prisma.$transaction(async (tx) => {
       await tx.productStationMove.update({
         where: { id: moveId },
         data: { toStationId: stationId, acceptedAt: new Date() },
@@ -280,5 +283,11 @@ export class WorkflowService {
         acceptedAt: new Date().toISOString(),
       };
     });
+
+    // Instant push (display stage 2): the station's screen must show the intake
+    // the moment it lands — AFTER the commit, fire-and-forget, so a display
+    // refresh can never fail or delay the move itself.
+    publishStationActivity(this.events, { stationId, kind: 'STAGING_ACCEPT', ref: moveId });
+    return accepted;
   }
 }

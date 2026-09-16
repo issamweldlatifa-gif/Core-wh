@@ -57,7 +57,7 @@ describe('Receiving completion (R1 — the shared completion write)', () => {
     audit = { log: jest.fn() };
     assignments = { assertOperationalAccess: jest.fn(), receivingCompleted: jest.fn() };
     dispatch = { onReceivingCompleted: jest.fn().mockResolvedValue({ created: [] }) };
-    service = new ReceivingService(db, audit as never, assignments as never, dispatch as never, {} as never);
+    service = new ReceivingService(db, audit as never, assignments as never, dispatch as never, {} as never, { emit: jest.fn() } as never);
   });
 
   it('clean tally → session COMPLETED + arrival RECEIVED + audit + assignment closure; no SHORT marking', async () => {

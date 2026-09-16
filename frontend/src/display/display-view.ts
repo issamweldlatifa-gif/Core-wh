@@ -1,7 +1,9 @@
 /**
- * Station Display view model (owner order 2026-09-16) — pure, testable.
- * The display page is READ-ONLY: it renders the same transactions the CT40
- * wrote (same ids), never creates anything.
+ * Station Display view model (owner order 2026-09-16; stage 2 the same day).
+ * The display page is a live view of the same transactions the CT40 wrote
+ * (same ids) — and, when the owner enabled it on that display, a CONTROL
+ * SURFACE for the station: print / reprint, acknowledge, help, exception.
+ * Everything here is pure and testable; the component only renders it.
  */
 
 export interface DisplaySnapshot {
@@ -28,7 +30,26 @@ export interface DisplaySnapshot {
     id: string; kind: string; code?: string | null; productName?: string | null;
     customerName?: string | null; quantity?: number | null; status?: string | null; at: string;
   }>;
+  /** Stage 2 — what this screen is allowed to do (server-side truth). */
+  options?: {
+    interactive?: boolean;
+    sound?: boolean;
+    printTransport?: 'BROWSER' | 'BRIDGE' | 'CT40';
+    actions?: DisplayAction[];
+  };
+  /** Stage 2 — operator → station messages awaiting an acknowledgement. */
+  messages?: DisplayMessage[];
   lastUpdate: string;
+}
+
+export type DisplayAction = 'print' | 'reprint' | 'ack' | 'help' | 'exception' | 'message' | 'move';
+
+export interface DisplayMessage {
+  id: string;
+  body: string;
+  severity: string;
+  requireAck: boolean;
+  at: string;
 }
 
 /** §11 display states. */
@@ -71,4 +92,77 @@ export function relativeTime(ts: string | Date | null | undefined, now = Date.no
 /** The admin-side URL for a display (same origin — any browser screen). */
 export function displayUrl(token: string, origin = typeof window !== 'undefined' ? window.location.origin : ''): string {
   return `${origin}/display/${token}`;
+}
+
+// ------------------------------------------------------------------
+// STAGE 2 — the action bar.
+// ------------------------------------------------------------------
+
+/**
+ * The actions the screen shows. Server truth first (`options.actions`), and
+ * `reprint` additionally needs something to reprint — a screen with no
+ * printable card must not offer a dead button.
+ */
+export function availableActions(
+  snap: DisplaySnapshot | null,
+  ctx: { hasPrintable: boolean; hasReprintable: boolean },
+): DisplayAction[] {
+  const allowed = snap?.options?.actions ?? [];
+  if (snap?.options?.interactive !== true) return [];
+  return (['print', 'reprint', 'ack', 'help', 'exception'] as DisplayAction[]).filter((a) => {
+    if (!allowed.includes(a)) return false;
+    if (a === 'print') return ctx.hasPrintable;
+    if (a === 'reprint') return ctx.hasReprintable;
+    return true;
+  });
+}
+
+export const ACTION_LABELS: Record<DisplayAction, string> = {
+  print: '🖨 PRINT LABEL',
+  reprint: '🔁 REPRINT',
+  ack: '✓ ACK ALERT',
+  help: '🙋 CALL SUPERVISOR',
+  exception: '⚠ REPORT PROBLEM',
+  message: 'MESSAGE',
+  move: 'MOVE',
+};
+
+/** Reasons offered as one-tap chips when the operator reports a problem. */
+export const EXCEPTION_REASONS: Array<{ type: string; label: string }> = [
+  { type: 'DAMAGED', label: 'Damaged' },
+  { type: 'MISSING_PRODUCT', label: 'Missing' },
+  { type: 'WRONG_PRODUCT', label: 'Wrong product' },
+  { type: 'BLOCKED', label: 'Blocked' },
+  { type: 'OTHER', label: 'Other' },
+];
+
+export const MESSAGE_STYLE: Record<string, { bg: string; border: string; color: string }> = {
+  INFO: { bg: 'rgba(77,163,255,.14)', border: '#4da3ff66', color: '#cfe3f5' },
+  WARNING: { bg: 'rgba(255,157,0,.16)', border: '#ff9d0066', color: '#ffd79a' },
+  URGENT: { bg: 'rgba(255,93,93,.18)', border: '#ff5d5d88', color: '#ffc9c9' },
+};
+
+/** The message the screen must show now: highest severity, then oldest. */
+export function topMessage(snap: DisplaySnapshot | null): DisplayMessage | null {
+  const list = snap?.messages ?? [];
+  if (list.length === 0) return null;
+  const rank = (s: string) => (s === 'URGENT' ? 3 : s === 'WARNING' ? 2 : 1);
+  return [...list].sort((a, b) => rank(b.severity) - rank(a.severity) || +new Date(a.at) - +new Date(b.at))[0];
+}
+
+/** True when the snapshot brings something worth a beep (scan, alert, message). */
+export function soundCueFor(
+  snap: DisplaySnapshot | null,
+  prev: { lastScanId: string | null; errorType: string | null; messageId: string | null },
+): 'SCAN_OK' | 'ERROR' | 'MESSAGE' | null {
+  if (!snap || snap.enabled === false) return null;
+  const msg = topMessage(snap);
+  if (msg && msg.id !== prev.messageId) return 'MESSAGE';
+  if (snap.error && snap.error.type !== prev.errorType) return 'ERROR';
+  const id = snap.lastScan?.id ?? null;
+  if (id && id !== prev.lastScanId) {
+    const ok = !snap.error;
+    return ok ? 'SCAN_OK' : 'ERROR';
+  }
+  return null;
 }
