@@ -32,6 +32,7 @@ tests, 171 frontend tests, **40/40 live API checks** against a real PostgreSQL
 | 5 | **Every action is recorded** — the display's own log (`station_display_actions`) + the audit trail (`DISPLAY_*`) + a merged live feed on the screen (SCAN / CARTON / BATCH / STORAGE / IN / OUT / **PRINT / ACK / HELP / EXCEPTION / MESSAGE**) | screen feed, fleet row → *Actions*, `/admin/audit` |
 | 6 | **The screen helps instead of just reporting** — audible OK/NOK cue, message alarm, one-tap reason chips for a problem report, big touch targets | display page |
 | 7 | **Control Center** now shows the display state of every station | `/admin` → Stations panel |
+| 8 | **The screen shows EVERYTHING about the station** — the next action in plain words, what is still expected, what is wrong, the shift totals and how long the operation has been open | `/display/:token` (next-action band, expected queue, alerts strip, footer) |
 
 ## 2. Fixes shipped with it (found during the audit)
 
@@ -63,6 +64,42 @@ tests, 171 frontend tests, **40/40 live API checks** against a real PostgreSQL
    stored / session complete) now ping `station.activity` too, so those screens
    update on the write, not on the next tick. Pinned by new tests, including
    the order guarantee: **the ping is emitted AFTER the commit**.
+
+## 2b. ASSIST LAYER — «show everything, help the worker» (same day, follow-up order)
+
+The screen is no longer a mirror: it *tells the operator what to do next*. All of
+it is computed **server-side** from the same rows the CT40 writes — the browser
+never invents a step, and each block has its own visibility switch (so a hidden
+block never leaves the API).
+
+| Block | What it shows | Switch |
+|---|---|---|
+| **NEXT ACTION** | one imperative line + a detail line, with a colour per tone: `SCAN` (blue) / `ATTENTION` (red) / `READY TO FINISH` (green) / `WAITING` (amber) | `guidance` |
+| **STILL EXPECTED** | the products/units still coming at this station (biggest gap first, code + name + «13 of 50 units left») | `queue` |
+| **ALERTS** | every open discrepancy, every open exception at the station (including the ones raised from this very screen, with the real `EXC-######` code and severity) and an unanswered *call supervisor* — each with a **✓ SEEN** button when the display may ACK | `alerts` |
+| **TODAY** | scans · units · cartons · stored · transfers out · screen actions | `stats` |
+| **Handover** | «open 42m» next to the operation, so a second operator sees at a glance how long this station has been running it | `operation` |
+
+The next step is decided by a **pure function** (`stationGuidance`), unit tested
+row by row, in this priority order:
+
+```
+station not ACTIVE        → «This station is not active» (ask a supervisor)
+receiving session open    → units left?      → «Scan the next product» + the queue
+                            nothing left?    → discrepancy open? → «Resolve the open discrepancy»
+                                             → else             → «Every expected product is complete»
+                            no line yet      → «Start scanning this arrival»
+batch open                → CREATED          → «Register the next unit» (x of y)
+                          → receiving        → «Receive the next unit» / «This batch is complete»
+temporary storage station → item in REVIEW?  → «A stored product needs review» (red)
+                          → else             → «Scan the next product to store it» (last section shown)
+open task                 → the task title
+nothing open              → «Waiting for the next operation» (with the reason)
+```
+
+Alerts follow the same rule as everything else: an exception or a discrepancy
+**stays on the screen until it is really closed**, while a *call supervisor* is
+cleared by the station's own ✓ SEEN (the ACK action, already audited).
 
 ## 3. Contract (what code enforces)
 
@@ -133,18 +170,27 @@ src/admin/api.ts, src/App.tsx, src/admin/AdminShell.tsx   API client, route, nav
 backend  src/modules/displays/displays.service.spec.ts       +17 stage-2 tests (35 in the file)
 backend  src/modules/workflow/workflow.service.spec.ts       NEW — the emit contract (5 tests)
 backend  src/modules/putaway/putaway.service.spec.ts         +the station ping (no-op stays silent)
-frontend src/display/display-interactive.test.ts             7 tests (action bar, message, sound, label)
-tools/station-display-smoke.py                               40 end-to-end checks on a live stack
+frontend src/display/display-interactive.test.ts             11 tests (action bar, message, sound, label,
+                                                              guidance tones, queue lines, handover age)
+tools/station-display-smoke.py                               49 end-to-end checks on a live stack
 ```
 
 ## 5. Verification (what was actually run)
 
-* `backend`: `tsc --noEmit` clean, `eslint` clean, **323/323 jest tests pass**
-  (30 suites; the built server was also BOOTED — a DI/decorator-metadata crash
-  only shows at boot, not in tsc or jest).
-* `frontend`: `tsc --noEmit` clean, `eslint` clean, `vite build` OK, **171/171
+* `backend`: `tsc --noEmit` clean, `eslint` clean, **333/333 jest tests pass**
+  (30 suites; +10 for the assist layer, including the pure guidance function and
+  the «hidden section never leaves the API» filter; the built server was also
+  BOOTED — a DI/decorator-metadata crash only shows at boot, not in tsc or jest).
+* `frontend`: `tsc --noEmit` clean, `eslint` clean, `vite build` OK, **175/175
   vitest tests pass**.
-* **Live end-to-end on PostgreSQL 17 + the built server** (40/40):
+* **Live end-to-end on PostgreSQL 17 + the built server** (49/49 — the 9 new
+  checks cover the assist layer: the NEXT ACTION matches the live operation, the
+  expected queue carries code + units left, today's totals count the station's
+  work, the handover age is exposed, a block switched OFF is absent from the
+  payload, nothing alerts on a healthy station, an open exception AND an
+  unanswered supervisor call both reach the screen with the real `EXC-` code and
+  severity, and acknowledging clears the call while the real exception stays
+  open):
   migrations applied from scratch → seed → admin login → create station →
   create display → snapshot read-only → every action refused (403) → admin
   switches interactive → **the default set is exactly PRINT + REPRINT** (and
@@ -173,7 +219,9 @@ cd backend  && AYROVI_SEED_DEMO=true SEED_WORKER_PASSWORD='<local-demo-password>
 3. On “Receiving Dock 1 Display” tick **⚡ Interactive** and Save → open the
    screen URL on that machine. The screen shows a **PRINT** and a **REPRINT**
    button (the first batch); tick ACK / HELP / REPORT PROBLEM if you want the
-   assist actions on that screen too.
+   assist actions on that screen too. Above the action bar the screen always
+   shows the **NEXT ACTION** band, the **STILL EXPECTED** list, the **ALERTS**
+   strip and the **TODAY** totals (each switchable per display).
 4. Put a real transaction at that station (CT40 / Receiving terminal, or the
    smoke tool) → the screen updates **on the write**, not on the next tick.
 5. *Message* on the fleet row → the text appears full-width on the screen with

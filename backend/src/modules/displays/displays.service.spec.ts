@@ -1,6 +1,6 @@
 import {
   DisplaysService, DEFAULT_DISPLAY_CONFIG, generateDisplayToken, normalizeDisplayConfig, snapshotFingerprint,
-  displayPushFingerprint, displayActionAvailability, filterSnapshotByConfig, DISPLAY_OFFLINE_AFTER_MS,
+  displayPushFingerprint, displayActionAvailability, filterSnapshotByConfig, stationGuidance, DISPLAY_OFFLINE_AFTER_MS,
   DISPLAY_ACTION_RATE,
 } from './displays.service';
 
@@ -18,22 +18,44 @@ describe('Station Display Mode (owner order 2026-09-16)', () => {
       delete: jest.fn(),
     },
     receivingSession: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
-    receivingScanEvent: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
-    receivingCarton: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
+    receivingScanEvent: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+      aggregate: jest.fn().mockResolvedValue({ _count: { _all: 0 }, _sum: { quantity: 0 } }),
+    },
+    receivingCarton: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
+    },
     receivingDiscrepancy: { findFirst: jest.fn().mockResolvedValue(null) },
     receivingProduct: { findMany: jest.fn().mockResolvedValue([]) },
-    temporaryStorageItem: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
+    temporaryStorageItem: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
+    },
     expectedArrival: { findUnique: jest.fn().mockResolvedValue(null) },
     ayroviUnit: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
     batchItem: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
     batch: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
-    productStationMove: { findMany: jest.fn().mockResolvedValue([]) },
+    productStationMove: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
     workerTaskAssignment: { findFirst: jest.fn() },
     // --- DISPLAY v2 (stage 2) -------------------------------------------
-    stationDisplayAction: { create: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
+    stationDisplayAction: {
+      create: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn().mockResolvedValue(null),
+      count: jest.fn().mockResolvedValue(0),
+    },
     stationDisplayMessage: { create: jest.fn(), findMany: jest.fn().mockResolvedValue([]), findUnique: jest.fn(), update: jest.fn() },
     stationPrintJob: { create: jest.fn(), findUnique: jest.fn(), findMany: jest.fn().mockResolvedValue([]), update: jest.fn() },
-    operationalException: { count: jest.fn().mockResolvedValue(0), findUnique: jest.fn().mockResolvedValue(null), create: jest.fn() },
+    operationalException: {
+      count: jest.fn().mockResolvedValue(0),
+      findUnique: jest.fn().mockResolvedValue(null),
+      create: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     user: { findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn(),
   });
@@ -396,7 +418,12 @@ describe('Station Display v2 — actions from the screen', () => {
       update: jest.fn(),
       updateMany: jest.fn(),
     },
-    stationDisplayAction: { create: jest.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'act1', createdAt: new Date(), ...data })), findMany: jest.fn().mockResolvedValue([]) },
+    stationDisplayAction: {
+      create: jest.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'act1', createdAt: new Date(), ...data })),
+      findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn().mockResolvedValue(null),
+      count: jest.fn().mockResolvedValue(0),
+    },
     stationDisplayMessage: {
       create: jest.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'msg1', createdAt: new Date(), acknowledgedAt: null, ...data })),
       findUnique: jest.fn(),
@@ -413,19 +440,32 @@ describe('Station Display v2 — actions from the screen', () => {
       count: jest.fn().mockResolvedValue(0),
       findUnique: jest.fn().mockResolvedValue(null),
       create: jest.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'exc1', ...data })),
+      findMany: jest.fn().mockResolvedValue([]),
     },
     user: { findMany: jest.fn().mockResolvedValue([{ id: 'admin1' }]) },
     receivingSession: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
-    receivingScanEvent: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
-    receivingCarton: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
+    receivingScanEvent: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+      aggregate: jest.fn().mockResolvedValue({ _count: { _all: 0 }, _sum: { quantity: 0 } }),
+    },
+    receivingCarton: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
+    },
     receivingDiscrepancy: { findFirst: jest.fn().mockResolvedValue(null) },
     receivingProduct: { findMany: jest.fn().mockResolvedValue([]) },
-    temporaryStorageItem: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
+    temporaryStorageItem: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
+    },
     expectedArrival: { findUnique: jest.fn().mockResolvedValue(null) },
     ayroviUnit: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
     batchItem: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
     batch: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
-    productStationMove: { findMany: jest.fn().mockResolvedValue([]) },
+    productStationMove: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
     workerTaskAssignment: { findFirst: jest.fn().mockResolvedValue(null) },
   });
   const audit = { log: jest.fn().mockResolvedValue(undefined) };
@@ -629,8 +669,193 @@ describe('Station Display v2 — actions from the screen', () => {
     (prisma.stationDisplay.create as jest.Mock).mockImplementation(({ data }) => Promise.resolve({ id: `d-${data.stationId}`, ...data }));
     const svc = svcFor(prisma);
     const res = await svc.bulk({ action: 'CREATE_MISSING' }, 'admin1');
+
+
     expect(res.applied).toBe(2);
     expect(res.created.map((c: any) => c.urlPath)).toEqual([expect.stringMatching(/^\/display\/[0-9a-f]{64}$/), expect.stringMatching(/^\/display\/[0-9a-f]{64}$/)]);
     expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'DISPLAY_BULK_CREATED', metadata: expect.objectContaining({ count: 2 }) }));
+  });
+  // ------------------------------------------------------------------
+  // ASSIST LAYER (owner order 2026-09-16: «every screen shows everything
+  // about the station and HELPS the worker»). The next action is server-side
+  // truth: it is computed from the same rows the terminal writes, so the
+  // screen can never invent a step.
+  // ------------------------------------------------------------------
+  describe('station guidance (what to do NOW)', () => {
+    const base = {
+      stationStatus: 'ACTIVE',
+      department: 'RECEIVING',
+      receiving: null,
+      batch: null,
+      task: null,
+      storage: null,
+    } as any;
+
+    it('a station that is not ACTIVE tells the operator to ask a supervisor', () => {
+      const g = stationGuidance({ ...base, stationStatus: 'MAINTENANCE' });
+      expect(g.guidance).toMatchObject({ code: 'STATION_INACTIVE', tone: 'WAIT' });
+      expect(g.guidance?.detail).toContain('MAINTENANCE');
+      expect(g.waiting).not.toBeNull();
+    });
+
+    it('receiving with units left: SCAN_PRODUCT + the expected queue, biggest gap first', () => {
+      const g = stationGuidance({
+        ...base,
+        receiving: {
+          active: true,
+          sessionCode: 'RCV-1',
+          startedAt: new Date('2026-09-16T08:00:00Z'),
+          hasDiscrepancy: false,
+          products: [
+            { code: 'SA-1', productName: 'Chair', expected: 50, received: 40 },
+            { code: 'SA-2', productName: 'Lamp', expected: 12, received: 0 },
+            { code: 'SA-3', productName: 'Done', expected: 5, received: 5 },
+          ],
+        },
+      });
+      expect(g.guidance).toMatchObject({ code: 'SCAN_PRODUCT', tone: 'SCAN', instruction: 'Scan the next product' });
+      expect(g.guidance?.detail).toContain('SA-2'); // the biggest gap is the next step
+      expect(g.queue.map((q) => q.code)).toEqual(['SA-2', 'SA-1']); // SA-3 is complete → not in the queue
+      expect(g.queue[0]).toMatchObject({ remaining: 12, expected: 12 });
+      expect(g.waiting).toBeNull();
+    });
+
+    it('receiving complete: close the session — unless a discrepancy is still open', () => {
+      const done = {
+        active: true, sessionCode: 'RCV-1', startedAt: null, hasDiscrepancy: false,
+        products: [{ code: 'SA-1', productName: null, expected: 5, received: 5 }],
+      };
+      expect(stationGuidance({ ...base, receiving: done }).guidance).toMatchObject({ code: 'CLOSE_SESSION', tone: 'DONE' });
+      expect(stationGuidance({ ...base, receiving: { ...done, hasDiscrepancy: true } }).guidance).toMatchObject({
+        code: 'RESOLVE_DISCREPANCY', tone: 'ALERT',
+      });
+    });
+
+    it('a session with no product line yet: start scanning', () => {
+      const g = stationGuidance({
+        ...base,
+        receiving: { active: true, sessionCode: 'RCV-1', startedAt: null, hasDiscrepancy: false, products: [] },
+      });
+      expect(g.guidance).toMatchObject({ code: 'SCAN_FIRST', tone: 'SCAN' });
+    });
+
+    it('batch build vs batch receiving drive the same band', () => {
+      const build = stationGuidance({
+        ...base, department: 'BATCH',
+        batch: { code: 'B-1', status: 'CREATED', totalExpected: 12, totalScanned: 3 },
+      });
+      expect(build.guidance).toMatchObject({ code: 'BUILD_UNIT', tone: 'SCAN' });
+      expect(build.queue[0]).toMatchObject({ code: 'B-1', remaining: 9, expected: 12 });
+
+      const receive = stationGuidance({
+        ...base, department: 'BATCH',
+        batch: { code: 'B-1', status: 'RECEIVING_IN_PROGRESS', totalExpected: 12, totalScanned: 12 },
+      });
+      expect(receive.guidance).toMatchObject({ code: 'BATCH_DONE', tone: 'DONE' });
+    });
+
+    it('temporary storage: store the next product — and shout when one needs review', () => {
+      const store = stationGuidance({
+        ...base, department: 'STAGING',
+        storage: { code: 'SA-9', section: 'B', status: 'STORED', needsReview: false },
+      });
+      expect(store.guidance).toMatchObject({ code: 'STORE_PRODUCT', tone: 'SCAN' });
+      expect(store.guidance?.detail).toContain('section B');
+
+      const review = stationGuidance({
+        ...base, department: 'STAGING',
+        storage: { code: 'SA-9', section: 'B', status: 'REVIEW', needsReview: true },
+      });
+      expect(review.guidance).toMatchObject({ code: 'STORAGE_REVIEW', tone: 'ALERT' });
+    });
+
+    it('an open task is the instruction; with nothing open the screen says so', () => {
+      const task = stationGuidance({ ...base, task: { title: 'Count the pallet', status: 'ASSIGNED' } });
+      expect(task.guidance).toMatchObject({ code: 'TASK', instruction: 'Count the pallet' });
+
+      const idle = stationGuidance(base);
+      expect(idle.guidance).toMatchObject({ code: 'WAITING', tone: 'WAIT' });
+      expect(idle.waiting?.reason).toContain('Waiting');
+    });
+  });
+
+  it('assist sections obey the SAME visibility switches (a hidden section never leaves the API)', () => {
+    const raw = {
+      station: { code: 'RECV-01' },
+      guidance: { code: 'SCAN_PRODUCT', instruction: 'Scan the next product', detail: 'SA-2', tone: 'SCAN' },
+      waiting: null,
+      queue: [{ code: 'SA-2', productName: null, remaining: 10, expected: 10, hint: '10 of 10 units left' }],
+      alerts: [{ id: 'a1', kind: 'EXCEPTION', code: 'EXC-1', reason: 'blocked', at: new Date(), severity: 'HIGH' }],
+      stats: { scans: 12, units: 24, cartons: 2, stored: 3, transfersOut: 1, actions: 4, since: new Date().toISOString() },
+      help: { open: true, at: new Date() },
+      recent: [],
+      customer: null,
+    };
+    const on = filterSnapshotByConfig(raw, {
+      guidance: true, queue: true, alerts: true, stats: true, station: true,
+    }) as any;
+    expect(on.guidance.code).toBe('SCAN_PRODUCT');
+    expect(on.queue).toHaveLength(1);
+    expect(on.alerts[0].code).toBe('EXC-1');
+    expect(on.stats.scans).toBe(12);
+    expect(on.help.open).toBe(true);
+
+    const off = filterSnapshotByConfig(raw, {
+      guidance: false, queue: false, alerts: false, stats: false, station: true,
+    }) as any;
+    expect(off.guidance).toBeUndefined();
+    expect(off.waiting).toBeUndefined();
+    expect(off.queue).toBeUndefined();
+    expect(off.alerts).toBeUndefined();
+    expect(off.help).toBeUndefined();
+    expect(off.stats).toBeUndefined();
+    // and nothing leaked under another name
+    expect(JSON.stringify(off)).not.toContain('SCAN_PRODUCT');
+  });
+
+  it('a live receiving station gets guidance + queue + today stats in the snapshot', async () => {
+    const prisma = makePrisma();
+    (prisma.stationDisplay.findUnique as jest.Mock).mockResolvedValue(displayRow({}));
+    const session = {
+      id: 's1', code: 'RCV-000301', status: 'RECEIVING', stationId: 'st1', arrivalId: 'a1',
+      startedAt: new Date('2026-09-16T08:00:00Z'), _count: { scanEvents: 4 },
+    };
+    (prisma.receivingSession.findFirst as jest.Mock).mockResolvedValue(session);
+    // today's sessions at the station — the shift totals are counted over them
+    (prisma.receivingSession.findMany as jest.Mock).mockResolvedValue([{ id: 's1' }]);
+    (prisma.receivingProduct.findMany as jest.Mock).mockResolvedValue([
+      { sku: 'SA-4471', reference: null, productName: 'Chair', expectedQuantity: 50, receivedQuantity: 37, status: 'PARTIALLY_RECEIVED' },
+    ]);
+    (prisma.receivingScanEvent.aggregate as jest.Mock).mockResolvedValue({ _count: { _all: 9 }, _sum: { quantity: 21 } });
+    (prisma.receivingCarton.count as jest.Mock).mockResolvedValue(3);
+    (prisma.temporaryStorageItem.count as jest.Mock).mockResolvedValue(2);
+    (prisma.productStationMove.count as jest.Mock).mockResolvedValue(1);
+    (prisma.stationDisplayAction.count as jest.Mock).mockResolvedValue(5);
+
+    const svc = svcFor(prisma);
+    const snap = (await svc.snapshotForToken('tok')) as any;
+
+    expect(snap.guidance).toMatchObject({ code: 'SCAN_PRODUCT', tone: 'SCAN' });
+    expect(snap.queue[0]).toMatchObject({ code: 'SA-4471', remaining: 13, expected: 50 });
+    expect(snap.stats).toMatchObject({ scans: 9, units: 21, cartons: 3, stored: 2, transfersOut: 1, actions: 5 });
+    expect(snap.alerts).toEqual([]);
+    expect(snap.help).toMatchObject({ open: false });
+    expect(snap.operation.startedAt).toEqual(session.startedAt);
+  });
+
+  it('an open exception and an unanswered HELP both land in the alerts strip', async () => {
+    const prisma = makePrisma();
+    (prisma.stationDisplay.findUnique as jest.Mock).mockResolvedValue(displayRow({}));
+    (prisma.operationalException.findMany as jest.Mock).mockResolvedValue([
+      { id: 'e1', code: 'EXC-000042', type: 'DAMAGED', reason: 'DISPLAY Wall A: pallet damaged', createdAt: new Date() },
+    ]);
+    (prisma.stationDisplayAction.findFirst as jest.Mock)
+      .mockImplementation(({ where }: any) =>
+        Promise.resolve(where.kind === 'HELP' ? { createdAt: new Date(), metadata: { urgent: true } } : null));
+    const svc = svcFor(prisma);
+    const snap = (await svc.snapshotForToken('tok')) as any;
+    expect(snap.alerts.map((a: any) => a.kind)).toEqual(['EXCEPTION', 'HELP']);
+    expect(snap.alerts[1]).toMatchObject({ severity: 'HIGH' }); // urgent call
+    expect(snap.help.open).toBe(true);
   });
 });

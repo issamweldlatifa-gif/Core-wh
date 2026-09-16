@@ -39,6 +39,13 @@ export const DISPLAY_CONFIG_FIELDS = [
   'progress',
   'station',
   'recent',
+  // ASSIST LAYER (owner order 2026-09-16: «the screens must show everything
+  // about the station and HELP the worker») — each one is a real switch, so a
+  // station can hide e.g. the shift totals without losing the guidance.
+  'guidance',
+  'queue',
+  'alerts',
+  'stats',
   'reports',
 ] as const;
 
@@ -70,6 +77,12 @@ export const DEFAULT_DISPLAY_CONFIG: Record<DisplayConfigField, boolean> = {
   // Recent-actions feed (owner request 2026-09-16: the display shows ALL the
   // actions, not only the last scan).
   recent: true,
+  // Assist layer — on by default: the point of the screen is to tell the
+  // operator what to do next, not only what just happened.
+  guidance: true,
+  queue: true,
+  alerts: true,
+  stats: true,
   reports: false,
 };
 
@@ -147,6 +160,167 @@ export function normalizeDisplayConfig(input: unknown): DisplayConfig {
   // dead buttons — treat it as non-interactive so the UI never lies.
   if (!Object.values(out.actions).some(Boolean)) out.interactive = false;
   return out;
+}
+
+/**
+ * ASSIST LAYER (owner order 2026-09-16: «the screens must show everything about
+ * the station and HELP the worker»).
+ *
+ * The NEXT ACTION is computed HERE, from the same rows the terminal writes —
+ * never guessed by the browser — so a screen can only ever tell the operator
+ * the step the backend believes is next. Pure function: no DB, no clock, so it
+ * is unit tested directly and reused by the snapshot builder.
+ */
+export interface StationGuidanceInput {
+  stationStatus: string;
+  department: string;
+  receiving: {
+    active: boolean;
+    sessionCode: string | null;
+    startedAt: Date | null;
+    hasDiscrepancy: boolean;
+    products: Array<{ code: string | null; productName: string | null; expected: number; received: number }>;
+  } | null;
+  batch: { code: string; status: string; totalExpected: number; totalScanned: number } | null;
+  task: { title: string; status: string } | null;
+  storage: { code: string | null; section: string | null; status: string; needsReview: boolean } | null;
+}
+
+export interface StationGuidanceResult {
+  guidance: { code: string; instruction: string; detail: string | null; tone: 'SCAN' | 'ALERT' | 'DONE' | 'WAIT' } | null;
+  waiting: { reason: string; since: Date | null } | null;
+  queue: Array<{ code: string | null; productName: string | null; remaining: number; expected: number; hint: string }>;
+}
+
+export function stationGuidance(input: StationGuidanceInput): StationGuidanceResult {
+  const queue: StationGuidanceResult['queue'] = [];
+  const say = (
+    code: string,
+    instruction: string,
+    detail: string | null,
+    tone: 'SCAN' | 'ALERT' | 'DONE' | 'WAIT',
+  ): StationGuidanceResult => ({
+    guidance: { code, instruction, detail, tone },
+    waiting:
+      tone === 'WAIT' || tone === 'ALERT'
+        ? { reason: instruction, since: input.receiving?.startedAt ?? null }
+        : null,
+    queue,
+  });
+
+  if (input.stationStatus !== 'ACTIVE') {
+    return say(
+      'STATION_INACTIVE',
+      'This station is not active',
+      `Status ${input.stationStatus} — ask a supervisor before working here.`,
+      'WAIT',
+    );
+  }
+
+  const rx = input.receiving;
+  if (rx && rx.active) {
+    const pending = rx.products
+      .map((p) => ({
+        code: p.code,
+        productName: p.productName,
+        remaining: Math.max(0, p.expected - p.received),
+        expected: p.expected,
+      }))
+      .filter((p) => p.remaining > 0)
+      .sort((a, b) => b.remaining - a.remaining);
+    for (const p of pending.slice(0, 5)) {
+      queue.push({ ...p, hint: `${p.remaining} of ${p.expected} units left` });
+    }
+    const first = queue[0];
+    if (first) {
+      return say(
+        'SCAN_PRODUCT',
+        'Scan the next product',
+        `${first.code ?? 'Product'}${first.productName ? ` — ${first.productName}` : ''}: ${first.hint}.`,
+        'SCAN',
+      );
+    }
+    if (rx.products.length > 0) {
+      if (rx.hasDiscrepancy) {
+        return say(
+          'RESOLVE_DISCREPANCY',
+          'Resolve the open discrepancy',
+          'This session can not be closed while a discrepancy is open.',
+          'ALERT',
+        );
+      }
+      return say(
+        'CLOSE_SESSION',
+        'Every expected product is complete',
+        `Close session ${rx.sessionCode ?? ''} and send the report.`.trim(),
+        'DONE',
+      );
+    }
+    return say('SCAN_FIRST', 'Start scanning this arrival', 'Nothing has been scanned on this session yet.', 'SCAN');
+  }
+
+  const batch = input.batch;
+  if (batch) {
+    const remaining = Math.max(0, batch.totalExpected - batch.totalScanned);
+    if (batch.totalExpected > 0) {
+      queue.push({
+        code: batch.code,
+        productName: null,
+        remaining,
+        expected: batch.totalExpected,
+        hint: remaining > 0 ? `${batch.totalScanned} of ${batch.totalExpected} units` : 'complete',
+      });
+    }
+    if (batch.status === 'CREATED') {
+      if (batch.totalExpected > 0 && remaining === 0) {
+        return say('SEND_BATCH', 'Every unit is registered', `Send batch ${batch.code} to receiving.`, 'DONE');
+      }
+      return say(
+        'BUILD_UNIT',
+        'Register the next unit',
+        `Batch ${batch.code}: ${batch.totalScanned} of ${batch.totalExpected} units.`,
+        'SCAN',
+      );
+    }
+    if (batch.totalExpected > 0 && remaining === 0) {
+      return say('BATCH_DONE', 'This batch is complete', `Finish the receiving of ${batch.code}.`, 'DONE');
+    }
+    return say(
+      'RECEIVE_UNIT',
+      'Receive the next unit',
+      `Batch ${batch.code}: ${batch.totalScanned} of ${batch.totalExpected} units.`,
+      'SCAN',
+    );
+  }
+
+  if (input.department === 'STAGING') {
+    const storage = input.storage;
+    if (storage?.needsReview) {
+      return say(
+        'STORAGE_REVIEW',
+        'A stored product needs review',
+        `${storage.code ?? 'Product'} — check the review screen on the CT40.`,
+        'ALERT',
+      );
+    }
+    return say(
+      'STORE_PRODUCT',
+      'Scan the next product to store it',
+      storage?.code
+        ? `Last stored: ${storage.code}${storage.section ? ` (section ${storage.section})` : ''}.`
+        : 'Pick the first free section on the CT40.',
+      'SCAN',
+    );
+  }
+
+  if (input.task) return say('TASK', input.task.title, `Open task · ${input.task.status}`, 'SCAN');
+
+  return say(
+    'WAITING',
+    'Waiting for the next operation',
+    'Nothing is open at this station yet — scan an arrival or open a task.',
+    'WAIT',
+  );
 }
 
 /** The actions this display is allowed to trigger (server-side truth). */
@@ -1087,8 +1261,19 @@ export class DisplaysService {
         ? this.prisma.receivingDiscrepancy.findFirst({ where: { receivingSessionId: contextSession.id, status: 'OPEN' }, orderBy: { createdAt: 'desc' } })
         : Promise.resolve(null),
       contextSession
-        ? this.prisma.receivingProduct.findMany({ where: { receivingSessionId: contextSession.id }, select: { expectedQuantity: true, receivedQuantity: true } })
-        : Promise.resolve([] as Array<{ expectedQuantity: number; receivedQuantity: number }>),
+        ? this.prisma.receivingProduct.findMany({
+            where: { receivingSessionId: contextSession.id },
+            // Identity included: the screen must be able to say WHICH product is
+            // still expected (assist layer), not only how many units are left.
+            select: {
+              sku: true, reference: true, productName: true,
+              expectedQuantity: true, receivedQuantity: true, status: true,
+            },
+          })
+        : Promise.resolve([] as Array<{
+            sku: string | null; reference: string | null; productName: string | null;
+            expectedQuantity: number; receivedQuantity: number; status: string;
+          }>),
     ]);
 
     // ---- BATCH activity (owner report 2026-09-16: BATCH station displays
@@ -1234,6 +1419,131 @@ export class DisplaysService {
         ? workerBatch
         : null;
 
+    // ---- ASSIST LAYER: the extra rows the guidance block needs (all indexed
+    // counts, fetched in parallel — one snapshot is built per screen per tick).
+    const [openExceptions, lastHelp, lastAck, scanTotals, cartonToday, storedToday, transfersOutToday, actionsToday] =
+      await Promise.all([
+        this.prisma.operationalException.findMany({
+          where: { stationId, status: 'OPEN' },
+          orderBy: { createdAt: 'desc' },
+          take: 5,
+          select: { id: true, code: true, type: true, reason: true, createdAt: true },
+        }),
+        this.prisma.stationDisplayAction.findFirst({
+          where: { stationId, kind: 'HELP' },
+          orderBy: { createdAt: 'desc' },
+          select: { createdAt: true, metadata: true },
+        }),
+        this.prisma.stationDisplayAction.findFirst({
+          where: { stationId, kind: 'ACK' },
+          orderBy: { createdAt: 'desc' },
+          select: { createdAt: true },
+        }),
+        sessIds.length
+          ? this.prisma.receivingScanEvent.aggregate({
+              where: { sessionId: { in: sessIds } },
+              _count: { _all: true },
+              _sum: { quantity: true },
+            })
+          : Promise.resolve(null),
+        sessIds.length
+          ? this.prisma.receivingCarton.count({ where: { receivingSessionId: { in: sessIds } } })
+          : Promise.resolve(0),
+        this.prisma.temporaryStorageItem.count({ where: { stationId, createdAt: { gte: dayAgo } } }),
+        this.prisma.productStationMove.count({ where: { fromStationId: stationId, createdAt: { gte: dayAgo } } }),
+        this.prisma.stationDisplayAction.count({ where: { stationId, createdAt: { gte: dayAgo } } }),
+      ]);
+
+    // A HELP challenge stays open until the station acknowledges it (or 2h pass).
+    const helpIsOpen =
+      !!lastHelp &&
+      !(lastAck && lastAck.createdAt > lastHelp.createdAt) &&
+      Date.now() - +new Date(lastHelp.createdAt) < 2 * 3600_000;
+
+    const assist = stationGuidance({
+      stationStatus: station.status,
+      department: station.department,
+      receiving: contextSession
+        ? {
+            active: !!activeSession,
+            sessionCode: contextSession.code,
+            startedAt: contextSession.startedAt,
+            hasDiscrepancy: !!openDiscrepancy,
+            products: products.map((p) => ({
+              code: p.sku ?? p.reference ?? null,
+              productName: p.productName ?? null,
+              expected: p.expectedQuantity,
+              received: p.receivedQuantity,
+            })),
+          }
+        : null,
+      batch: batchActive
+        ? {
+            code: batchActive.batchCode,
+            status: batchActive.status,
+            totalExpected: batchActive.totalExpected,
+            totalScanned: batchActive.totalScanned,
+          }
+        : null,
+      task: openTask ? { title: openTask.title, status: openTask.status } : null,
+      storage: lastTsItem
+        ? {
+            code: lastTsItem.sku ?? lastTsItem.reference ?? null,
+            section: lastTsItem.sectionLetter ?? null,
+            status: lastTsItem.status,
+            needsReview: lastTsItem.status === 'REVIEW',
+          }
+        : null,
+    });
+
+    // Everything that is WRONG or WAITING at this station, in one strip: an open
+    // discrepancy on the running session, open exceptions raised here (including
+    // the ones raised from this very screen), and an unanswered supervisor call.
+    const alerts: Array<{ id: string; kind: string; code: string | null; reason: string; at: Date; severity: string }> = [];
+    if (openDiscrepancy) {
+      alerts.push({
+        id: openDiscrepancy.id,
+        kind: 'DISCREPANCY',
+        code: openDiscrepancy.type,
+        reason: openDiscrepancy.reason ?? 'Discrepancy open on the current session',
+        at: openDiscrepancy.createdAt,
+        severity: 'HIGH',
+      });
+    }
+    for (const exc of openExceptions) {
+      alerts.push({
+        id: exc.id,
+        kind: 'EXCEPTION',
+        code: exc.code,
+        reason: exc.reason ?? exc.type,
+        at: exc.createdAt,
+        severity: exc.type === 'BLOCKED' || exc.type === 'DAMAGED' ? 'HIGH' : 'MEDIUM',
+      });
+    }
+    if (helpIsOpen && lastHelp) {
+      alerts.push({
+        id: 'help',
+        kind: 'HELP',
+        code: null,
+        reason: 'A supervisor was called from this screen and has not confirmed it yet',
+        at: lastHelp.createdAt,
+        severity: (lastHelp.metadata as { urgent?: boolean } | null)?.urgent ? 'HIGH' : 'MEDIUM',
+      });
+    }
+
+    // Shift totals (today) — the operator sees what the station has done, not
+    // only the last scan.
+    const stats = {
+      since: dayAgo.toISOString(),
+      scans: scanTotals?._count ? (scanTotals._count as { _all: number })._all : 0,
+      units: scanTotals?._sum?.quantity ?? 0,
+      cartons: cartonToday,
+      stored: storedToday,
+      transfersOut: transfersOutToday,
+      actions: actionsToday,
+    };
+    const help = { open: helpIsOpen, at: lastHelp?.createdAt ?? null };
+
     const expectedTotal = products.reduce((n, p) => n + p.expectedQuantity, 0);
     const receivedTotal = products.reduce((n, p) => n + p.receivedQuantity, 0);
 
@@ -1327,6 +1637,7 @@ export class DisplaysService {
             sessionCode: batchActive.batchCode,
             sessionStatus: batchActive.status,
             arrivalReference: null,
+            startedAt: batchActive.createdAt,
           }
         : activeSession
           ? {
@@ -1334,6 +1645,8 @@ export class DisplaysService {
               sessionCode: activeSession.code,
               sessionStatus: activeSession.status,
               arrivalReference: arrival?.arrivalReference ?? arrival?.code ?? null,
+              // Handover context: how long this station has been on this operation.
+              startedAt: activeSession.startedAt,
             }
           : lastTsItem
             ? { label: 'TEMPORARY_STORAGE', sessionCode: null, sessionStatus: null, arrivalReference: null }
@@ -1351,6 +1664,14 @@ export class DisplaysService {
         : null),
       recent,
       scanCount: batchActive && batchActive.status === 'CREATED' ? batchActive.totalExpected : activeSession?._count.scanEvents ?? 0,
+      // ASSIST LAYER — what to do now, what is waiting, what is wrong, and what
+      // the station has done today (each section has its own admin switch).
+      guidance: assist.guidance,
+      waiting: assist.waiting,
+      queue: assist.queue,
+      alerts,
+      stats,
+      help,
     };
   }
 }
@@ -1394,6 +1715,18 @@ export function filterSnapshotByConfig(raw: any, config: unknown) {
       ...(cfg.status ? { status: r.status } : {}),
     }));
   }
+  // ASSIST LAYER — same invariant: a switch that is off means the section never
+  // leaves the API (the browser cannot reveal it by inspecting the payload).
+  if (cfg.guidance) {
+    out.guidance = raw?.guidance ?? null;
+    out.waiting = raw?.waiting ?? null;
+  }
+  if (cfg.queue) out.queue = raw?.queue ?? [];
+  if (cfg.alerts) {
+    out.alerts = raw?.alerts ?? [];
+    out.help = raw?.help ?? null;
+  }
+  if (cfg.stats) out.stats = raw?.stats ?? null;
   out.customer = cfg.customer ? raw?.customer ?? null : null;
   return out;
 }

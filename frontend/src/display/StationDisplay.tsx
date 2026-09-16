@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import type { DisplayMessage, DisplaySnapshot } from './display-view';
+import type { DisplayAction, DisplayAlert, DisplayMessage, DisplaySnapshot } from './display-view';
 import {
-  ACTION_LABELS,
+  ACTION_LABELS, GUIDANCE_STYLE, alertColor, formatDuration, queueLine,
   EXCEPTION_REASONS,
   MESSAGE_STYLE,
   availableActions,
@@ -212,6 +212,13 @@ export default function StationDisplay() {
     await post(`messages/${m.id}/ack`, {}, 'Message');
   }, [post]);
 
+  /** "SEEN" on an alert row: the SAME audited ACK action as the action bar. */
+  const acknowledgeAlert = useCallback(async (a: DisplayAlert) => {
+    const label = `${a.kind}${a.code ? ` ${a.code}` : ''}`;
+    const res = await post('actions/ack', { note: `${label} seen at the station`, refId: a.id }, 'Acknowledge');
+    if (res) setToast({ kind: 'ok', text: `${label} acknowledged` });
+  }, [post]);
+
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 6_000);
@@ -247,6 +254,15 @@ export default function StationDisplay() {
   const pct = progress && progress.total > 0 ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0;
   const message = topMessage(snap);
   const msgStyle = MESSAGE_STYLE[message?.severity ?? 'INFO'] ?? MESSAGE_STYLE.INFO;
+  // ASSIST LAYER — everything the server computed for this station.
+  const nowMs = clock;
+  const guidance = snap?.guidance ?? null;
+  const gStyle = GUIDANCE_STYLE[guidance?.tone ?? 'WAIT'] ?? GUIDANCE_STYLE.WAIT;
+  const waiting = snap?.waiting ?? null;
+  const alerts = snap?.alerts ?? [];
+  const queue = snap?.queue ?? [];
+  const stats = snap?.stats ?? null;
+  const showAction = (a: DisplayAction) => actions.includes(a);
 
   return (
     <div ref={rootRef} style={{ ...wrap, justifyContent: 'space-between' }} data-testid="station-display">
@@ -284,6 +300,51 @@ export default function StationDisplay() {
         </div>
       )}
 
+      {/* ASSIST LAYER (owner order 2026-09-16): the NEXT ACTION band — the
+          screen tells the operator what to do, not only what happened. */}
+      {guidance && (
+        <div data-testid="next-action" style={{
+          display: 'flex', alignItems: 'center', gap: 26, padding: '20px 30px', borderRadius: 18,
+          background: gStyle.bg, border: `3px solid ${gStyle.color}55`,
+        }}>
+          <span style={{ fontSize: 26, fontWeight: 800, letterSpacing: 2, color: gStyle.color, minWidth: 210 }}>
+            {gStyle.label}
+          </span>
+          <span style={{ flex: 1, textAlign: 'left' }}>
+            <span style={{ display: 'block', fontSize: 46, fontWeight: 800, color: gStyle.color }} data-testid="next-action-instruction">
+              {guidance.instruction}
+            </span>
+            {guidance.detail && <span style={{ display: 'block', fontSize: 30, opacity: 0.85 }}>{guidance.detail}</span>}
+          </span>
+          {waiting?.since && (
+            <span style={{ ...mid, fontSize: 24, opacity: 0.75 }}>since {formatDuration(waiting.since, nowMs)}</span>
+          )}
+        </div>
+      )}
+
+      {/* ALERTS: everything wrong or unanswered at this station, in one strip. */}
+      {alerts.length > 0 && (
+        <div data-testid="alerts" style={{ width: 'min(94vw, 1600px)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {alerts.map((a) => (
+            <div key={`${a.kind}-${a.id}`} style={{
+              display: 'flex', alignItems: 'center', gap: 18, padding: '12px 20px', borderRadius: 12,
+              background: 'rgba(255,93,93,0.12)', border: `2px solid ${alertColor(a.severity)}66`, color: '#ffd9d9',
+            }}>
+              <span style={{ fontSize: 26, fontWeight: 800, color: alertColor(a.severity), minWidth: 190 }}>
+                {a.kind}{a.code ? ` ${a.code}` : ''}
+              </span>
+              <span style={{ flex: 1, fontSize: 28 }}>{a.reason}</span>
+              <span style={{ ...mid, fontSize: 22, opacity: 0.8 }}>{relativeTime(a.at, nowMs)}</span>
+              {a.kind !== 'HELP' && showAction('ack') && (
+                <button style={actionBtn('#ff9d00')} disabled={busy === 'Alert'} onClick={() => void acknowledgeAlert(a)}>
+                  ✓ SEEN
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* body */}
       <main style={{ display: 'flex', flexDirection: 'column', gap: 28, alignItems: 'center', textAlign: 'center' }}>
         {snap?.enabled === false ? (
@@ -298,6 +359,7 @@ export default function StationDisplay() {
               <div style={{ ...mid, opacity: 0.8 }}>
                 {snap.operation.label}{snap.operation.sessionCode ? ` · ${snap.operation.sessionCode}` : ''}
                 {snap.operation.sessionStatus ? ` (${snap.operation.sessionStatus})` : ''}
+                {snap.operation.startedAt ? ` · open ${formatDuration(snap.operation.startedAt, nowMs)}` : ''}
               </div>
             )}
 
@@ -352,6 +414,24 @@ export default function StationDisplay() {
               </div>
             )}
 
+            {/* EXPECTED NEXT — what is still coming at this station, so the
+                operator can prepare instead of discovering it scan by scan. */}
+            {queue.length > 0 && (
+              <div data-testid="expected-queue" style={{ width: 'min(88vw, 1200px)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ ...mid, fontSize: 26, letterSpacing: 2, opacity: 0.7, textAlign: 'left' }}>STILL EXPECTED</div>
+                {queue.map((q) => (
+                  <div key={`${q.code}-${q.remaining}`} title={queueLine(q)} style={{
+                    display: 'flex', alignItems: 'center', gap: 18, fontSize: 30, padding: '8px 18px',
+                    borderRadius: 10, background: 'rgba(47,157,255,0.10)', border: '1px solid rgba(47,157,255,0.25)',
+                  }}>
+                    <span style={{ fontWeight: 800, letterSpacing: 1 }}>{q.code ?? '—'}</span>
+                    {q.productName && <span style={{ opacity: 0.8 }}>{q.productName}</span>}
+                    <span style={{ marginLeft: 'auto', fontWeight: 700, color: '#7cc4ff' }}>{q.hint ?? `${q.remaining} / ${q.expected}`}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {progress && (
               <div style={{ width: 'min(80vw, 900px)', display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div style={{ height: 34, borderRadius: 999, background: '#1c2733', overflow: 'hidden' }}>
@@ -396,6 +476,14 @@ export default function StationDisplay() {
           </button>
         </div>
         <div style={{ ...mid, opacity: 0.7 }}>
+          {stats && (
+            <span data-testid="shift-totals" style={{ marginRight: 18 }}>
+              TODAY · {stats.scans} scans · {stats.units} units · {stats.cartons} cartons
+              {stats.stored ? ` · ${stats.stored} stored` : ''}
+              {stats.transfersOut ? ` · ${stats.transfersOut} out` : ''}
+              {stats.actions ? ` · ${stats.actions} screen actions` : ''}
+            </span>
+          )}
           Last update: {relativeTime(snap?.lastUpdate, clock)}
         </div>
       </footer>

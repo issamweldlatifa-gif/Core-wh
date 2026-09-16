@@ -25,6 +25,13 @@ const DISPLAY_FIELDS: Array<{ key: string; label: string; reserved?: boolean }> 
   { key: 'progress', label: 'Progress' },
   { key: 'station', label: 'Current Station' },
   { key: 'recent', label: 'Recent actions feed' },
+  // ASSIST LAYER (owner order 2026-09-16): «the screens must show everything
+  // about the station and help the worker» — the next action, what is still
+  // expected, what is wrong, and the shift totals. Each one is switchable.
+  { key: 'guidance', label: 'Next action (what to do NOW)' },
+  { key: 'queue', label: 'Still expected (queue)' },
+  { key: 'alerts', label: 'Open problems / supervisor calls' },
+  { key: 'stats', label: 'Shift totals' },
   { key: 'reports', label: 'Reports (reserved — v1 off)', reserved: true },
 ];
 

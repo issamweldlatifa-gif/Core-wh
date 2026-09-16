@@ -38,8 +38,12 @@ warehouse operational phases will build on.
 > [`docs/STATION-DISPLAY-INTERACTIVE-AUDIT.md`](docs/STATION-DISPLAY-INTERACTIVE-AUDIT.md)
 > and the delivery report in
 > [`docs/STATION-DISPLAY-V2-INTERACTIVE-REPORT.md`](docs/STATION-DISPLAY-V2-INTERACTIVE-REPORT.md).
+> The screen also **helps the worker**: a NEXT ACTION band («Scan the next
+> product — SA-4471: 13 of 50 units left»), what is still expected, every open
+> problem and unanswered supervisor call, the shift totals and how long the
+> operation has been open — all computed server-side, each block switchable.
 > End-to-end check of the whole contract against a running stack:
-> `python3 tools/station-display-smoke.py` (40 checks).
+> `python3 tools/station-display-smoke.py` (49 checks).
 
 ---
 

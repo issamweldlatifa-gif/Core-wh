@@ -11,7 +11,14 @@ export interface DisplaySnapshot {
   display?: { name: string; type?: string };
   station?: { code: string; name: string; department: string; status: string } | null;
   worker?: { code: string; name: string } | null;
-  operation?: { label: string; sessionCode?: string | null; sessionStatus?: string | null; arrivalReference?: string | null } | null;
+  operation?: {
+    label: string;
+    sessionCode?: string | null;
+    sessionStatus?: string | null;
+    arrivalReference?: string | null;
+    /** When the running operation started (handover context). */
+    startedAt?: string | null;
+  } | null;
   task?: { title: string; status: string } | null;
   lastScan?: {
     id: string;
@@ -39,7 +46,57 @@ export interface DisplaySnapshot {
   };
   /** Stage 2 — operator → station messages awaiting an acknowledgement. */
   messages?: DisplayMessage[];
+  // ---- ASSIST LAYER (owner order 2026-09-16: show EVERYTHING about the
+  // station and help the worker). Computed server-side, never by the browser. */
+  /** The next step, in plain words. */
+  guidance?: DisplayGuidance | null;
+  /** Why the station is not moving (only when the next step is a wait). */
+  waiting?: { reason: string; since?: string | null } | null;
+  /** What is still expected next (biggest gap first). */
+  queue?: DisplayQueueItem[];
+  /** Everything wrong or unanswered at this station right now. */
+  alerts?: DisplayAlert[];
+  /** Today's totals for this station. */
+  stats?: DisplayStats | null;
+  /** A supervisor call from this screen that nobody confirmed yet. */
+  help?: { open: boolean; at?: string | null } | null;
   lastUpdate: string;
+}
+
+export type GuidanceTone = 'SCAN' | 'ALERT' | 'DONE' | 'WAIT';
+
+export interface DisplayGuidance {
+  code: string;
+  instruction: string;
+  detail?: string | null;
+  tone: GuidanceTone;
+}
+
+export interface DisplayQueueItem {
+  code?: string | null;
+  productName?: string | null;
+  remaining: number;
+  expected: number;
+  hint?: string;
+}
+
+export interface DisplayAlert {
+  id: string;
+  kind: string;
+  code?: string | null;
+  reason: string;
+  at: string;
+  severity: string;
+}
+
+export interface DisplayStats {
+  since?: string;
+  scans: number;
+  units: number;
+  cartons: number;
+  stored: number;
+  transfersOut: number;
+  actions: number;
 }
 
 export type DisplayAction = 'print' | 'reprint' | 'ack' | 'help' | 'exception' | 'message' | 'move';
@@ -87,6 +144,43 @@ export function relativeTime(ts: string | Date | null | undefined, now = Date.no
   if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60);
   return `${h}h ago`;
+}
+
+/**
+ * How long the current operation has been running ("42m", "2h05") — the
+ * handover context a second operator needs. Pure, so it is unit tested.
+ */
+export function formatDuration(from: string | Date | null | undefined, now = Date.now()): string {
+  if (!from) return '—';
+  const start = +new Date(from);
+  if (!Number.isFinite(start)) return '—';
+  const minutes = Math.max(0, Math.floor((now - start) / 60_000));
+  if (minutes < 60) return `${minutes}m`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `${h}h${String(m).padStart(2, '0')}`;
+}
+
+/** One line per queue row: "SA-4471 — Chair · 13 of 50 units left". */
+export function queueLine(item: DisplayQueueItem): string {
+  const id = [item.code, item.productName].filter(Boolean).join(' — ') || 'Product';
+  return `${id} · ${item.hint ?? `${item.remaining} of ${item.expected} units left`}`;
+}
+
+/** Colour per guidance tone — one meaning per colour on every screen. */
+export const GUIDANCE_STYLE: Record<GuidanceTone, { color: string; bg: string; label: string }> = {
+  SCAN: { color: '#7cc4ff', bg: 'rgba(58,140,255,0.14)', label: 'NEXT ACTION' },
+  ALERT: { color: '#ff8f6b', bg: 'rgba(255,93,93,0.16)', label: 'ATTENTION' },
+  DONE: { color: '#5de2a0', bg: 'rgba(57,217,138,0.14)', label: 'READY TO FINISH' },
+  WAIT: { color: '#f2c15c', bg: 'rgba(242,193,92,0.13)', label: 'WAITING' },
+};
+
+/** Severity → colour for the alerts strip (HIGH first). */
+export function alertColor(severity: string | null | undefined): string {
+  const s = (severity ?? '').toUpperCase();
+  if (s === 'HIGH' || s === 'URGENT') return '#ff6b6b';
+  if (s === 'MEDIUM' || s === 'WARNING') return '#f2c15c';
+  return '#7cc4ff';
 }
 
 /** The admin-side URL for a display (same origin — any browser screen). */

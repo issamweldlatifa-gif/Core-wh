@@ -5,6 +5,10 @@ import {
   availableActions,
   soundCueFor,
   topMessage,
+  GUIDANCE_STYLE,
+  alertColor,
+  queueLine,
+  formatDuration,
 } from './display-view';
 import { labelDocument } from './display-print';
 
@@ -77,5 +81,44 @@ describe('station display — interactive stage (owner order 2026-09-16)', () =>
     expect(doc.match(/class="lbl"/g)).toHaveLength(2);
     // copies are bounded server- and client-side (a wall screen is not a printer farm)
     expect(labelDocument({ code: 'X' }, 99).match(/class="lbl"/g)).toHaveLength(5);
+  });
+});
+
+// ------------------------------------------------------------------
+// ASSIST LAYER (owner order 2026-09-16): the screen shows everything about the
+// station and helps the worker. The DATA is server-side truth; these helpers
+// only decide how it is presented, so they are unit tested here.
+// ------------------------------------------------------------------
+describe('assist layer presentation', () => {
+  it('the next-action band gets one colour per tone, with a readable label', () => {
+    expect(GUIDANCE_STYLE.SCAN.label).toBe('NEXT ACTION');
+    expect(GUIDANCE_STYLE.WAIT.label).toBe('WAITING');
+    expect(GUIDANCE_STYLE.ALERT.label).toBe('ATTENTION');
+    expect(GUIDANCE_STYLE.DONE.label).toBe('READY TO FINISH');
+    // every tone is visually distinct (a screen across the aisle must be readable)
+    const colors = Object.values(GUIDANCE_STYLE).map((s) => s.color);
+    expect(new Set(colors).size).toBe(colors.length);
+  });
+
+  it('alert severity maps to a colour, high first', () => {
+    expect(alertColor('HIGH')).toBe('#ff6b6b');
+    expect(alertColor('URGENT')).toBe('#ff6b6b');
+    expect(alertColor('MEDIUM')).toBe('#f2c15c');
+    expect(alertColor(null)).toBe('#7cc4ff');
+  });
+
+  it('queue rows read as one line (code — product · units left)', () => {
+    expect(queueLine({ code: 'SA-4471', productName: 'Chair', remaining: 13, expected: 50 }))
+      .toBe('SA-4471 — Chair · 13 of 50 units left');
+    expect(queueLine({ code: 'B-1', remaining: 0, expected: 12, hint: 'complete' })).toBe('B-1 · complete');
+    expect(queueLine({ code: null, productName: null, remaining: 2, expected: 3 })).toBe('Product · 2 of 3 units left');
+  });
+
+  it('the handover age is human ("42m", "2h05") and never negative', () => {
+    const now = +new Date('2026-09-16T12:00:00Z');
+    expect(formatDuration('2026-09-16T11:18:00Z', now)).toBe('42m');
+    expect(formatDuration('2026-09-16T09:55:00Z', now)).toBe('2h05');
+    expect(formatDuration(null, now)).toBe('—');
+    expect(formatDuration('2026-09-16T13:00:00Z', now)).toBe('0m');
   });
 });

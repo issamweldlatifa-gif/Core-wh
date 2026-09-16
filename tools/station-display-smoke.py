@@ -132,6 +132,9 @@ sql(f"""INSERT INTO receiving_sessions (id, code, "arrivalId", status, "startedB
 sql("""INSERT INTO receiving_scan_events (id, "sessionId", "operationId", kind, code, quantity, source, "createdAt")
         VALUES ('smoke-scan', 'smoke-sess', 'op-smoke-1', 'PRODUCT', 'SA-SMOKE-77', 3, 'EXTERNAL_SCANNER', NOW())
         ON CONFLICT (id) DO NOTHING""")
+sql(f"""INSERT INTO receiving_products (id, "receivingSessionId", sku, reference, "productName", "expectedQuantity", "receivedQuantity", difference, status, "createdAt", "updatedAt")
+        VALUES ('smoke-prod', 'smoke-sess', 'SA-SMOKE-77', 'REF-77', 'Smoke Chair', 5, 3, -2, 'PARTIALLY_RECEIVED', NOW(), NOW())
+        ON CONFLICT (id) DO NOTHING""")
 inserted = sql("SELECT count(*) FROM receiving_scan_events WHERE id = 'smoke-scan'")
 check("(setup) CT40 transaction rows in the DB", inserted.strip() == "1", f"rows={inserted.strip()!r}")
 sql("""INSERT INTO receiving_scan_events (id, "sessionId", kind, code, quantity, source, "createdAt")
@@ -155,7 +158,39 @@ check("print result recorded (PRINTED)", st in (200, 201) and res.get("job", {})
 st, rep = call("POST", f"/display-views/{tok_key}/actions/print", {"reprintOf": job.get("id")})
 check("reprint reuses the original payload", st in (200, 201) and rep.get("job", {}).get("targetRef") == "SA-SMOKE-77")
 
-# 11) ack / help / exception
+# 11) ASSIST LAYER (owner order 2026-09-16): the screen tells the operator what
+#     to do NOW, what is still expected, what is wrong and today's totals.
+st, snap = call("GET", f"/display-views/{tok_key}")
+check("assist: NEXT ACTION matches the live operation",
+      st == 200 and (snap.get("guidance") or {}).get("code") == "SCAN_PRODUCT"
+      and "Scan the next product" in (snap["guidance"].get("instruction") or ""),
+      str((snap.get("guidance") or {}).get("code")))
+check("assist: what is STILL EXPECTED is on the screen (code + units left)",
+      [q.get("code") for q in snap.get("queue", [])] == ["SA-SMOKE-77"]
+      and snap["queue"][0].get("remaining") == 2,
+      str(snap.get("queue")))
+check("assist: today's totals count the station's own work",
+      (snap.get("stats") or {}).get("scans", 0) >= 1 and (snap.get("stats") or {}).get("units", 0) >= 3,
+      str(snap.get("stats")))
+check("assist: the handover age rides with the operation",
+      bool((snap.get("operation") or {}).get("startedAt")),
+      str((snap.get("operation") or {}).get("startedAt")))
+
+# 11b) every assist block is a real visibility switch: OFF never leaves the API
+call("PATCH", f"/station-displays/{disp['id']}", {"config": {**cfg_full, "guidance": False, "queue": False, "stats": False}}, token)
+st, hidden = call("GET", f"/display-views/{tok_key}")
+check("assist: a block switched OFF is absent from the payload (no leak under another name)",
+      st == 200 and "guidance" not in hidden and "queue" not in hidden and "stats" not in hidden
+      and "SCAN_PRODUCT" not in json.dumps(hidden),
+      str([k for k in ("guidance", "queue", "stats") if k in hidden]))
+call("PATCH", f"/station-displays/{disp['id']}", {"config": cfg_full}, token)
+
+# 11c) the alerts strip: an open problem at the station, and an unanswered call
+st, snap = call("GET", f"/display-views/{tok_key}")
+check("assist: no alert before anything is wrong", snap.get("alerts") == [] and (snap.get("help") or {}).get("open") is False,
+      str(snap.get("alerts")))
+
+# 12) ack / help / exception
 st, ack = call("POST", f"/display-views/{tok_key}/actions/ack", {"note": "seen by smoke test"})
 check("ack recorded", st in (200, 201) and ack.get("ok") is True)
 st, help_ = call("POST", f"/display-views/{tok_key}/actions/help", {"note": "carton blocked", "urgent": True})
@@ -164,6 +199,24 @@ st, exc = call("POST", f"/display-views/{tok_key}/actions/exception", {"type": "
 check("exception created as a REAL OperationalException", st in (200, 201) and str(exc.get("exceptionCode", "")).startswith("EXC-"), str(exc.get("exceptionCode")))
 st, bad = call("POST", f"/display-views/{tok_key}/actions/exception", {})
 check("exception without a reason refused", st == 400, f"HTTP {st}")
+
+st, snap = call("GET", f"/display-views/{tok_key}")
+kinds = [a.get("kind") for a in snap.get("alerts", [])]
+check("assist: the open exception AND the unanswered supervisor call are both on the screen",
+      "EXCEPTION" in kinds and "HELP" in kinds and (snap.get("help") or {}).get("open") is True,
+      str(kinds))
+check("assist: the alert carries the real exception code and severity",
+      any(a.get("kind") == "EXCEPTION" and str(a.get("code", "")).startswith("EXC-") and a.get("severity") == "HIGH"
+          for a in snap.get("alerts", [])),
+      str(snap.get("alerts")))
+
+# the station acknowledges: the supervisor call is cleared, the real exception is NOT
+call("POST", f"/display-views/{tok_key}/actions/ack", {"note": "supervisor came"})
+st, snap = call("GET", f"/display-views/{tok_key}")
+kinds = [a.get("kind") for a in snap.get("alerts", [])]
+check("assist: acknowledging clears the supervisor call but keeps the real exception open",
+      "HELP" not in kinds and "EXCEPTION" in kinds and (snap.get("help") or {}).get("open") is False,
+      str(kinds))
 
 # 12) admin -> screen message, screen acknowledges
 st, msg = call("POST", f"/station-displays/{disp['id']}/message", {"body": "Stop scanning, supervisor coming", "severity": "URGENT"}, token)
