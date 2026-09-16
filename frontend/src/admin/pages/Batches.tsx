@@ -44,7 +44,7 @@ const STATUSES = [
 
 const ACTION_LABEL: Record<BatchUiAction, string> = {
   void: 'Void…',
-  print: 'Print label',
+  print: 'PDF label',
   printBt: 'Print PM-241',
   delete: 'Delete',
 };
@@ -82,34 +82,40 @@ export default function BatchesAdmin() {
   // OWNER 2026-09-14: hard delete (any status, audited, units cascade).
   const [deleteTarget, setDeleteTarget] = useState<BatchRow | null>(null);
   // Direct thermal print through the CT40 bridge (PM-241-BT over SPP).
-  const [btBusy, setBtBusy] = useState<string | null>(null);
+  // OWNER 2026-09-16: direct thermal print with a real step loading bar —
+  // no browser print dialog, no 'Save as PDF' ever.
+  const [btPrint, setBtPrint] = useState<{ step: number; detail: string; error: string | null; code: string } | null>(null);
   async function printDirect(row: BatchRow) {
-    setBtBusy(row.id);
+    setBtPrint({ step: 1, detail: '', error: null, code: row.batchCode });
     try {
+      setBtPrint({ step: 1, detail: 'Bridge check...', error: null, code: row.batchCode });
       const st: BridgeStatus = await printerBridge.status();
       if (!st.bridge) {
-        window.alert('Print bridge not available. The printer is attached to the CT40: open this Admin page in the CT40 browser, and enable PRINTER BRIDGE in the worker app settings.');
+        setBtPrint({ step: 0, detail: '', error:
+          'Print bridge not reachable from THIS browser. The printer is attached to the CT40: (1) open this Admin page in the CT40 Chrome, (2) AYROVI worker app - SETTINGS - PRINTER BRIDGE - ENABLE, keep the app running, (3) if Chrome asks for Local network access permission - Allow it, then Retry.', code: row.batchCode });
         return;
       }
       if (st.state !== 'CONNECTED') {
         if (st.printer?.address) {
+          setBtPrint({ step: 2, detail: 'Connecting printer...', error: null, code: row.batchCode });
           await printerBridge.connect(st.printer.address, st.printer.name);
         } else {
-          window.alert('No PM-241-BT connected. Open Admin - Printers on the CT40 and connect the printer once.');
+          setBtPrint({ step: 0, detail: '', error:
+            'No PM-241-BT saved yet. On the CT40 open Admin - Printers - Search - connect the printer ONCE; after that every print auto-connects.', code: row.batchCode });
           return;
         }
       }
+      setBtPrint({ step: 3, detail: 'Sending TSPL to PM-241-BT...', error: null, code: row.batchCode });
       await printerBridge.printBarcode(newJobId(), {
         title: 'BATCH',
         containerCode: row.batchCode,
         qrPayload: row.batchCode,
         barcodeValue: row.batchCode,
       });
-      window.alert('Label sent to the PM-241-BT: ' + row.batchCode);
+      setBtPrint({ step: 4, detail: 'Label sent - check the printer.', error: null, code: row.batchCode });
+      window.setTimeout(() => setBtPrint(null), 2500);
     } catch (e) {
-      window.alert('Printer error: ' + (e instanceof Error ? e.message : String(e)));
-    } finally {
-      setBtBusy(null);
+      setBtPrint({ step: 0, detail: '', error: 'Printer error: ' + (e instanceof Error ? e.message : String(e)), code: row.batchCode });
     }
   }
   async function act(fn: () => Promise<unknown>) {
@@ -215,7 +221,7 @@ export default function BatchesAdmin() {
             {actions.length > 0 && (
               <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
                 {actions.map((a) => (
-                  <button key={a} disabled={busy || (a === 'printBt' && btBusy !== null)} className={ACTION_CLASS[a]} onClick={() => onAction(row, a)}>
+                  <button key={a} disabled={busy || (a === 'printBt' && btPrint !== null)} className={ACTION_CLASS[a]} onClick={() => onAction(row, a)}>
                     {ACTION_LABEL[a]}
                   </button>
                 ))}
@@ -319,6 +325,31 @@ export default function BatchesAdmin() {
         </div>
       )}
 
+      {btPrint && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgba(4,10,16,.72)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => { if (btPrint.error || btPrint.step === 4) setBtPrint(null); }}>
+          <div style={{ background: 'var(--panel,#0f1822)', border: '1px solid var(--line,#24303d)', borderRadius: 12, padding: '22px 26px', width: 'min(92vw, 430px)', color: 'inherit' }}>
+            <div style={{ fontWeight: 800, marginBottom: 4 }}>{btPrint.error ? 'PRINT PROBLEM' : `Printing ${btPrint.code}`}</div>
+            {btPrint.error ? (
+              <div style={{ fontSize: '0.85rem', lineHeight: 1.7, color: '#ff5d5d' }}>{btPrint.error}</div>
+            ) : (
+              <>
+                <div style={{ height: 10, borderRadius: 999, background: 'rgba(128,160,190,.18)', overflow: 'hidden', margin: '14px 0 8px' }}>
+                  <div style={{ width: `${btPrint.step * 25}%`, height: '100%', background: 'linear-gradient(90deg,#2f9dff,#39d98a)', transition: 'width .4s ease' }} />
+                </div>
+                <div style={{ fontSize: '0.85rem', opacity: 0.85 }}>{btPrint.detail || (btPrint.step === 4 ? 'Done.' : 'Working...')}</div>
+              </>
+            )}
+            {(btPrint.error || btPrint.step === 4) && (
+              <div style={{ marginTop: 12, display: 'flex', gap: 10 }}>
+                {btPrint.error && (
+                  <button className="os-btn" onClick={() => { const c = btPrint.code; setBtPrint(null); const row = batches.data?.find((b) => b.id && b.batchCode === c); if (row) void printDirect(row); }}>Retry</button>
+                )}
+                <button className="os-btn os-btn--primary" onClick={() => setBtPrint(null)}>Close</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

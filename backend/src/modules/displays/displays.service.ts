@@ -342,7 +342,7 @@ export class DisplaysService {
       take: 20,
     });
     const sessIds = stationSessionIds.map((r) => r.id);
-    const [rxScans, rxCartons, batchUnits, batchReceives, tsItems] = await Promise.all([
+    const [rxScans, rxCartons, batchUnits, batchReceives, tsItems, stationMoves, doneBatches] = await Promise.all([
       sessIds.length
         ? this.prisma.receivingScanEvent.findMany({ where: { sessionId: { in: sessIds }, createdAt: { gte: dayAgo } }, orderBy: { createdAt: 'desc' }, take: 12 })
         : Promise.resolve([]),
@@ -356,17 +356,61 @@ export class DisplaysService {
         ? this.prisma.batchItem.findMany({ where: { scannedByWorkerId: workerId, status: 'RECEIVED', receivedAt: { gte: dayAgo } }, include: { unit: true }, orderBy: { receivedAt: 'desc' }, take: 12 })
         : Promise.resolve([]),
       this.prisma.temporaryStorageItem.findMany({ where: { stationId, createdAt: { gte: dayAgo } }, orderBy: { createdAt: 'desc' }, take: 12 }),
+      // TRANSFERS (owner 2026-09-16: دخول/خروج/تنقل — the display shows ALL
+      // actions, not only scans): goods handed out of this station (OUT) or
+      // received into it (IN).
+      this.prisma.productStationMove.findMany({
+        where: { OR: [{ fromStationId: stationId }, { toStationId: stationId }], createdAt: { gte: dayAgo } },
+        orderBy: { createdAt: 'desc' },
+        take: 12,
+      }),
+      // Batch lifecycle the worker drove: submitted to receiving / receiving
+      // completed — bound to the station's assigned worker (batch writes
+      // carry no stationId).
+      workerId
+        ? this.prisma.batch.findMany({
+            where: {
+              OR: [{ createdById: workerId }, { items: { some: { scannedByWorkerId: workerId } } }],
+              status: { in: ['SENT_TO_RECEIVING', 'RECEIVING_COMPLETED'] },
+              updatedAt: { gte: dayAgo },
+            },
+            orderBy: { updatedAt: 'desc' },
+            take: 6,
+          })
+        : Promise.resolve([]),
     ]);
     type RecentAction = {
       id: string; kind: string; code: string | null; productName: string | null;
       customerName: string | null; quantity: number; status: string; at: Date;
     };
+    const moveEvents: RecentAction[] = stationMoves.map((m) => ({
+      id: m.id,
+      kind: m.fromStationId === stationId ? 'OUT' : 'IN',
+      code: m.sku ?? m.reference ?? m.productName ?? null,
+      productName: m.productName ?? null,
+      customerName: null,
+      quantity: m.confirmedQuantity,
+      status: m.result,
+      at: m.createdAt,
+    }));
+    const batchEvents: RecentAction[] = doneBatches.map((b) => ({
+      id: b.id,
+      kind: b.status === 'SENT_TO_RECEIVING' ? 'BATCH SENT' : 'BATCH DONE',
+      code: b.batchCode,
+      productName: null,
+      customerName: null,
+      quantity: b.status === 'RECEIVING_COMPLETED' ? b.totalScanned : b.totalExpected,
+      status: b.status,
+      at: b.updatedAt,
+    }));
     const recent: RecentAction[] = [
       ...rxScans.map((e) => ({ id: e.id, kind: e.kind === 'ARTICLE' ? 'ARTICLE' : 'SCAN', code: e.code ?? null, productName: null, customerName: null, quantity: e.quantity, status: 'CONFIRMED', at: e.createdAt })),
       ...rxCartons.map((c) => ({ id: c.id, kind: 'CARTON', code: c.scannedCode, productName: null, customerName: null, quantity: 1, status: c.status, at: c.receivedAt ?? c.createdAt })),
       ...batchUnits.map((u) => ({ id: u.id, kind: 'BATCH UNIT', code: unitCode(u), productName: null, customerName: null, quantity: 1, status: 'REGISTERED', at: u.createdAt })),
       ...batchReceives.map((bi) => ({ id: bi.id, kind: 'BATCH RECEIVE', code: unitCode(bi.unit), productName: null, customerName: null, quantity: 1, status: 'RECEIVED', at: bi.receivedAt ?? bi.createdAt })),
       ...tsItems.map((t) => ({ id: t.id, kind: 'STORAGE', code: t.sku ?? t.reference ?? null, productName: t.productName ?? null, customerName: t.customerName ?? null, quantity: t.quantity, status: t.status, at: t.createdAt })),
+      ...moveEvents,
+      ...batchEvents,
     ]
       .sort((a, b) => +new Date(b.at) - +new Date(a.at))
       .slice(0, 10);

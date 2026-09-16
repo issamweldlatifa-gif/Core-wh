@@ -100,7 +100,9 @@ export type BatchDirectPrintAction = 'printBt';
  */
 export function batchActions(status: string, has: (perm: string) => boolean): BatchUiAction[] {
   const out: BatchUiAction[] = [];
-  if (has('batch.view')) { out.push('print'); out.push('printBt'); }
+  // OWNER 2026-09-16: the DIRECT thermal print is the primary print; the
+  // browser-dialog path stays as the explicit 'PDF label' fallback.
+  if (has('batch.view')) { out.push('printBt'); out.push('print'); }
   // OWNER ORDER (2026-09-13, revised): the submit auto-routes the batch to
   // receiving — SUBMITTED/ACCEPTED are transient server-side states, never a
   // waiting-for-approval queue. The admin sees no action button for them.

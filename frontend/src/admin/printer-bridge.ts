@@ -68,11 +68,18 @@ export class BridgeError extends Error {
   }
 }
 
-async function call<T>(path: string, init?: RequestInit, timeoutMs = 4000): Promise<T> {
+function bridgeHosts(): string[] {
+  // Both loopback spellings — some Chrome builds treat them differently for
+  // Private/Local Network Access; trying both costs nothing (owner report
+  // 2026-09-16: 'bridge not available' despite the bridge being enabled).
+  return [`http://127.0.0.1:${BRIDGE_PORT}`, `http://localhost:${BRIDGE_PORT}`];
+}
+
+async function attempt<T>(host: string, path: string, init: RequestInit | undefined, timeoutMs: number): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(`http://127.0.0.1:${BRIDGE_PORT}${path}`, {
+    const res = await fetch(`${host}${path}`, {
       ...init,
       signal: controller.signal,
       headers: {
@@ -90,10 +97,25 @@ async function call<T>(path: string, init?: RequestInit, timeoutMs = 4000): Prom
     return body as T;
   } catch (e) {
     if (e instanceof BridgeError) throw e;
+    // Network-level failure (blocked/refused) — caller may retry another host.
     throw new BridgeError('BRIDGE_DOWN', 'Print bridge not available on this device.');
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function call<T>(path: string, init?: RequestInit, timeoutMs = 4000): Promise<T> {
+  let last: unknown = null;
+  for (const host of bridgeHosts()) {
+    try {
+      return await attempt<T>(host, path, init, timeoutMs);
+    } catch (e) {
+      last = e;
+      // HTTP-level answers (the bridge REPLIED) are final — no host retry.
+      if (e instanceof BridgeError && e.code !== 'BRIDGE_DOWN') throw e;
+    }
+  }
+  throw last;
 }
 
 export const printerBridge = {

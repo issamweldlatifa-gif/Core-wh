@@ -20,23 +20,23 @@ describe('batchActions — status × permission matrix', () => {
   });
 
   it('RECEIVING_COMPLETED is terminal: print + hard delete (owner 2026-09-14) only', () => {
-    expect(batchActions('RECEIVING_COMPLETED', admin)).toEqual(['print', 'printBt', 'delete']);
+    expect(batchActions('RECEIVING_COMPLETED', admin)).toEqual(['printBt', 'print', 'delete']);
   });
 
   it('VOIDED is terminal too (print + hard delete per owner 2026-09-14)', () => {
-    expect(batchActions('VOIDED', admin)).toEqual(['print', 'printBt', 'delete']);
+    expect(batchActions('VOIDED', admin)).toEqual(['printBt', 'print', 'delete']);
   });
 
   it('permissions gate every action (viewer gets print only)', () => {
-    expect(batchActions('SUBMITTED', viewer)).toEqual(['print', 'printBt']);
+    expect(batchActions('SUBMITTED', viewer)).toEqual(['printBt', 'print']);
     // accept WITHOUT send/void permissions → no fused click (needs both),
     // no void — print only.
     expect(batchActions('ACCEPTED', acceptOnly).sort()).toEqual(['print', 'printBt']);
-    expect(batchActions('SUBMITTED', acceptOnly)).toEqual(['print', 'printBt']); // no void perm → print only
+    expect(batchActions('SUBMITTED', acceptOnly)).toEqual(['printBt', 'print']); // no void perm → print only
   });
 
   it('an unknown status degrades to print + hard delete — no invented offers', () => {
-    expect(batchActions('SOMETHING_ELSE', admin)).toEqual(['print', 'printBt', 'delete']);
+    expect(batchActions('SOMETHING_ELSE', admin)).toEqual(['printBt', 'print', 'delete']);
   });
 
   it('every non-terminal state offers void (VOID ≠ the owner-ordered hard delete)', () => {

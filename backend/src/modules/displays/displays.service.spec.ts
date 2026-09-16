@@ -22,7 +22,8 @@ describe('Station Display Mode (owner order 2026-09-16)', () => {
     expectedArrival: { findUnique: jest.fn().mockResolvedValue(null) },
     ayroviUnit: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
     batchItem: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
-    batch: { findFirst: jest.fn().mockResolvedValue(null) },
+    batch: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
+    productStationMove: { findMany: jest.fn().mockResolvedValue([]) },
     workerTaskAssignment: { findFirst: jest.fn() },
   });
   const audit = { log: jest.fn().mockResolvedValue(undefined) };
@@ -272,6 +273,34 @@ describe('Station Display Mode (owner order 2026-09-16)', () => {
     expect(snap.recent).toHaveLength(5);
     expect(snap.recent[0]).toMatchObject({ code: 'SA0', status: 'RECEIVED' });
     expect(snap.recent[4]).toMatchObject({ kind: 'STORAGE', customerName: 'Ahmed', quantity: 3 });
+  });
+
+  it('feed includes TRANSFERS (IN/OUT) and batch lifecycle (SENT/DONE) — the display shows all actions', async () => {
+    const prisma = makePrisma();
+    (prisma.stationDisplay.findUnique as jest.Mock).mockResolvedValue({
+      id: 'd1', enabled: true, name: 'R', displayType: 'LIVE_STATION', stationId: 'st', station: { name: 'RECV-1' }, config: {},
+    });
+    (prisma.station.findUnique as jest.Mock).mockResolvedValue({
+      code: 'RECV-1', name: 'Receiving', department: 'RECEIVING', status: 'ACTIVE',
+      assignedWorkerId: 'u6', assignedWorker: { id: 'u6', name: 'W', employeeCode: 'W6' },
+    });
+    (prisma.receivingSession.findMany as jest.Mock).mockResolvedValue([]);
+    (prisma.temporaryStorageItem.findMany as jest.Mock).mockResolvedValue([]);
+    (prisma.productStationMove.findMany as jest.Mock).mockResolvedValue([
+      { id: 'm1', fromStationId: 'st', toStationId: null, sku: 'SA-OUT', reference: null, productName: null, confirmedQuantity: 4, result: 'CONFIRMED', createdAt: new Date('2026-09-16T11:00:00Z') },
+      { id: 'm2', fromStationId: null, toStationId: 'st', sku: null, reference: 'REF-IN', productName: 'Desk', confirmedQuantity: 2, result: 'CONFIRMED', createdAt: new Date('2026-09-16T11:05:00Z') },
+    ]);
+    (prisma.batch.findMany as jest.Mock).mockResolvedValue([
+      { id: 'b9', batchCode: 'AYB-9', status: 'SENT_TO_RECEIVING', totalExpected: 7, totalScanned: 0, updatedAt: new Date('2026-09-16T10:30:00Z') },
+    ]);
+    const svc = new DisplaysService(prisma as any, audit as any);
+    const snap = (await svc.snapshotForToken('tok')) as any;
+    const kinds = snap.recent.map((r: any) => `${r.kind}:${r.code}`);
+    // newest first: IN 11:05 > OUT 11:00 > BATCH SENT 10:30
+    expect(kinds).toEqual(['IN:REF-IN', 'OUT:SA-OUT', 'BATCH SENT:AYB-9']);
+    expect(snap.recent[0]).toMatchObject({ kind: 'IN', productName: 'Desk', quantity: 2 });
+    expect(snap.recent[1]).toMatchObject({ kind: 'OUT', quantity: 4 });
+    expect(snap.recent[2]).toMatchObject({ kind: 'BATCH SENT', quantity: 7 });
   });
 
   it('recent:false in the display config removes the feed entirely (server-side)', async () => {
