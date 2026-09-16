@@ -172,18 +172,18 @@ backend  src/modules/workflow/workflow.service.spec.ts       NEW — the emit co
 backend  src/modules/putaway/putaway.service.spec.ts         +the station ping (no-op stays silent)
 frontend src/display/display-interactive.test.ts             11 tests (action bar, message, sound, label,
                                                               guidance tones, queue lines, handover age)
-tools/station-display-smoke.py                               49 end-to-end checks on a live stack
+tools/station-display-smoke.py                               74 end-to-end checks on a live stack (49 v2 + 25 v3)
 ```
 
 ## 5. Verification (what was actually run)
 
-* `backend`: `tsc --noEmit` clean, `eslint` clean, **333/333 jest tests pass**
+* `backend`: `tsc --noEmit` clean, `eslint` clean, **348/348 jest tests pass** (333 at the v2 checkpoint)
   (30 suites; +10 for the assist layer, including the pure guidance function and
   the «hidden section never leaves the API» filter; the built server was also
   BOOTED — a DI/decorator-metadata crash only shows at boot, not in tsc or jest).
-* `frontend`: `tsc --noEmit` clean, `eslint` clean, `vite build` OK, **175/175
+* `frontend`: `tsc --noEmit` clean, `eslint` clean, `vite build` OK, **186/186
   vitest tests pass**.
-* **Live end-to-end on PostgreSQL 17 + the built server** (49/49 — the 9 new
+* **Live end-to-end on PostgreSQL 17 + the built server** (74/74 — the 9 new
   checks cover the assist layer: the NEXT ACTION matches the live operation, the
   expected queue carries code + units left, today's totals count the station's
   work, the handover age is exposed, a block switched OFF is absent from the
@@ -261,3 +261,16 @@ cd backend  && AYROVI_SEED_DEMO=true SEED_WORKER_PASSWORD='<local-demo-password>
   many copies, which transport, printed or failed). A bridge/CT40 agent claims
   QUEUED jobs with `GET /api/v1/display-views/:token/actions/print-queue` and
   reports with `POST .../actions/print/:jobId/result`.
+
+---
+
+## v3 follows this report — the screen set
+
+This report describes the **interactive + assist** layer (v2). The next layer,
+built the same day on the owner's order («display must not be one big screen —
+think like Amazon warehouses»), turns each station into a **set of
+single-purpose screens** (Board / Next Action / Andon / Print) with the role
+enforced server-side and an andon colour on every screen, plus the handheld
+print-agent API (`GET /print-jobs/pending`, `POST /print-jobs/:id/result`).
+Design, decisions and execution status:
+[`docs/STATION-DISPLAY-SCREEN-SET-PLAN.md`](STATION-DISPLAY-SCREEN-SET-PLAN.md).

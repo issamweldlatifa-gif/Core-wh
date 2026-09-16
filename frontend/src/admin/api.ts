@@ -1,3 +1,4 @@
+import type { DisplayView } from '../display/display-view';
 import client from '../api/client';
 
 /** Admin Control Center API surface (§6/§36-§40). */
@@ -651,7 +652,7 @@ export const adminApi = {
     client.get<DisplayFleet>('/v1/station-displays').then((r) => r.data),
   /** Bulk run over the fleet; audited once with the affected ids. */
   stationDisplayBulk: (d: {
-    action: 'CREATE_MISSING' | 'APPLY_CONFIG' | 'SET_ENABLED' | 'SET_INTERACTIVE';
+    action: 'CREATE_MISSING' | 'CREATE_SET' | 'APPLY_CONFIG' | 'SET_ENABLED' | 'SET_INTERACTIVE';
     stationIds?: string[];
     config?: Record<string, unknown>;
     enabled?: boolean;
@@ -662,6 +663,17 @@ export const adminApi = {
   sendStationDisplayMessage: (displayId: string, d: { body: string; severity?: string; requireAck?: boolean; expiresInMinutes?: number }) =>
     client.post<{ id: string; body: string; severity: string }>(`/v1/station-displays/${displayId}/message`, d).then((r) => r.data),
   /** What humans did on this station's screens (print / ack / help / exception). */
+  /** v3 SCREEN SET — one station's Board / Next Action / Andon / Print screens. */
+  createStationScreenSet: (
+    stationId: string,
+    d: { views?: DisplayView[]; config?: Record<string, unknown> } = {},
+  ) =>
+    client
+      .post<{ created: Array<{ displayId: string; view: DisplayView; name: string; urlPath: string }>; skipped: DisplayView[]; applied: number }>(
+        `/v1/stations/${stationId}/displays/set`,
+        d,
+      )
+      .then((r) => r.data),
   stationDisplayActions: (stationId: string, take = 20) =>
     client.get<Array<{
       id: string; kind: string; summary: string | null; refId: string | null; createdAt: string;
@@ -702,6 +714,8 @@ export interface DisplayFleetRow {
   displays: Array<{
     id: string; name: string; enabled: boolean; displayType: string;
     lastSeenAt: string | null; online: boolean; interactive: boolean;
+    /** v3 screen role. */
+    view?: DisplayView;
     actions: Record<string, boolean>; printTransport: string; visibility: Record<string, boolean>;
   }>;
 }

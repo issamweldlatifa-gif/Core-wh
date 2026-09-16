@@ -4,6 +4,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { DisplaysService } from './displays.service';
 import { DisplayItemAdminController, StationDisplaysAdminController } from './displays-admin.controller';
 import { DisplayViewsController } from './display-views.controller';
+import { StationPrintJobsController } from './print-jobs.controller';
 
 /**
  * Station Display Mode (owner order 2026-09-16).
@@ -17,7 +18,12 @@ import { DisplayViewsController } from './display-views.controller';
  */
 @Module({
   imports: [AuditModule, NotificationsModule],
-  controllers: [StationDisplaysAdminController, DisplayItemAdminController, DisplayViewsController],
+  controllers: [
+    StationDisplaysAdminController,
+    DisplayItemAdminController,
+    DisplayViewsController,
+    StationPrintJobsController,
+  ],
   providers: [DisplaysService],
   exports: [DisplaysService],
 })

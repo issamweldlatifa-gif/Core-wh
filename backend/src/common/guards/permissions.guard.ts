@@ -5,7 +5,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { PERMISSIONS_KEY } from '../decorators/require-permissions.decorator';
+import { PERMISSIONS_ANY_KEY, PERMISSIONS_KEY } from '../decorators/require-permissions.decorator';
 import { RequestWithUser } from '../interfaces/request-with-user.interface';
 import { AuditService } from '../../modules/audit/audit.service';
 
@@ -33,7 +33,13 @@ export class PermissionsGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
-    if (!required || required.length === 0) return true;
+    // AND list (@RequirePermissions) and OR list (@RequireAnyPermission) — a
+    // route may carry either; both are enforced here, on the backend only.
+    const requiredAny = this.reflector.getAllAndOverride<string[]>(PERMISSIONS_ANY_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if ((!required || required.length === 0) && (!requiredAny || requiredAny.length === 0)) return true;
 
     const request = context.switchToHttp().getRequest<RequestWithUser>();
     const user = request.user;
@@ -42,7 +48,10 @@ export class PermissionsGuard implements CanActivate {
     }
 
     const granted = new Set(user.permissions ?? []);
-    const missing = required.filter((p) => !granted.has(p));
+    const missing = (required ?? []).filter((p) => !granted.has(p));
+    if (missing.length === 0 && requiredAny?.length && !requiredAny.some((p) => granted.has(p))) {
+      missing.push(`one of: ${requiredAny.join(', ')}`);
+    }
     if (missing.length > 0) {
       if (this.audit) {
         try {
@@ -53,6 +62,7 @@ export class PermissionsGuard implements CanActivate {
             ipAddress: (request as any).ip,
             metadata: {
               required,
+              requiredAny: requiredAny ?? [],
               missing,
               application: user.application,
               url: (request as any).originalUrl ?? (request as any).url,

@@ -3,12 +3,16 @@
 Boots nothing itself: point it at a RUNNING API and the database that API uses.
 
   cd backend && npm run start:prod          # or: npm run start:dev
-  python3 tools/station-display-smoke.py    # 36 checks, exits 1 on any failure
+  python3 tools/station-display-smoke.py    # 49+ checks, exits 1 on any failure
 
 It proves the whole contract of the interactive display stage on real rows:
   read-only by default -> interactive opt-in -> print/reprint/ack/help/exception
   -> audit with the display identity -> fleet console + bulk -> revocation
-  (disable / regenerate kill read AND write) -> per-display rate limit.
+  (disable / regenerate kill read AND write) -> per-display rate limit
+  -> v3 SCREEN SET: one station = a SET of single-purpose screens (Board /
+  Next Action / Andon / Print), each role enforced server-side, andon colour on
+  every role, and the WORKER PRINT AGENT path (handheld CT40 claims + resolves
+  the label without ever holding a display token).
 
 Adjust BASE / PSQL below for another environment (they default to a local dev
 stack: API :3000, PostgreSQL on /tmp:5433).
@@ -301,6 +305,141 @@ st, reg3 = call("POST", f"/station-displays/{other['displays'][0]['id']}/regener
 call("POST", "/station-displays/bulk", {"action": "APPLY_CONFIG", "stationIds": [other["stationId"]], "config": cfg_full}, token)
 st, ok = call("POST", f"/display-views/{reg3['accessToken']}/actions/ack", {})
 check("the rate window is per display (an idle station screen still works)", st in (200, 201), f"HTTP {st}")
+
+
+# --------------------------------------------------------------------------
+# v3 SCREEN SET (owner order 2026-09-16): «display مش مجرد شاشه كبيره — فكر
+# مثل مستودعات امازون». A station is a SET of single-purpose screens, the role
+# is enforced by the SERVER, and the andon colour rides on every role.
+# --------------------------------------------------------------------------
+
+# 23) one call gives the station its standard set (Board exists already)
+st, screen_set = call("POST", f"/stations/{station['id']}/displays/set", {"views": ["ACTION", "ALERTS", "PRINT"]}, token)
+created = screen_set.get("created", []) if isinstance(screen_set, dict) else []
+# NOTE: an explicit `views` list means exactly those roles (BOARD is not part
+# of the request, so it is neither created nor reported as skipped).
+check("screen set: one call creates the station's Next Action / Andon / Print screens",
+      st in (200, 201) and [c["view"] for c in created] == ["ACTION", "ALERTS", "PRINT"]
+      and screen_set.get("skipped") == [],
+      f"HTTP {st} created={[c.get('view') for c in created]} skipped={screen_set.get('skipped')}")
+check("every screen of the set gets its OWN url (no shared token)",
+      len({c["urlPath"] for c in created}) == len(created) and all(c["urlPath"].startswith("/display/") for c in created))
+
+# 24) idempotent: clicking again never duplicates a screen role
+st, again = call("POST", f"/stations/{station['id']}/displays/set", {}, token)
+check("screen set is idempotent (second call creates nothing, reports every role as skipped)",
+      st in (200, 201) and again.get("created") == [] and set(again.get("skipped", [])) == {"BOARD", "ACTION", "ALERTS", "PRINT"},
+      f"created={again.get('created')} skipped={again.get('skipped')}")
+
+by_view = {c["view"]: c["urlPath"].rsplit("/", 1)[-1] for c in created}
+snaps = {}
+for view, tk in by_view.items():
+    st, sn = call("GET", f"/display-views/{tk}")
+    snaps[view] = sn if isinstance(sn, dict) else {}
+    check(f"{view} screen renders (HTTP {st})", st == 200 and sn.get("enabled") is True)
+
+# 25) the role is enforced on the WIRE, not in the browser
+action_snap = snaps["ACTION"]
+check("ACTION screen: publishes its role and carries the instruction",
+      action_snap.get("options", {}).get("view") == "ACTION" and "guidance" in action_snap)
+check("ACTION screen: the queue and the totals never leave the API",
+      "queue" not in action_snap and "stats" not in action_snap, f"keys={sorted(action_snap.keys())}")
+
+alerts_snap = snaps["ALERTS"]
+check("ALERTS screen: andon only — no guidance, no queue, no totals",
+      alerts_snap.get("options", {}).get("view") == "ALERTS"
+      and "alerts" in alerts_snap and "guidance" not in alerts_snap
+      and "queue" not in alerts_snap and "stats" not in alerts_snap)
+
+print_snap = snaps["PRINT"]
+check("PRINT screen: labels only — no guidance / queue / alerts / totals",
+      print_snap.get("options", {}).get("view") == "PRINT"
+      and all(k not in print_snap for k in ("guidance", "queue", "alerts", "stats", "recent")),
+      f"keys={sorted(print_snap.keys())}")
+
+# 26) the colour of the line rides on EVERY role (a print screen still shows red)
+states = [(v, (sn.get("andon") or {}).get("state")) for v, sn in snaps.items()]
+check("andon is present on every role of the set",
+      all(s in ("OK", "ATTENTION", "PROBLEM", "IDLE") for _v, s in states) and len(states) == 3, f"{states}")
+
+# 27) a role cannot be widened by the admin: the preset beats the stored switches
+print_disp_id = [c for c in created if c["view"] == "PRINT"][0]["displayId"]
+st, _ = call("PATCH", f"/station-displays/{print_disp_id}", {"config": {
+    "view": "PRINT", "interactive": True, "sound": True, "printTransport": "CT40",
+    "queue": True, "stats": True, "guidance": True, "alerts": True, "recent": True, "lastScan": True,
+    "actions": {"print": True, "reprint": True, "message": True},
+}}, token)
+st2, widened = call("GET", f"/display-views/{by_view['PRINT']}")
+check("a PRINT screen cannot be widened by the admin switches (role preset wins)",
+      st in (200, 201) and st2 == 200
+      and all(k not in widened for k in ("guidance", "queue", "alerts", "stats", "recent"))
+      and widened.get("options", {}).get("view") == "PRINT", f"HTTP {st}/{st2} keys={sorted(widened.keys())}")
+check("...but it still gets the actions its role needs (print/reprint)",
+      set(widened.get("options", {}).get("actions", [])) >= {"print", "reprint"})
+check("...and the transport chosen by the admin is published to the screen",
+      widened.get("options", {}).get("printTransport") == "CT40")
+
+# 28) the fleet console publishes the role of every screen
+st, fleet = call("GET", "/station-displays", None, token)
+row = [r for r in fleet["stations"] if r["stationId"] == station["id"]][0]
+views = sorted(d.get("view") for d in row["displays"])
+check("fleet console publishes each screen's role (admin can see the set)",
+      st == 200 and views == ["ACTION", "ALERTS", "BOARD", "PRINT"], f"{views}")
+
+# 29) WORKER PRINT AGENT (open item: PC/display -> handheld CT40 printer).
+#     The agent is a WORKER (JWT), never a display token, and only sees the
+#     stations assigned to it.
+work_code = sql(f"select u.\"employeeCode\" from users u join stations s on s.\"assignedWorkerId\" = u.id where s.code = 'BATCH-01' limit 1")
+WORKER_PASS = os.environ.get("SEED_WORKER_PASSWORD", "Worker!2024")
+st, wtok = call("POST", "/auth/login", {"identifier": work_code, "secret": WORKER_PASS, "mode": "password", "app": "WORKER_NATIVE"})
+worker_token = wtok.get("accessToken") if isinstance(wtok, dict) else None
+check(f"handheld worker {work_code or '?'} can sign in as WORKER_NATIVE", st in (200, 201) and bool(worker_token), f"HTTP {st}")
+
+st, pending = call("GET", "/print-jobs/pending?limit=5", None, worker_token)
+check("print agent: pending queue answers with the worker's stations",
+      st == 200 and isinstance(pending.get("jobs"), list) and isinstance(pending.get("stations"), list), f"HTTP {st}")
+
+st, _forbidden = call("GET", "/print-jobs/pending", None, token)
+check("the print agent API is WORKER_NATIVE only (admin web token is refused)", st == 403, f"HTTP {st}")
+
+job_id = "smoke-ct40-job-1"
+sql(f"delete from station_print_jobs where id = '{job_id}'")
+sql(
+    "insert into station_print_jobs (id, \"stationId\", target, \"targetRef\", payload, transport, status, copies, \"createdAt\", \"updatedAt\") "
+    f"select '{job_id}', s.id, 'SA-4471', 'SMOKE-REF', '{{\"code\":\"SA-4471\"}}'::jsonb, 'CT40', 'QUEUED', 1, now(), now() "
+    "from stations s where s.code = 'BATCH-01'"
+)
+st, pending2 = call("GET", "/print-jobs/pending?limit=5", None, worker_token)
+ids = [j["id"] for j in pending2.get("jobs", [])]
+check("the handheld sees the label queued for its station (CT40 transport)",
+      st == 200 and job_id in ids, f"{ids}")
+
+st, res1 = call("POST", f"/print-jobs/{job_id}/result", {"status": "PRINTED"}, worker_token)
+check("the handheld reports the label as PRINTED", st in (200, 201) and res1.get("ok") is True and res1.get("duplicate") is False, f"HTTP {st} {res1}")
+st, res2 = call("POST", f"/print-jobs/{job_id}/result", {"status": "PRINTED"}, worker_token)
+check("a resolved label cannot be resolved twice (duplicate, not an error)", st in (200, 201) and res2.get("duplicate") is True)
+st, pending3 = call("GET", "/print-jobs/pending?limit=5", None, worker_token)
+check("the resolved label disappears from the pending queue",
+      st == 200 and job_id not in [j["id"] for j in pending3.get("jobs", [])])
+st, _nf = call("POST", "/print-jobs/does-not-exist/result", {"status": "PRINTED"}, worker_token)
+check("a job that is not the worker's own is a 404, never someone else's label", st == 404, f"HTTP {st}")
+
+# a BROWSER job must never leak into the handheld queue (transport routing)
+browser_job = "smoke-browser-job-1"
+sql(f"delete from station_print_jobs where id = '{browser_job}'")
+sql(
+    "insert into station_print_jobs (id, \"stationId\", target, \"targetRef\", payload, transport, status, copies, \"createdAt\", \"updatedAt\") "
+    f"select '{browser_job}', s.id, 'SA-4472', 'SMOKE-REF2', '{{}}'::jsonb, 'BROWSER', 'QUEUED', 1, now(), now() "
+    "from stations s where s.code = 'BATCH-01'"
+)
+st, pending4 = call("GET", "/print-jobs/pending?limit=10", None, worker_token)
+check("a BROWSER label is NOT sent to the handheld (transport routing holds)",
+      st == 200 and browser_job not in [j["id"] for j in pending4.get("jobs", [])])
+sql(f"delete from station_print_jobs where id in ('{job_id}', '{browser_job}')")
+
+# 30) the ledger shows WHO printed what: DISPLAY_SCREEN_SET_CREATED in the audit trail
+audited = sql("select count(*) from audit_logs where action = 'DISPLAY_SCREEN_SET_CREATED'")
+check("building a screen set is audited", audited.isdigit() and int(audited) >= 1, f"{audited} row(s)")
 
 print()
 failed = [r for r in results if not r[0]]

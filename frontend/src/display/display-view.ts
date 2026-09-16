@@ -43,7 +43,11 @@ export interface DisplaySnapshot {
     sound?: boolean;
     printTransport?: 'BROWSER' | 'BRIDGE' | 'CT40';
     actions?: DisplayAction[];
+    /** v3 SCREEN ROLE — the server also already filtered the payload for it. */
+    view?: DisplayView;
   };
+  /** v3 ANDON — the line colour (code + age only, no free text). */
+  andon?: { state: AndonState; code: string; since?: string | null } | null;
   /** Stage 2 — operator → station messages awaiting an acknowledgement. */
   messages?: DisplayMessage[];
   // ---- ASSIST LAYER (owner order 2026-09-16: show EVERYTHING about the
@@ -63,7 +67,52 @@ export interface DisplaySnapshot {
   lastUpdate: string;
 }
 
+/**
+ * SCREEN FIT (owner report 2026-09-16: «half the page is not visible and the
+ * buttons never show»). Every size on a station screen is expressed in ONE
+ * unit that tracks the viewport, so the same screen is complete on a 24" TV,
+ * on a laptop at 1366×768 and on the CT40 in landscape:
+ *
+ *   --px = min(0.052vw, 0.0926vh)   →   1 unit = 1px on a 1920×1080 screen
+ *
+ * `u(n)` therefore means «n pixels on a 1080p screen», scaled by whichever
+ * axis is tightest. Combined with a flex column that never lets the middle
+ * overflow (see StationDisplay), nothing can be pushed off the glass: the
+ * action bar and the footer always stay in view.
+ */
+export const SCREEN_UNIT = { '--px': 'min(0.052vw, 0.0926vh)' } as unknown as Record<string, string>;
+
+/** n pixels at 1920×1080, scaled to the real screen. */
+export const u = (n: number): string => `calc(var(--px) * ${n})`;
+
 export type GuidanceTone = 'SCAN' | 'ALERT' | 'DONE' | 'WAIT';
+
+/** v3 screen roles — a station has a SET of these, one per physical screen. */
+export type DisplayView = 'BOARD' | 'ACTION' | 'QUEUE' | 'ALERTS' | 'PRINT' | 'STATS';
+export type AndonState = 'OK' | 'ATTENTION' | 'PROBLEM' | 'IDLE';
+
+export const VIEW_LABELS: Record<DisplayView, string> = {
+  BOARD: 'Board — full station context',
+  ACTION: 'Next action — one instruction only',
+  QUEUE: 'Still expected — the work list',
+  ALERTS: 'Andon — problems and calls only',
+  PRINT: 'Print — labels only',
+  STATS: 'Shift totals — numbers only',
+};
+
+/** The colour of the line, the same on every role. */
+export const ANDON_STYLE: Record<AndonState, { color: string; label: string }> = {
+  OK: { color: '#39d98a', label: 'RUNNING' },
+  ATTENTION: { color: '#f2c15c', label: 'ATTENTION' },
+  PROBLEM: { color: '#ff4d4d', label: 'PROBLEM' },
+  IDLE: { color: '#5b6b7a', label: 'IDLE' },
+};
+
+/** The role this snapshot says it is (defaults to BOARD: never guess a role). */
+export function snapshotView(snap: DisplaySnapshot | null): DisplayView {
+  const v = snap?.options?.view;
+  return v && v in VIEW_LABELS ? v : 'BOARD';
+}
 
 export interface DisplayGuidance {
   code: string;

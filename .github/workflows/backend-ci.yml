@@ -2,7 +2,12 @@ name: Backend CI
 
 on:
   push:
+    # master/main: the branches that deploy (render.yaml autoDeploys master), so
+    # a green badge actually means «what is live has been tested» (owner open
+    # item 2026-09-16 — the workflow used to run on arena/** only).
     branches:
+      - 'master'
+      - 'main'
       - 'arena/**'
     paths:
       - 'backend/**'

@@ -18,11 +18,19 @@ class UpdateDisplayDto {
 }
 
 class BulkDto {
-  @IsIn(['CREATE_MISSING', 'APPLY_CONFIG', 'SET_ENABLED', 'SET_INTERACTIVE']) action!: 'CREATE_MISSING' | 'APPLY_CONFIG' | 'SET_ENABLED' | 'SET_INTERACTIVE';
+  @IsIn(['CREATE_MISSING', 'CREATE_SET', 'APPLY_CONFIG', 'SET_ENABLED', 'SET_INTERACTIVE']) action!: 'CREATE_MISSING' | 'CREATE_SET' | 'APPLY_CONFIG' | 'SET_ENABLED' | 'SET_INTERACTIVE';
   @IsOptional() @IsArray() stationIds?: string[];
   @IsOptional() @IsObject() config?: Record<string, unknown>;
   @IsOptional() @IsBoolean() enabled?: boolean;
   @IsOptional() @IsBoolean() interactive?: boolean;
+  /** Retained for `CREATE_SET`: build only these roles (omitted = standard set). */
+  @IsOptional() @IsArray() views?: Array<'BOARD' | 'ACTION' | 'QUEUE' | 'ALERTS' | 'PRINT' | 'STATS'>;
+}
+
+class ScreenSetDto {
+  /** Roles to build; omitted = the standard set (Board / Next Action / Andon / Print). */
+  @IsOptional() @IsArray() views?: Array<'BOARD' | 'ACTION' | 'QUEUE' | 'ALERTS' | 'PRINT' | 'STATS'>;
+  @IsOptional() @IsObject() config?: Record<string, unknown>;
 }
 
 class MessageDto {
@@ -75,6 +83,18 @@ export class StationDisplaysAdminController {
     const row = await this.displays.create(stationId, dto, actor(req));
     if (!row) return { error: 'STATION_NOT_FOUND' };
     return { ...row, urlPath: `/display/${row.accessToken}` };
+  }
+
+  @Post('set')
+  @RequirePermissions('stations.manage')
+  @ApiOperation({
+    summary:
+      'SCREEN SET (v3): one call gives the station its standard single-purpose screens — Board / Next Action / Andon / Print — skipping roles it already has. Every URL is returned once.',
+  })
+  async screenSet(@Param('stationId') stationId: string, @Body() dto: ScreenSetDto, @Req() req: any) {
+    const res = await this.displays.createScreenSet(stationId, dto, actor(req));
+    if (!res) return { error: 'STATION_NOT_FOUND' };
+    return res;
   }
 }
 

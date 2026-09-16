@@ -1,7 +1,7 @@
 import {
   DisplaysService, DEFAULT_DISPLAY_CONFIG, generateDisplayToken, normalizeDisplayConfig, snapshotFingerprint,
   displayPushFingerprint, displayActionAvailability, filterSnapshotByConfig, stationGuidance, DISPLAY_OFFLINE_AFTER_MS,
-  DISPLAY_ACTION_RATE,
+  DISPLAY_ACTION_RATE, andonState, DISPLAY_VIEWS, VIEW_PRESETS, STANDARD_SCREEN_SET, DEFAULT_DISPLAY_VIEW,
 } from './displays.service';
 
 describe('Station Display Mode (owner order 2026-09-16)', () => {
@@ -639,7 +639,9 @@ describe('Station Display v2 — actions from the screen', () => {
     ]);
     const svc = svcFor(prisma);
     const snap = (await svc.snapshotForToken('tok')) as any;
-    expect(snap.options).toEqual({ interactive: true, sound: false, printTransport: 'BROWSER', actions: ['print', 'reprint', 'ack', 'help', 'exception', 'message'] });
+    // v3: the options now also publish the screen ROLE (BOARD here — this row
+    // was configured before roles existed, so nothing may be narrowed for it).
+    expect(snap.options).toEqual({ interactive: true, sound: false, printTransport: 'BROWSER', view: 'BOARD', actions: ['print', 'reprint', 'ack', 'help', 'exception', 'message'] });
     expect(snap.messages).toHaveLength(1);
     expect(snap.messages[0]).toMatchObject({ body: 'Stop scanning', severity: 'URGENT' });
   });
@@ -858,4 +860,199 @@ describe('Station Display v2 — actions from the screen', () => {
     expect(snap.alerts[1]).toMatchObject({ severity: 'HIGH' }); // urgent call
     expect(snap.help.open).toBe(true);
   });
+});
+
+/**
+ * STATION DISPLAY v3 — THE SCREEN SET (owner order 2026-09-16):
+ * «display مش مجرد شاشه كبيره … فكر مثل مستودعات امازون».
+ * A station gets a SET of single-purpose screens; each role is enforced
+ * server-side (VIEW_PRESETS), and the andon colour is the one thing every
+ * role carries.
+ */
+describe('Station Display v3 — screen set + andon', () => {
+  const makePrisma = () => ({
+    station: { findUnique: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
+    stationDisplay: {
+      findUnique: jest.fn(), findMany: jest.fn().mockResolvedValue([]),
+      create: jest.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'd-new', ...data })),
+      update: jest.fn(), updateMany: jest.fn(),
+    },
+    stationPrintJob: { create: jest.fn(), findUnique: jest.fn(), findMany: jest.fn().mockResolvedValue([]), update: jest.fn() },
+    stationDisplayAction: { create: jest.fn(), findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn().mockResolvedValue(null), count: jest.fn().mockResolvedValue(0) },
+    stationDisplayMessage: { create: jest.fn(), findUnique: jest.fn(), findMany: jest.fn().mockResolvedValue([]), update: jest.fn() },
+    operationalException: { count: jest.fn().mockResolvedValue(0), findUnique: jest.fn().mockResolvedValue(null), create: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
+    user: { findMany: jest.fn().mockResolvedValue([]) },
+  });
+  const svcFor = (prisma: any) => new DisplaysService(prisma, { log: jest.fn().mockResolvedValue(undefined) } as any, { emit: jest.fn() } as any, { notifyUsers: jest.fn().mockResolvedValue(0) } as any);
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('a role FORCES its blocks — the admin switches cannot turn them back on', () => {
+    // ALERTS: andon only. Nothing else may reach the wire, whatever is stored.
+    const alerts = normalizeDisplayConfig({ view: 'alerts', queue: true, guidance: true, stats: true, lastScan: true });
+    expect(alerts.view).toBe('ALERTS');
+    expect(alerts.alerts).toBe(true);
+    expect(alerts.queue).toBe(false);
+    expect(alerts.guidance).toBe(false);
+    expect(alerts.stats).toBe(false);
+    expect(alerts.lastScan).toBe(false);
+
+    // ACTION: the instruction + the problem, never the queue or the numbers.
+    const action = normalizeDisplayConfig({ view: 'ACTION' });
+    expect(action).toMatchObject({ guidance: true, alerts: true, task: true, operation: true, progress: true, queue: false, stats: false, recent: false });
+
+    // PRINT: labels only — no progress story, no task.
+    const print = normalizeDisplayConfig({ view: 'PRINT', progress: true, task: true });
+    expect(print).toMatchObject({ progress: false, task: false, guidance: false, alerts: false, stats: false });
+
+    // STATS: the numbers, nothing else.
+    expect(normalizeDisplayConfig({ view: 'STATS' })).toMatchObject({ stats: true, guidance: false, queue: false, alerts: false, lastScan: false });
+
+    // BOARD keeps the admin in charge (today's behaviour) …
+    expect(normalizeDisplayConfig({ view: 'BOARD', queue: true }).queue).toBe(true);
+    // … and an unknown role falls back to BOARD, never to a narrow role.
+    expect(normalizeDisplayConfig({ view: 'WALL' as any }).view).toBe('BOARD');
+    expect(normalizeDisplayConfig({}).view).toBe('BOARD');
+  });
+
+  it('the ROLE is enforced on the payload, not in the browser: a hidden block is absent, not empty', () => {
+    const raw = {
+      station: { code: 'ST-PCK-01' }, worker: { code: 'W1' }, operation: null, task: null, progress: null,
+      lastScan: { id: 's1', kind: 'SCAN', at: new Date(), code: 'SA-4471' },
+      guidance: { instruction: 'SCAN_PRODUCT', tone: 'SCAN' }, waiting: null, queue: [{ code: 'SA-4471', remaining: 13 }],
+      alerts: [{ kind: 'HELP' }], help: { open: true }, stats: { scans: 5 }, recent: [{ id: 'r1' }],
+      andon: { state: 'PROBLEM', code: 'HELP_UNANSWERED', since: null },
+    };
+    const print = filterSnapshotByConfig(raw, { view: 'PRINT' }) as any;
+    expect(print.guidance).toBeUndefined();
+    expect(print.queue).toBeUndefined();
+    expect(print.alerts).toBeUndefined();
+    expect(print.stats).toBeUndefined();
+    expect(print.recent).toBeUndefined();
+    // the ONE thing every role carries: the line colour
+    expect(print.andon).toEqual({ state: 'PROBLEM', code: 'HELP_UNANSWERED', since: null });
+
+    const action = filterSnapshotByConfig(raw, { view: 'ACTION' }) as any;
+    expect(action.guidance.instruction).toBe('SCAN_PRODUCT');
+    expect(action.alerts).toHaveLength(1);
+    expect(action.queue).toBeUndefined();
+    expect(action.stats).toBeUndefined();
+  });
+
+  it('andonState: the line colour — problem beats attention beats idle, aged with time', () => {
+    const base = {
+      stationStatus: 'ACTIVE', operationOpen: true, hasDiscrepancy: false, openExceptions: 0,
+      helpOpen: false, needsReview: false, lastActivityAt: new Date(), now: Date.now(),
+    };
+    expect(andonState(base)).toMatchObject({ state: 'OK', code: 'RUNNING' });
+    // an unanswered call for help is the loudest thing on the line
+    expect(andonState({ ...base, helpOpen: true, needsReview: true })).toMatchObject({ state: 'PROBLEM', code: 'HELP_UNANSWERED' });
+    expect(andonState({ ...base, openExceptions: 2 })).toMatchObject({ state: 'PROBLEM', code: 'EXCEPTION_OPEN' });
+    expect(andonState({ ...base, hasDiscrepancy: true })).toMatchObject({ state: 'PROBLEM', code: 'DISCREPANCY_OPEN' });
+    // not-active station and a pending storage review are attention, not alarms
+    expect(andonState({ ...base, stationStatus: 'SUSPENDED' })).toMatchObject({ state: 'ATTENTION', code: 'STATION_NOT_ACTIVE' });
+    expect(andonState({ ...base, needsReview: true })).toMatchObject({ state: 'ATTENTION', code: 'STORAGE_REVIEW' });
+    // nothing open → idle (never a fake green)
+    expect(andonState({ ...base, operationOpen: false })).toMatchObject({ state: 'IDLE', code: 'NOTHING_OPEN' });
+    // aging: an open operation that stopped moving gets louder (10m / 25m)
+    const now = Date.now();
+    expect(andonState({ ...base, lastActivityAt: new Date(now - 11 * 60_000), now })).toMatchObject({ state: 'ATTENTION', code: 'NO_ACTIVITY' });
+    expect(andonState({ ...base, lastActivityAt: new Date(now - 26 * 60_000), now })).toMatchObject({ state: 'PROBLEM', code: 'STALLED' });
+    expect(andonState({ ...base, lastActivityAt: null, now })).toMatchObject({ state: 'OK' });
+  });
+
+  it('the catalogue is complete: every role has a label+preset, and the standard set is 4 single-purpose screens', () => {
+    expect(DISPLAY_VIEWS).toEqual(['BOARD', 'ACTION', 'QUEUE', 'ALERTS', 'PRINT', 'STATS']);
+    expect(DEFAULT_DISPLAY_VIEW).toBe('BOARD'); // never assume a narrow role
+    for (const v of DISPLAY_VIEWS) expect(VIEW_PRESETS[v]).toBeDefined();
+    expect(STANDARD_SCREEN_SET.map((s) => s.view)).toEqual(['BOARD', 'ACTION', 'ALERTS', 'PRINT']);
+    // every non-board role must switch something OFF — otherwise it is not a role
+    for (const v of DISPLAY_VIEWS.filter((x) => x !== 'BOARD')) {
+      expect(Object.values(VIEW_PRESETS[v]).some((x) => x === false)).toBe(true);
+    }
+  });
+
+  it('createScreenSet builds the standard set, skips the roles the station already has, and audits once', async () => {
+    const prisma = makePrisma();
+    prisma.station.findUnique.mockResolvedValue({ id: 'st1', code: 'ST-PCK-01', name: 'Packing' });
+    prisma.stationDisplay.findMany.mockResolvedValue([{ id: 'd0', name: 'Packing Board', config: { view: 'BOARD' } }]);
+    const audit = { log: jest.fn().mockResolvedValue(undefined) };
+    const svc = new DisplaysService(prisma as any, audit as any, { emit: jest.fn() } as any, { notifyUsers: jest.fn() } as any);
+
+    const res = await svc.createScreenSet('st1', {}, 'admin-1');
+    expect(res!.created.map((c) => c.view)).toEqual(['ACTION', 'ALERTS', 'PRINT']); // BOARD skipped
+    expect(res!.skipped).toEqual(['BOARD']);
+    expect(res!.applied).toBe(3);
+    // each new screen got its OWN token + its own role in its config
+    for (const c of res!.created) expect(String(c.urlPath)).toMatch(/^\/display\/[0-9a-f]{64}$/);
+    const createdConfigs = prisma.stationDisplay.create.mock.calls.map((c: any) => c[0].data.config);
+    expect(createdConfigs.map((c: any) => c.view)).toEqual(['ACTION', 'ALERTS', 'PRINT']);
+    expect(createdConfigs[1]).toMatchObject({ queue: false, guidance: false }); // ALERTS preset stored, not just implied
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'DISPLAY_SCREEN_SET_CREATED' }));
+
+    // a second click is idempotent: nothing new, everything reported as skipped
+    prisma.stationDisplay.findMany.mockResolvedValue([
+      { id: 'd0', name: 'b', config: { view: 'BOARD' } }, { id: 'd1', name: 'a', config: { view: 'ACTION' } },
+      { id: 'd2', name: 'n', config: { view: 'ALERTS' } }, { id: 'd3', name: 'p', config: { view: 'PRINT' } },
+    ]);
+    const again = await svc.createScreenSet('st1', {}, 'admin-1');
+    expect(again!.created).toEqual([]);
+    expect(again!.skipped).toEqual(['BOARD', 'ACTION', 'ALERTS', 'PRINT']);
+
+    // an explicit subset builds only that subset
+    prisma.stationDisplay.findMany.mockResolvedValue([]);
+    const subset = await svc.createScreenSet('st1', { views: ['ALERTS'] }, 'admin-1');
+    expect(subset!.created.map((c) => c.view)).toEqual(['ALERTS']);
+
+    // unknown station → null (the controller answers 404)
+    prisma.station.findUnique.mockResolvedValue(null);
+    expect(await svc.createScreenSet('nope', {}, 'admin-1')).toBeNull();
+  });
+
+  it('bulk CREATE_SET gives every active station its set in one click, honouring a role subset', async () => {
+    const prisma = makePrisma();
+    prisma.station.findMany.mockResolvedValue([
+      { id: 'st1', code: 'ST-A', name: 'Station A' },
+      { id: 'st2', code: 'ST-B', name: 'Station B' },
+    ]);
+    prisma.station.findUnique.mockResolvedValue({ id: 'st1', code: 'ST-A', name: 'Station A' });
+    prisma.stationDisplay.findMany.mockResolvedValue([]);
+    const svc = svcFor(prisma);
+
+    const res = await svc.bulk({ action: 'CREATE_SET', views: ['ALERTS'] }, 'admin-1');
+    expect(res).toMatchObject({ action: 'CREATE_SET', applied: 2, stations: 2 });
+    expect(res.created.map((c: any) => c.view)).toEqual(['ALERTS', 'ALERTS']); // one per station, role pinned
+    expect(res.created.map((c: any) => c.stationCode)).toEqual(['ST-A', 'ST-B']);
+    // no views given → the standard set of every station (Board / Next Action / Andon / Print)
+    prisma.stationDisplay.create.mockClear();
+    const full = await svc.bulk({ action: 'CREATE_SET' } as any, 'admin-1');
+    expect(full.applied).toBe(8); // 4 roles × 2 stations
+    const roles = prisma.stationDisplay.create.mock.calls.map((c: any) => c[0].data.config.view);
+    expect(roles.slice(0, 4)).toEqual(['BOARD', 'ACTION', 'ALERTS', 'PRINT']);
+  });
+
+
+  it('a partial config patch never demotes a single-purpose screen back to BOARD', async () => {
+    const prisma = makePrisma();
+    // the stored screen is the Andon screen of a packing station
+    prisma.stationDisplay.findUnique.mockResolvedValue({
+      id: 'd1', stationId: 'st1', name: 'Packing Andon', config: { view: 'ALERTS' },
+    });
+    prisma.stationDisplay.update.mockImplementation(({ data }: any) =>
+      Promise.resolve({ id: 'd1', stationId: 'st1', name: 'Packing Andon', ...data }));
+    const svc = svcFor(prisma);
+
+    // the admin flips a visibility switch without touching the role
+    await svc.update('d1', { config: { sound: false, stats: true } }, 'admin-1');
+    const stored = prisma.stationDisplay.update.mock.calls[0][0].data.config as any;
+    expect(stored.view).toBe('ALERTS');
+    expect(stored.stats).toBe(false); // the ALERTS preset still wins
+    expect(stored.sound).toBe(false);
+
+    // asking for another role DOES move the screen (an explicit admin decision)
+    prisma.stationDisplay.update.mockClear();
+    await svc.update('d1', { config: { view: 'PRINT' } }, 'admin-1');
+    expect((prisma.stationDisplay.update.mock.calls[0][0].data.config as any).view).toBe('PRINT');
+  });
+
 });

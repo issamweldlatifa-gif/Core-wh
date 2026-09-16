@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { adminApi, type DisplayFleet, type DisplayFleetRow } from '../api';
+import { VIEW_LABELS, type DisplayView } from '../../display/display-view';
 import { apiErrorMessage } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { displayUrl, relativeTime } from '../../display/display-view';
@@ -81,7 +82,7 @@ export default function DisplaysFleet() {
   const targetIds = useMemo(() => Object.keys(selected).filter((id) => selected[id]), [selected]);
   const targets = targetIds.length > 0 ? targetIds : undefined;
 
-  const bulk = (action: 'CREATE_MISSING' | 'APPLY_CONFIG' | 'SET_ENABLED' | 'SET_INTERACTIVE', extra: Record<string, unknown>) =>
+  const bulk = (action: 'CREATE_MISSING' | 'CREATE_SET' | 'APPLY_CONFIG' | 'SET_ENABLED' | 'SET_INTERACTIVE', extra: Record<string, unknown>) =>
     run(`bulk-${action}`, async () => {
       const res = await adminApi.stationDisplayBulk({ action, stationIds: targets, ...extra } as never);
       const created = res.created ?? [];
@@ -159,6 +160,10 @@ export default function DisplaysFleet() {
             </button>
             <button className="os-btn" disabled={busy === 'bulk-SET_INTERACTIVE'}
               onClick={() => void bulk('SET_INTERACTIVE', { interactive: true })}>Make interactive</button>
+            <button className="os-btn" disabled={busy === 'bulk-CREATE_SET'}
+              onClick={() => void bulk('CREATE_SET', { views: ['ACTION', 'ALERTS', 'PRINT'] })}>
+              {busy === 'bulk-CREATE_SET' ? '…' : '+ Build the screen set (Board / Next Action / Andon / Print)'}
+            </button>
             <button className="os-btn" disabled={busy === 'bulk-SET_INTERACTIVE'}
               onClick={() => void bulk('SET_INTERACTIVE', { interactive: false })}>Make read-only</button>
             <label className="os-row" style={{ gap: 6, fontSize: '0.8rem' }}>
@@ -212,7 +217,7 @@ export default function DisplaysFleet() {
             <thead>
               <tr>
                 <th style={{ width: 30 }} />
-                <th>Station</th><th>Dept</th><th>Worker</th><th>Display</th><th>State</th>
+                <th>Station</th><th>Dept</th><th>Worker</th><th>Display</th><th>Role</th><th>State</th>
                 <th>Mode</th><th>Last seen</th><th />
               </tr>
             </thead>
@@ -238,9 +243,18 @@ export default function DisplaysFleet() {
                   setMsgBody={setMsgBody}
                   setMsgSeverity={setMsgSeverity}
                   run={run}
+                  screenSetBusy={busy === `set-${r.stationId}`}
+                  onScreenSet={() => void run(`set-${r.stationId}`, async () => {
+                    const res = await adminApi.createStationScreenSet(r.stationId, { views: ['ACTION', 'ALERTS', 'PRINT'] });
+                    await load();
+                    const names = res.created.map((c) => `${c.view} (${c.name})`).join(', ');
+                    return res.created.length === 0
+                      ? `Screen set already complete${res.skipped.length ? ` — skipped: ${res.skipped.join(', ')}` : ''}.`
+                      : `Created ${res.created.length} screen${res.created.length > 1 ? 's' : ''} for ${r.stationCode}: ${names}. Copy each URL from the rows.`;
+                  })}
                 />
               ))}
-              {rows.length === 0 && <tr><td colSpan={9} className="os-empty">No station matches this filter.</td></tr>}
+              {rows.length === 0 && <tr><td colSpan={10} className="os-empty">No station matches this filter.</td></tr>}
             </tbody>
           </table>
         )}
@@ -268,10 +282,14 @@ function FleetRow(props: {
   setMsgBody: (v: string) => void;
   setMsgSeverity: (v: string) => void;
   run: (key: string, fn: () => Promise<string | void>) => Promise<void>;
+  onScreenSet: () => void;
+  screenSetBusy: boolean;
 }) {
   const { row, canManage, busy, urls } = props;
   const active = row.displays.find((d) => d.enabled) ?? null;
   const display = active ?? row.displays[0] ?? null;
+  const views = row.displays.map((d) => (d.view ?? 'BOARD') as DisplayView);
+  const hasSet = views.includes('ACTION') && views.includes('ALERTS') && views.includes('PRINT');
 
   return (
     <>
@@ -311,6 +329,26 @@ function FleetRow(props: {
               ) : null}
             </div>
           ) : <span className="os-muted">no display</span>}
+        </td>
+        <td>
+          {row.displays.length === 0 ? (
+            <span className="os-muted">—</span>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {views.map((v, i) => (
+                <span key={`${v}-${i}`} className={`os-tag ${v === 'BOARD' ? '' : 'os-tag--ok'}`}
+                  title={VIEW_LABELS[v] ?? ''} data-testid={`role-${v}`}>
+                  {v}
+                </span>
+              ))}
+              {canManage && !hasSet && (
+                <button className="ac-linkbtn" disabled={props.screenSetBusy}
+                  onClick={props.onScreenSet} data-testid={`build-set-${row.stationId}`}>
+                  {props.screenSetBusy ? '…' : '+ Build set'}
+                </button>
+              )}
+            </div>
+          )}
         </td>
         <td>
           {!display ? <span className="os-tag os-tag--muted">NONE</span> : (

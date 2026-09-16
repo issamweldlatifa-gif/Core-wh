@@ -287,6 +287,9 @@ enum AuditAction {
   DISPLAY_MESSAGE_SENT
   DISPLAY_MESSAGE_ACK
   DISPLAY_BULK_CREATED
+  /// v3 screen set (owner order 2026-09-16): one click gave a station its
+  /// Board / Next Action / Andon / Print screens.
+  DISPLAY_SCREEN_SET_CREATED
   DISPLAY_BULK_CONFIGURED
   DISPLAY_BULK_ENABLED_CHANGED
 }

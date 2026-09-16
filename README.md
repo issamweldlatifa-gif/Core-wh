@@ -43,7 +43,24 @@ warehouse operational phases will build on.
 > problem and unanswered supervisor call, the shift totals and how long the
 > operation has been open — all computed server-side, each block switchable.
 > End-to-end check of the whole contract against a running stack:
-> `python3 tools/station-display-smoke.py` (49 checks).
+> `python3 tools/station-display-smoke.py` (74 checks).
+>
+> **A station is not one big screen (v3, owner order 2026-09-16).** Each station
+> gets a **set** of single-purpose screens — the way an andon-driven warehouse
+> works: `Board` (full context), `Next Action` (**one** instruction, giant),
+> `Andon` (colour + open problems + calls, aged), `Print` (label + PRINT /
+> REPRINT). A screen's **role** is enforced on the server: a Print screen never
+> receives the queue or the totals, whatever the admin switches say. One admin
+> click builds the set for a station, or for every station at once; the fleet
+> console shows each screen's role. The line colour (OK / ATTENTION / PROBLEM /
+> IDLE, with 10 min → amber, 25 min → red aging) rides on every role. Labels can
+> be printed from the screen **or** claimed by the operator's handheld: the CT40
+> app runs a small **print agent** beside the existing bridge — it claims the
+> labels queued for the worker's own stations (`GET /print-jobs/pending`),
+> prints them on the paired PM-241-BT over SPP and reports the physical outcome
+> (`POST /print-jobs/:id/result`; WORKER_NATIVE, scoped to
+> `Station.assignedWorkerId`, never a display token). Plan + execution status:
+> [`docs/STATION-DISPLAY-SCREEN-SET-PLAN.md`](docs/STATION-DISPLAY-SCREEN-SET-PLAN.md).
 
 ---
 
@@ -184,7 +201,7 @@ every permission).
 ## Tests
 
 ```bash
-# Backend unit tests
+# Backend unit tests (348)
 cd backend
 npm test
 

@@ -4,6 +4,7 @@ import { useAsync } from './useAsync';
 import { useAuth } from '../../context/AuthContext';
 import { apiErrorMessage } from '../../api/client';
 import { displayUrl, isDisplayOnline, relativeTime } from '../../display/display-view';
+import { VIEW_LABELS, type DisplayView } from '../../display/display-view';
 
 const DEPARTMENTS = ['RECEIVING', 'SORTING', 'PUTAWAY', 'PACKING', 'INVENTORY', 'DISPATCH', 'STAGING', 'BATCH'];
 const CAPS = ['CAMERA', 'BARCODE_SCANNER', 'QR_SCANNER', 'OCR', 'PRINTER', 'SCALE'];
@@ -13,6 +14,11 @@ const CAPS = ['CAMERA', 'BARCODE_SCANNER', 'QR_SCANNER', 'OCR', 'PRINTER', 'SCAL
  * since the owner asked for the «ALL actions» feed (fix 2026-09-16 stage 2):
  * the admin could not switch the feed on. `reports` stays visible-but-reserved
  * so nobody wonders where it went (v1 never emits a reports section). */
+/** v3 SCREEN ROLES — what a single physical screen is FOR. The server enforces
+ * the role too (`VIEW_PRESETS`): a screen set to ALERTS physically cannot
+ * receive the queue or the stats, even if the switches below stay on. */
+const VIEW_OPTIONS: DisplayView[] = ['BOARD', 'ACTION', 'QUEUE', 'ALERTS', 'PRINT', 'STATS'];
+
 const DISPLAY_FIELDS: Array<{ key: string; label: string; reserved?: boolean }> = [
   { key: 'worker', label: 'Worker' },
   { key: 'operation', label: 'Current Operation' },
@@ -211,6 +217,15 @@ function StationDisplaysPanel({ stationId, stationName, canManage }: { stationId
 
                 {/* STAGE 2 — assist & control from the screen */}
                 <div className="os-row" style={{ flexWrap: 'wrap', gap: 10, borderTop: '1px dashed var(--line, #24303d)', paddingTop: 8 }}>
+                  <label className="os-row" style={{ gap: 5, fontSize: '0.78rem', fontWeight: 700, color: '#7cc4ff' }}
+                    title="One screen, one job — like the pick-to-light faces of an Amazon FC. The role also filters the payload server-side.">
+                    🖥 Screen role
+                    <select className="os-input" style={{ fontSize: '0.75rem' }} value={String(cfg.view ?? 'BOARD')}
+                      disabled={!canManage || busy === `cfg-${d.id}`} data-testid={`view-${d.id}`}
+                      onChange={(e) => setEditing((x) => ({ ...x, [d.id]: { ...(x[d.id] ?? {}), view: e.target.value } }))}>
+                      {VIEW_OPTIONS.map((v) => <option key={v} value={v}>{VIEW_LABELS[v]}</option>)}
+                    </select>
+                  </label>
                   <label className="os-row" style={{ gap: 5, fontSize: '0.78rem', fontWeight: 600 }}>
                     <input type="checkbox" checked={interactive} disabled={!canManage || busy === `cfg-${d.id}`}
                       onChange={() => toggleConfig(d.id, 'interactive', d.config)} />
@@ -247,6 +262,12 @@ function StationDisplaysPanel({ stationId, stationName, canManage }: { stationId
                     its access. Every action records which screen did it.
                   </div>
                 )}
+                <div className="os-muted" style={{ fontSize: '0.72rem' }}>
+                  Role ≠ Board keeps this screen single-purpose: the server sends only the blocks that role needs
+                  (ACTION = one instruction, ALERTS = andon only, PRINT = labels only, STATS = numbers only), so the
+                  operator reads one thing from across the aisle. One station normally carries a SET of screens —
+                  build it from the Displays fleet page.
+                </div>
                 {canManage && (
                   <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                     <button className="ac-linkbtn" onClick={() => { setMsgFor(msgFor === d.id ? null : d.id); setMsgBody(''); }}>

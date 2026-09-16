@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import type { DisplayAction, DisplayAlert, DisplayMessage, DisplaySnapshot } from './display-view';
+import type { DisplayAction, DisplayAlert, DisplayMessage, DisplaySnapshot, DisplayView } from './display-view';
+import { ActionView, AlertsView, AndonBar, PrintView, QueueView, StatsView, VIEW_TITLES } from './StationViews';
+import { SCREEN_UNIT, u } from './display-view';
 import {
-  ACTION_LABELS, GUIDANCE_STYLE, alertColor, formatDuration, queueLine,
+  ACTION_LABELS, GUIDANCE_STYLE, alertColor, formatDuration, queueLine, snapshotView,
   EXCEPTION_REASONS,
   MESSAGE_STYLE,
   availableActions,
@@ -263,18 +265,36 @@ export default function StationDisplay() {
   const queue = snap?.queue ?? [];
   const stats = snap?.stats ?? null;
   const showAction = (a: DisplayAction) => actions.includes(a);
+  /**
+   * SCREEN ROLE (v3): the server already filtered the payload for this role —
+   * here it only decides which LAYOUT the operator sees. BOARD is the original
+   * full station board and stays untouched.
+   */
+  const view: DisplayView = snapshotView(snap);
+  const roleProps = {
+    snap, now: clock, actions, busy,
+    onPrint: () => void runPrint(),
+    onReprint: () => void runPrint(lastJob?.id),
+    onAckAlert: (a: DisplayAlert) => void acknowledgeAlert(a),
+    lastJob,
+  };
 
   return (
-    <div ref={rootRef} style={{ ...wrap, justifyContent: 'space-between' }} data-testid="station-display">
+    <div ref={rootRef} style={{ ...wrap, justifyContent: 'space-between' }} data-testid="station-display" data-view={view}>
       {/* header: station + live/offline pill (§23) */}
-      <header style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 24 }}>
+      <header style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: u(24), flexShrink: 0 }}>
         <div>
           <div style={{ ...big(64, 800), letterSpacing: 2 }}>{(snap?.station?.name ?? snap?.display?.name ?? '…').toUpperCase()}</div>
           {snap?.station?.code && <div style={{ ...mid, opacity: 0.7 }}>{snap.station.code} · {snap.station.department}</div>}
+          {view !== 'BOARD' && (
+            <div style={{ fontSize: u(22), letterSpacing: 5, fontWeight: 800, opacity: 0.55, marginTop: 4 }}>
+              {VIEW_TITLES[view]}
+            </div>
+          )}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
           <span style={{
-            fontSize: 26, fontWeight: 700, padding: '6px 22px', borderRadius: 999,
+            fontSize: u(26), fontWeight: 700, padding: '6px 22px', borderRadius: 999,
             background: live ? 'rgba(57,217,138,.15)' : 'rgba(255,157,0,.18)',
             color: live ? '#39d98a' : '#ff9d00', border: `2px solid ${live ? '#39d98a55' : '#ff9d0055'}`,
           }} data-testid="connection-pill">
@@ -290,8 +310,8 @@ export default function StationDisplay() {
           display: 'flex', alignItems: 'center', gap: 24, padding: '18px 28px', borderRadius: 16,
           background: msgStyle.bg, border: `3px solid ${msgStyle.border}`, color: msgStyle.color,
         }}>
-          <span style={{ fontSize: 30, fontWeight: 800, letterSpacing: 1 }}>📣 {message.severity}</span>
-          <span style={{ fontSize: 40, fontWeight: 700, flex: 1 }}>{message.body}</span>
+          <span style={{ fontSize: u(30), fontWeight: 800, letterSpacing: 1 }}>📣 {message.severity}</span>
+          <span style={{ fontSize: u(40), fontWeight: 700, flex: 1 }}>{message.body}</span>
           {message.requireAck && (
             <button style={actionBtn('#2f9dff')} disabled={busy === 'Message'} onClick={() => void ackMessage(message)}>
               ✓ SEEN
@@ -307,17 +327,17 @@ export default function StationDisplay() {
           display: 'flex', alignItems: 'center', gap: 26, padding: '20px 30px', borderRadius: 18,
           background: gStyle.bg, border: `3px solid ${gStyle.color}55`,
         }}>
-          <span style={{ fontSize: 26, fontWeight: 800, letterSpacing: 2, color: gStyle.color, minWidth: 210 }}>
+          <span style={{ fontSize: u(26), fontWeight: 800, letterSpacing: 2, color: gStyle.color, minWidth: 210 }}>
             {gStyle.label}
           </span>
           <span style={{ flex: 1, textAlign: 'left' }}>
-            <span style={{ display: 'block', fontSize: 46, fontWeight: 800, color: gStyle.color }} data-testid="next-action-instruction">
+            <span style={{ display: 'block', fontSize: u(46), fontWeight: 800, color: gStyle.color }} data-testid="next-action-instruction">
               {guidance.instruction}
             </span>
-            {guidance.detail && <span style={{ display: 'block', fontSize: 30, opacity: 0.85 }}>{guidance.detail}</span>}
+            {guidance.detail && <span style={{ display: 'block', fontSize: u(30), opacity: 0.85 }}>{guidance.detail}</span>}
           </span>
           {waiting?.since && (
-            <span style={{ ...mid, fontSize: 24, opacity: 0.75 }}>since {formatDuration(waiting.since, nowMs)}</span>
+            <span style={{ ...mid, fontSize: u(24), opacity: 0.75 }}>since {formatDuration(waiting.since, nowMs)}</span>
           )}
         </div>
       )}
@@ -330,11 +350,11 @@ export default function StationDisplay() {
               display: 'flex', alignItems: 'center', gap: 18, padding: '12px 20px', borderRadius: 12,
               background: 'rgba(255,93,93,0.12)', border: `2px solid ${alertColor(a.severity)}66`, color: '#ffd9d9',
             }}>
-              <span style={{ fontSize: 26, fontWeight: 800, color: alertColor(a.severity), minWidth: 190 }}>
+              <span style={{ fontSize: u(26), fontWeight: 800, color: alertColor(a.severity), minWidth: 190 }}>
                 {a.kind}{a.code ? ` ${a.code}` : ''}
               </span>
-              <span style={{ flex: 1, fontSize: 28 }}>{a.reason}</span>
-              <span style={{ ...mid, fontSize: 22, opacity: 0.8 }}>{relativeTime(a.at, nowMs)}</span>
+              <span style={{ flex: 1, fontSize: u(28) }}>{a.reason}</span>
+              <span style={{ ...mid, fontSize: u(22), opacity: 0.8 }}>{relativeTime(a.at, nowMs)}</span>
               {a.kind !== 'HELP' && showAction('ack') && (
                 <button style={actionBtn('#ff9d00')} disabled={busy === 'Alert'} onClick={() => void acknowledgeAlert(a)}>
                   ✓ SEEN
@@ -345,16 +365,35 @@ export default function StationDisplay() {
         </div>
       )}
 
-      {/* body */}
-      <main style={{ display: 'flex', flexDirection: 'column', gap: 28, alignItems: 'center', textAlign: 'center' }}>
+      {view !== 'BOARD' && <AndonBar snap={snap} now={clock} />}
+
+      {/* body — BOARD renders the full station board below; every other role
+          renders its own single-purpose layout (v3). */}
+      {/* ONLY the middle section may shrink: min-height:0 + overflow:hidden is
+          what stops a 12-digit code or a long alert list from pushing the
+          action bar and the footer off the glass (owner report 2026-09-16). */}
+      <main style={{
+        display: 'flex', flexDirection: 'column', gap: u(20), alignItems: 'center', textAlign: 'center',
+        flex: '1 1 auto', minHeight: 0, overflow: 'hidden', justifyContent: 'center', width: '100%',
+      }}>
         {snap?.enabled === false ? (
           <div style={{ ...big(40), color: '#8aa0b4' }}>Display disabled by admin</div>
+        ) : view === 'ACTION' ? (
+          <ActionView {...roleProps} />
+        ) : view === 'QUEUE' ? (
+          <QueueView {...roleProps} />
+        ) : view === 'ALERTS' ? (
+          <AlertsView {...roleProps} />
+        ) : view === 'PRINT' ? (
+          <PrintView {...roleProps} />
+        ) : view === 'STATS' ? (
+          <StatsView {...roleProps} />
         ) : (
           <>
             {snap?.worker && (
-              <div style={{ ...mid, fontSize: 40 }}>Worker: <b>{snap.worker.code}</b>{snap.worker.name ? ` · ${snap.worker.name}` : ''}</div>
+              <div style={{ ...mid, fontSize: u(40) }}>Worker: <b>{snap.worker.code}</b>{snap.worker.name ? ` · ${snap.worker.name}` : ''}</div>
             )}
-            {snap?.task && <div style={{ ...mid, fontSize: 40 }}>Task: {snap.task.title}</div>}
+            {snap?.task && <div style={{ ...mid, fontSize: u(40) }}>Task: {snap.task.title}</div>}
             {snap?.operation && (
               <div style={{ ...mid, opacity: 0.8 }}>
                 {snap.operation.label}{snap.operation.sessionCode ? ` · ${snap.operation.sessionCode}` : ''}
@@ -365,10 +404,10 @@ export default function StationDisplay() {
 
             {scan ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <div style={{ ...big(120, 800), letterSpacing: 4 }} data-testid="last-scan-code">
+                <div style={{ ...big(120, 800), letterSpacing: 4, wordBreak: 'break-all', maxWidth: '94vw' }} data-testid="last-scan-code">
                   {scan.code ?? scan.productName ?? scan.kind}
                 </div>
-                <div style={{ ...mid, fontSize: 40 }}>
+                <div style={{ ...mid, fontSize: u(40) }}>
                   {scan.kind}
                   {snap?.customer && <span> · {snap.customer}</span>}
                   {typeof scan.quantity === 'number' && <span> · Qty {scan.quantity}</span>}
@@ -380,7 +419,7 @@ export default function StationDisplay() {
 
             <div style={{ ...big(72, 800), color: st.color }} data-testid="state-line">{st.label}</div>
             {snap?.error && (
-              <div style={{ ...mid, color: '#ff5d5d', fontSize: 34 }}>
+              <div style={{ ...mid, color: '#ff5d5d', fontSize: u(34) }}>
                 {snap.error.type}{snap.error.reason ? ` — ${snap.error.reason}` : ''}
               </div>
             )}
@@ -418,10 +457,10 @@ export default function StationDisplay() {
                 operator can prepare instead of discovering it scan by scan. */}
             {queue.length > 0 && (
               <div data-testid="expected-queue" style={{ width: 'min(88vw, 1200px)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <div style={{ ...mid, fontSize: 26, letterSpacing: 2, opacity: 0.7, textAlign: 'left' }}>STILL EXPECTED</div>
+                <div style={{ ...mid, fontSize: u(26), letterSpacing: 2, opacity: 0.7, textAlign: 'left' }}>STILL EXPECTED</div>
                 {queue.map((q) => (
                   <div key={`${q.code}-${q.remaining}`} title={queueLine(q)} style={{
-                    display: 'flex', alignItems: 'center', gap: 18, fontSize: 30, padding: '8px 18px',
+                    display: 'flex', alignItems: 'center', gap: 18, fontSize: u(30), padding: '8px 18px',
                     borderRadius: 10, background: 'rgba(47,157,255,0.10)', border: '1px solid rgba(47,157,255,0.25)',
                   }}>
                     <span style={{ fontWeight: 800, letterSpacing: 1 }}>{q.code ?? '—'}</span>
@@ -437,7 +476,7 @@ export default function StationDisplay() {
                 <div style={{ height: 34, borderRadius: 999, background: '#1c2733', overflow: 'hidden' }}>
                   <div style={{ width: `${pct}%`, height: '100%', background: 'linear-gradient(90deg,#2f9dff,#39d98a)' }} />
                 </div>
-                <div style={{ ...mid, fontSize: 38 }}>
+                <div style={{ ...mid, fontSize: u(38) }}>
                   {progress.done} / {progress.total} {progress.label ?? ''}
                 </div>
               </div>
@@ -448,7 +487,7 @@ export default function StationDisplay() {
 
       {/* ACTION BAR (stage 2) — rendered only when the server says this screen may act */}
       {actions.length > 0 && snap?.enabled !== false && (
-        <div data-testid="action-bar" style={{ display: 'flex', flexWrap: 'wrap', gap: 16, justifyContent: 'center' }}>
+        <div data-testid="action-bar" style={{ display: 'flex', flexWrap: 'wrap', gap: u(16), justifyContent: 'center', flexShrink: 0 }}>
           {actions.map((a) => (
             <button
               key={a}
@@ -468,7 +507,7 @@ export default function StationDisplay() {
       )}
 
       {/* footer: fullscreen + sound + last update (§22) */}
-      <footer style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <footer style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
         <div style={{ display: 'flex', gap: 12 }}>
           <button onClick={goFullscreen} style={fsBtn}>⛶ Enter Fullscreen</button>
           <button onClick={toggleMute} style={fsBtn} data-testid="sound-toggle">
@@ -531,7 +570,7 @@ export default function StationDisplay() {
       {toast && (
         <div data-testid="toast" style={{
           position: 'fixed', bottom: 96, left: '50%', transform: 'translateX(-50%)',
-          padding: '16px 30px', borderRadius: 14, fontSize: 26, fontWeight: 700,
+          padding: '16px 30px', borderRadius: 14, fontSize: u(26), fontWeight: 700,
           background: toast.kind === 'ok' ? 'rgba(57,217,138,.16)' : 'rgba(255,93,93,.18)',
           border: `2px solid ${toast.kind === 'ok' ? '#39d98a77' : '#ff5d5d88'}`,
           color: toast.kind === 'ok' ? '#b8f5d6' : '#ffc9c9',
@@ -544,41 +583,45 @@ export default function StationDisplay() {
 }
 
 const wrap: React.CSSProperties = {
+  ...(SCREEN_UNIT as React.CSSProperties),
   position: 'fixed', inset: 0, zIndex: 50,
+  // Fits the glass instead of overflowing it: the root is exactly the viewport
+  // and the middle section is the only thing that may shrink (see <main>).
+  height: '100dvh', overflow: 'hidden', boxSizing: 'border-box',
   display: 'flex', flexDirection: 'column',
-  padding: 'min(5vh, 48px) min(6vw, 72px)',
+  padding: `${u(20)} ${u(40)}`,
   background: '#0b1118', color: '#eef4fa',
   fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
-  gap: 20,
+  gap: u(14),
 };
 
 function big(size: number, weight = 700): React.CSSProperties {
-  return { fontSize: size, fontWeight: weight, lineHeight: 1.1, margin: 0 };
+  return { fontSize: u(size), fontWeight: weight, lineHeight: 1.1, margin: 0 };
 }
 
-const mid: React.CSSProperties = { fontSize: 28, fontWeight: 500, opacity: 0.9 };
+const mid: React.CSSProperties = { fontSize: u(28), fontWeight: 500, opacity: 0.9 };
 
 const fsBtn: React.CSSProperties = {
-  fontSize: 22, fontWeight: 600, padding: '10px 26px', borderRadius: 12,
+  fontSize: u(22), fontWeight: 600, padding: '10px 26px', borderRadius: 12,
   background: '#16222e', color: '#cfe3f5', border: '2px solid #2a3b4d', cursor: 'pointer',
 };
 
 function actionBtn(color: string): React.CSSProperties {
   return {
-    fontSize: 30, fontWeight: 800, letterSpacing: 1, padding: '18px 34px', borderRadius: 16,
+    fontSize: u(30), fontWeight: 800, letterSpacing: 1, padding: `${u(18)} ${u(34)}`, borderRadius: u(16),
     background: `${color}22`, color: '#f4f9ff', border: `3px solid ${color}`, cursor: 'pointer',
-    minWidth: 220,
+    minWidth: u(220),
   };
 }
 
 const chip: React.CSSProperties = {
-  fontSize: 24, fontWeight: 700, padding: '12px 20px', borderRadius: 999,
+  fontSize: u(24), fontWeight: 700, padding: '12px 20px', borderRadius: 999,
   background: '#16222e', color: '#cfe3f5', border: '2px solid #2a3b4d', cursor: 'pointer',
 };
 const chipOn: React.CSSProperties = { background: '#2f9dff33', borderColor: '#2f9dff', color: '#fff' };
 
 const input: React.CSSProperties = {
-  fontSize: 28, padding: '16px 20px', borderRadius: 12, width: '100%',
+  fontSize: u(28), padding: '16px 20px', borderRadius: 12, width: '100%',
   background: '#0e1725', color: '#eef4fa', border: '2px solid #2a3b4d',
 };
 

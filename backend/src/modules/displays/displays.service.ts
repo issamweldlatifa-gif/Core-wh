@@ -117,6 +117,48 @@ export const DEFAULT_DISPLAY_ACTIONS: Record<DisplayActionField, boolean> = {
   move: false,
 };
 
+/**
+ * SCREEN ROLES (owner order 2026-09-16, v3): a station does not have «a big
+ * screen» — it has a SET of screens, each with ONE job, like the andon boards
+ * and pick-to-light faces of a real warehouse. The role decides what the server
+ * is even allowed to send (see VIEW_PRESETS) — never just what the browser
+ * hides.
+ */
+export const DISPLAY_VIEWS = ['BOARD', 'ACTION', 'QUEUE', 'ALERTS', 'PRINT', 'STATS'] as const;
+export type DisplayView = (typeof DISPLAY_VIEWS)[number];
+export const DEFAULT_DISPLAY_VIEW: DisplayView = 'BOARD';
+
+export const VIEW_LABELS: Record<DisplayView, string> = {
+  BOARD: 'Board — full station context',
+  ACTION: 'Next action — one instruction only',
+  QUEUE: 'Still expected — the work list',
+  ALERTS: 'Andon — problems and calls only',
+  PRINT: 'Print — labels only',
+  STATS: 'Shift totals — numbers only',
+};
+
+/**
+ * What each role may show. `BOARD` is today's behaviour (the admin's own
+ * switches rule); every other role is a PRESET, enforced here so a screen can
+ * never be configured into a role it is not meant to play.
+ */
+export const VIEW_PRESETS: Record<DisplayView, Partial<Record<DisplayConfigField, boolean>>> = {
+  BOARD: {},
+  ACTION: { guidance: true, queue: false, alerts: true, stats: false, recent: false, reports: false, task: true, operation: true, progress: true },
+  QUEUE: { guidance: true, queue: true, alerts: false, stats: false, recent: false, reports: false },
+  ALERTS: { guidance: false, queue: false, alerts: true, stats: false, recent: false, reports: false, lastScan: false },
+  PRINT: { guidance: false, queue: false, alerts: false, stats: false, recent: false, reports: false, progress: false, task: false },
+  STATS: { guidance: false, queue: false, alerts: false, stats: true, recent: false, reports: false, lastScan: false },
+};
+
+/** The standard screen set a station gets from one admin click. */
+export const STANDARD_SCREEN_SET: Array<{ suffix: string; view: DisplayView }> = [
+  { suffix: 'Board', view: 'BOARD' },
+  { suffix: 'Next Action', view: 'ACTION' },
+  { suffix: 'Andon', view: 'ALERTS' },
+  { suffix: 'Print', view: 'PRINT' },
+];
+
 export const DEFAULT_PRINT_TRANSPORT: PrintTransport = 'BROWSER';
 
 /** A display that has not hit the API for this long shows as Offline. */
@@ -130,6 +172,7 @@ export interface DisplayConfig extends Record<DisplayConfigField, boolean> {
   sound: boolean;
   actions: Record<DisplayActionField, boolean>;
   printTransport: PrintTransport;
+  view: DisplayView;
 }
 
 export function generateDisplayToken(): string {
@@ -156,6 +199,13 @@ export function normalizeDisplayConfig(input: unknown): DisplayConfig {
   }
   const transport = String(raw.printTransport ?? '').toUpperCase() as PrintTransport;
   out.printTransport = (PRINT_TRANSPORTS as readonly string[]).includes(transport) ? transport : DEFAULT_PRINT_TRANSPORT;
+  // SCREEN ROLE first, then its preset: a role that is not the BOARD overrides
+  // the block switches, so the server can only ever send what that role shows.
+  const view = String(raw.view ?? '').toUpperCase() as DisplayView;
+  out.view = (DISPLAY_VIEWS as readonly string[]).includes(view) ? view : DEFAULT_DISPLAY_VIEW;
+  for (const [key, value] of Object.entries(VIEW_PRESETS[out.view])) {
+    out[key as DisplayConfigField] = value === true;
+  }
   // An interactive display with every action switched off would only render
   // dead buttons — treat it as non-interactive so the UI never lies.
   if (!Object.values(out.actions).some(Boolean)) out.interactive = false;
@@ -323,6 +373,50 @@ export function stationGuidance(input: StationGuidanceInput): StationGuidanceRes
   );
 }
 
+/**
+ * ANDON STATE (owner order 2026-09-16, v3) — the colour the line sees from the
+ * aisle: GREEN (running), AMBER (attention), RED (problem), GREY (nothing
+ * open). Deliberately carries the CODE only, never the operator's free text:
+ * the colour may be shown on a screen whose `alerts` block is switched off
+ * without leaking anything hidden (the reason text lives in that block).
+ */
+export type AndonState = 'OK' | 'ATTENTION' | 'PROBLEM' | 'IDLE';
+export interface AndonResult {
+  state: AndonState;
+  /** Machine-readable cause (never free text). */
+  code: string;
+  /** How long the station has been in this situation. */
+  since: Date | null;
+}
+
+/** A stuck station gets LOUDER with time, like an andon cord being pulled. */
+export const ANDON_ATTENTION_AFTER_MS = 10 * 60_000;
+export const ANDON_PROBLEM_AFTER_MS = 25 * 60_000;
+
+export function andonState(input: {
+  stationStatus: string;
+  operationOpen: boolean;
+  hasDiscrepancy: boolean;
+  openExceptions: number;
+  helpOpen: boolean;
+  needsReview: boolean;
+  lastActivityAt: Date | null;
+  now?: number;
+}): AndonResult {
+  const now = input.now ?? Date.now();
+  if (input.helpOpen) return { state: 'PROBLEM', code: 'HELP_UNANSWERED', since: input.lastActivityAt };
+  if (input.openExceptions > 0) return { state: 'PROBLEM', code: 'EXCEPTION_OPEN', since: input.lastActivityAt };
+  if (input.hasDiscrepancy) return { state: 'PROBLEM', code: 'DISCREPANCY_OPEN', since: input.lastActivityAt };
+  if (input.stationStatus !== 'ACTIVE') return { state: 'ATTENTION', code: 'STATION_NOT_ACTIVE', since: null };
+  if (input.needsReview) return { state: 'ATTENTION', code: 'STORAGE_REVIEW', since: null };
+  if (!input.operationOpen) return { state: 'IDLE', code: 'NOTHING_OPEN', since: null };
+  // Aging: an open operation that has not moved gets louder.
+  const idleMs = input.lastActivityAt ? now - +new Date(input.lastActivityAt) : 0;
+  if (idleMs >= ANDON_PROBLEM_AFTER_MS) return { state: 'PROBLEM', code: 'STALLED', since: input.lastActivityAt };
+  if (idleMs >= ANDON_ATTENTION_AFTER_MS) return { state: 'ATTENTION', code: 'NO_ACTIVITY', since: input.lastActivityAt };
+  return { state: 'OK', code: 'RUNNING', since: input.lastActivityAt };
+}
+
 /** The actions this display is allowed to trigger (server-side truth). */
 export function displayActionAvailability(config: unknown): DisplayActionField[] {
   const cfg = normalizeDisplayConfig(config);
@@ -424,7 +518,19 @@ export class DisplaysService {
     const data: { name?: string; enabled?: boolean; config?: object; stationId?: string } = {};
     if (typeof input.name === 'string' && input.name.trim()) data.name = input.name.trim();
     if (typeof input.enabled === 'boolean') data.enabled = input.enabled;
-    if (input.config !== undefined) data.config = normalizeDisplayConfig(input.config) as unknown as object;
+    if (input.config !== undefined) {
+      // A partial config that does not mention `view` must NOT silently demote a
+      // single-purpose screen back to BOARD: the role is a physical property of
+      // the screen (which layout the operator is standing in front of), so it
+      // only changes when the caller asks for it.
+      const raw = (input.config && typeof input.config === 'object' && !Array.isArray(input.config)
+        ? (input.config as Record<string, unknown>)
+        : {});
+      const currentView = normalizeDisplayConfig(before.config).view;
+      data.config = normalizeDisplayConfig(
+        'view' in raw ? raw : { ...raw, view: currentView },
+      ) as unknown as object;
+    }
     if (typeof input.stationId === 'string' && input.stationId !== before.stationId) {
       const target = await this.prisma.station.findUnique({ where: { id: input.stationId } });
       if (!target) return { error: 'STATION_NOT_FOUND' as const };
@@ -565,6 +671,7 @@ export class DisplaysService {
           lastSeenAt: d.lastSeenAt,
           online: d.lastSeenAt ? now - +new Date(d.lastSeenAt) < DISPLAY_OFFLINE_AFTER_MS : false,
           interactive: cfg.interactive,
+          view: cfg.view,
           actions: cfg.actions,
           printTransport: cfg.printTransport,
           visibility: Object.fromEntries(DISPLAY_CONFIG_FIELDS.map((k) => [k, cfg[k]])),
@@ -591,13 +698,69 @@ export class DisplaysService {
    * Every bulk run is audited ONCE with the affected ids, and returns the URLs
    * of the displays it created (their tokens are shown exactly once).
    */
+  /**
+   * SCREEN SET (owner order v3): give one station its standard set of
+   * single-purpose screens in ONE call — Board / Next Action / Andon / Print —
+   * skipping the roles it already has. Tokens are returned exactly once, as
+   * everywhere else in this module.
+   */
+  async createScreenSet(
+    stationId: string,
+    input: { views?: DisplayView[]; config?: unknown },
+    actorUserId: string | null,
+  ) {
+    const station = await this.prisma.station.findUnique({ where: { id: stationId } });
+    if (!station) return null;
+    const wanted = (input.views?.length
+      ? STANDARD_SCREEN_SET.filter((s) => input.views!.includes(s.view))
+      : STANDARD_SCREEN_SET);
+    const existing = await this.prisma.stationDisplay.findMany({
+      where: { stationId },
+      select: { id: true, config: true, name: true },
+    });
+    const haveViews = new Set(existing.map((d) => normalizeDisplayConfig(d.config).view));
+    const created: Array<Record<string, unknown>> = [];
+    const skipped: DisplayView[] = [];
+    for (const entry of wanted) {
+      if (haveViews.has(entry.view)) {
+        skipped.push(entry.view);
+        continue;
+      }
+      const cfg = normalizeDisplayConfig({ ...(input.config as object ?? {}), view: entry.view });
+      const row = await this.prisma.stationDisplay.create({
+        data: {
+          stationId,
+          name: `${station.name} ${entry.suffix}`,
+          accessToken: generateDisplayToken(),
+          config: cfg as unknown as object,
+        },
+      });
+      created.push({ displayId: row.id, view: entry.view, name: row.name, urlPath: `/display/${row.accessToken}` });
+    }
+    await this.audit.log({
+      actorUserId,
+      action: 'DISPLAY_SCREEN_SET_CREATED',
+      entityType: 'station_display',
+      metadata: {
+        stationId,
+        station: station.code,
+        views: created.map((c) => c.view),
+        skipped: skipped as unknown as string[],
+        displayIds: created.map((c) => c.displayId),
+      },
+    });
+    return { stationId, stationCode: station.code, created, skipped, applied: created.length };
+  }
+
   async bulk(
     input: {
-      action: 'CREATE_MISSING' | 'APPLY_CONFIG' | 'SET_ENABLED' | 'SET_INTERACTIVE';
+      action: 'CREATE_MISSING' | 'CREATE_SET' | 'APPLY_CONFIG' | 'SET_ENABLED' | 'SET_INTERACTIVE';
       stationIds?: string[];
       config?: unknown;
       enabled?: boolean;
       interactive?: boolean;
+      /** `CREATE_SET`: restrict the build to these roles. */
+      views?: DisplayView[];
     },
     actorUserId: string | null,
   ) {
@@ -639,6 +802,26 @@ export class DisplaysService {
         },
       });
       return { action: input.action, created, applied: created.length };
+    }
+
+    // A whole warehouse equipped in one click: every active station gets the
+    // standard screen set, and only the roles it does not have yet.
+    if (input.action === 'CREATE_SET') {
+      const stations = await this.prisma.station.findMany({
+        where: { ...stationFilter, status: 'ACTIVE' },
+        orderBy: { code: 'asc' },
+        select: { id: true, code: true, name: true },
+      });
+      const created: Array<Record<string, unknown>> = [];
+      for (const station of stations) {
+        const res = await this.createScreenSet(
+          station.id,
+          { config: input.config, views: input.views },
+          actorUserId,
+        );
+        for (const c of res?.created ?? []) created.push({ ...c, stationId: station.id, stationCode: station.code });
+      }
+      return { action: input.action, created, applied: created.length, stations: stations.length };
     }
 
     if (input.action === 'APPLY_CONFIG') {
@@ -757,6 +940,9 @@ export class DisplaysService {
         sound: cfg.sound,
         printTransport: cfg.printTransport,
         actions: displayActionAvailability(cfg),
+        // SCREEN ROLE (v3): what this screen IS. It already shaped which blocks
+        // the server sent; the page uses it to pick the layout.
+        view: cfg.view,
       },
       messages,
       lastUpdate: new Date().toISOString(),
@@ -907,17 +1093,14 @@ export class DisplaysService {
       entityId: display.id,
       metadata: { stationId: actor.stationId, station: actor.stationCode, display: display.name, note: note || null, urgent, actionId: row.id },
     });
-    let notified = 0;
-    try {
-      notified = await this.notifyAdmins({
-        title: `${urgent ? '🆘 URGENT' : '🙋 Assistance'} — ${actor.stationCode}`,
-        body: note ? `${display.name}: ${note}` : `${display.name} is asking for a supervisor.`,
-        route: '/admin/displays',
-        event: 'DISPLAY_HELP_REQUESTED',
-      });
-    } catch (e) {
-      this.logger.warn(`help push failed: ${e}`);
-    }
+    // Admins AND the station's own worker (open item): the person standing at
+    // the screen must be able to see that the call went out.
+    const notified = await this.notifyStationAudience(actor.stationId, {
+      title: `${urgent ? '🆘 URGENT' : '🙋 Assistance'} — ${actor.stationCode}`,
+      body: note ? `${display.name}: ${note}` : `${display.name} is asking for a supervisor.`,
+      route: '/admin/displays',
+      event: 'DISPLAY_HELP_REQUESTED',
+    });
     this.publishActivity(actor.stationId, 'HELP');
     return { ok: true as const, actionId: row.id, notified, at: row.createdAt };
   }
@@ -966,16 +1149,12 @@ export class DisplaysService {
         displayId: display.id, display: display.name, ref: code, reason: reason.slice(0, 200),
       },
     });
-    try {
-      await this.notifyAdmins({
-        title: `⚠️ Exception ${created.exc.code} — ${actor.stationCode}`,
-        body: `${type}: ${reason.slice(0, 140)}`,
-        route: '/admin/exceptions',
-        event: 'DISPLAY_EXCEPTION_RAISED',
-      });
-    } catch (e) {
-      this.logger.warn(`exception push failed: ${e}`);
-    }
+    await this.notifyStationAudience(actor.stationId, {
+      title: `⚠️ Exception ${created.exc.code} — ${actor.stationCode}`,
+      body: `${type}: ${reason.slice(0, 140)}`,
+      route: '/admin/exceptions',
+      event: 'DISPLAY_EXCEPTION_RAISED',
+    });
     this.publishActivity(actor.stationId, 'EXCEPTION');
     return { ok: true as const, exceptionCode: created.exc.code, exceptionId: created.exc.id, at: created.action.createdAt };
   }
@@ -1193,6 +1372,134 @@ export class DisplaysService {
       route: payload.route,
       data: { event: payload.event },
     });
+  }
+
+  /**
+   * WHO GETS TOLD (open item 2026-09-16): the admins in the office AND the
+   * worker assigned to the station — a call for help that only reaches a
+   * dashboard is not help. Returns the number of devices reached; never throws
+   * (a push failure must never break the station's action).
+   */
+  private async notifyStationAudience(
+    stationId: string,
+    payload: { title: string; body: string; route: string; event: string },
+  ): Promise<number> {
+    if (!this.push) return 0;
+    let notified = 0;
+    try {
+      notified += await this.notifyAdmins(payload);
+    } catch (e) {
+      this.logger.warn(`admin push failed: ${e}`);
+    }
+    try {
+      const station = await this.prisma.station.findUnique({
+        where: { id: stationId },
+        select: { assignedWorkerId: true },
+      });
+      if (station?.assignedWorkerId) {
+        notified += await this.push.notifyUsers([station.assignedWorkerId], {
+          title: payload.title,
+          body: payload.body,
+          // The handheld opens the terminal it can act in; the payload carries
+          // the station so a future worker screen can deep-link precisely.
+          route: '/terminal/receiving',
+          data: { event: payload.event, stationId },
+        });
+      }
+    } catch (e) {
+      this.logger.warn(`station worker push failed: ${e}`);
+    }
+    return notified;
+  }
+
+  // ------------------------------------------------------------------
+  // Worker print queue (open item 2026-09-16): a label queued for a station's
+  // Bluetooth printer is claimed by the WORKER's own handheld — no shared
+  // secret, no display token on a phone: the CT40 agent authenticates as the
+  // worker, and only sees jobs of the stations assigned to that worker.
+  // ------------------------------------------------------------------
+
+  /** Stations this worker is responsible for (the existing assignment). */
+  private async stationsOfWorker(workerId: string) {
+    return this.prisma.station.findMany({
+      where: { assignedWorkerId: workerId, status: 'ACTIVE' },
+      select: { id: true, code: true, name: true },
+    });
+  }
+
+  /** QUEUED jobs destined for a handheld/bridge printer at this worker's stations. */
+  async pendingPrintJobsForWorker(workerId: string, input: { limit?: number }) {
+    const stations = await this.stationsOfWorker(workerId);
+    if (stations.length === 0) return { jobs: [], stations: [] };
+    const jobs = await this.prisma.stationPrintJob.findMany({
+      where: {
+        stationId: { in: stations.map((s) => s.id) },
+        status: 'QUEUED',
+        transport: { in: ['CT40', 'BRIDGE'] },
+      },
+      orderBy: { createdAt: 'asc' },
+      take: Math.min(Math.max(input.limit ?? 5, 1), 20),
+      include: { display: { select: { id: true, name: true } } },
+    });
+    return {
+      stations: stations.map((s) => ({ id: s.id, code: s.code, name: s.name })),
+      jobs: jobs.map((j) => ({
+        id: j.id,
+        stationId: j.stationId,
+        target: j.target,
+        targetRef: j.targetRef,
+        copies: j.copies,
+        transport: j.transport,
+        display: j.display ? { id: j.display.id, name: j.display.name } : null,
+        requestedAt: j.createdAt,
+        payload: j.payload,
+      })),
+    };
+  }
+
+  /**
+   * The handheld reports the outcome. Same guarantees as the display-side
+   * reporting path: a job can only be resolved once, and only by the station's
+   * own worker.
+   */
+  async printJobResultForWorker(
+    workerId: string,
+    jobId: string,
+    input: { status: 'PRINTED' | 'FAILED'; error?: string },
+  ) {
+    const stations = await this.stationsOfWorker(workerId);
+    const job = await this.prisma.stationPrintJob.findUnique({ where: { id: jobId } });
+    if (!job || !stations.some((s) => s.id === job.stationId)) {
+      throw new HttpException('PRINT_JOB_NOT_FOUND', HttpStatus.NOT_FOUND);
+    }
+    if (job.status === 'PRINTED' || job.status === 'FAILED') {
+      return { ok: true as const, duplicate: true, status: job.status };
+    }
+    const row = await this.prisma.stationPrintJob.update({
+      where: { id: jobId },
+      data: {
+        status: input.status,
+        resultAt: new Date(),
+        error: input.status === 'FAILED' ? (input.error ?? 'Printer failed').slice(0, 300) : null,
+        claimedBy: job.claimedBy ?? `worker:${workerId}`,
+      },
+    });
+    await this.audit.log({
+      actorUserId: workerId,
+      action: input.status === 'PRINTED' ? 'DISPLAY_PRINT_COMPLETED' : 'DISPLAY_PRINT_FAILED',
+      entityType: 'station_print_job',
+      entityId: jobId,
+      metadata: {
+        via: 'WORKER_AGENT',
+        stationId: job.stationId,
+        target: job.target,
+        targetRef: job.targetRef,
+        transport: job.transport,
+        error: input.status === 'FAILED' ? input.error ?? null : null,
+      },
+    });
+    this.publishActivity(job.stationId, input.status === 'PRINTED' ? 'PRINTED' : 'PRINT_FAILED');
+    return { ok: true as const, duplicate: false, status: row.status };
   }
 
   // ------------------------------------------------------------------
@@ -1616,6 +1923,20 @@ export class DisplaysService {
       .filter(Boolean)
       .sort((a, b) => +new Date(b!.at) - +new Date(a!.at))[0] ?? null;
 
+    // ANDON (owner order v3): one colour for the whole line, aged with time.
+    const lastActivityAt = [lastScan?.at ?? null, recent[0]?.at ?? null, openTask?.createdAt ?? null]
+      .filter((d): d is Date => !!d)
+      .sort((a, b) => +new Date(b) - +new Date(a))[0] ?? null;
+    const andon = andonState({
+      stationStatus: station.status,
+      operationOpen: !!(activeSession || (batchActive && batchActive.status !== 'RECEIVING_COMPLETED')),
+      hasDiscrepancy: !!openDiscrepancy,
+      openExceptions: openExceptions.length,
+      helpOpen: helpIsOpen,
+      needsReview: lastTsItem?.status === 'REVIEW',
+      lastActivityAt,
+    });
+
     const batchProgress =
       batchActive && batchActive.status === 'RECEIVING_IN_PROGRESS' && batchActive.totalExpected > 0
         ? { done: batchActive.totalScanned, total: batchActive.totalExpected, label: 'units' }
@@ -1664,6 +1985,8 @@ export class DisplaysService {
         : null),
       recent,
       scanCount: batchActive && batchActive.status === 'CREATED' ? batchActive.totalExpected : activeSession?._count.scanEvents ?? 0,
+      // ANDON — the line colour (code + age only; see AndonResult).
+      andon,
       // ASSIST LAYER — what to do now, what is waiting, what is wrong, and what
       // the station has done today (each section has its own admin switch).
       guidance: assist.guidance,
@@ -1715,6 +2038,10 @@ export function filterSnapshotByConfig(raw: any, config: unknown) {
       ...(cfg.status ? { status: r.status } : {}),
     }));
   }
+  // ANDON is the screen's own colour signal: code + state + age, never the
+  // operator's free text — safe to send to every role (a PRINT-only screen
+  // still needs to show that the line is red).
+  out.andon = raw?.andon ?? null;
   // ASSIST LAYER — same invariant: a switch that is off means the section never
   // leaves the API (the browser cannot reveal it by inspecting the payload).
   if (cfg.guidance) {
