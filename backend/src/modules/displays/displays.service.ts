@@ -26,6 +26,7 @@ export const DISPLAY_CONFIG_FIELDS = [
   'status',
   'progress',
   'station',
+  'recent',
   'reports',
 ] as const;
 
@@ -42,6 +43,9 @@ export const DEFAULT_DISPLAY_CONFIG: Record<DisplayConfigField, boolean> = {
   status: true,
   progress: true,
   station: true,
+  // Recent-actions feed (owner request 2026-09-16: the display shows ALL the
+  // actions, not only the last scan).
+  recent: true,
   reports: false,
 };
 
@@ -324,6 +328,49 @@ export class DisplaysService {
         ])
       : ([null, null, null] as [null, null, null]);
 
+    /** Display code for a batch unit: the ORIGINAL identity, AYP as fallback. */
+    const unitCode = (u: { code: string; originalBarcode: string | null; originalSku: string | null; originalReference: string | null }) =>
+      u.originalBarcode ?? u.originalSku ?? u.originalReference ?? u.code;
+
+    // ---- Recent-actions feed (owner request 2026-09-16): ALL recent
+    // actions at this station, newest first — receiving scans + cartons,
+    // batch units (worker-bound), batch receives, TS puts. Same tables,
+    // read-only, capped.
+    const stationSessionIds = await this.prisma.receivingSession.findMany({
+      where: { stationId, startedAt: { gte: dayAgo } },
+      select: { id: true },
+      take: 20,
+    });
+    const sessIds = stationSessionIds.map((r) => r.id);
+    const [rxScans, rxCartons, batchUnits, batchReceives, tsItems] = await Promise.all([
+      sessIds.length
+        ? this.prisma.receivingScanEvent.findMany({ where: { sessionId: { in: sessIds }, createdAt: { gte: dayAgo } }, orderBy: { createdAt: 'desc' }, take: 12 })
+        : Promise.resolve([]),
+      sessIds.length
+        ? this.prisma.receivingCarton.findMany({ where: { receivingSessionId: { in: sessIds }, createdAt: { gte: dayAgo } }, orderBy: { createdAt: 'desc' }, take: 12 })
+        : Promise.resolve([]),
+      workerId
+        ? this.prisma.ayroviUnit.findMany({ where: { createdByWorkerId: workerId, createdAt: { gte: dayAgo } }, orderBy: { createdAt: 'desc' }, take: 12 })
+        : Promise.resolve([]),
+      workerId
+        ? this.prisma.batchItem.findMany({ where: { scannedByWorkerId: workerId, status: 'RECEIVED', receivedAt: { gte: dayAgo } }, include: { unit: true }, orderBy: { receivedAt: 'desc' }, take: 12 })
+        : Promise.resolve([]),
+      this.prisma.temporaryStorageItem.findMany({ where: { stationId, createdAt: { gte: dayAgo } }, orderBy: { createdAt: 'desc' }, take: 12 }),
+    ]);
+    type RecentAction = {
+      id: string; kind: string; code: string | null; productName: string | null;
+      customerName: string | null; quantity: number; status: string; at: Date;
+    };
+    const recent: RecentAction[] = [
+      ...rxScans.map((e) => ({ id: e.id, kind: e.kind === 'ARTICLE' ? 'ARTICLE' : 'SCAN', code: e.code ?? null, productName: null, customerName: null, quantity: e.quantity, status: 'CONFIRMED', at: e.createdAt })),
+      ...rxCartons.map((c) => ({ id: c.id, kind: 'CARTON', code: c.scannedCode, productName: null, customerName: null, quantity: 1, status: c.status, at: c.receivedAt ?? c.createdAt })),
+      ...batchUnits.map((u) => ({ id: u.id, kind: 'BATCH UNIT', code: unitCode(u), productName: null, customerName: null, quantity: 1, status: 'REGISTERED', at: u.createdAt })),
+      ...batchReceives.map((bi) => ({ id: bi.id, kind: 'BATCH RECEIVE', code: unitCode(bi.unit), productName: null, customerName: null, quantity: 1, status: 'RECEIVED', at: bi.receivedAt ?? bi.createdAt })),
+      ...tsItems.map((t) => ({ id: t.id, kind: 'STORAGE', code: t.sku ?? t.reference ?? null, productName: t.productName ?? null, customerName: t.customerName ?? null, quantity: t.quantity, status: t.status, at: t.createdAt })),
+    ]
+      .sort((a, b) => +new Date(b.at) - +new Date(a.at))
+      .slice(0, 10);
+
     // The station's live operation = whichever moved most recently: a
     // receiving session or the worker's batch (build / receiving).
     const batchActive =
@@ -336,8 +383,6 @@ export class DisplaysService {
 
     // Prefer the newest of (receiving scan, batch unit, batch receive, TS
     // put, carton) as the "last scan" — one physical scan = one visible pop.
-    const unitCode = (u: { code: string; originalBarcode: string | null; originalSku: string | null; originalReference: string | null }) =>
-      u.originalBarcode ?? u.originalSku ?? u.originalReference ?? u.code;
     const batchUnitCandidate = lastBatchUnit
       ? {
           id: lastBatchUnit.id,
@@ -359,7 +404,7 @@ export class DisplaysService {
           customerName: null as string | null,
           quantity: 1,
           status: 'RECEIVED',
-          at: lastReceivedItem.batch.updatedAt,
+          at: (lastReceivedItem as { receivedAt?: Date | null }).receivedAt ?? lastReceivedItem.batch.updatedAt,
         }
       : null;
     const tsCandidate = lastTsItem
@@ -445,6 +490,7 @@ export class DisplaysService {
       progress: batchProgress ?? (expectedTotal > 0 || receivedTotal > 0
         ? { done: receivedTotal, total: Math.max(expectedTotal, receivedTotal), label: 'units' }
         : null),
+      recent,
       scanCount: batchActive && batchActive.status === 'CREATED' ? batchActive.totalExpected : activeSession?._count.scanEvents ?? 0,
     };
   }
@@ -478,6 +524,17 @@ export function filterSnapshotByConfig(raw: any, config: unknown) {
     out.lastScan = null;
   }
   if (cfg.status) out.error = raw?.error ?? null;
+  if (cfg.recent && Array.isArray(raw?.recent)) {
+    out.recent = (raw.recent as Array<Record<string, unknown>>).slice(0, 10).map((r) => ({
+      id: r.id,
+      kind: r.kind,
+      at: r.at,
+      ...(cfg.product ? { code: r.code ?? null, productName: r.productName ?? null } : {}),
+      ...(cfg.customer ? { customerName: r.customerName ?? null } : {}),
+      ...(cfg.quantity ? { quantity: r.quantity } : {}),
+      ...(cfg.status ? { status: r.status } : {}),
+    }));
+  }
   out.customer = cfg.customer ? raw?.customer ?? null : null;
   return out;
 }

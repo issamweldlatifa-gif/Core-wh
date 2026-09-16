@@ -24,6 +24,10 @@ export interface DisplaySnapshot {
   error?: { type: string; reason?: string | null; at: string } | null;
   customer?: string | null;
   progress?: { done: number; total: number; label?: string } | null;
+  recent?: Array<{
+    id: string; kind: string; code?: string | null; productName?: string | null;
+    customerName?: string | null; quantity?: number | null; status?: string | null; at: string;
+  }>;
   lastUpdate: string;
 }
 

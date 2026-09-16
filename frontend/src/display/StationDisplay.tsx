@@ -133,6 +133,23 @@ export default function StationDisplay() {
               </div>
             )}
 
+            {snap?.recent && snap.recent.length > 0 && (
+              <div data-testid="recent-feed" style={{ width: 'min(88vw, 1100px)', display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+                {snap.recent.slice(0, 8).map((r) => (
+                  <div key={r.id} style={{ display: 'flex', gap: 18, alignItems: 'baseline', fontSize: 26, opacity: 0.92 }}>
+                    <span style={{ fontVariantNumeric: 'tabular-nums', opacity: 0.65 }}>
+                      {new Date(r.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    <span style={{ minWidth: 190, fontWeight: 700, color: r.status && /RECEIVED|CONFIRMED|STORED/.test(r.status) ? '#39d98a' : '#4da3ff' }}>{r.kind}</span>
+                    <span style={{ fontWeight: 700, letterSpacing: 2 }}>{r.code ?? r.productName ?? '—'}</span>
+                    {typeof r.quantity === 'number' && r.quantity !== 1 && <span>×{r.quantity}</span>}
+                    {r.customerName && <span style={{ opacity: 0.7 }}>{r.customerName}</span>}
+                    <span style={{ marginLeft: 'auto', opacity: 0.75 }}>{r.status ?? ''}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {progress && (
               <div style={{ width: 'min(80vw, 900px)', display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div style={{ height: 34, borderRadius: 999, background: '#1c2733', overflow: 'hidden' }}>

@@ -206,8 +206,10 @@ export default function Printers() {
         <section className="os-card" style={{ marginBottom: 14, borderLeft: '3px solid #f0b429' }}>
           <h2 className="os-card-title">PRINT BRIDGE NOT AVAILABLE</h2>
           <p className="os-muted" style={{ fontSize: '0.85rem', lineHeight: 1.7 }}>
-            On THIS CT40: open the <b>AYROVI</b> worker app → ⚙ SETTINGS → <b>PRINTER BRIDGE</b> → <b>ENABLE BRIDGE</b>
-            {' '}(allow the Bluetooth permission once), keep the app running, then come back here.
+            <b>1. This page must be open on the CT40 itself.</b> The printer is physically attached to the CT40 —
+            from a PC, phone or TV the bridge can never be reached. Open the Admin in the CT40 browser and come back here.<br />
+            <b>2. On the CT40 worker app:</b> SETTINGS - PRINTER BRIDGE - ENABLE BRIDGE (accept the Bluetooth
+            permission once) and keep the app running in the background.
           </p>
           <button className="os-btn" onClick={() => void refreshStatus()} disabled={busy !== null}>Retry</button>
         </section>

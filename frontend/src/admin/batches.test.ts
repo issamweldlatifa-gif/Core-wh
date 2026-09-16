@@ -12,31 +12,31 @@ describe('batchActions — status × permission matrix', () => {
   const acceptOnly = (p: string) => p === 'batch.view' || p === 'batch.accept';
 
   it('SUBMITTED needs NO admin action — the submit auto-routes it to receiving (view/print/void only) — owner order 2026-09-13', () => {
-    expect(batchActions('SUBMITTED', admin).sort()).toEqual(['delete', 'print', 'void']);
+    expect(batchActions('SUBMITTED', admin).sort()).toEqual(['delete', 'print', 'printBt', 'void']);
   });
 
   it('ACCEPTED offers NO send (transient: accept commits the automatic send) (+ print)', () => {
-    expect(batchActions('ACCEPTED', admin).sort()).toEqual(['delete', 'print', 'void']);
+    expect(batchActions('ACCEPTED', admin).sort()).toEqual(['delete', 'print', 'printBt', 'void']);
   });
 
   it('RECEIVING_COMPLETED is terminal: print + hard delete (owner 2026-09-14) only', () => {
-    expect(batchActions('RECEIVING_COMPLETED', admin)).toEqual(['print', 'delete']);
+    expect(batchActions('RECEIVING_COMPLETED', admin)).toEqual(['print', 'printBt', 'delete']);
   });
 
   it('VOIDED is terminal too (print + hard delete per owner 2026-09-14)', () => {
-    expect(batchActions('VOIDED', admin)).toEqual(['print', 'delete']);
+    expect(batchActions('VOIDED', admin)).toEqual(['print', 'printBt', 'delete']);
   });
 
   it('permissions gate every action (viewer gets print only)', () => {
-    expect(batchActions('SUBMITTED', viewer)).toEqual(['print']);
+    expect(batchActions('SUBMITTED', viewer)).toEqual(['print', 'printBt']);
     // accept WITHOUT send/void permissions → no fused click (needs both),
     // no void — print only.
-    expect(batchActions('ACCEPTED', acceptOnly).sort()).toEqual(['print']);
-    expect(batchActions('SUBMITTED', acceptOnly)).toEqual(['print']); // no void perm → print only
+    expect(batchActions('ACCEPTED', acceptOnly).sort()).toEqual(['print', 'printBt']);
+    expect(batchActions('SUBMITTED', acceptOnly)).toEqual(['print', 'printBt']); // no void perm → print only
   });
 
   it('an unknown status degrades to print + hard delete — no invented offers', () => {
-    expect(batchActions('SOMETHING_ELSE', admin)).toEqual(['print', 'delete']);
+    expect(batchActions('SOMETHING_ELSE', admin)).toEqual(['print', 'printBt', 'delete']);
   });
 
   it('every non-terminal state offers void (VOID ≠ the owner-ordered hard delete)', () => {

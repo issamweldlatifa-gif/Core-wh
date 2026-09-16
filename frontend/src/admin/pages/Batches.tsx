@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { apiErrorMessage } from '../../api/client';
 import { printLabelsInNewWindow } from '../print-sheet';
+import { printerBridge, newJobId, type BridgeStatus } from '../printer-bridge';
 import {
   BATCH_STATUS_TAG,
   batchActions,
@@ -44,12 +45,14 @@ const STATUSES = [
 const ACTION_LABEL: Record<BatchUiAction, string> = {
   void: 'Void…',
   print: 'Print label',
+  printBt: 'Print PM-241',
   delete: 'Delete',
 };
 
 const ACTION_CLASS: Record<BatchUiAction, string> = {
   void: 'os-btn os-btn--danger',
   print: 'os-btn os-btn--ghost',
+  printBt: 'os-btn os-btn--primary',
   delete: 'os-btn os-btn--danger',
 };
 
@@ -78,6 +81,37 @@ export default function BatchesAdmin() {
   const [voidReason, setVoidReason] = useState('');
   // OWNER 2026-09-14: hard delete (any status, audited, units cascade).
   const [deleteTarget, setDeleteTarget] = useState<BatchRow | null>(null);
+  // Direct thermal print through the CT40 bridge (PM-241-BT over SPP).
+  const [btBusy, setBtBusy] = useState<string | null>(null);
+  async function printDirect(row: BatchRow) {
+    setBtBusy(row.id);
+    try {
+      const st: BridgeStatus = await printerBridge.status();
+      if (!st.bridge) {
+        window.alert('Print bridge not available. The printer is attached to the CT40: open this Admin page in the CT40 browser, and enable PRINTER BRIDGE in the worker app settings.');
+        return;
+      }
+      if (st.state !== 'CONNECTED') {
+        if (st.printer?.address) {
+          await printerBridge.connect(st.printer.address, st.printer.name);
+        } else {
+          window.alert('No PM-241-BT connected. Open Admin - Printers on the CT40 and connect the printer once.');
+          return;
+        }
+      }
+      await printerBridge.printBarcode(newJobId(), {
+        title: 'BATCH',
+        containerCode: row.batchCode,
+        qrPayload: row.batchCode,
+        barcodeValue: row.batchCode,
+      });
+      window.alert('Label sent to the PM-241-BT: ' + row.batchCode);
+    } catch (e) {
+      window.alert('Printer error: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setBtBusy(null);
+    }
+  }
   async function act(fn: () => Promise<unknown>) {
     setBusy(true);
     setErr(null);
@@ -93,6 +127,10 @@ export default function BatchesAdmin() {
   }
 
   function onAction(row: BatchRow, action: BatchUiAction) {
+    if (action === 'printBt') {
+      void printDirect(row);
+      return;
+    }
     if (action === 'print') {
       // Self-contained print tab (Android-Chrome-safe; print-sheet.tsx).
       try {
@@ -177,7 +215,7 @@ export default function BatchesAdmin() {
             {actions.length > 0 && (
               <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
                 {actions.map((a) => (
-                  <button key={a} disabled={busy} className={ACTION_CLASS[a]} onClick={() => onAction(row, a)}>
+                  <button key={a} disabled={busy || (a === 'printBt' && btBusy !== null)} className={ACTION_CLASS[a]} onClick={() => onAction(row, a)}>
                     {ACTION_LABEL[a]}
                   </button>
                 ))}

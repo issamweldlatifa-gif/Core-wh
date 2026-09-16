@@ -487,7 +487,7 @@ export class BatchesService {
       }
       const applied = await tx.batchItem.updateMany({
         where: { id: item.id, status: 'REGISTERED' },
-        data: { status: 'RECEIVED' },
+        data: { status: 'RECEIVED', receivedAt: new Date() },
       });
       if (applied.count === 0) {
         // Lost the per-item race — same outcome as an echo read.

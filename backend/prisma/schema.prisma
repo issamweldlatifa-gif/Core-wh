@@ -2600,6 +2600,10 @@ model BatchItem {
   status               BatchItemStatus     @default(REGISTERED)
   scannedAt            DateTime            @default(now())
   scannedByWorkerId    String?
+  /// When the unit was physically received in Tunisia (REGISTERED→RECEIVED
+  /// flip) — feeds the Station Display recent-actions list; scannedAt stays
+  /// the France build scan time.
+  receivedAt           DateTime?
   /// Add-item idempotency anchor: a retried add returns THIS item.
   idempotencyKey       String              @unique
   metadata             Json?

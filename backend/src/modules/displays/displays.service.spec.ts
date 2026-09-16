@@ -13,15 +13,15 @@ describe('Station Display Mode (owner order 2026-09-16)', () => {
       updateMany: jest.fn(),
       delete: jest.fn(),
     },
-    receivingSession: { findFirst: jest.fn() },
-    receivingScanEvent: { findFirst: jest.fn() },
-    receivingCarton: { findFirst: jest.fn() },
-    receivingDiscrepancy: { findFirst: jest.fn() },
-    receivingProduct: { findMany: jest.fn() },
-    temporaryStorageItem: { findFirst: jest.fn() },
+    receivingSession: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
+    receivingScanEvent: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
+    receivingCarton: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
+    receivingDiscrepancy: { findFirst: jest.fn().mockResolvedValue(null) },
+    receivingProduct: { findMany: jest.fn().mockResolvedValue([]) },
+    temporaryStorageItem: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
     expectedArrival: { findUnique: jest.fn().mockResolvedValue(null) },
-    ayroviUnit: { findFirst: jest.fn().mockResolvedValue(null) },
-    batchItem: { findFirst: jest.fn().mockResolvedValue(null) },
+    ayroviUnit: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
+    batchItem: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
     batch: { findFirst: jest.fn().mockResolvedValue(null) },
     workerTaskAssignment: { findFirst: jest.fn() },
   });
@@ -238,6 +238,56 @@ describe('Station Display Mode (owner order 2026-09-16)', () => {
     expect(snap.operation).toMatchObject({ label: 'BATCH BUILD', sessionCode: 'AYB-2' });
     expect(snap.progress).toBeNull();
     expect(snap.lastScan).toMatchObject({ kind: 'BATCH UNIT', code: 'SKU-9' });
+  });
+
+  it('recent feed: ALL station actions merged newest-first (receiving + batch + storage) and capped at 10', async () => {
+    const prisma = makePrisma();
+    (prisma.stationDisplay.findUnique as jest.Mock).mockResolvedValue({
+      id: 'd1', enabled: true, name: 'R', displayType: 'LIVE_STATION', station: { name: 'RECV-1' }, config: {},
+    });
+    (prisma.station.findUnique as jest.Mock).mockResolvedValue({
+      code: 'RECV-1', name: 'Receiving', department: 'RECEIVING', status: 'ACTIVE',
+      assignedWorkerId: 'u6', assignedWorker: { id: 'u6', name: 'W', employeeCode: 'WORKER006' },
+    });
+    (prisma.receivingSession.findMany as jest.Mock).mockResolvedValue([{ id: 's1' }]);
+    (prisma.receivingScanEvent.findMany as jest.Mock).mockResolvedValue([
+      { id: 'rx1', kind: 'PRODUCT', code: 'SA1', quantity: 2, createdAt: new Date('2026-09-16T10:00:00Z') },
+    ]);
+    (prisma.receivingCarton.findMany as jest.Mock).mockResolvedValue([
+      { id: 'c1', scannedCode: 'CTN-9', status: 'RECEIVED', receivedAt: new Date('2026-09-16T09:00:00Z'), createdAt: new Date('2026-09-16T09:00:00Z') },
+    ]);
+    (prisma.ayroviUnit.findMany as jest.Mock).mockResolvedValue([
+      { id: 'u1', code: 'AYP-2', originalBarcode: 'SA2', originalSku: null, originalReference: null, createdAt: new Date('2026-09-16T10:05:00Z') },
+    ]);
+    (prisma.batchItem.findMany as jest.Mock).mockResolvedValue([
+      { id: 'bi1', receivedAt: new Date('2026-09-16T10:10:00Z'), unit: { code: 'AYP-1', originalBarcode: 'SA0', originalSku: null, originalReference: null } },
+    ]);
+    (prisma.temporaryStorageItem.findMany as jest.Mock).mockResolvedValue([
+      { id: 't1', sku: 'SA3', reference: null, productName: 'Chair', customerName: 'Ahmed', quantity: 3, status: 'STORED', createdAt: new Date('2026-09-16T08:00:00Z') },
+    ]);
+    const svc = new DisplaysService(prisma as any, audit as any);
+    const snap = (await svc.snapshotForToken('tok')) as any;
+    const kinds = snap.recent.map((r: any) => r.kind);
+    expect(kinds).toEqual(['BATCH RECEIVE', 'BATCH UNIT', 'SCAN', 'CARTON', 'STORAGE']); // newest first
+    expect(snap.recent).toHaveLength(5);
+    expect(snap.recent[0]).toMatchObject({ code: 'SA0', status: 'RECEIVED' });
+    expect(snap.recent[4]).toMatchObject({ kind: 'STORAGE', customerName: 'Ahmed', quantity: 3 });
+  });
+
+  it('recent:false in the display config removes the feed entirely (server-side)', async () => {
+    const prisma = makePrisma();
+    (prisma.stationDisplay.findUnique as jest.Mock).mockResolvedValue({
+      id: 'd1', enabled: true, name: 'R', displayType: 'LIVE_STATION', station: { name: 'RECV-1' },
+      config: { recent: false },
+    });
+    (prisma.station.findUnique as jest.Mock).mockResolvedValue({
+      code: 'RECV-1', name: 'Receiving', department: 'RECEIVING', status: 'ACTIVE', assignedWorkerId: null, assignedWorker: null,
+    });
+    (prisma.receivingSession.findMany as jest.Mock).mockResolvedValue([]);
+    (prisma.temporaryStorageItem.findMany as jest.Mock).mockResolvedValue([]);
+    const svc = new DisplaysService(prisma as any, audit as any);
+    const snap = (await svc.snapshotForToken('tok')) as any;
+    expect(snap.recent).toBeUndefined();
   });
 
   it('fingerprint changes only when the snapshot content changes', () => {
