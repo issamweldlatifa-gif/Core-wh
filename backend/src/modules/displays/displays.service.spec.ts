@@ -20,6 +20,9 @@ describe('Station Display Mode (owner order 2026-09-16)', () => {
     receivingProduct: { findMany: jest.fn() },
     temporaryStorageItem: { findFirst: jest.fn() },
     expectedArrival: { findUnique: jest.fn().mockResolvedValue(null) },
+    ayroviUnit: { findFirst: jest.fn().mockResolvedValue(null) },
+    batchItem: { findFirst: jest.fn().mockResolvedValue(null) },
+    batch: { findFirst: jest.fn().mockResolvedValue(null) },
     workerTaskAssignment: { findFirst: jest.fn() },
   });
   const audit = { log: jest.fn().mockResolvedValue(undefined) };
@@ -167,6 +170,74 @@ describe('Station Display Mode (owner order 2026-09-16)', () => {
     const noStatus = filterSnapshotByConfig(raw, { status: false }) as any;
     expect(noStatus.error).toBeUndefined();
     expect(noStatus.lastScan.status).toBeUndefined();
+  });
+
+  it('BATCH station: worker-bound batch activity reaches the display (owner report 2026-09-16)', async () => {
+    const prisma = makePrisma();
+    (prisma.stationDisplay.findUnique as jest.Mock).mockResolvedValue({
+      id: 'd1', enabled: true, name: 'Batch Wall', displayType: 'LIVE_STATION',
+      station: { name: 'BATCH-01' }, config: {},
+    });
+    (prisma.station.findUnique as jest.Mock).mockResolvedValue({
+      code: 'BATCH-01', name: 'BATCH-01', department: 'BATCH', status: 'ACTIVE',
+      assignedWorkerId: 'u6',
+      assignedWorker: { id: 'u6', name: 'TEST BATCH WORKER', employeeCode: 'WORKER006' },
+    });
+    // no receiving session / no TS item — only batch writes exist
+    (prisma.receivingSession.findFirst as jest.Mock).mockResolvedValue(null);
+    (prisma.temporaryStorageItem.findFirst as jest.Mock).mockResolvedValue(null);
+    (prisma.workerTaskAssignment.findFirst as jest.Mock).mockResolvedValue(null);
+    // worker scanned 3 units in build, then received one (same worker)
+    (prisma.ayroviUnit.findFirst as jest.Mock).mockResolvedValue({
+      id: 'u1', code: 'AYP-000003', originalBarcode: 'SA12345', originalSku: null, originalReference: null,
+      createdAt: new Date('2026-09-16T09:58:00Z'),
+    });
+    (prisma.batchItem.findFirst as jest.Mock).mockResolvedValue({
+      id: 'bi2', status: 'RECEIVED',
+      unit: { code: 'AYP-000001', originalBarcode: 'SA99999', originalSku: null, originalReference: null },
+      batch: { batchCode: 'AYB-260916-01', status: 'RECEIVING_IN_PROGRESS', totalScanned: 2, totalExpected: 3, updatedAt: new Date('2026-09-16T10:02:00Z') },
+    });
+    (prisma.batch.findFirst as jest.Mock).mockResolvedValue({
+      id: 'b1', batchCode: 'AYB-260916-01', status: 'RECEIVING_IN_PROGRESS',
+      totalScanned: 2, totalExpected: 3, updatedAt: new Date('2026-09-16T10:02:00Z'),
+    });
+
+    const svc = new DisplaysService(prisma as any, audit as any);
+    const snap = (await svc.snapshotForToken('tok')) as any;
+
+    expect(snap.operation).toMatchObject({ label: 'BATCH RECEIVING', sessionCode: 'AYB-260916-01' });
+    expect(snap.progress).toEqual({ done: 2, total: 3, label: 'units' });
+    // newest activity wins: batch receive (10:02) beats build unit (09:58)
+    expect(snap.lastScan).toMatchObject({ kind: 'BATCH RECEIVE', code: 'SA99999', status: 'RECEIVED' });
+  });
+
+  it('BATCH BUILD shows units-so-far and no progress bar (no target yet)', async () => {
+    const prisma = makePrisma();
+    (prisma.stationDisplay.findUnique as jest.Mock).mockResolvedValue({
+      id: 'd1', enabled: true, name: 'B', displayType: 'LIVE_STATION', station: { name: 'BATCH-01' }, config: {},
+    });
+    (prisma.station.findUnique as jest.Mock).mockResolvedValue({
+      code: 'BATCH-01', name: 'BATCH-01', department: 'BATCH', status: 'ACTIVE',
+      assignedWorkerId: 'u6',
+      assignedWorker: { id: 'u6', name: 'W', employeeCode: 'WORKER006' },
+    });
+    (prisma.receivingSession.findFirst as jest.Mock).mockResolvedValue(null);
+    (prisma.temporaryStorageItem.findFirst as jest.Mock).mockResolvedValue(null);
+    (prisma.workerTaskAssignment.findFirst as jest.Mock).mockResolvedValue(null);
+    (prisma.ayroviUnit.findFirst as jest.Mock).mockResolvedValue({
+      id: 'u1', code: 'AYP-000002', originalBarcode: null, originalSku: 'SKU-9', originalReference: null,
+      createdAt: new Date(),
+    });
+    (prisma.batchItem.findFirst as jest.Mock).mockResolvedValue(null);
+    (prisma.batch.findFirst as jest.Mock).mockResolvedValue({
+      id: 'b1', batchCode: 'AYB-2', status: 'CREATED', totalScanned: 0, totalExpected: 5, updatedAt: new Date(),
+    });
+
+    const svc = new DisplaysService(prisma as any, audit as any);
+    const snap = (await svc.snapshotForToken('tok')) as any;
+    expect(snap.operation).toMatchObject({ label: 'BATCH BUILD', sessionCode: 'AYB-2' });
+    expect(snap.progress).toBeNull();
+    expect(snap.lastScan).toMatchObject({ kind: 'BATCH UNIT', code: 'SKU-9' });
   });
 
   it('fingerprint changes only when the snapshot content changes', () => {

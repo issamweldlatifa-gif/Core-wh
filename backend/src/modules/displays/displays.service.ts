@@ -297,10 +297,71 @@ export class DisplaysService {
         : Promise.resolve([] as Array<{ expectedQuantity: number; receivedQuantity: number }>),
     ]);
 
+    // ---- BATCH activity (owner report 2026-09-16: BATCH station displays
+    // showed nothing). Batch writes carry NO stationId (addUnit/receiveUnit
+    // only stamp the worker), so bind via the station's ASSIGNED WORKER —
+    // the existing Worker+Device+Station assignment, never hard-coded ids.
+    const workerId = station.assignedWorkerId;
+    const dayAgo = new Date(Date.now() - 24 * 3600_000);
+    const [lastBatchUnit, lastReceivedItem, workerBatch] = workerId
+      ? await Promise.all([
+          this.prisma.ayroviUnit.findFirst({
+            where: { createdByWorkerId: workerId, createdAt: { gte: dayAgo } },
+            orderBy: { createdAt: 'desc' },
+          }),
+          this.prisma.batchItem.findFirst({
+            where: { scannedByWorkerId: workerId, status: 'RECEIVED', batch: { updatedAt: { gte: dayAgo } } },
+            include: { unit: true, batch: true },
+            orderBy: { createdAt: 'desc' },
+          }),
+          this.prisma.batch.findFirst({
+            where: {
+              OR: [{ createdById: workerId }, { items: { some: { scannedByWorkerId: workerId } } }],
+              status: { in: ['CREATED', 'RECEIVING_IN_PROGRESS'] },
+            },
+            orderBy: { updatedAt: 'desc' },
+          }),
+        ])
+      : ([null, null, null] as [null, null, null]);
+
+    // The station's live operation = whichever moved most recently: a
+    // receiving session or the worker's batch (build / receiving).
+    const batchActive =
+      workerBatch && (!activeSession || +new Date(workerBatch.updatedAt) > +new Date(activeSession.startedAt))
+        ? workerBatch
+        : null;
+
     const expectedTotal = products.reduce((n, p) => n + p.expectedQuantity, 0);
     const receivedTotal = products.reduce((n, p) => n + p.receivedQuantity, 0);
 
-    // Prefer the newest of (receiving scan, TS put) as the "last scan".
+    // Prefer the newest of (receiving scan, batch unit, batch receive, TS
+    // put, carton) as the "last scan" — one physical scan = one visible pop.
+    const unitCode = (u: { code: string; originalBarcode: string | null; originalSku: string | null; originalReference: string | null }) =>
+      u.originalBarcode ?? u.originalSku ?? u.originalReference ?? u.code;
+    const batchUnitCandidate = lastBatchUnit
+      ? {
+          id: lastBatchUnit.id,
+          kind: 'BATCH UNIT' as const,
+          code: unitCode(lastBatchUnit),
+          productName: null as string | null,
+          customerName: null as string | null,
+          quantity: 1,
+          status: 'REGISTERED',
+          at: lastBatchUnit.createdAt,
+        }
+      : null;
+    const batchReceiveCandidate = lastReceivedItem
+      ? {
+          id: lastReceivedItem.id,
+          kind: 'BATCH RECEIVE' as const,
+          code: unitCode(lastReceivedItem.unit),
+          productName: null as string | null,
+          customerName: null as string | null,
+          quantity: 1,
+          status: 'RECEIVED',
+          at: lastReceivedItem.batch.updatedAt,
+        }
+      : null;
     const tsCandidate = lastTsItem
       ? {
           id: lastTsItem.id,
@@ -337,9 +398,14 @@ export class DisplaysService {
           at: lastCartonEvent.receivedAt ?? lastCartonEvent.createdAt,
         }
       : null;
-    const lastScan = [rxCandidate, tsCandidate, lastCarton]
+    const lastScan = [rxCandidate, batchUnitCandidate, batchReceiveCandidate, tsCandidate, lastCarton]
       .filter(Boolean)
       .sort((a, b) => +new Date(b!.at) - +new Date(a!.at))[0] ?? null;
+
+    const batchProgress =
+      batchActive && batchActive.status === 'RECEIVING_IN_PROGRESS' && batchActive.totalExpected > 0
+        ? { done: batchActive.totalScanned, total: batchActive.totalExpected, label: 'units' }
+        : null;
 
     return {
       station: {
@@ -351,16 +417,23 @@ export class DisplaysService {
       worker: station.assignedWorker
         ? { code: station.assignedWorker.employeeCode, name: station.assignedWorker.name }
         : null,
-      operation: activeSession
+      operation: batchActive
         ? {
-            label: 'RECEIVING',
-            sessionCode: activeSession.code,
-            sessionStatus: activeSession.status,
-            arrivalReference: arrival?.arrivalReference ?? arrival?.code ?? null,
+            label: batchActive.status === 'CREATED' ? 'BATCH BUILD' : 'BATCH RECEIVING',
+            sessionCode: batchActive.batchCode,
+            sessionStatus: batchActive.status,
+            arrivalReference: null,
           }
-        : lastTsItem
-          ? { label: 'TEMPORARY_STORAGE', sessionCode: null, sessionStatus: null, arrivalReference: null }
-          : null,
+        : activeSession
+          ? {
+              label: 'RECEIVING',
+              sessionCode: activeSession.code,
+              sessionStatus: activeSession.status,
+              arrivalReference: arrival?.arrivalReference ?? arrival?.code ?? null,
+            }
+          : lastTsItem
+            ? { label: 'TEMPORARY_STORAGE', sessionCode: null, sessionStatus: null, arrivalReference: null }
+            : null,
       task: openTask ? { title: openTask.title, status: openTask.status } : null,
       lastScan,
       error: openDiscrepancy
@@ -369,11 +442,10 @@ export class DisplaysService {
       customer: arrival
         ? [arrival.customerName, arrival.customerSurname].filter(Boolean).join(' ').trim() || null
         : lastTsItem?.customerName ?? null,
-      progress:
-        expectedTotal > 0 || receivedTotal > 0
-          ? { done: receivedTotal, total: Math.max(expectedTotal, receivedTotal), label: 'units' }
-          : null,
-      scanCount: activeSession?._count.scanEvents ?? 0,
+      progress: batchProgress ?? (expectedTotal > 0 || receivedTotal > 0
+        ? { done: receivedTotal, total: Math.max(expectedTotal, receivedTotal), label: 'units' }
+        : null),
+      scanCount: batchActive && batchActive.status === 'CREATED' ? batchActive.totalExpected : activeSession?._count.scanEvents ?? 0,
     };
   }
 }
