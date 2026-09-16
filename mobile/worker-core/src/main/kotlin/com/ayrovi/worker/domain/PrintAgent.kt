@@ -79,11 +79,21 @@ class PrintAgent(
         const val DEFAULT_LIMIT = 5
         const val MAX_LIMIT = 20
 
-        /** The job list out of the server payload (never throws: bad JSON = empty). */
+        /**
+         * The job list out of the server payload (never throws: bad JSON = empty).
+         *
+         * A job with no `id` is DROPPED, not kept as an empty string: the id is
+         * the only thing that lets the agent report the outcome back, and the
+         * server treats a blank id as invalid. Printing such a label would put
+         * paper on the bench that could never be marked PRINTED — it would be
+         * re-offered forever and the worker would print the same box twice.
+         */
         fun parseJobs(raw: String): List<AgentPrintJob> = try {
             val root = Json.parseToJsonElement(raw).jsonObject
             val jobs = root["jobs"] as? JsonArray ?: JsonArray(emptyList())
-            jobs.mapNotNull { element -> runCatching { job(element.jsonObject) }.getOrNull() }
+            jobs.mapNotNull { element ->
+                runCatching { job(element.jsonObject) }.getOrNull()?.takeIf { it.id.isNotBlank() }
+            }
         } catch (_: Exception) {
             emptyList()
         }
