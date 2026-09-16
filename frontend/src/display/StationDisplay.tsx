@@ -13,20 +13,6 @@ import { relativeTime, viewState } from './display-view';
 
 const API_BASE = (import.meta.env.VITE_API_BASE || '/api').replace(/\/$/, '');
 
-/** Worker-facing labels (owner 2026-09-16: the screen speaks دخول/خروج/تنقل). */
-const KIND_LABEL: Record<string, string> = {
-  IN: 'دخول',
-  OUT: 'خروج',
-  SCAN: 'مسح',
-  ARTICLE: 'وحدة كارتة',
-  CARTON: 'كارتون',
-  'BATCH UNIT': 'تسجيل وحدة',
-  'BATCH RECEIVE': 'استلام وحدة',
-  'BATCH SENT': 'باتش مرسل',
-  'BATCH DONE': 'باتش مكتمل',
-  STORAGE: 'تخزين',
-};
-
 const STATE_TEXT: Record<string, { label: string; color: string }> = {
   IDLE: { label: 'WAITING FOR NEXT OPERATION', color: '#8aa0b4' },
   PROCESSING: { label: 'PROCESSING…', color: '#4da3ff' },
@@ -154,9 +140,7 @@ export default function StationDisplay() {
                     <span style={{ fontVariantNumeric: 'tabular-nums', opacity: 0.65 }}>
                       {new Date(r.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
-                    <span style={{ minWidth: 190, fontWeight: 700, color: r.status && /RECEIVED|CONFIRMED|STORED|RECEIVING_COMPLETED/.test(r.status) ? '#39d98a' : '#4da3ff' }}>
-                      {KIND_LABEL[r.kind] ?? r.kind}
-                    </span>
+                    <span style={{ minWidth: 190, fontWeight: 700, color: r.status && /RECEIVED|CONFIRMED|STORED|RECEIVING_COMPLETED/.test(r.status) ? '#39d98a' : '#4da3ff' }}>{r.kind}</span>
                     <span style={{ fontWeight: 700, letterSpacing: 2 }}>{r.code ?? r.productName ?? '—'}</span>
                     {typeof r.quantity === 'number' && r.quantity !== 1 && <span>×{r.quantity}</span>}
                     {r.customerName && <span style={{ opacity: 0.7 }}>{r.customerName}</span>}

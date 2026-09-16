@@ -356,9 +356,9 @@ export class DisplaysService {
         ? this.prisma.batchItem.findMany({ where: { scannedByWorkerId: workerId, status: 'RECEIVED', receivedAt: { gte: dayAgo } }, include: { unit: true }, orderBy: { receivedAt: 'desc' }, take: 12 })
         : Promise.resolve([]),
       this.prisma.temporaryStorageItem.findMany({ where: { stationId, createdAt: { gte: dayAgo } }, orderBy: { createdAt: 'desc' }, take: 12 }),
-      // TRANSFERS (owner 2026-09-16: دخول/خروج/تنقل — the display shows ALL
-      // actions, not only scans): goods handed out of this station (OUT) or
-      // received into it (IN).
+      // TRANSFERS (owner 2026-09-16: the display shows ALL actions — entries,
+      // exits, transfers — not only scans): goods handed out of this station
+      // (OUT) or received into it (IN).
       this.prisma.productStationMove.findMany({
         where: { OR: [{ fromStationId: stationId }, { toStationId: stationId }], createdAt: { gte: dayAgo } },
         orderBy: { createdAt: 'desc' },
