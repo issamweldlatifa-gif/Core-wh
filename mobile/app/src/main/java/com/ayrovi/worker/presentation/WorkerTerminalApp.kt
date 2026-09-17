@@ -68,24 +68,24 @@ fun WorkerTerminalApp(
     // PRINT AGENT (open item 2026-09-16): labels queued for THIS handheld by any
     // station screen, printed here and reported back. Shown, never guessed.
     val agentPrinted by PrintBridgeService.BridgeStatus.agentPrinted.collectAsStateWithLifecycle()
+    // The Bluetooth permissions are needed to FIND and CONNECT the printer — not
+    // to listen on a loopback port. The answer only decides whether the scanner
+    // can work later; a refusal is already surfaced as PERMISSION on screen.
     val btPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
-    ) { grants ->
-        val granted = if (Build.VERSION.SDK_INT >= 31) {
-            grants[Manifest.permission.BLUETOOTH_CONNECT] == true || grants[Manifest.permission.BLUETOOTH_SCAN] == true
-        } else {
-            grants[Manifest.permission.ACCESS_FINE_LOCATION] == true
-        }
-        if (granted) {
-            printerStore.setBridgeEnabled(true)
-            runCatching { appContext.startService(Intent(appContext, PrintBridgeService::class.java)) }
-        }
-    }
+    ) { /* verdict handled by the manager: PERMISSION if the operator refused */ }
     val onTogglePrinterBridge = {
         if (PrintBridgeService.BridgeStatus.bridgeRunning.value) {
             printerStore.setBridgeEnabled(false)
             runCatching { appContext.stopService(Intent(appContext, PrintBridgeService::class.java)) }
         } else {
+            // START IT, always. The bridge used to be started from the permission
+            // callback, so dismissing the dialog — or any build that never showed
+            // one — left the operator with a bridge that never came up and no
+            // message at all (owner report 2026-09-16: ENABLE BRIDGE, then the
+            // Admin still said «bridge not available»). One tap = one bridge.
+            printerStore.setBridgeEnabled(true)
+            runCatching { appContext.startService(Intent(appContext, PrintBridgeService::class.java)) }
             val needed = if (Build.VERSION.SDK_INT >= 31) {
                 arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
             } else {
