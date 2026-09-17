@@ -1,0 +1,6 @@
+<!-- AYROVI station glyph (ORDER 01 standard): 24dp viewport, outlined flat
+     bars, single #FFFFFFFF fill tinted by WorkerIcon. A label printer: body,
+     paper slot, the label coming out, and the feed slot underneath. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd" android:pathData="M7,3h10v4H7V3z M9,4.6h6v1.4H9V4.6z M4,8h16v8h-3v-3H7v3H4V8z M6,9.6h3v1.4H6V9.6z M15,9.6h3v1.4h-3V9.6z M7,14h10v7H7v-7z M9,15.6h6v1.4H9v-1.6z" />
+</vector>

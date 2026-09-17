@@ -169,6 +169,8 @@ fun WorkerSettingsDialog(
     printerBridgeError: String? = null,
     printerBridgeState: String? = null,
     onTogglePrinterBridge: (() -> Unit)? = null,
+    /** Opens the in-app PRINTER screen (find → connect → test print). */
+    onOpenPrinter: (() -> Unit)? = null,
 ) {
     val vm: WorkerSettingsViewModel? = if (repository != null) viewModel(
         factory = factory {
@@ -215,6 +217,17 @@ fun WorkerSettingsDialog(
                             onTogglePrinterBridge,
                             true,
                         )
+                    }
+                }
+
+                if (onOpenPrinter != null) {
+                    SettingsGroup("PRINTER") {
+                        Text(
+                            "Find the printer, connect it and print a test label — from the app, no browser.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TerminalTokens.muted,
+                        )
+                        SecondaryAction("PRINTER SETUP & TEST PRINT", onOpenPrinter, true)
                     }
                 }
 

@@ -14,7 +14,7 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.ayrovi.worker.printer.PrintBridgeService
-import com.ayrovi.worker.printer.PrinterStore
+import com.ayrovi.worker.printer.PrinterRuntime
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModel
@@ -28,7 +28,7 @@ import com.ayrovi.worker.di.AppContainer
 import com.ayrovi.worker.domain.MessageTone
 import com.ayrovi.worker.domain.OperationalMessage
 
-private enum class TerminalRoute { QUEUE, RECEIVING, REPORT, TEMPORARY, SORTING, PACKING, SCAN, SHIPPING, TRACE, BATCH, BATCH_IN }
+private enum class TerminalRoute { QUEUE, RECEIVING, REPORT, TEMPORARY, SORTING, PACKING, SCAN, SHIPPING, TRACE, BATCH, BATCH_IN, PRINTER }
 
 internal fun <T : ViewModel> factory(create: () -> T): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST") override fun <V : ViewModel> create(modelClass: Class<V>): V = create() as V
@@ -59,7 +59,10 @@ fun WorkerTerminalApp(
     // web on THIS device. Enable/disable lives in the SETTINGS sheet; the
     // service keeps running while the app process lives.
     val appContext = LocalContext.current
-    val printerStore = remember { PrinterStore(appContext) }
+    // ONE printer stack for the process (PrinterRuntime): this screen drives the
+    // very same manager/transport the bridge service and the print agent use.
+    val printerRuntime = remember { PrinterRuntime.of(appContext) }
+    val printerStore = printerRuntime.store
     val bridgeRunning by PrintBridgeService.BridgeStatus.bridgeRunning.collectAsStateWithLifecycle()
     val bridgePrinterState by PrintBridgeService.BridgeStatus.printerState.collectAsStateWithLifecycle()
     // A bridge that never opened its socket must not read «RUNNING» (owner report
@@ -164,6 +167,20 @@ fun WorkerTerminalApp(
     AyroviTerminalTheme(mode = theme, onToggleTheme = appearance::toggleTheme, gloveMode = glove, glareBoost = glare) {
         if (!state.signedIn) {
             SignInScreen(state, model.deviceCode, connection.name, model::login, container.device)
+        } else if (route == TerminalRoute.PRINTER) {
+            // The printer lives in the app: no browser, no bridge needed.
+            PrinterScreen(
+                runtime = printerRuntime,
+                worker = workerLabel(state),
+                station = stationLabel(state),
+                connection = connection.name,
+                industrial = container.device == WorkerDevice.CT40,
+                agentPrinted = agentPrinted,
+                bridgeRunning = bridgeRunning,
+                bridgeError = bridgeError,
+                onToggleBridge = onTogglePrinterBridge,
+                onBack = { route = TerminalRoute.QUEUE },
+            )
         } else if (route == TerminalRoute.RECEIVING && state.me?.user?.id != null) {
             // RECEIVING WORK CENTER (UX RESTRUCTURE §5): opens DIRECTLY on the
             // live receiving content — TO DO / ISSUES / DONE cards + the
@@ -413,6 +430,7 @@ fun WorkerTerminalApp(
                 else -> bridgePrinterState.name
             },
             onTogglePrinterBridge = onTogglePrinterBridge,
+            onOpenPrinter = { showSettings = false; route = TerminalRoute.PRINTER },
         )
     }
 }

@@ -44,18 +44,15 @@ class PrintBridgeService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        val store = PrinterStore(this)
-        val scanFinder = BtPrinterFinder(this)
-        finder = scanFinder
-        // ONE SPP link shared by manager + queue — two transports would mean
-        // the queue writing to a socket that was never connected. Same rule for
-        // the finder: the manager and the /printers routes get the SAME object,
-        // so there is exactly one discovery component on this device.
-        val spp = SppPrinterTransport(this)
-        val queue = PrintQueue(spp, store)
-        val mgr = PrinterManager(store, spp, scanFinder, queue)
+        // The printer stack is PROCESS-WIDE (PrinterRuntime): the app's own
+        // printer screen uses the very same manager, transport and finder as
+        // this service. Building a second one here would mean a second Bluetooth
+        // socket and a second duplicate-protection window on one device.
+        val runtime = PrinterRuntime.of(this)
+        val store = runtime.store
+        finder = runtime.finder
+        val mgr = runtime.manager
         manager = mgr
-        BridgeStatus.attach(mgr)
         androidx.core.content.ContextCompat.registerReceiver(
             this, aclReceiver, IntentFilter(BluetoothDevice.ACTION_ACL_DISCONNECTED),
             androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED,
@@ -88,7 +85,11 @@ class PrintBridgeService : Service() {
         agentRunner?.stop()
         agentScope.cancel()
         server?.shutdown()
-        manager?.disconnect()
+        // The PRINTER LINK is deliberately left alone: it belongs to
+        // PrinterRuntime now, so switching the web bridge off (DEVICE-1 on the
+        // CT40 screen, ADMIN-2 on a PC) can no longer close the Bluetooth link
+        // the operator is using from the app itself. Whoever wants it closed
+        // presses DISCONNECT on the printer screen.
         finder?.stopScan()
         manager = null
         runCatching { unregisterReceiver(aclReceiver) }

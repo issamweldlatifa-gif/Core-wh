@@ -32,6 +32,10 @@ enum class TerminalIcon(@DrawableRes val resource: Int) {
     // one Home reads as one family.
     BATCH(R.drawable.ic_terminal_batch), BATCH_IN(R.drawable.ic_terminal_batch_in),
     PACKING(R.drawable.ic_terminal_packing), DISPATCH(R.drawable.ic_terminal_dispatch),
+    // PRINTER (owner order 2026-09-16): the CT40 prints on its own — the label
+    // printer is a first-class thing in the app now, so it gets its own glyph
+    // drawn to the same standard as the station icons above.
+    PRINTER(R.drawable.ic_terminal_printer),
 }
 
 @Composable
