@@ -34,16 +34,42 @@ class PrintBridgeServer(
     @Volatile
     private var running = false
 
+    /** Why the bridge could not listen (null = it is listening). */
+    @Volatile
+    var bindError: String? = null
+        private set
+
     private val pool = Executors.newCachedThreadPool { r -> Thread(r, "print-bridge-req").apply { isDaemon = true } }
 
+    /**
+     * Binds BEFORE the thread starts, so the caller knows the truth: a request
+     * that can never be answered must not look like a running bridge. (Owner
+     * report 2026-09-16: the Admin said «bridge not available» while the app
+     * insisted «RUNNING · 127.0.0.1:8787» — the socket had never opened.)
+     */
+    @Synchronized
+    fun open(): Boolean {
+        if (running) return true
+        return try {
+            serverSocket = ServerSocket(port, 8, InetAddress.getLoopbackAddress())
+            bindError = null
+            running = true
+            start()
+            true
+        } catch (e: Exception) {
+            bindError = e.message ?: "the local port $port is not available"
+            serverSocket = null
+            running = false
+            false
+        }
+    }
+
     override fun run() {
-        running = true
-        serverSocket = ServerSocket(port, 8, InetAddress.getLoopbackAddress())
         while (running) {
             val client = try {
                 serverSocket?.accept() ?: break
-            } catch (_: java.io.IOException) {
-                break
+            } catch (_: Exception) {
+                break // socket closed by shutdown(), or the loop is done
             }
             pool.execute { serve(client) }
         }
@@ -133,6 +159,7 @@ class PrintBridgeServer(
     fun shutdown() {
         running = false
         try { serverSocket?.close() } catch (_: java.io.IOException) { /* closing */ }
+        serverSocket = null
         pool.shutdownNow()
     }
 

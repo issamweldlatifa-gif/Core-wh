@@ -62,11 +62,22 @@ export function setBridgeToken(token: string): void {
 
 export class BridgeError extends Error {
   code: string;
-  constructor(code: string, message: string) {
+  /**
+   * Network-level token for a [code] of BRIDGE_DOWN. The browser hides the
+   * difference between «nothing is listening» and «I refused to ask» (CORS /
+   * Private-Network-Access / Local-Network-Access permission), and the two need
+   * opposite fixes — so the reason travels with the error.
+   */
+  cause?: BridgeCause;
+  constructor(code: string, message: string, cause?: BridgeCause) {
     super(message);
     this.code = code;
+    this.cause = cause;
   }
 }
+
+/** BLOCKED also covers a refused connection: the page cannot tell them apart. */
+export type BridgeCause = 'BLOCKED' | 'TIMEOUT';
 
 function bridgeHosts(): string[] {
   // Both loopback spellings — some Chrome builds treat them differently for
@@ -84,7 +95,7 @@ async function attempt<T>(host: string, path: string, init: RequestInit | undefi
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
-        'X-Print-Token': bridgeToken(),
+        ...(bridgeToken() ? { 'X-Print-Token': bridgeToken() } : {}),
         ...(init?.headers ?? {}),
       },
     });
@@ -97,8 +108,14 @@ async function attempt<T>(host: string, path: string, init: RequestInit | undefi
     return body as T;
   } catch (e) {
     if (e instanceof BridgeError) throw e;
-    // Network-level failure (blocked/refused) — caller may retry another host.
-    throw new BridgeError('BRIDGE_DOWN', 'Print bridge not available on this device.');
+    // Aborted = the bridge never answered in time; anything else is the browser
+    // (or the OS) refusing the request before it left the page.
+    const aborted = e instanceof DOMException && e.name === 'AbortError';
+    throw new BridgeError(
+      'BRIDGE_DOWN',
+      'Print bridge not available on this device.',
+      aborted ? 'TIMEOUT' : 'BLOCKED',
+    );
   } finally {
     clearTimeout(timer);
   }
@@ -106,6 +123,7 @@ async function attempt<T>(host: string, path: string, init: RequestInit | undefi
 
 async function call<T>(path: string, init?: RequestInit, timeoutMs = 4000): Promise<T> {
   let last: unknown = null;
+  let cause: BridgeCause | undefined;
   for (const host of bridgeHosts()) {
     try {
       return await attempt<T>(host, path, init, timeoutMs);
@@ -113,10 +131,19 @@ async function call<T>(path: string, init?: RequestInit, timeoutMs = 4000): Prom
       last = e;
       // HTTP-level answers (the bridge REPLIED) are final — no host retry.
       if (e instanceof BridgeError && e.code !== 'BRIDGE_DOWN') throw e;
+      if (e instanceof BridgeError && e.cause) cause = e.cause === 'BLOCKED' ? 'BLOCKED' : cause ?? e.cause;
     }
   }
+  if (last instanceof BridgeError && cause) throw new BridgeError(last.code, last.message, cause);
   throw last;
 }
+
+/**
+ * The one-line self-test the operator can run in the CT40 browser itself:
+ * a plain navigation carries no CORS and no preflight, so it answers the only
+ * question that matters — «is anything listening on 8787 on THIS device?».
+ */
+export const BRIDGE_SELF_TEST_URL = `http://127.0.0.1:${BRIDGE_PORT}/status`;
 
 export const printerBridge = {
   status: () => call<BridgeStatus>('/status', { method: 'GET' }),

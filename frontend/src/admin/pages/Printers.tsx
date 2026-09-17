@@ -2,12 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import {
   BridgeError,
+  BRIDGE_SELF_TEST_URL,
   bridgeToken,
   flushPrinterAudit,
   newJobId,
   printerBridge,
   queuePrinterAudit,
   setBridgeToken,
+  type BridgeCause,
   type BridgePrinter,
   type BridgeStatus,
 } from '../printer-bridge';
@@ -31,6 +33,9 @@ export default function Printers() {
 
   const [status, setStatus] = useState<BridgeStatus | null>(null);
   const [bridgeDown, setBridgeDown] = useState(false);
+  // WHY it is down — a stopped bridge and a blocked request look identical on
+  // screen but need opposite fixes (owner report 2026-09-16).
+  const [bridgeCause, setBridgeCause] = useState<BridgeCause | 'OFF' | null>(null);
   const [printers, setPrinters] = useState<BridgePrinter[] | null>(null);
   const [busy, setBusy] = useState<'scan' | 'connect' | 'disconnect' | 'test' | 'qr' | 'reconnect' | null>(null);
   const [feedback, setFeedback] = useState<Feedback>(null);
@@ -47,9 +52,10 @@ export default function Printers() {
       const s = await printerBridge.status();
       setStatus(s);
       setBridgeDown(false);
-    } catch {
+    } catch (e) {
       setStatus(null);
       setBridgeDown(true);
+      setBridgeCause(e instanceof BridgeError ? (e.cause ?? 'OFF') : 'OFF');
     }
   }, []);
 
@@ -205,11 +211,35 @@ export default function Printers() {
       {bridgeDown && (
         <section className="os-card" style={{ marginBottom: 14, borderLeft: '3px solid #f0b429' }}>
           <h2 className="os-card-title">PRINT BRIDGE NOT AVAILABLE</h2>
-          <p className="os-muted" style={{ fontSize: '0.85rem', lineHeight: 1.7 }}>
-            <b>1. This page must be open on the CT40 itself.</b> The printer is physically attached to the CT40 —
-            from a PC, phone or TV the bridge can never be reached. Open the Admin in the CT40 browser and come back here.<br />
-            <b>2. On the CT40 worker app:</b> SETTINGS - PRINTER BRIDGE - ENABLE BRIDGE (accept the Bluetooth
-            permission once) and keep the app running in the background.
+          {bridgeCause === 'BLOCKED' && (
+            <p className="os-muted" style={{ fontSize: '0.85rem', lineHeight: 1.7 }}>
+              <b>The browser refused the request to the local bridge.</b> Chrome blocks a page from reaching
+              <code style={{ margin: '0 4px' }}>127.0.0.1</code> until this site is allowed to use the local network.
+              <br />
+              <b>Fix:</b> Chrome menu <b>⋮ → Settings → Site settings → Local network access</b> (some builds:
+              «Insecure content» / «Private network») → allow it for this site, then reload this page and press Retry.
+              <br />
+              <b>Self test:</b> open <code>{BRIDGE_SELF_TEST_URL}</code> in this CT40 browser. JSON = the bridge is
+              alive and only the permission is missing; «connection refused» = the bridge is not running (step 2).
+            </p>
+          )}
+          {bridgeCause === 'TIMEOUT' && (
+            <p className="os-muted" style={{ fontSize: '0.85rem', lineHeight: 1.7 }}>
+              <b>The bridge did not answer in time.</b> It is running but the Bluetooth printer link is busy or slow —
+              check the printer is switched on and paired, then press Retry.
+            </p>
+          )}
+          {(bridgeCause === 'OFF' || bridgeCause === null) && (
+            <p className="os-muted" style={{ fontSize: '0.85rem', lineHeight: 1.7 }}>
+              <b>1. This page must be open on the CT40 itself.</b> The printer is physically attached to the CT40 —
+              from a PC, phone or TV the bridge can never be reached. Open the Admin in the CT40 browser and come back here.<br />
+              <b>2. On the CT40 worker app:</b> SETTINGS - PRINTER BRIDGE - ENABLE BRIDGE (accept the Bluetooth
+              permission once) and keep the app running in the background. The app says <b>RUNNING · 127.0.0.1:8787</b>
+              only when the port is really open; if it says <b>BRIDGE FAILED</b>, disable and enable it again.
+            </p>
+          )}
+          <p className="os-muted" style={{ fontSize: '0.82rem', marginTop: 6 }}>
+            Self test on this device: <a href={BRIDGE_SELF_TEST_URL} target="_blank" rel="noreferrer">{BRIDGE_SELF_TEST_URL}</a>
           </p>
           <button className="os-btn" onClick={() => void refreshStatus()} disabled={busy !== null}>Retry</button>
         </section>

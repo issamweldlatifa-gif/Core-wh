@@ -13,6 +13,7 @@ function memoryLocalStorage(): Storage {
   } as Storage;
 }
 import {
+  BRIDGE_SELF_TEST_URL,
   BridgeError,
   flushPrinterAudit,
   newJobId,
@@ -64,6 +65,34 @@ describe('printer bridge client', () => {
     }));
     await printerBridge.disconnect();
     expect(seen).toBe('sekret');
+  });
+
+  it('does NOT send an empty token header — the status check stays a simple request', async () => {
+    let headers: Record<string, string> = {};
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      headers = (init?.headers as Record<string, string>) ?? {};
+      return new Response(JSON.stringify({ bridge: true }), { status: 200 });
+    }));
+    await printerBridge.status();
+    expect('X-Print-Token' in headers).toBe(false);
+  });
+
+  it('names WHY the bridge could not be reached: blocked vs timeout', async () => {
+    // The browser refusing the request (CORS / private-network / local-network
+    // permission) and the bridge being too slow need opposite fixes, so the
+    // reason has to survive both hosts.
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    await expect(printerBridge.status()).rejects.toMatchObject({ code: 'BRIDGE_DOWN', cause: 'BLOCKED' });
+
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      const e = new DOMException('aborted', 'AbortError');
+      throw e;
+    }));
+    await expect(printerBridge.status()).rejects.toMatchObject({ code: 'BRIDGE_DOWN', cause: 'TIMEOUT' });
+  });
+
+  it('offers the in-browser self test on the CT40', () => {
+    expect(BRIDGE_SELF_TEST_URL).toBe('http://127.0.0.1:8787/status');
   });
 
   it('generates unique job ids (duplicate protection input)', () => {

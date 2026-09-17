@@ -62,6 +62,9 @@ fun WorkerTerminalApp(
     val printerStore = remember { PrinterStore(appContext) }
     val bridgeRunning by PrintBridgeService.BridgeStatus.bridgeRunning.collectAsStateWithLifecycle()
     val bridgePrinterState by PrintBridgeService.BridgeStatus.printerState.collectAsStateWithLifecycle()
+    // A bridge that never opened its socket must not read «RUNNING» (owner report
+    // 2026-09-16: Admin said «bridge not available» while the app said RUNNING).
+    val bridgeError by PrintBridgeService.BridgeStatus.bridgeError.collectAsStateWithLifecycle()
     // PRINT AGENT (open item 2026-09-16): labels queued for THIS handheld by any
     // station screen, printed here and reported back. Shown, never guessed.
     val agentPrinted by PrintBridgeService.BridgeStatus.agentPrinted.collectAsStateWithLifecycle()
@@ -403,6 +406,7 @@ fun WorkerTerminalApp(
             // render only for workers who actually serve receiving.
             receivingVisible = state.tasks.any { it.key == "receiving" },
             printerBridgeRunning = bridgeRunning,
+            printerBridgeError = bridgeError,
             printerBridgeState = when {
                 !bridgeRunning -> null
                 agentPrinted > 0 -> "${bridgePrinterState.name} · $agentPrinted label(s) printed here"

@@ -165,6 +165,8 @@ fun WorkerSettingsDialog(
     /** PRINTER MANAGER (2026-09-15): local Bluetooth print bridge for the
      *  Admin web on THIS device. Null callbacks hide the section (phone). */
     printerBridgeRunning: Boolean = false,
+    /** Why the bridge is NOT listening (port busy, …). Never shown as «RUNNING». */
+    printerBridgeError: String? = null,
     printerBridgeState: String? = null,
     onTogglePrinterBridge: (() -> Unit)? = null,
 ) {
@@ -200,9 +202,13 @@ fun WorkerSettingsDialog(
                             color = if (printerBridgeRunning) TerminalTokens.success else TerminalTokens.muted,
                         )
                         Text(
-                            printerBridgeState ?: "Local print service for the Admin web (labels over Bluetooth).",
+                            when {
+                                printerBridgeError != null ->
+                                    "BRIDGE FAILED: $printerBridgeError — disable and enable it again (another app may hold port 8787)."
+                                else -> printerBridgeState ?: "Local print service for the Admin web (labels over Bluetooth)."
+                            },
                             style = MaterialTheme.typography.bodySmall,
-                            color = TerminalTokens.muted,
+                            color = if (printerBridgeError != null) TerminalTokens.warning else TerminalTokens.muted,
                         )
                         SecondaryAction(
                             if (printerBridgeRunning) "DISABLE BRIDGE" else "ENABLE BRIDGE",

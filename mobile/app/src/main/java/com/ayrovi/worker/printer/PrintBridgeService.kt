@@ -63,8 +63,10 @@ class PrintBridgeService : Service() {
         server = PrintBridgeServer(PrintBridgeServer.DEFAULT_PORT, store.bridgeToken()) { request ->
             handle(request, mgr, finder!!, store)
         }
-        server?.start()
-        BridgeStatus.bridgeRunning.value = true
+        // Report the TRUTH: only a socket that really listens counts as running.
+        val listening = server?.open() ?: false
+        BridgeStatus.bridgeRunning.value = listening
+        BridgeStatus.bridgeError.value = if (listening) null else server?.bindError
 
         // The agent only needs the worker's own session (WorkerTransport) — the
         // server scopes every label to the stations assigned to that worker.
@@ -82,6 +84,7 @@ class PrintBridgeService : Service() {
 
     override fun onDestroy() {
         BridgeStatus.bridgeRunning.value = false
+        BridgeStatus.bridgeError.value = null
         agentRunner?.stop()
         agentScope.cancel()
         server?.shutdown()
@@ -237,6 +240,8 @@ class PrintBridgeService : Service() {
         val bridgeRunning = MutableStateFlow(false)
         val printerState = MutableStateFlow(PrinterConnectionState.DISCONNECTED)
         val detail = MutableStateFlow<String?>(null)
+        /** Why the bridge is not listening (null = fine) — never guess «RUNNING». */
+        val bridgeError = MutableStateFlow<String?>(null)
         /** PRINT AGENT liveness — what the terminal shows instead of guessing. */
         val agentPrinted = MutableStateFlow(0)
         val agentDetail = MutableStateFlow<String?>(null)
